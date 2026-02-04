@@ -5,25 +5,20 @@ use crate::runtime::environment::*;
 use crate::runtime::interpreter::*;
 use crate::runtime::value::Value;
 use crate::semantics::meta::runtime_ast::*;
+use crate::semantics::meta::meta_process_error::*;
+use crate::semantics::meta::work_queue::*;
 use std::collections::VecDeque;
 use std::io::Write;
 
-#[derive(Debug)]
-pub enum MetaProcessError {
-    ExprNotFound(AstId),
-    StmtNotFound(AstId),
-    EmbedFailed { path: String, error: String },
-    UnknownType(String),
-    Unimplemented(String),
-    Eval(EvalError),
+pub struct MetaProcessor<'a> {
+    meta_ast: &'a MetaAst,
+    runtime_ast: &'a mut RuntimeAst,
+    id_provider: &'a mut IdProvider,
+    dependency_scheduler: &'a mut DependencyScheduler<Dependency, Event>,
+    completion_queue: &'a mut VecDeque<Dependency>,
 }
 
-impl From<EvalError> for MetaProcessError {
-    fn from(e: EvalError) -> Self {
-        MetaProcessError::Eval(e)
-    }
-}
-
+// TODO this is used for meta execution to collect generated nodes
 pub struct MetaContext {
     pub emitted: Vec<RuntimeStmt>,
 }
@@ -31,64 +26,155 @@ pub struct MetaContext {
 #[derive(Debug)]
 pub enum Event {
     DependencyChain(Dependency),
-    MetaExec(AstId),
+    MetaExec(usize),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Dependency {
-    NodeDone(AstId),
+    NodeDone(usize),
 }
 
-#[derive(Debug)]
-pub enum WorkItem {
-    LowerExpr { meta_id: AstId, runtime_id: AstId },
-    LowerStmt { meta_id: AstId, runtime_id: AstId },
+pub fn process<W: Write>(meta_ast: &MetaAst, out: &mut W) -> Result<RuntimeAst, MetaProcessError> {
+    let processor = MetaProcessor {
+        meta_ast: meta_ast,
+        runtime_ast: &mut RuntimeAst::new(),
+        id_provider: &mut IdProvider::new(),
+        dependency_scheduler: &mut DependencyScheduler::new(),
+        completion_queue: &mut VecDeque::new(),
+    };
+
+    let mut work_queue = WorkQueue::new();
+
+    process_root(
+        meta_ast,
+        &meta_ast.sem_root_stmts,
+        &mut runtime_ast,
+        out,
+        &mut id_provider,
+        &mut dependency_scheduler,
+        &mut completion_queue,
+    )?;
+
+    Ok(runtime_ast)
 }
 
-pub struct WorkQueue {
-    queue: VecDeque<WorkItem>,
-}
+impl MetaProcessor {
+    
+    pub fn process_stmts<W: Write>(&mut self) -> Result<(), MetaProcessError> {
+        let work_queue = WorkQueue::new();
 
-impl WorkQueue {
-    pub fn new() -> Self {
-        Self {
-            queue: VecDeque::new(),
+        while let Some(work_item) = work_queue.next() {
+            self.process_item(work_item);
+
+            while let Some(dep) = self.completion_queue.pop_front() {
+                self.process_completion(dep)
+            }
         }
     }
 
-    fn queue(&mut self, item: WorkItem) {
-        self.queue.push_back(item);
+    pub fn process_item(&mut self, work_item: WorkItem) {
+        println!("{:?}", work_item);
     }
 
-    pub fn queue_expr(&mut self, id_provider: &mut IdProvider, meta_id: AstId) -> AstId {
-        let runtime_id = id_provider.next();
-        let item = WorkItem::LowerExpr {
-            meta_id,
-            runtime_id,
-        };
-        self.queue(item);
-        runtime_id
+    pub fn process_completion(&mut self, dependency: Dependency) {
+        println!("dependency completed: {:?}", dependency);
+        let events = self.dependency_scheduler.resolve_dependency(dependency);
+        for event in events {
+            println!("event emitted: {:?}", event);
+            match event {
+                Event::DependencyChain(new_dependency) => {
+                    completion_queue.push_back(new_dependency);
+                }
+
+                Event::MetaExec(ast_id) => {
+                    let stmts = vec![ast_id];
+                    eval(&runtime_ast, &stmts, Environment::new(), &mut None, out)?;
+                }
+            }
+        }
     }
 
-    pub fn queue_stmt(&mut self, id_provider: &mut IdProvider, meta_id: AstId) -> AstId {
-        let runtime_id = id_provider.next();
-        let item = WorkItem::LowerStmt {
-            meta_id,
-            runtime_id,
-        };
-        self.queue(item);
-        runtime_id
+}
+
+pub fn process_stmts<W: Write>(
+    meta_ast: &MetaAst,
+    root_stmts: &Vec<usize>,
+    runtime_ast: &mut RuntimeAst,
+    out: &mut W,
+    id_provider: &mut IdProvider,
+    dependency_scheduler: &mut DependencyScheduler<Dependency, Event>,
+    completion_queue: &mut VecDeque<Dependency>,
+    work_queue: &mut WorkQueue,
+) -> Result<(), MetaProcessError> {
+    for stmt in root_stmts {
+        let runtime_id = work_queue.queue_stmt(id_provider, *stmt);
+        runtime_ast.sem_root_stmts.push(runtime_id);
     }
 
-    pub fn next(&mut self) -> Option<WorkItem> {
-        self.queue.pop_front()
+    while let Some(work_item) = work_queue.next() {
+        println!("{:?}", work_item);
+        match work_item {
+            WorkItem::LowerExpr {
+                runtime_id,
+                meta_id,
+            } => {
+                process_expr(
+                    meta_id,
+                    runtime_id,
+                    work_queue,
+                    dependency_scheduler,
+                    completion_queue,
+                    meta_ast,
+                    runtime_ast,
+                    id_provider,
+                )?;
+            }
+
+            WorkItem::LowerStmt {
+                runtime_id,
+                meta_id,
+            } => {
+                process_stmt(
+                    meta_id,
+                    runtime_id,
+                    work_queue,
+                    dependency_scheduler,
+                    completion_queue,
+                    meta_ast,
+                    runtime_ast,
+                    id_provider,
+                )?;
+            }
+        }
+
+        println!("{:?}", dependency_scheduler);
+
+        while let Some(dep) = completion_queue.pop_front() {
+            println!("dependency completed: {:?}", dep);
+            let events = dependency_scheduler.resolve_dependency(dep);
+            for event in events {
+                println!("event emitted: {:?}", event);
+                match event {
+                    Event::DependencyChain(dependency) => {
+                        completion_queue.push_back(dependency);
+                    }
+
+                    Event::MetaExec(ast_id) => {
+                        let stmts = vec![ast_id];
+                        eval(&runtime_ast, &stmts, Environment::new(), &mut None, out)?;
+                    }
+                }
+            }
+        }
     }
+
+    Ok(())
 }
 
 pub fn insert_node(
-    node_id: AstId,
+    node_id: usize,
     node: RuntimeNode,
-    children: Vec<AstId>,
+    children: Vec<usize>,
     dependency_scheduler: &mut DependencyScheduler<Dependency, Event>,
     ast: &mut RuntimeAst,
 ) {
@@ -106,7 +192,7 @@ pub fn insert_node(
 }
 
 pub fn insert_leaf(
-    node_id: AstId,
+    node_id: usize,
     node: RuntimeNode,
     completion_queue: &mut VecDeque<Dependency>,
     ast: &mut RuntimeAst,
@@ -119,8 +205,8 @@ pub fn insert_leaf(
 }
 
 pub fn process_expr(
-    meta_expr_id: AstId,
-    runtime_expr_id: AstId,
+    meta_expr_id: usize,
+    runtime_expr_id: usize,
     work_queue: &mut WorkQueue,
     dependency_scheduler: &mut DependencyScheduler<Dependency, Event>,
     completion_queue: &mut VecDeque<Dependency>,
@@ -342,8 +428,8 @@ pub fn process_expr(
 }
 
 pub fn process_stmt(
-    meta_stmt_id: AstId,
-    runtime_stmt_id: AstId,
+    meta_stmt_id: usize,
+    runtime_stmt_id: usize,
     work_queue: &mut WorkQueue,
     dependency_scheduler: &mut DependencyScheduler<Dependency, Event>,
     completion_queue: &mut VecDeque<Dependency>,
@@ -545,7 +631,7 @@ pub fn process_stmt(
 
 pub fn value_to_literal<W: Write>(
     val: Value,
-    runtime_expr_id: AstId,
+    runtime_expr_id: usize,
     runtime_ast: &mut RuntimeAst,
 ) -> Result<(), MetaProcessError> {
     match val {
@@ -573,99 +659,3 @@ pub fn value_to_literal<W: Write>(
     }
 }
 
-pub fn process_root<W: Write>(
-    meta_ast: &MetaAst,
-    root_stmts: &Vec<AstId>,
-    runtime_ast: &mut RuntimeAst,
-    out: &mut W,
-    id_provider: &mut IdProvider,
-    dependency_scheduler: &mut DependencyScheduler<Dependency, Event>,
-    completion_queue: &mut VecDeque<Dependency>,
-    work_queue: &mut WorkQueue,
-) -> Result<(), MetaProcessError> {
-    for stmt in root_stmts {
-        let runtime_id = work_queue.queue_stmt(id_provider, *stmt);
-        runtime_ast.sem_root_stmts.push(runtime_id);
-    }
-
-    while let Some(work_item) = work_queue.next() {
-        println!("{:?}", work_item);
-        match work_item {
-            WorkItem::LowerExpr {
-                runtime_id,
-                meta_id,
-            } => {
-                process_expr(
-                    meta_id,
-                    runtime_id,
-                    work_queue,
-                    dependency_scheduler,
-                    completion_queue,
-                    meta_ast,
-                    runtime_ast,
-                    id_provider,
-                )?;
-            }
-
-            WorkItem::LowerStmt {
-                runtime_id,
-                meta_id,
-            } => {
-                process_stmt(
-                    meta_id,
-                    runtime_id,
-                    work_queue,
-                    dependency_scheduler,
-                    completion_queue,
-                    meta_ast,
-                    runtime_ast,
-                    id_provider,
-                )?;
-            }
-        }
-
-        println!("{:?}", dependency_scheduler);
-
-        while let Some(dep) = completion_queue.pop_front() {
-            println!("dependency completed: {:?}", dep);
-            let events = dependency_scheduler.resolve_dependency(dep);
-            for event in events {
-                println!("event emitted: {:?}", event);
-                match event {
-                    Event::DependencyChain(dependency) => {
-                        completion_queue.push_back(dependency);
-                    }
-
-                    Event::MetaExec(ast_id) => {
-                        let stmts = vec![ast_id];
-                        eval(&runtime_ast, &stmts, Environment::new(), &mut None, out)?;
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-pub fn process<W: Write>(meta_ast: &MetaAst, out: &mut W) -> Result<RuntimeAst, MetaProcessError> {
-    let mut runtime_ast = RuntimeAst::new();
-    let mut id_provider = IdProvider::new();
-    let mut dependency_scheduler = DependencyScheduler::new();
-    let mut completion_queue = VecDeque::new();
-
-    let mut work_queue = WorkQueue::new();
-
-    process_root(
-        meta_ast,
-        &meta_ast.sem_root_stmts,
-        &mut runtime_ast,
-        out,
-        &mut id_provider,
-        &mut dependency_scheduler,
-        &mut completion_queue,
-        &mut work_queue,
-    )?;
-
-    Ok(runtime_ast)
-}

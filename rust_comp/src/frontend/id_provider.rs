@@ -1,5 +1,3 @@
-pub type AstId = usize;
-
 pub struct IdProvider {
     current_id: usize,
 }

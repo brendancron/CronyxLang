@@ -1,12 +1,11 @@
-use crate::frontend::id_provider::*;
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeAst {
-    pub sem_root_stmts: Vec<AstId>,
-    exprs: HashMap<AstId, RuntimeExpr>,
-    stmts: HashMap<AstId, RuntimeStmt>,
+    pub sem_root_stmts: Vec<usize>,
+    exprs: HashMap<usize, RuntimeExpr>,
+    stmts: HashMap<usize, RuntimeStmt>,
 }
 
 impl RuntimeAst {
@@ -18,19 +17,19 @@ impl RuntimeAst {
         }
     }
 
-    pub fn insert_expr(&mut self, id: AstId, expr: RuntimeExpr) {
+    pub fn insert_expr(&mut self, id: usize, expr: RuntimeExpr) {
         self.exprs.insert(id, expr);
     }
 
-    pub fn insert_stmt(&mut self, id: AstId, stmt: RuntimeStmt) {
+    pub fn insert_stmt(&mut self, id: usize, stmt: RuntimeStmt) {
         self.stmts.insert(id, stmt);
     }
 
-    pub fn get_expr(&self, id: AstId) -> Option<&RuntimeExpr> {
+    pub fn get_expr(&self, id: usize) -> Option<&RuntimeExpr> {
         self.exprs.get(&id)
     }
 
-    pub fn get_stmt(&self, id: AstId) -> Option<&RuntimeStmt> {
+    pub fn get_stmt(&self, id: usize) -> Option<&RuntimeStmt> {
         self.stmts.get(&id)
     }
 }
@@ -52,41 +51,41 @@ pub enum RuntimeExpr {
 
     StructLiteral {
         type_name: String,
-        fields: Vec<(String, AstId)>,
+        fields: Vec<(String, usize)>,
     },
 
     Variable(String),
 
-    List(Vec<AstId>),
+    List(Vec<usize>),
 
     Call {
         callee: String,
-        args: Vec<AstId>,
+        args: Vec<usize>,
     },
 
     // BINOPS
-    Add(AstId, AstId),
-    Sub(AstId, AstId),
-    Mult(AstId, AstId),
-    Div(AstId, AstId),
-    Equals(AstId, AstId),
+    Add(usize, usize),
+    Sub(usize, usize),
+    Mult(usize, usize),
+    Div(usize, usize),
+    Equals(usize, usize),
 }
 
 #[derive(Debug, Clone)]
 pub enum RuntimeStmt {
     // RAW EXPR STMTS
-    ExprStmt(AstId),
+    ExprStmt(usize),
 
     // DECLARATION
     VarDecl {
         name: String,
-        expr: AstId,
+        expr: usize,
     },
 
     FnDecl {
         name: String,
         params: Vec<String>,
-        body: AstId,
+        body: usize,
     },
 
     StructDecl {
@@ -96,29 +95,29 @@ pub enum RuntimeStmt {
 
     // CONTROL
     If {
-        cond: AstId,
-        body: AstId,
-        else_branch: Option<AstId>,
+        cond: usize,
+        body: usize,
+        else_branch: Option<usize>,
     },
 
     ForEach {
         var: String,
-        iterable: AstId,
-        body: AstId,
+        iterable: usize,
+        body: usize,
     },
 
-    Return(Option<AstId>),
+    Return(Option<usize>),
 
-    Block(Vec<AstId>),
+    Block(Vec<usize>),
 
     // UTIL
     Import(String),
 
     // META
-    Gen(Vec<AstId>),
+    Gen(Vec<usize>),
 
     // TEMPORARY
-    Print(AstId),
+    Print(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -138,7 +137,7 @@ impl AsTree for RuntimeAst {
 }
 
 impl RuntimeAst {
-    fn convert_stmt(&self, id: AstId) -> TreeNode {
+    fn convert_stmt(&self, id: usize) -> TreeNode {
         let stmt = self
             .get_stmt(id)
             .unwrap_or_else(|| panic!("invalid stmt id: {}", id));
@@ -232,7 +231,7 @@ impl RuntimeAst {
         TreeNode::node(label, children)
     }
 
-    fn convert_expr(&self, id: AstId) -> TreeNode {
+    fn convert_expr(&self, id: usize) -> TreeNode {
         let expr = self.get_expr(id).expect("invalid expr id");
 
         let (label, mut children) = match expr {

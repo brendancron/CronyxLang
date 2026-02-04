@@ -72,9 +72,21 @@
               "icon": "lucide-trello",
               "title": "TODO Kanban"
             }
+          },
+          {
+            "id": "0832765f150c1211",
+            "type": "leaf",
+            "state": {
+              "type": "release-notes",
+              "state": {
+                "currentVersion": "1.11.5"
+              },
+              "icon": "lucide-book-up",
+              "title": "Release Notes 1.11.5"
+            }
           }
         ],
-        "currentTab": 3
+        "currentTab": 4
       }
     ],
     "direction": "vertical"
@@ -127,7 +139,8 @@
               "title": "Bookmarks"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "horizontal",
@@ -215,7 +228,8 @@
               "title": "Outline"
             }
           }
-        ]
+        ],
+        "currentTab": 4
       }
     ],
     "direction": "horizontal",
@@ -235,7 +249,7 @@
       "obsidian-kanban:Create new board": false
     }
   },
-  "active": "412dc1f13a2c4b26",
+  "active": "7fdff5c63b3ba6ea",
   "lastOpenFiles": [
     "Symbol Discovery with Metaprocessing.md",
     "Phase Architecture.md",
