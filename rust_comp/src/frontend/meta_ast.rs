@@ -4,15 +4,15 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct MetaAst {
-    pub sem_root_stmts: Vec<AstId>,
-    exprs: HashMap<AstId, MetaExpr>,
-    stmts: HashMap<AstId, MetaStmt>,
+    pub sem_root_stmts: Vec<usize>,
+    exprs: HashMap<usize, MetaExpr>,
+    stmts: HashMap<usize, MetaStmt>,
 }
 
 #[derive(Debug)]
 pub enum MetaAstNode {
-    Stmt(AstId),
-    Expr(AstId),
+    Stmt(usize),
+    Expr(usize),
 }
 
 impl MetaAst {
@@ -36,11 +36,11 @@ impl MetaAst {
         id
     }
 
-    pub fn get_expr(&self, id: AstId) -> Option<&MetaExpr> {
+    pub fn get_expr(&self, id: usize) -> Option<&MetaExpr> {
         self.exprs.get(&id)
     }
 
-    pub fn get_stmt(&self, id: AstId) -> Option<&MetaStmt> {
+    pub fn get_stmt(&self, id: usize) -> Option<&MetaStmt> {
         self.stmts.get(&id)
     }
 }
@@ -54,16 +54,16 @@ pub enum MetaExpr {
 
     StructLiteral {
         type_name: String,
-        fields: Vec<(String, AstId)>,
+        fields: Vec<(String, usize)>,
     },
 
     Variable(String),
 
-    List(Vec<AstId>),
+    List(Vec<usize>),
 
     Call {
         callee: String,
-        args: Vec<AstId>,
+        args: Vec<usize>,
     },
 
     Typeof(String),
@@ -71,28 +71,28 @@ pub enum MetaExpr {
     Embed(String),
 
     // BINOPS
-    Add(AstId, AstId),
-    Sub(AstId, AstId),
-    Mult(AstId, AstId),
-    Div(AstId, AstId),
-    Equals(AstId, AstId),
+    Add(usize, usize),
+    Sub(usize, usize),
+    Mult(usize, usize),
+    Div(usize, usize),
+    Equals(usize, usize),
 }
 
 #[derive(Debug, Clone)]
 pub enum MetaStmt {
     // RAW EXPR STMTS
-    ExprStmt(AstId),
+    ExprStmt(usize),
 
     // DECLARATION
     VarDecl {
         name: String,
-        expr: AstId,
+        expr: usize,
     },
 
     FnDecl {
         name: String,
         params: Vec<String>,
-        body: AstId,
+        body: usize,
     },
 
     StructDecl {
@@ -102,30 +102,30 @@ pub enum MetaStmt {
 
     // CONTROL
     If {
-        cond: AstId,
-        body: AstId,
-        else_branch: Option<AstId>,
+        cond: usize,
+        body: usize,
+        else_branch: Option<usize>,
     },
 
     ForEach {
         var: String,
-        iterable: AstId,
-        body: AstId,
+        iterable: usize,
+        body: usize,
     },
 
-    Return(Option<AstId>),
+    Return(Option<usize>),
 
-    Block(Vec<AstId>),
+    Block(Vec<usize>),
 
     // UTIL
     Import(String),
 
     // META
-    MetaBlock(AstId),
-    Gen(Vec<AstId>),
+    MetaBlock(usize),
+    Gen(Vec<usize>),
 
     // TEMPORARY
-    Print(AstId),
+    Print(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -145,7 +145,7 @@ impl AsTree for MetaAst {
 }
 
 impl MetaAst {
-    fn convert_stmt(&self, id: AstId) -> TreeNode {
+    fn convert_stmt(&self, id: usize) -> TreeNode {
         let stmt = self.get_stmt(id).expect("invalid stmt id");
 
         let (label, mut children): (String, Vec<TreeNode>) = match stmt {
@@ -239,7 +239,7 @@ impl MetaAst {
         TreeNode::node(label, children)
     }
 
-    fn convert_expr(&self, id: AstId) -> TreeNode {
+    fn convert_expr(&self, id: usize) -> TreeNode {
         let expr = self.get_expr(id).expect("invalid expr id");
 
         let (label, mut children) = match expr {

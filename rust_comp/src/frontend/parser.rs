@@ -107,7 +107,7 @@ fn parse_factor<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<AstId, ParseError> {
+) -> Result<usize, ParseError> {
     match tokens.get(*pos) {
         Some(tok) => match tok.token_type {
             TokenType::Number => {
@@ -254,7 +254,7 @@ fn parse_term<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<AstId, ParseError> {
+) -> Result<usize, ParseError> {
     let mut left = parse_factor(tokens, pos, ctx)?;
 
     loop {
@@ -283,7 +283,7 @@ fn parse_expr<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<AstId, ParseError> {
+) -> Result<usize, ParseError> {
     let mut left = parse_term(tokens, pos, ctx)?;
 
     loop {
@@ -321,7 +321,7 @@ fn parse_expr_stmt<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<AstId, ParseError> {
+) -> Result<usize, ParseError> {
     let expr = parse_expr(tokens, pos, ctx)?;
     consume(tokens, pos, TokenType::Semicolon)?;
     let id = ctx
@@ -334,7 +334,7 @@ fn parse_stmt<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<AstId, ParseError> {
+) -> Result<usize, ParseError> {
     match tokens.get(*pos) {
         Some(tok) => match tok.token_type {
             TokenType::Print => {
@@ -520,7 +520,7 @@ fn parse_meta_stmt(
     tokens: &[Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<AstId, ParseError> {
+) -> Result<usize, ParseError> {
     consume(tokens, pos, TokenType::Meta)?;
     let stmt = parse_stmt(tokens, pos, ctx)?;
     let meta_stmt = MetaStmt::MetaBlock(stmt);
@@ -528,7 +528,7 @@ fn parse_meta_stmt(
     Ok(id)
 }
 
-fn parse_block(tokens: &[Token], pos: &mut usize, ctx: &mut ParseCtx) -> Result<AstId, ParseError> {
+fn parse_block(tokens: &[Token], pos: &mut usize, ctx: &mut ParseCtx) -> Result<usize, ParseError> {
     let mut stmts = Vec::new();
 
     while *pos < tokens.len() && tokens[*pos].token_type != TokenType::RightBrace {

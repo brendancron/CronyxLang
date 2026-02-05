@@ -1,16 +1,14 @@
 use super::environment::{EnvHandler, EnvRef, Environment};
 use super::result::ExecResult;
-use super::value::{Function, Value};
-use crate::frontend::id_provider::*;
-use crate::semantics::meta::meta_processor::MetaContext;
+use super::value::Value;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::types::types::{self, Type};
 use std::io::Write;
 
 #[derive(Debug)]
 pub enum EvalError {
-    ExprNotFound(AstId),
-    StmtNotFound(AstId),
+    ExprNotFound(usize),
+    StmtNotFound(usize),
     UnknownStructType(String),
     UndefinedVariable(String),
     TypeError(Type),
@@ -29,11 +27,10 @@ impl From<String> for EvalError {
 pub struct EvalCtx<'a, W> {
     pub out: W,
     pub env: &'a mut EnvHandler,
-    pub meta_ctx: &'a mut Option<MetaContext>,
     pub ast: &'a RuntimeAst,
 }
 
-pub fn eval_expr<W: Write>(expr_id: AstId, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
+pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
     match ctx
         .ast
         .get_expr(expr_id)
@@ -142,7 +139,7 @@ pub fn eval_expr<W: Write>(expr_id: AstId, ctx: &mut EvalCtx<W>) -> Result<Value
     }
 }
 
-pub fn eval_stmt<W: Write>(stmt_id: AstId, ctx: &mut EvalCtx<W>) -> Result<ExecResult, EvalError> {
+pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecResult, EvalError> {
     match ctx
         .ast
         .get_stmt(stmt_id)
@@ -230,21 +227,14 @@ pub fn eval_stmt<W: Write>(stmt_id: AstId, ctx: &mut EvalCtx<W>) -> Result<ExecR
             Ok(ExecResult::Return(val))
         }
 
-        RuntimeStmt::Gen(stmts) => {
-            //let meta = ctx.meta_ctx.as_deref_mut().expect("gen outside meta");
-            //let substituted = subst_stmts(stmts, &env);
-            //for stmt in substituted {
-            //    meta.emitted.push(stmt.clone());
-            //}
-            Ok(ExecResult::Continue)
-        }
+        RuntimeStmt::Gen(stmts) => Ok(ExecResult::Continue),
 
         _ => Err(EvalError::Unimplemented),
     }
 }
 
 pub fn eval_stmts<W: Write>(
-    stmts: &Vec<AstId>,
+    stmts: &Vec<usize>,
     ctx: &mut EvalCtx<W>,
 ) -> Result<ExecResult, EvalError> {
     for stmt in stmts {
@@ -260,15 +250,13 @@ pub fn eval_stmts<W: Write>(
 
 pub fn eval<W: Write>(
     ast: &RuntimeAst,
-    root_stmts: &Vec<AstId>,
+    root_stmts: &Vec<usize>,
     env: EnvRef,
-    meta_ctx: &mut Option<MetaContext>,
     out: &mut W,
 ) -> Result<ExecResult, EvalError> {
     let mut ctx = EvalCtx {
         ast,
         env: &mut EnvHandler::from(env),
-        meta_ctx,
         out,
     };
     eval_stmts(&root_stmts, &mut ctx)
