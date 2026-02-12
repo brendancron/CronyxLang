@@ -2,7 +2,8 @@ use cronyx::frontend::lexer::*;
 use cronyx::frontend::parser::*;
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
-use cronyx::semantics::meta::meta_processor::*;
+use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
+use cronyx::semantics::meta::meta_processor::process;
 use cronyx::semantics::meta::meta_stager::*;
 use cronyx::util::formatters::tree_formatter::*;
 use std::fmt::Debug;
@@ -36,8 +37,14 @@ fn main() {
 
         // METAPROCESSING
 
-        let staged = process_root(&meta_ast, meta_ast.root_stmts.clone())?;
-        let runtime_ast = process(staged, &mut io::stdout())?;
+        let staged = process_root(&meta_ast, meta_ast.sem_root_stmts.clone()).unwrap();
+        let mut stdout = io::stdout();
+
+        let mut evaluator = InterpreterMetaEvaluator {
+            env: Environment::new(),
+            out: &mut stdout,
+        };
+        let runtime_ast = process(staged, &mut evaluator).unwrap();
 
         let mut runtime_ast_file = to_file(out_dir, "runtime_ast.txt");
         runtime_ast.format_tree(&mut runtime_ast_file);

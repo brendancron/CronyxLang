@@ -7,7 +7,10 @@ pub trait MetaEvaluator {
     fn evaluate(&mut self, ast: &RuntimeAst) -> Result<RuntimeStmt, Self::Error>;
 }
 
-fn process<E: MetaEvaluator>(staged: StagedAst, evaluator: &mut E) -> Result<RuntimeAst, E::Error> {
+pub fn process<E: MetaEvaluator>(
+    staged: StagedAst,
+    evaluator: &mut E,
+) -> Result<RuntimeAst, E::Error> {
     let mut ast = staged.runtime_ast;
 
     for (slot, child) in staged.children {
