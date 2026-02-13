@@ -1,8 +1,0 @@
-lib: [
-  "_build/install/default/lib/caml_comp/META"
-  "_build/install/default/lib/caml_comp/dune-package"
-  "_build/install/default/lib/caml_comp/opam"
-]
-bin: [
-  "_build/install/default/bin/caml_comp"
-]

@@ -37,20 +37,27 @@ fn main() {
 
         // METAPROCESSING
 
-        let staged = process_root(&meta_ast, meta_ast.sem_root_stmts.clone()).unwrap();
+        let staged_ast = process_root(&meta_ast, meta_ast.sem_root_stmts.clone()).unwrap();
+
+        let mut staged_ast_graph_file = to_file(out_dir, "staged_ast_graph.txt");
+        writeln!(staged_ast_graph_file, "{:?}", staged_ast).unwrap();
+
+        let mut staged_ast_file = to_file(out_dir, "staged_ast.txt");
+        staged_ast.format_tree(&mut staged_ast_file);
+
         let mut stdout = io::stdout();
 
         let mut evaluator = InterpreterMetaEvaluator {
             env: Environment::new(),
             out: &mut stdout,
         };
-        let runtime_ast = process(staged, &mut evaluator).unwrap();
+        let runtime_ast = process(staged_ast, &mut evaluator).unwrap();
 
         let mut runtime_ast_file = to_file(out_dir, "runtime_ast.txt");
         runtime_ast.format_tree(&mut runtime_ast_file);
 
         let mut runtime_ast_graph_file = to_file(out_dir, "runtime_ast_graph.txt");
-        writeln!(runtime_ast_graph_file, "{:?}", runtime_ast);
+        writeln!(runtime_ast_graph_file, "{:?}", runtime_ast).unwrap();
         // EVALUATION
 
         eval(
