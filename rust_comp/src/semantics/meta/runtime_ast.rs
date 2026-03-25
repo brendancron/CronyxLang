@@ -4,8 +4,8 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct RuntimeAst {
     pub sem_root_stmts: Vec<usize>,
-    exprs: HashMap<usize, RuntimeExpr>,
-    stmts: HashMap<usize, RuntimeStmt>,
+    pub exprs: HashMap<usize, RuntimeExpr>,
+    pub stmts: HashMap<usize, RuntimeStmt>,
 }
 
 impl RuntimeAst {

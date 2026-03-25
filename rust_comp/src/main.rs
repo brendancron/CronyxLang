@@ -1,10 +1,12 @@
 use cronyx::frontend::lexer::*;
 use cronyx::frontend::parser::*;
+use cronyx::frontend::id_provider::IdProvider;
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
 use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
 use cronyx::semantics::meta::meta_processor::process;
 use cronyx::semantics::meta::meta_stager::*;
+use cronyx::semantics::meta::staged_forest::StagedForest;
 use cronyx::util::formatters::tree_formatter::*;
 use std::fmt::Debug;
 use std::fs::{create_dir_all, read_to_string, File};
@@ -37,13 +39,20 @@ fn main() {
 
         // METAPROCESSING
 
-        let staged_ast = process_root(&meta_ast, meta_ast.sem_root_stmts.clone()).unwrap();
+        let mut staged_forest = StagedForest::new();
+        let mut id_provider = IdProvider::new();
+        process_root(
+            &meta_ast,
+            meta_ast.sem_root_stmts.clone(),
+            &mut staged_forest,
+            &mut id_provider
+        ).unwrap();
 
         let mut staged_ast_graph_file = to_file(out_dir, "staged_ast_graph.txt");
-        writeln!(staged_ast_graph_file, "{:?}", staged_ast).unwrap();
+        writeln!(staged_ast_graph_file, "{:?}", staged_forest).unwrap();
 
         let mut staged_ast_file = to_file(out_dir, "staged_ast.txt");
-        staged_ast.format_tree(&mut staged_ast_file);
+        staged_forest.format_tree(&mut staged_ast_file);
 
         let mut stdout = io::stdout();
 
@@ -51,7 +60,7 @@ fn main() {
             env: Environment::new(),
             out: &mut stdout,
         };
-        let runtime_ast = process(staged_ast, &mut evaluator).unwrap();
+        let runtime_ast = process(staged_forest, &mut evaluator).unwrap();
 
         let mut runtime_ast_file = to_file(out_dir, "runtime_ast.txt");
         runtime_ast.format_tree(&mut runtime_ast_file);

@@ -4,8 +4,8 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct StagedAst {
     pub sem_root_stmts: Vec<usize>,
-    exprs: HashMap<usize, StagedExpr>,
-    stmts: HashMap<usize, StagedStmt>,
+    pub exprs: HashMap<usize, StagedExpr>,
+    pub stmts: HashMap<usize, StagedStmt>,
 }
 
 impl StagedAst {

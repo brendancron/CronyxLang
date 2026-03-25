@@ -1,3 +1,4 @@
+use super::conversion::*;
 use super::runtime_ast::*;
 use super::staged_ast::StagedAst;
 use super::staged_forest::StagedForest;
@@ -13,7 +14,10 @@ pub trait MetaEvaluator {
 pub fn process<E: MetaEvaluator>(
     staged_forest: StagedForest,
     evaluator: &mut E,
-) -> Result<RuntimeAst, E::Error> {
+) -> Result<RuntimeAst, E::Error>
+where
+    E::Error: From<AstConversionError>,
+{
     let mut degree_map: HashMap<usize, usize> = HashMap::new();
     let mut tree_queue: VecDeque<usize> = VecDeque::new();
 
@@ -26,16 +30,26 @@ pub fn process<E: MetaEvaluator>(
     }
 
     while let Some(tree_id) = tree_queue.pop_front() {
-        println!("Processing: {}", tree);
+        println!("Processing: {}", tree_id);
+        let staged_ast = staged_forest.ast_map.get(&tree_id).unwrap();
+        let runtime_ast = RuntimeAst::try_from(staged_ast)?;
+        if (tree_id == staged_forest.root_id) {
+            return Ok(runtime_ast);
+        }
+        evaluator.evaluate(&runtime_ast)?;
     }
+    panic!("Root AST not found in dependency tree")
 }
 
+/**
+ * Method assumes that ast is pre evaluated otherwise it errors
+ */
 pub fn process_tree<E: MetaEvaluator>(
     staged_forest: StagedForest,
     evaluator: &mut E,
     tree_id: usize,
-) -> Result<(), E::Error> {
+) -> Result<RuntimeAst, AstConversionError> {
     let staged_ast = staged_forest.ast_map.get(&tree_id).unwrap();
     let runtime_ast = RuntimeAst::try_from(staged_ast)?;
-    Ok(())
+    Ok(runtime_ast)
 }

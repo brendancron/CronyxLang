@@ -1,0 +1,5 @@
+fn my_func<n: int>() {
+    print(n);
+}
+
+my_func<5>();

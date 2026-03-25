@@ -1,6 +1,7 @@
 use super::environment::{EnvHandler, EnvRef, Environment};
 use super::result::ExecResult;
 use super::value::Value;
+use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::types::types::{self, Type};
 use std::io::Write;
@@ -21,6 +22,12 @@ pub enum EvalError {
 impl From<String> for EvalError {
     fn from(name: String) -> Self {
         EvalError::UndefinedVariable(name)
+    }
+}
+
+impl From<AstConversionError> for EvalError {
+    fn from(_err: AstConversionError) -> Self {
+        EvalError::Unimplemented
     }
 }
 
