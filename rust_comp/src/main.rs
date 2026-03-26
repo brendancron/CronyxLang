@@ -7,6 +7,7 @@ use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluato
 use cronyx::semantics::meta::meta_processor::process;
 use cronyx::semantics::meta::meta_stager::*;
 use cronyx::semantics::meta::staged_forest::StagedForest;
+use cronyx::semantics::types::type_annotated_view::TypeAnnotatedView;
 use cronyx::semantics::types::type_checker::type_check;
 use cronyx::util::formatters::tree_formatter::*;
 use std::fmt::Debug;
@@ -47,6 +48,9 @@ fn main() {
         for (id, ty) in &type_table.stmt_types {
             writeln!(type_table_file, "stmt {id}: {ty:?}").unwrap();
         }
+
+        let mut meta_ast_typed_file = to_file(out_dir, "meta_ast_typed.txt");
+        TypeAnnotatedView::new(meta_ast, &type_table).format_tree(&mut meta_ast_typed_file);
 
         // METAPROCESSING
 
