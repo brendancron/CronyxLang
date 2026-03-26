@@ -11,12 +11,14 @@
             "id": "8247722acf42eccd",
             "type": "leaf",
             "state": {
-              "type": "excalidraw",
+              "type": "markdown",
               "state": {
-                "file": "Phase Architecture.md"
+                "file": "Useful Commands.md",
+                "mode": "source",
+                "source": false
               },
-              "icon": "excalidraw-icon",
-              "title": "Phase Architecture"
+              "icon": "lucide-file",
+              "title": "Useful Commands"
             }
           },
           {
@@ -252,12 +254,12 @@
   },
   "active": "8247722acf42eccd",
   "lastOpenFiles": [
+    "Phase Architecture.md",
     "Useful Commands.md",
     "TypeSystem.md",
     "Hindley-Milner/HM Algorithm W.md",
     "Untitled.canvas",
     "Symbol Discovery with Metaprocessing.md",
-    "Phase Architecture.md",
     "Cronyx Import System.md",
     "Type Checking.md",
     "Excalidraw/Drawing 2026-01-08 19.14.48.excalidraw.md",
