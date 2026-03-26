@@ -32,6 +32,116 @@ impl RuntimeAst {
     pub fn get_stmt(&self, id: usize) -> Option<&RuntimeStmt> {
         self.stmts.get(&id)
     }
+
+    /// Reassigns all IDs to a single compact 0..n range with no gaps.
+    /// Stmts and exprs share the same ID space so every node has a unique ID.
+    pub fn compact(&self) -> Self {
+        // Interleave stmt and expr IDs into one sorted sequence, allocating
+        // new IDs from a shared counter so no two nodes share an ID.
+        let mut stmt_ids: Vec<usize> = self.stmts.keys().copied().collect();
+        stmt_ids.sort_unstable();
+        let mut expr_ids: Vec<usize> = self.exprs.keys().copied().collect();
+        expr_ids.sort_unstable();
+
+        let mut counter = 0usize;
+        let mut next = || { let id = counter; counter += 1; id };
+
+        let stmt_remap: HashMap<usize, usize> =
+            stmt_ids.iter().map(|old| (*old, next())).collect();
+        let expr_remap: HashMap<usize, usize> =
+            expr_ids.iter().map(|old| (*old, next())).collect();
+
+        let remap_stmt = |id: usize| *stmt_remap.get(&id).unwrap_or(&id);
+        let remap_expr = |id: usize| *expr_remap.get(&id).unwrap_or(&id);
+
+        let mut out = RuntimeAst::new();
+
+        out.sem_root_stmts = self.sem_root_stmts.iter().map(|id| remap_stmt(*id)).collect();
+
+        for (old_id, expr) in &self.exprs {
+            let new_expr = match expr {
+                RuntimeExpr::Int(_)
+                | RuntimeExpr::String(_)
+                | RuntimeExpr::Bool(_)
+                | RuntimeExpr::Variable(_) => expr.clone(),
+                RuntimeExpr::List(items) => {
+                    RuntimeExpr::List(items.iter().map(|id| remap_expr(*id)).collect())
+                }
+                RuntimeExpr::Add(a, b) => RuntimeExpr::Add(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Sub(a, b) => RuntimeExpr::Sub(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Mult(a, b) => RuntimeExpr::Mult(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Div(a, b) => RuntimeExpr::Div(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Equals(a, b) => {
+                    RuntimeExpr::Equals(remap_expr(*a), remap_expr(*b))
+                }
+                RuntimeExpr::StructLiteral { type_name, fields } => {
+                    RuntimeExpr::StructLiteral {
+                        type_name: type_name.clone(),
+                        fields: fields
+                            .iter()
+                            .map(|(name, id)| (name.clone(), remap_expr(*id)))
+                            .collect(),
+                    }
+                }
+                RuntimeExpr::Call { callee, args } => RuntimeExpr::Call {
+                    callee: callee.clone(),
+                    args: args.iter().map(|id| remap_expr(*id)).collect(),
+                },
+            };
+            out.insert_expr(remap_expr(*old_id), new_expr);
+        }
+
+        for (old_id, stmt) in &self.stmts {
+            let new_stmt = match stmt {
+                RuntimeStmt::Import(_) => stmt.clone(),
+                RuntimeStmt::ExprStmt(e) => RuntimeStmt::ExprStmt(remap_expr(*e)),
+                RuntimeStmt::Print(e) => RuntimeStmt::Print(remap_expr(*e)),
+                RuntimeStmt::Return(e) => {
+                    RuntimeStmt::Return(e.map(|id| remap_expr(id)))
+                }
+                RuntimeStmt::VarDecl { name, expr } => RuntimeStmt::VarDecl {
+                    name: name.clone(),
+                    expr: remap_expr(*expr),
+                },
+                RuntimeStmt::FnDecl { name, params, body } => RuntimeStmt::FnDecl {
+                    name: name.clone(),
+                    params: params.clone(),
+                    body: remap_stmt(*body),
+                },
+                RuntimeStmt::StructDecl { name, fields } => RuntimeStmt::StructDecl {
+                    name: name.clone(),
+                    fields: fields.clone(),
+                },
+                RuntimeStmt::Block(children) => {
+                    RuntimeStmt::Block(children.iter().map(|id| remap_stmt(*id)).collect())
+                }
+                RuntimeStmt::Gen(children) => {
+                    RuntimeStmt::Gen(children.iter().map(|id| remap_stmt(*id)).collect())
+                }
+                RuntimeStmt::If {
+                    cond,
+                    body,
+                    else_branch,
+                } => RuntimeStmt::If {
+                    cond: remap_expr(*cond),
+                    body: remap_stmt(*body),
+                    else_branch: else_branch.map(|id| remap_stmt(id)),
+                },
+                RuntimeStmt::ForEach {
+                    var,
+                    iterable,
+                    body,
+                } => RuntimeStmt::ForEach {
+                    var: var.clone(),
+                    iterable: remap_expr(*iterable),
+                    body: remap_stmt(*body),
+                },
+            };
+            out.insert_stmt(remap_stmt(*old_id), new_stmt);
+        }
+
+        out
+    }
 }
 
 // For util purposes

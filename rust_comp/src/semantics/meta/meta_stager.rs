@@ -502,6 +502,7 @@ pub fn process_stmt(
                 staged_forest,
                 staged_forest_id_provider,
             )?;
+            dependency_set.insert(ProcessDependency::MetaTree(ast_id));
             let meta_ref = MetaRef { ast_ref: ast_id };
             let stmt = StagedStmt::MetaStmt(meta_ref);
             staged_ast.insert_stmt(staged_stmt_id, stmt);

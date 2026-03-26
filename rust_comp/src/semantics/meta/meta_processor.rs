@@ -47,7 +47,6 @@ where
     let mut root_ast = None;
 
     while let Some(tree_id) = tree_queue.pop_front() {
-        println!("Processing: {}", tree_id);
         let staged_ast = staged_forest.ast_map.get(&tree_id).unwrap();
         let runtime_ast = convert_to_runtime(staged_ast, &meta_generated)?;
 
@@ -73,15 +72,14 @@ where
         }
     }
 
-    root_ast.ok_or_else(|| {
-        let err: E::Error = String::from("Root AST not found in dependency tree").into();
-        err
-    })
+    root_ast
+        .map(|ast| ast.compact())
+        .ok_or_else(|| {
+            let err: E::Error = String::from("Root AST not found in dependency tree").into();
+            err
+        })
 }
 
-/**
- * Method assumes that ast is pre evaluated otherwise it errors
- */
 pub fn process_tree<E: MetaEvaluator>(
     staged_forest: StagedForest,
     evaluator: &mut E,

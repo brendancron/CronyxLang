@@ -13,7 +13,6 @@ pub fn convert_to_runtime(
 ) -> Result<RuntimeAst, AstConversionError> {
     let mut runtime = RuntimeAst::new();
 
-    // Compute the next fresh ID (above all existing staged IDs)
     let mut next_id = staged
         .stmts
         .keys()
@@ -23,9 +22,6 @@ pub fn convert_to_runtime(
         .unwrap_or(0)
         + 1;
 
-    // --- Pass 1: resolve MetaStmts ---
-    // For each MetaStmt, assign fresh IDs to the generated stmts and record
-    // the mapping so parent blocks and sem_root_stmts can be expanded.
     let mut expansion_map: HashMap<usize, Vec<usize>> = HashMap::new();
 
     for (id, stmt) in &staged.stmts {
@@ -46,9 +42,6 @@ pub fn convert_to_runtime(
         }
     }
 
-    // --- Pass 2: convert everything else ---
-
-    // Convert all Expressions
     for (id, expr) in &staged.exprs {
         let runtime_expr = match expr.clone() {
             StagedExpr::Int(v) => RuntimeExpr::Int(v),
@@ -70,7 +63,6 @@ pub fn convert_to_runtime(
         runtime.insert_expr(*id, runtime_expr);
     }
 
-    // Convert all Statements (MetaStmts are skipped — already handled in pass 1)
     for (id, stmt) in &staged.stmts {
         let runtime_stmt = match stmt.clone() {
             StagedStmt::MetaStmt(_) => continue,
@@ -84,7 +76,6 @@ pub fn convert_to_runtime(
             StagedStmt::Import(s) => RuntimeStmt::Import(s),
             StagedStmt::Gen(g) => RuntimeStmt::Gen(g),
             StagedStmt::Block(children) => {
-                // Flatten: a MetaStmt child expands to 0..N IDs
                 let expanded = expand_ids(&children, &expansion_map);
                 RuntimeStmt::Block(expanded)
             }
@@ -123,14 +114,11 @@ pub fn convert_to_runtime(
         runtime.insert_stmt(*id, runtime_stmt);
     }
 
-    // Expand sem_root_stmts (MetaStmts may appear at the top level)
     runtime.sem_root_stmts = expand_ids(&staged.sem_root_stmts, &expansion_map);
 
     Ok(runtime)
 }
 
-/// Replaces any MetaStmt ID in `ids` with its expanded list from `expansion_map`.
-/// Non-meta IDs pass through unchanged.
 fn expand_ids(ids: &[usize], expansion_map: &HashMap<usize, Vec<usize>>) -> Vec<usize> {
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
