@@ -63,11 +63,11 @@ fn main() {
             &mut id_provider
         ).unwrap();
 
-        let mut staged_ast_graph_file = to_file(out_dir, "staged_ast_graph.txt");
-        writeln!(staged_ast_graph_file, "{:?}", staged_forest).unwrap();
+        let mut staged_forest_graph_file = to_file(out_dir, "staged_forest_graph.txt");
+        writeln!(staged_forest_graph_file, "{:?}", staged_forest).unwrap();
 
-        let mut staged_ast_file = to_file(out_dir, "staged_ast.txt");
-        staged_forest.format_tree(&mut staged_ast_file);
+        let mut staged_forest_file = to_file(out_dir, "staged_forest.txt");
+        staged_forest.format_tree(&mut staged_forest_file);
 
         let mut stdout = io::stdout();
 

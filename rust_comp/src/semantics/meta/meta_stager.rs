@@ -63,20 +63,24 @@ pub fn process_expr(
         }
 
         MetaExpr::StructLiteral { type_name, fields } => {
-            //let mut out_fields = Vec::with_capacity(fields.len());
-
-            //for (name, meta_expr_id) in fields {
-            //let expr_id = id_provider.next();
-            //let field_expr_id = work_queue.queue_expr(id_provider, *meta_expr_id);
-            //out_fields.push((name.clone(), field_expr_id));
-            //}
-
-            //let expr = StagedExpr::StructLiteral {
-            //type_name: type_name.clone(),
-            //fields: out_fields,
-            //};
-
-            //runtime_ast.insert_expr(staged_expr_id, expr);
+            let mut out_fields = Vec::with_capacity(fields.len());
+            for (name, field_expr_id) in fields {
+                let staged_field_id = process_expr(
+                    meta_ast,
+                    *field_expr_id,
+                    staged_ast,
+                    id_provider,
+                    dependency_set,
+                    staged_forest,
+                    staged_forest_id_provider,
+                )?;
+                out_fields.push((name.clone(), staged_field_id));
+            }
+            let expr = StagedExpr::StructLiteral {
+                type_name: type_name.clone(),
+                fields: out_fields,
+            };
+            staged_ast.insert_expr(staged_expr_id, expr);
         }
 
         //MetaExpr::Variable(name) => match ctx.env.borrow().get(name) {

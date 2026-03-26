@@ -244,6 +244,32 @@ fn parse_factor<'a>(
                 Ok(id)
             }
 
+            TokenType::LeftBrace => {
+                consume(tokens, pos, TokenType::LeftBrace)?;
+
+                let fields = parse_separated(
+                    tokens,
+                    pos,
+                    ctx,
+                    TokenType::Comma,
+                    TokenType::RightBrace,
+                    |tokens, pos, ctx| {
+                        let field_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                        consume(tokens, pos, TokenType::Colon)?;
+                        let expr_id = parse_expr(tokens, pos, ctx)?;
+                        Ok((field_name, expr_id))
+                    },
+                )?;
+
+                consume(tokens, pos, TokenType::RightBrace)?;
+
+                let id = ctx.ast.insert_expr(
+                    &mut ctx.id_provider,
+                    MetaExpr::StructLiteral { type_name: String::new(), fields },
+                );
+                Ok(id)
+            }
+
             _ => panic!("expected literal or '('"),
         },
         None => panic!("Unexpected EOF"),
@@ -493,10 +519,17 @@ fn parse_stmt<'a>(
             }
 
             TokenType::LeftBrace => {
-                consume(tokens, pos, TokenType::LeftBrace)?;
-                let body = parse_block(tokens, pos, ctx)?;
-                consume(tokens, pos, TokenType::RightBrace)?;
-                Ok(body)
+                // Lookahead: `{ ident :` means object literal expression, not a block
+                let is_object_literal = check(tokens, *pos + 1, TokenType::Identifier)
+                    && check(tokens, *pos + 2, TokenType::Colon);
+                if is_object_literal {
+                    parse_expr_stmt(tokens, pos, ctx)
+                } else {
+                    consume(tokens, pos, TokenType::LeftBrace)?;
+                    let body = parse_block(tokens, pos, ctx)?;
+                    consume(tokens, pos, TokenType::RightBrace)?;
+                    Ok(body)
+                }
             }
 
             TokenType::Meta => parse_meta_stmt(tokens, pos, ctx),

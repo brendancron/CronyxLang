@@ -5,7 +5,9 @@ use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::types::types::{self, Type};
 use crate::runtime::gen_collector::GeneratedCollector;
+use std::cell::RefCell;
 use std::io::Write;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub enum EvalError {
@@ -61,11 +63,10 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 fs.push((field_name.clone(), value));
             }
 
-            //Ok(Value::Struct {
-            //    type_name: type_name.clone(),
-            //    fields: Rc::new(RefCell::new(fs)),
-            //})
-            Err(EvalError::Unimplemented)
+            Ok(Value::Struct {
+                type_name: type_name.clone(),
+                fields: Rc::new(RefCell::new(fs)),
+            })
         }
 
         RuntimeExpr::Variable(name) => {
