@@ -1,9 +1,11 @@
-struct Person {
-    name: string;
+// Nominal declaration — defines the type and its identity
+type Person = {
+    name: string,
     age: int
 }
 
-var p = Person {
+// Structural literal — satisfies Person without mentioning it
+var p = {
     name: "Alice",
     age: 30
 };

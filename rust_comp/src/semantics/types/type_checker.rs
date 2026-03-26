@@ -1,171 +1,142 @@
-use crate::semantics::meta::expanded_ast::{ExpandedExpr, ExpandedStmt};
-use super::typed_ast::{ToType, TypedExpr, TypedExprKind, TypedStmt};
+use crate::frontend::meta_ast::*;
+use super::typed_ast::TypeTable;
 use super::type_env::TypeEnv;
 use super::type_error::TypeError;
 use super::type_subst::{unify, ApplySubst, TypeSubst};
 use super::type_utils::generalize;
 use super::types::*;
 
-pub struct TypeCheckCtx {
-    pub return_type: Option<Type>,
-    pub saw_return: bool,
+struct TypeCheckCtx {
+    return_type: Option<Type>,
+    saw_return: bool,
 }
 
 impl TypeCheckCtx {
-    pub fn new() -> Self {
-        Self {
+    fn new() -> Self {
+        TypeCheckCtx {
             return_type: None,
             saw_return: false,
         }
     }
 }
 
-pub fn infer_expr_top(expr: &ExpandedExpr) -> Result<TypedExpr, TypeError> {
-    infer_expr(expr, &mut TypeEnv::new(), &mut TypeSubst::new())
+pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), TypeError> {
+    let mut table = TypeTable::new();
+    let mut env = TypeEnv::new();
+    let mut subst = TypeSubst::new();
+    let mut ctx = TypeCheckCtx::new();
+
+    for stmt_id in &ast.sem_root_stmts.clone() {
+        infer_stmt(ast, *stmt_id, &mut env, &mut subst, &mut ctx, &mut table)?;
+    }
+
+    Ok((table, env))
 }
 
-pub fn infer_expr(
-    expr: &ExpandedExpr,
+fn infer_expr(
+    ast: &MetaAst,
+    expr_id: usize,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
-) -> Result<TypedExpr, TypeError> {
-    match expr {
-        ExpandedExpr::Int(i) => Ok(TypedExpr {
-            ty: int_type(),
-            kind: TypedExprKind::Int(*i),
-        }),
-        ExpandedExpr::Bool(b) => Ok(TypedExpr {
-            ty: bool_type(),
-            kind: TypedExprKind::Bool(*b),
-        }),
-        ExpandedExpr::String(s) => Ok(TypedExpr {
-            ty: string_type(),
-            kind: TypedExprKind::String(s.clone()),
-        }),
-        ExpandedExpr::Variable(name) => {
-            let ty = env
-                .lookup(name)
-                .ok_or(TypeError::UnboundVar(name.clone()))?;
-            Ok(TypedExpr {
-                ty,
-                kind: TypedExprKind::Variable(name.clone()),
-            })
-        }
-        ExpandedExpr::Call { callee, args } => {
-            let callee_ty = env
-                .lookup(callee)
-                .ok_or(TypeError::UnboundVar(callee.clone()))?;
+    table: &mut TypeTable,
+) -> Result<Type, TypeError> {
+    let expr = ast.get_expr(expr_id).ok_or(TypeError::Unsupported)?.clone();
 
-            let mut typed_args = Vec::new();
+    let ty = match expr {
+        MetaExpr::Int(_) => int_type(),
+        MetaExpr::Bool(_) => bool_type(),
+        MetaExpr::String(_) => string_type(),
+
+        MetaExpr::Variable(name) => {
+            env.lookup(&name).ok_or(TypeError::UnboundVar(name))?
+        }
+
+        MetaExpr::Add(a, b) | MetaExpr::Sub(a, b) | MetaExpr::Mult(a, b) | MetaExpr::Div(a, b) => {
+            let ta = infer_expr(ast, a, env, subst, table)?;
+            let tb = infer_expr(ast, b, env, subst, table)?;
+            unify(&ta, &int_type(), subst)?;
+            unify(&tb, &int_type(), subst)?;
+            int_type()
+        }
+
+        MetaExpr::Equals(a, b) => {
+            let ta = infer_expr(ast, a, env, subst, table)?;
+            let tb = infer_expr(ast, b, env, subst, table)?;
+            unify(&ta, &tb, subst)?;
+            bool_type()
+        }
+
+        MetaExpr::List(items) => {
+            let elem_tv = Type::Var(env.fresh());
+            for item_id in items {
+                let t = infer_expr(ast, item_id, env, subst, table)?;
+                unify(&t, &elem_tv, subst)?;
+            }
+            elem_tv.apply(subst)
+        }
+
+        MetaExpr::Call { callee, args } => {
+            let callee_ty = env.lookup(&callee).ok_or(TypeError::UnboundVar(callee))?;
+
             let mut arg_types = Vec::new();
-            for arg in args {
-                let ta = infer_expr(arg, env, subst)?;
-                arg_types.push(ta.ty.clone());
-                typed_args.push(ta);
+            for arg_id in args {
+                arg_types.push(infer_expr(ast, arg_id, env, subst, table)?);
             }
 
             let ret_tv = Type::Var(env.fresh());
-
             let expected_fn = Type::Func {
                 params: arg_types,
                 ret: Box::new(ret_tv.clone()),
             };
 
             unify(&callee_ty, &expected_fn, subst)?;
-
-            let result_ty = ret_tv.apply(subst);
-
-            Ok(TypedExpr {
-                ty: result_ty,
-                kind: TypedExprKind::Call {
-                    callee: callee.clone(),
-                    args: typed_args,
-                },
-            })
+            ret_tv.apply(subst)
         }
-        _ => Err(TypeError::Unsupported),
-    }
+
+        MetaExpr::StructLiteral { fields, .. } => {
+            let mut field_types = std::collections::BTreeMap::new();
+            for (field_name, expr_id) in fields {
+                let t = infer_expr(ast, expr_id, env, subst, table)?;
+                field_types.insert(field_name, t);
+            }
+            Type::Record(field_types)
+        }
+
+        // Resolved at compile time by the metaprocessor — type is string
+        MetaExpr::Typeof(_) | MetaExpr::Embed(_) => string_type(),
+    };
+
+    let ty = ty.apply(subst);
+    table.expr_types.insert(expr_id, ty.clone());
+    Ok(ty)
 }
 
-pub fn type_check_expr_top(expr: &ExpandedExpr, expected: &Type) -> Result<TypedExpr, TypeError> {
-    type_check_expr(expr, &mut TypeEnv::new(), &mut TypeSubst::new(), expected)
-}
-
-pub fn type_check_expr(
-    expr: &ExpandedExpr,
-    env: &mut TypeEnv,
-    subst: &mut TypeSubst,
-    expected: &Type,
-) -> Result<TypedExpr, TypeError> {
-    let inferred_expr = infer_expr(expr, env, subst)?;
-    let inferred_type = inferred_expr.to_type();
-    unify(&inferred_type, expected, subst)?;
-    if inferred_type == *expected {
-        Ok(inferred_expr)
-    } else {
-        Err(TypeError::TypeMismatch {
-            expected: expected.clone(),
-            found: inferred_type,
-        })
-    }
-}
-
-pub fn infer_stmt_top(stmt: &ExpandedStmt) -> Result<TypedStmt, TypeError> {
-    infer_stmt(
-        stmt,
-        &mut TypeEnv::new(),
-        &mut TypeSubst::new(),
-        &mut TypeCheckCtx::new(),
-    )
-}
-
-pub fn infer_stmt(
-    stmt: &ExpandedStmt,
+fn infer_stmt(
+    ast: &MetaAst,
+    stmt_id: usize,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
     ctx: &mut TypeCheckCtx,
-) -> Result<TypedStmt, TypeError> {
-    match stmt {
-        ExpandedStmt::Assignment { name, expr } => {
-            let typed_expr = infer_expr(expr, env, subst)?;
-            let ty = typed_expr.ty.apply(subst);
-            let scheme = generalize(env, ty);
-            env.bind(name, scheme);
-            let typed_assign = TypedStmt::Assignment {
-                name: name.clone(),
-                expr: Box::new(typed_expr),
-            };
-            Ok(typed_assign)
-        }
-        ExpandedStmt::Block(stmts) => {
-            env.push_scope();
-            let typed_stmts = infer_stmts(stmts, env, subst, ctx)?;
-            env.pop_scope();
-            let typed_block = TypedStmt::Block(typed_stmts);
-            Ok(typed_block)
-        }
-        ExpandedStmt::If {
-            cond,
-            body,
-            else_branch,
-        } => {
-            let typed_cond = type_check_expr(cond, env, subst, &bool_type())?;
-            let typed_body = infer_stmt(body, env, subst, ctx)?;
-            let typed_else = match else_branch {
-                Some(el) => Some(Box::new(infer_stmt(el, env, subst, ctx)?)),
-                None => None,
-            };
-            let typed_if = TypedStmt::If {
-                cond: Box::new(typed_cond),
-                body: Box::new(typed_body),
-                else_branch: typed_else,
-            };
-            Ok(typed_if)
+    table: &mut TypeTable,
+) -> Result<Type, TypeError> {
+    let stmt = ast.get_stmt(stmt_id).ok_or(TypeError::Unsupported)?.clone();
+
+    let ty = match stmt {
+        MetaStmt::ExprStmt(expr_id) => {
+            infer_expr(ast, expr_id, env, subst, table)?;
+            unit_type()
         }
 
-        ExpandedStmt::FnDecl { name, params, body } => {
-            let mut param_types = vec![];
-            for _ in params {
+        MetaStmt::VarDecl { name, expr } => {
+            let expr_ty = infer_expr(ast, expr, env, subst, table)?;
+            let scheme = generalize(env, expr_ty);
+            env.bind(&name, scheme);
+            unit_type()
+        }
+
+        MetaStmt::FnDecl { name, params, body } => {
+            let mut param_types = Vec::new();
+            for _ in &params {
                 param_types.push(Type::Var(env.fresh()));
             }
             let ret_tv = Type::Var(env.fresh());
@@ -176,8 +147,7 @@ pub fn infer_stmt(
             };
 
             env.push_scope();
-
-            env.bind_mono(name, fn_type.clone());
+            env.bind_mono(&name, fn_type.clone());
 
             for (param, ty) in params.iter().zip(param_types.iter()) {
                 env.bind_mono(param, ty.clone());
@@ -185,14 +155,13 @@ pub fn infer_stmt(
 
             let saved_ret = ctx.return_type.take();
             let saved_saw = ctx.saw_return;
-
             ctx.return_type = Some(ret_tv.clone());
             ctx.saw_return = false;
 
-            let typed_body = infer_stmt(body, env, subst, ctx)?;
+            infer_stmt(ast, body, env, subst, ctx, table)?;
 
             if !ctx.saw_return {
-                unify(&ret_tv, &Type::Primitive(PrimitiveType::Unit), subst)?;
+                unify(&ret_tv, &unit_type(), subst)?;
             }
 
             ctx.return_type = saved_ret;
@@ -201,61 +170,68 @@ pub fn infer_stmt(
             env.pop_scope();
 
             let final_fn_type = fn_type.apply(subst);
-            let scheme = generalize(env, final_fn_type);
-            env.bind(name, scheme);
+            let scheme = generalize(env, final_fn_type.clone());
+            env.bind(&name, scheme);
 
-            Ok(TypedStmt::FnDecl {
-                name: name.clone(),
-                params: params.clone(),
-                body: Box::new(typed_body),
-            })
+            final_fn_type
         }
 
-        ExpandedStmt::ExprStmt(expr) => {
-            let typed_expr = infer_expr(expr, env, subst)?;
-            Ok(TypedStmt::ExprStmt(Box::new(typed_expr)))
-        }
-
-        ExpandedStmt::Return(op_expr) => {
-            let expr_ty = match op_expr {
-                None => Type::Primitive(PrimitiveType::Unit),
-                Some(expr) => infer_expr(expr, env, subst)?.ty,
+        MetaStmt::Return(opt_expr) => {
+            let expr_ty = match opt_expr {
+                None => unit_type(),
+                Some(expr_id) => infer_expr(ast, expr_id, env, subst, table)?,
             };
 
-            let ret_ty = ctx.return_type.as_ref().ok_or(TypeError::InvalidReturn)?;
-
+            let ret_ty = ctx.return_type.as_ref().ok_or(TypeError::InvalidReturn)?.clone();
             ctx.saw_return = true;
-            unify(&expr_ty, ret_ty, subst)?;
-
-            Ok(TypedStmt::Return(
-                op_expr
-                    .as_ref()
-                    .map(|e| Box::new(infer_expr(e, env, subst).unwrap())),
-            ))
+            unify(&expr_ty, &ret_ty, subst)?;
+            unit_type()
         }
-        _ => Err(TypeError::Unsupported),
-    }
-}
 
-pub fn infer_stmts(
-    stmts: &Vec<ExpandedStmt>,
-    env: &mut TypeEnv,
-    subst: &mut TypeSubst,
-    ctx: &mut TypeCheckCtx,
-) -> Result<Vec<TypedStmt>, TypeError> {
-    let mut stmt_vec = vec![];
-    for stmt in stmts {
-        let typed_stmt = infer_stmt(stmt, env, subst, ctx)?;
-        stmt_vec.push(typed_stmt);
-    }
-    Ok(stmt_vec)
-}
+        MetaStmt::Block(stmts) => {
+            env.push_scope();
+            for s in stmts {
+                infer_stmt(ast, s, env, subst, ctx, table)?;
+            }
+            env.pop_scope();
+            unit_type()
+        }
 
-pub fn infer_stmts_top(stmts: &Vec<ExpandedStmt>) -> Result<Vec<TypedStmt>, TypeError> {
-    infer_stmts(
-        stmts,
-        &mut TypeEnv::new(),
-        &mut TypeSubst::new(),
-        &mut TypeCheckCtx::new(),
-    )
+        MetaStmt::If { cond, body, else_branch } => {
+            let cond_ty = infer_expr(ast, cond, env, subst, table)?;
+            unify(&cond_ty, &bool_type(), subst)?;
+            infer_stmt(ast, body, env, subst, ctx, table)?;
+            if let Some(else_id) = else_branch {
+                infer_stmt(ast, else_id, env, subst, ctx, table)?;
+            }
+            unit_type()
+        }
+
+        MetaStmt::ForEach { var, iterable, body } => {
+            let iter_ty = infer_expr(ast, iterable, env, subst, table)?;
+            let elem_tv = Type::Var(env.fresh());
+            // iterable must be a list of elem_tv
+            unify(&iter_ty, &elem_tv, subst)?;
+            env.push_scope();
+            env.bind_mono(&var, elem_tv.apply(subst));
+            infer_stmt(ast, body, env, subst, ctx, table)?;
+            env.pop_scope();
+            unit_type()
+        }
+
+        MetaStmt::Print(expr_id) => {
+            infer_expr(ast, expr_id, env, subst, table)?;
+            unit_type()
+        }
+
+        // These don't produce a meaningful type for the table
+        MetaStmt::StructDecl { .. }
+        | MetaStmt::Import(_)
+        | MetaStmt::MetaBlock(_)
+        | MetaStmt::Gen(_) => unit_type(),
+    };
+
+    let ty = ty.apply(subst);
+    table.stmt_types.insert(stmt_id, ty.clone());
+    Ok(ty)
 }

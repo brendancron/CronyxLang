@@ -1,6 +1,2 @@
-struct Person {
-    name: string;
-    age: int
-}
-
+var p = { name: "Alice", age: 30 };
 print(typeof(Person));

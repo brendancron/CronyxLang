@@ -26,6 +26,9 @@ impl ApplySubst for Type {
                 params: params.iter().map(|t| t.apply(subst)).collect(),
                 ret: Box::new(ret.apply(subst)),
             },
+            Type::Record(fields) => Type::Record(
+                fields.iter().map(|(k, v)| (k.clone(), v.apply(subst))).collect()
+            ),
             _ => self.clone(),
         }
     }
@@ -85,6 +88,20 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
             }
 
             unify(r1, r2, subst)
+        }
+
+        (Type::Record(fa), Type::Record(fb)) => {
+            if fa.keys().collect::<Vec<_>>() != fb.keys().collect::<Vec<_>>() {
+                return Err(TypeError::TypeMismatch {
+                    expected: a,
+                    found: b,
+                });
+            }
+            for (k, ta) in fa.iter() {
+                let tb = fb.get(k).unwrap();
+                unify(ta, tb, subst)?;
+            }
+            Ok(())
         }
 
         _ => Err(TypeError::TypeMismatch {

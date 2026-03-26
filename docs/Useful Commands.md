@@ -1,3 +1,8 @@
+## Copy and print
+
+```
+2>&1 | tee /dev/tty | pbcopy
+```
 ## tree command
 ```bash
 $> tree

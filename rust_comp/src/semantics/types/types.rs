@@ -1,19 +1,22 @@
+use std::collections::BTreeMap;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeVar {
     pub id: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeScheme {
     MonoType(Type),
     PolyType { vars: Vec<TypeVar>, ty: Type },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Primitive(PrimitiveType),
     Var(TypeVar),
     Func { params: Vec<Type>, ret: Box<Type> },
+    Record(BTreeMap<String, Type>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -42,4 +45,8 @@ pub fn int_type() -> Type {
 
 pub fn string_type() -> Type {
     Type::Primitive(PrimitiveType::String)
+}
+
+pub fn record_type(fields: impl IntoIterator<Item = (String, Type)>) -> Type {
+    Type::Record(fields.into_iter().collect())
 }
