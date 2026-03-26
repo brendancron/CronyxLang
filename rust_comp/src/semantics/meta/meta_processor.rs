@@ -2,9 +2,8 @@ use super::conversion::*;
 use super::runtime_ast::*;
 use super::staged_forest::StagedForest;
 use super::process_dependency::ProcessDependency;
-use crate::runtime::gen_collector::GeneratedCollector;
+use crate::runtime::gen_collector::{CollectorMode, GeneratedCollector, GeneratedOutput};
 use std::collections::{HashMap, VecDeque};
-use crate::runtime::gen_collector::CollectorMode;
 
 pub trait MetaEvaluator {
     type Error;
@@ -28,7 +27,7 @@ where
     let mut tree_queue: VecDeque<usize> = VecDeque::new();
     let mut reverse_deps: HashMap<usize, Vec<usize>> = HashMap::new();
 
-    let mut meta_generated: HashMap<usize, (Vec<RuntimeStmt>, Vec<RuntimeExpr>)> = HashMap::new();
+    let mut meta_generated: HashMap<usize, GeneratedOutput> = HashMap::new();
 
     for (id, deps) in &staged_forest.dependency_map {
         let degree = deps.len();
@@ -36,7 +35,7 @@ where
         if degree == 0 {
             tree_queue.push_back(*id);
         }
-        
+
         for dep in deps {
             if let ProcessDependency::MetaTree(dep_id) = dep {
                 reverse_deps.entry(*dep_id).or_insert_with(Vec::new).push(*id);
@@ -56,10 +55,9 @@ where
             // Execute meta blocks at compile time
             let mut collector = GeneratedCollector::new(CollectorMode::ManyStmts);
             evaluator.evaluate(&runtime_ast, &mut collector)?;
-
-            meta_generated.insert(tree_id, (collector.statements, collector.expressions));
+            meta_generated.insert(tree_id, collector.output);
         }
-        
+
         // Mark this node as resolved and update dependents
         if let Some(dependents) = reverse_deps.get(&tree_id) {
             for dependent_id in dependents {
@@ -82,7 +80,7 @@ where
 
 pub fn process_tree<E: MetaEvaluator>(
     staged_forest: StagedForest,
-    evaluator: &mut E,
+    _evaluator: &mut E,
     tree_id: usize,
 ) -> Result<RuntimeAst, AstConversionError> {
     let staged_ast = staged_forest.ast_map.get(&tree_id).unwrap();

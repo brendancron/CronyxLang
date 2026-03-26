@@ -4,7 +4,7 @@ use super::value::Value;
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::types::types::{self, Type};
-use crate::runtime::gen_collector::GeneratedCollector;
+use crate::runtime::gen_collector::{collect_nodes_for_stmt, GeneratedCollector};
 use std::cell::RefCell;
 use std::io::Write;
 use std::rc::Rc;
@@ -18,6 +18,7 @@ pub enum EvalError {
     TypeError(Type),
     NonFunctionCall,
     ArgumentMismatch,
+    GenOutsideMetaContext,
     Unimplemented,
 }
 
@@ -237,7 +238,28 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             Ok(ExecResult::Return(val))
         }
 
-        RuntimeStmt::Gen(stmts) => Ok(ExecResult::Continue),
+        RuntimeStmt::Gen(stmt_ids) => {
+            let stmts: Vec<RuntimeStmt> = stmt_ids
+                .iter()
+                .map(|id| ctx.ast.get_stmt(*id).cloned().ok_or(EvalError::Unimplemented))
+                .collect::<Result<_, _>>()?;
+
+            let collector = ctx
+                .gen_collector
+                .as_mut()
+                .ok_or(EvalError::GenOutsideMetaContext)?;
+
+            for stmt in stmts {
+                collect_nodes_for_stmt(
+                    ctx.ast,
+                    &stmt,
+                    &mut collector.output.supporting_stmts,
+                    &mut collector.output.exprs,
+                );
+                collector.collect_stmt(stmt).map_err(|_| EvalError::Unimplemented)?;
+            }
+            Ok(ExecResult::Continue)
+        }
 
         _ => Err(EvalError::Unimplemented),
     }

@@ -1,5 +1,6 @@
 use super::runtime_ast::*;
 use super::staged_ast::*;
+use crate::runtime::gen_collector::GeneratedOutput;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -9,7 +10,7 @@ pub enum AstConversionError {
 
 pub fn convert_to_runtime(
     staged: &StagedAst,
-    meta_generated: &HashMap<usize, (Vec<RuntimeStmt>, Vec<RuntimeExpr>)>,
+    meta_generated: &HashMap<usize, GeneratedOutput>,
 ) -> Result<RuntimeAst, AstConversionError> {
     let mut runtime = RuntimeAst::new();
 
@@ -27,12 +28,20 @@ pub fn convert_to_runtime(
     for (id, stmt) in &staged.stmts {
         if let StagedStmt::MetaStmt(meta_ref) = stmt {
             let tree_id = meta_ref.ast_ref;
-            let (gen_stmts, _) = meta_generated
+            let output = meta_generated
                 .get(&tree_id)
                 .ok_or(AstConversionError::UnresolvedMeta(*id))?;
 
-            let mut new_ids = Vec::with_capacity(gen_stmts.len());
-            for gen_stmt in gen_stmts {
+            // Deep-copy all transitively referenced stmts and exprs into the target
+            for (stmt_id, stmt) in &output.supporting_stmts {
+                runtime.insert_stmt(*stmt_id, stmt.clone());
+            }
+            for (expr_id, expr) in &output.exprs {
+                runtime.insert_expr(*expr_id, expr.clone());
+            }
+
+            let mut new_ids = Vec::with_capacity(output.stmts.len());
+            for gen_stmt in &output.stmts {
                 let new_id = next_id;
                 next_id += 1;
                 runtime.insert_stmt(new_id, gen_stmt.clone());
@@ -74,7 +83,7 @@ pub fn convert_to_runtime(
             StagedStmt::Print(e) => RuntimeStmt::Print(e),
             StagedStmt::Return(e) => RuntimeStmt::Return(e),
             StagedStmt::Import(s) => RuntimeStmt::Import(s),
-            StagedStmt::Gen(g) => RuntimeStmt::Gen(g),
+            StagedStmt::Gen(g) => RuntimeStmt::Gen(expand_ids(&g, &expansion_map)),
             StagedStmt::Block(children) => {
                 let expanded = expand_ids(&children, &expansion_map);
                 RuntimeStmt::Block(expanded)

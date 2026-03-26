@@ -1,107 +1,151 @@
 use crate::semantics::meta::runtime_ast::*;
-use crate::semantics::meta::staged_ast::MetaRef;
 use std::collections::HashMap;
+
+/// The output produced by a meta block execution.
+/// Self-contained: carries generated stmts plus every stmt/expr they transitively reference.
+#[derive(Debug, Clone)]
+pub struct GeneratedOutput {
+    pub stmts: Vec<RuntimeStmt>,
+    pub supporting_stmts: HashMap<usize, RuntimeStmt>,
+    pub exprs: HashMap<usize, RuntimeExpr>,
+}
+
+impl GeneratedOutput {
+    pub fn new() -> Self {
+        GeneratedOutput {
+            stmts: Vec::new(),
+            supporting_stmts: HashMap::new(),
+            exprs: HashMap::new(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum CollectorMode {
     SingleExpr,
-    SingleStmt,
     ManyStmts,
     RejectAll,
 }
 
 pub struct GeneratedCollector {
     pub mode: CollectorMode,
-    pub statements: Vec<RuntimeStmt>,
-    pub expressions: Vec<RuntimeExpr>,
+    pub output: GeneratedOutput,
 }
 
 impl GeneratedCollector {
     pub fn new(mode: CollectorMode) -> Self {
         GeneratedCollector {
             mode,
-            statements: Vec::new(),
-            expressions: Vec::new(),
+            output: GeneratedOutput::new(),
         }
     }
 
     pub fn collect_stmt(&mut self, stmt: RuntimeStmt) -> Result<(), String> {
         match self.mode {
-            CollectorMode::SingleStmt => {
-                if self.statements.is_empty() {
-                    self.statements.push(stmt);
-                    Ok(())
-                } else {
-                    Err("Only one statement allowed".to_string())
-                }
-            }
             CollectorMode::ManyStmts => {
-                self.statements.push(stmt);
+                self.output.stmts.push(stmt);
                 Ok(())
             }
             _ => Err("Generated statements not allowed in this context".to_string()),
         }
     }
 
-    pub fn collect_expr(&mut self, expr: RuntimeExpr) -> Result<(), String> {
+    pub fn collect_expr_map(&mut self, id: usize, expr: RuntimeExpr) -> Result<(), String> {
         match self.mode {
             CollectorMode::SingleExpr => {
-                if self.expressions.is_empty() {
-                    self.expressions.push(expr);
-                    Ok(())
-                } else {
-                    Err("Only one expression allowed".to_string())
-                }
+                self.output.exprs.insert(id, expr);
+                Ok(())
             }
             _ => Err("Generated expressions not allowed in this context".to_string()),
         }
     }
+}
 
-    pub fn collect_stmts(&mut self, stmts: Vec<RuntimeStmt>) -> Result<(), String> {
-        match self.mode {
-            CollectorMode::ManyStmts => {
-                self.statements.extend(stmts);
-                Ok(())
+/// Recursively collects all stmts and exprs reachable from `stmt` out of `ast`.
+pub fn collect_nodes_for_stmt(
+    ast: &RuntimeAst,
+    stmt: &RuntimeStmt,
+    supporting_stmts: &mut HashMap<usize, RuntimeStmt>,
+    exprs: &mut HashMap<usize, RuntimeExpr>,
+) {
+    match stmt {
+        RuntimeStmt::ExprStmt(e) => collect_expr(ast, *e, exprs),
+        RuntimeStmt::Print(e) => collect_expr(ast, *e, exprs),
+        RuntimeStmt::Return(Some(e)) => collect_expr(ast, *e, exprs),
+        RuntimeStmt::Return(None) => {}
+        RuntimeStmt::VarDecl { expr, .. } => collect_expr(ast, *expr, exprs),
+        RuntimeStmt::FnDecl { body, .. } => collect_stmt(ast, *body, supporting_stmts, exprs),
+        RuntimeStmt::Block(children) | RuntimeStmt::Gen(children) => {
+            for id in children {
+                collect_stmt(ast, *id, supporting_stmts, exprs);
             }
-            _ => Err("Generated statements not allowed in this context".to_string()),
         }
-    }
-}
-
-/// Maps MetaRef to generated statements/expressions
-#[derive(Debug, Clone)]
-pub struct MetaGeneratedMap {
-    pub stmts: HashMap<MetaRef, Vec<usize>>,
-    pub exprs: HashMap<MetaRef, Vec<usize>>,
-}
-
-impl MetaGeneratedMap {
-    pub fn new() -> Self {
-        MetaGeneratedMap {
-            stmts: HashMap::new(),
-            exprs: HashMap::new(),
+        RuntimeStmt::If { cond, body, else_branch } => {
+            collect_expr(ast, *cond, exprs);
+            collect_stmt(ast, *body, supporting_stmts, exprs);
+            if let Some(e) = else_branch {
+                collect_stmt(ast, *e, supporting_stmts, exprs);
+            }
         }
-    }
-
-    pub fn insert_stmts(&mut self, meta_ref: MetaRef, stmt_ids: Vec<usize>) {
-        self.stmts.insert(meta_ref, stmt_ids);
-    }
-
-    pub fn insert_exprs(&mut self, meta_ref: MetaRef, expr_ids: Vec<usize>) {
-        self.exprs.insert(meta_ref, expr_ids);
-    }
-
-    pub fn get_stmts(&self, meta_ref: &MetaRef) -> Option<&Vec<usize>> {
-        self.stmts.get(meta_ref)
-    }
-
-    pub fn get_exprs(&self, meta_ref: &MetaRef) -> Option<&Vec<usize>> {
-        self.exprs.get(meta_ref)
+        RuntimeStmt::ForEach { iterable, body, .. } => {
+            collect_expr(ast, *iterable, exprs);
+            collect_stmt(ast, *body, supporting_stmts, exprs);
+        }
+        RuntimeStmt::StructDecl { .. } | RuntimeStmt::Import(_) => {}
     }
 }
 
-impl Default for MetaGeneratedMap {
-    fn default() -> Self {
-        Self::new()
+fn collect_stmt(
+    ast: &RuntimeAst,
+    id: usize,
+    supporting_stmts: &mut HashMap<usize, RuntimeStmt>,
+    exprs: &mut HashMap<usize, RuntimeExpr>,
+) {
+    if supporting_stmts.contains_key(&id) {
+        return;
+    }
+    if let Some(stmt) = ast.get_stmt(id).cloned() {
+        supporting_stmts.insert(id, stmt.clone());
+        collect_nodes_for_stmt(ast, &stmt, supporting_stmts, exprs);
+    }
+}
+
+fn collect_expr(ast: &RuntimeAst, id: usize, out: &mut HashMap<usize, RuntimeExpr>) {
+    if out.contains_key(&id) {
+        return;
+    }
+    let expr = match ast.get_expr(id) {
+        Some(e) => e.clone(),
+        None => return,
+    };
+    out.insert(id, expr.clone());
+    match &expr {
+        RuntimeExpr::Int(_)
+        | RuntimeExpr::String(_)
+        | RuntimeExpr::Bool(_)
+        | RuntimeExpr::Variable(_) => {}
+        RuntimeExpr::List(items) => {
+            for i in items {
+                collect_expr(ast, *i, out);
+            }
+        }
+        RuntimeExpr::Add(a, b)
+        | RuntimeExpr::Sub(a, b)
+        | RuntimeExpr::Mult(a, b)
+        | RuntimeExpr::Div(a, b)
+        | RuntimeExpr::Equals(a, b) => {
+            collect_expr(ast, *a, out);
+            collect_expr(ast, *b, out);
+        }
+        RuntimeExpr::StructLiteral { fields, .. } => {
+            for (_, e) in fields {
+                collect_expr(ast, *e, out);
+            }
+        }
+        RuntimeExpr::Call { args, .. } => {
+            for a in args {
+                collect_expr(ast, *a, out);
+            }
+        }
     }
 }
