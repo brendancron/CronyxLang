@@ -11,6 +11,8 @@ use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluato
 use cronyx::semantics::meta::meta_processor::*;
 use cronyx::semantics::meta::meta_stager::process_root;
 use cronyx::semantics::meta::staged_forest::StagedForest;
+use cronyx::semantics::types::type_checker::type_check;
+use cronyx::semantics::types::type_env::TypeEnv;
 
 pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
     eprintln!("input : {}", root_path.display());
@@ -23,9 +25,11 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
     let _ = parse(&tokens, &mut parse_ctx).unwrap();
     let meta_ast = &(parse_ctx.ast);
 
+    let type_env = type_check(meta_ast).map(|(_, env)| env).unwrap_or_else(|_| TypeEnv::new());
+
     let mut staged_forest = StagedForest::new();
     let mut id_provider = IdProvider::new();
-    let root_id = process_root(meta_ast, meta_ast.sem_root_stmts.clone(), &mut staged_forest, &mut id_provider).unwrap();
+    let root_id = process_root(meta_ast, meta_ast.sem_root_stmts.clone(), &mut staged_forest, &mut id_provider, &type_env).unwrap();
     staged_forest.root_id = root_id;
 
     let mut evaluator = InterpreterMetaEvaluator {
@@ -87,89 +91,41 @@ mod script_integration {
     use super::*;
 
     #[cfg(test)]
-    mod vanilla {
+    mod core {
         use super::*;
 
-        // Testing Print Utility
-        cx_test!(print_hello, "tests/01_vanilla/01_print", "hello");
-
-        // Math and binary operators
-        cx_test!(math_math, "tests/01_vanilla/02_math", "math");
-
-        // String functions
-        cx_test!(string_concat, "tests/01_vanilla/03_string", "concat");
-
-        // Variables and Environment
-        cx_test!(
-            environment_variables,
-            "tests/01_vanilla/04_environment",
-            "01_variables"
-        );
-        cx_test!(
-            environment_reassign,
-            "tests/01_vanilla/04_environment",
-            "02_reassign"
-        );
-
-        // Control Flow
-        cx_test!(control_if, "tests/01_vanilla/05_control", "01_if");
-        cx_test!(control_else, "tests/01_vanilla/05_control", "02_else");
-        cx_test!(
-            control_if_else_chain,
-            "tests/01_vanilla/05_control",
-            "03_if_else_chain"
-        );
-
-        // Functions
-        cx_test!(func_greeting, "tests/01_vanilla/06_func", "01_greeting");
-        cx_test!(func_return, "tests/01_vanilla/06_func", "02_return");
-        cx_test!(func_fib, "tests/01_vanilla/06_func", "03_fib");
-        cx_test!(func_closure, "tests/01_vanilla/06_func", "04_closure");
-
-        // Lists
-        cx_test!(list_list, "tests/01_vanilla/07_list", "01_list");
-
-        // Struct
-        cx_test!(struct_struct, "tests/01_vanilla/08_struct", "01_struct");
-
-        // Imports
-        cx_test!(imports_import, "tests/01_vanilla/09_imports", "main");
-
-        // Embed
-        cx_test!(embed_embed, "tests/01_vanilla/10_embed", "embed");
+        cx_test!(print_hello,          "tests/core/print",     "hello");
+        cx_test!(math_math,            "tests/core/math",      "math");
+        cx_test!(string_concat,        "tests/core/strings",   "concat");
+        cx_test!(variables_variables,  "tests/core/variables", "variables");
+        cx_test!(variables_reassign,   "tests/core/variables", "reassign");
+        cx_test!(control_if,           "tests/core/control",   "if");
+        cx_test!(control_else,         "tests/core/control",   "else");
+        cx_test!(control_if_else_chain,"tests/core/control",   "if_else_chain");
+        cx_test!(func_greeting,        "tests/core/functions", "greeting");
+        cx_test!(func_return,          "tests/core/functions", "return");
+        cx_test!(func_fib,             "tests/core/functions", "fib");
+        cx_test!(func_closure,         "tests/core/functions", "closure");
+        cx_test!(list_list,            "tests/core/lists",     "list");
+        cx_test!(struct_struct,        "tests/core/structs",   "struct");
+        cx_test!(modules_import,       "tests/core/modules",   "main");
+        cx_test!(embed_embed,          "tests/core/embed",     "embed");
     }
 
     #[cfg(test)]
     mod meta {
         use super::*;
 
-        // comptime
-        cx_test!(comptime_basic, "tests/02_meta/comptime", "basic");
-        cx_test!(comptime_nested, "tests/02_meta/comptime", "nested");
-
-        // gen
-        cx_test!(gen_basic, "tests/02_meta/gen", "basic");
-        cx_test!(gen_nested, "tests/02_meta/gen", "nested");
-        cx_test!(gen_env, "tests/02_meta/gen", "gen_env");
-        cx_test!(gen_meta, "tests/02_meta/gen", "gen_meta");
-
-        // fn (meta functions)
-        cx_test!(meta_fn, "tests/02_meta/fn", "meta_fn");
-        cx_test!(meta_fib, "tests/02_meta/fn", "fib");
-
-        // reflection
-        cx_test!(
-            reflection_type_name,
-            "tests/02_meta/reflection",
-            "type_name"
-        );
-
-        // substitution
-        cx_test!(
-            substitution_greeting,
-            "tests/02_meta/substitution",
-            "greeting"
-        );
-        cx_test!(substitution_sub1, "tests/02_meta/substitution", "sub1");
+        cx_test!(execution_basic,      "tests/meta/execution", "basic");
+        cx_test!(execution_nested,     "tests/meta/execution", "nested");
+        cx_test!(codegen_basic,        "tests/meta/codegen",   "basic");
+        cx_test!(codegen_nested,       "tests/meta/codegen",   "nested");
+        cx_test!(codegen_env,          "tests/meta/codegen",   "env");
+        cx_test!(codegen_gen_meta,     "tests/meta/codegen",   "gen_meta");
+        cx_test!(codegen_greeting,     "tests/meta/codegen",   "greeting");
+        cx_test!(codegen_sub1,         "tests/meta/codegen",   "sub1");
+        cx_test!(meta_fn,              "tests/meta/functions", "meta_fn");
+        cx_test!(meta_fib,             "tests/meta/functions", "fib");
+        cx_test!(reflection_typeof,    "tests/meta/reflection","typeof");
     }
 }

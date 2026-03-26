@@ -1,2 +1,2 @@
 var p = { name: "Alice", age: 30 };
-print(typeof(Person));
+print(typeof(p));

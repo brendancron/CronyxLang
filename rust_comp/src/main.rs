@@ -39,7 +39,7 @@ fn main() {
 
         // SEMANTIC ANALYSIS — TYPE CHECK PASS 1
 
-        let (type_table, _) = type_check(meta_ast).unwrap();
+        let (type_table, type_env) = type_check(meta_ast).unwrap();
 
         let mut type_table_file = to_file(out_dir, "type_table.txt");
         for (id, ty) in &type_table.expr_types {
@@ -60,7 +60,8 @@ fn main() {
             &meta_ast,
             meta_ast.sem_root_stmts.clone(),
             &mut staged_forest,
-            &mut id_provider
+            &mut id_provider,
+            &type_env,
         ).unwrap();
 
         let mut staged_forest_graph_file = to_file(out_dir, "staged_forest_graph.txt");
