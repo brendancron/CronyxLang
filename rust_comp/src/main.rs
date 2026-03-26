@@ -7,6 +7,7 @@ use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluato
 use cronyx::semantics::meta::meta_processor::process;
 use cronyx::semantics::meta::meta_stager::*;
 use cronyx::semantics::meta::staged_forest::StagedForest;
+use cronyx::semantics::types::type_checker::type_check;
 use cronyx::util::formatters::tree_formatter::*;
 use std::fmt::Debug;
 use std::fs::{create_dir_all, read_to_string, File};
@@ -35,7 +36,17 @@ fn main() {
         let mut meta_ast_file = to_file(out_dir, "meta_ast.txt");
         meta_ast.format_tree(&mut meta_ast_file);
 
-        // SEMANTIC ANALYSIS
+        // SEMANTIC ANALYSIS — TYPE CHECK PASS 1
+
+        let (type_table, _) = type_check(meta_ast).unwrap();
+
+        let mut type_table_file = to_file(out_dir, "type_table.txt");
+        for (id, ty) in &type_table.expr_types {
+            writeln!(type_table_file, "expr {id}: {ty:?}").unwrap();
+        }
+        for (id, ty) in &type_table.stmt_types {
+            writeln!(type_table_file, "stmt {id}: {ty:?}").unwrap();
+        }
 
         // METAPROCESSING
 
