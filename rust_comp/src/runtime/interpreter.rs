@@ -4,6 +4,7 @@ use super::value::Value;
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::types::types::{self, Type};
+use crate::runtime::gen_collector::GeneratedCollector;
 use std::io::Write;
 
 #[derive(Debug)]
@@ -35,6 +36,7 @@ pub struct EvalCtx<'a, W> {
     pub out: W,
     pub env: &'a mut EnvHandler,
     pub ast: &'a RuntimeAst,
+    pub gen_collector: Option<&'a mut GeneratedCollector>,
 }
 
 pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
@@ -260,11 +262,13 @@ pub fn eval<W: Write>(
     root_stmts: &Vec<usize>,
     env: EnvRef,
     out: &mut W,
+    gen_collector: Option<&mut GeneratedCollector>,
 ) -> Result<ExecResult, EvalError> {
     let mut ctx = EvalCtx {
         ast,
         env: &mut EnvHandler::from(env),
         out,
+        gen_collector,
     };
     eval_stmts(&root_stmts, &mut ctx)
 }

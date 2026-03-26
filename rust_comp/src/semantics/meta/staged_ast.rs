@@ -42,7 +42,7 @@ pub enum StagedNode {
     Stmt(StagedStmt),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct MetaRef {
     pub ast_ref: usize,
 }

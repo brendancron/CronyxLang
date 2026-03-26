@@ -30,7 +30,7 @@ fn main() {
         let meta_ast = &(parse_ctx.ast);
 
         let mut meta_ast_graph_file = to_file(out_dir, "meta_ast_graph.txt");
-        writeln!(meta_ast_graph_file, "{:?}", meta_ast);
+        writeln!(meta_ast_graph_file, "{:?}", meta_ast).unwrap();
 
         let mut meta_ast_file = to_file(out_dir, "meta_ast.txt");
         meta_ast.format_tree(&mut meta_ast_file);
@@ -74,6 +74,7 @@ fn main() {
             &runtime_ast.sem_root_stmts,
             Environment::new(),
             &mut io::stdout(),
+            None,
         )
         .unwrap();
     }

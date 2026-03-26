@@ -31,6 +31,7 @@ pub fn process_root(
     staged_ast.sem_root_stmts = sem_root_stmts;
     let new_ast_id = staged_forest.insert_tree(staged_ast, staged_forest_id_provider);
     staged_forest.insert_deps(dependency_set, new_ast_id);
+    staged_forest.root_id = new_ast_id;
     Ok(new_ast_id)
 }
 
