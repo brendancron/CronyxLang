@@ -2,11 +2,15 @@ use std::fs::read_to_string;
 use std::io::{self, Cursor};
 use std::path::PathBuf;
 
+use cronyx::frontend::id_provider::IdProvider;
 use cronyx::frontend::lexer::*;
 use cronyx::frontend::parser::*;
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
+use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
 use cronyx::semantics::meta::meta_processor::*;
+use cronyx::semantics::meta::meta_stager::process_root;
+use cronyx::semantics::meta::staged_forest::StagedForest;
 
 pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
     eprintln!("input : {}", root_path.display());
@@ -19,7 +23,16 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
     let _ = parse(&tokens, &mut parse_ctx).unwrap();
     let meta_ast = &(parse_ctx.ast);
 
-    let runtime_ast = process(meta_ast, &mut io::stdout()).unwrap();
+    let mut staged_forest = StagedForest::new();
+    let mut id_provider = IdProvider::new();
+    let root_id = process_root(meta_ast, meta_ast.sem_root_stmts.clone(), &mut staged_forest, &mut id_provider).unwrap();
+    staged_forest.root_id = root_id;
+
+    let mut evaluator = InterpreterMetaEvaluator {
+        env: Environment::new(),
+        out: &mut io::stdout(),
+    };
+    let runtime_ast = process(staged_forest, &mut evaluator).unwrap();
 
     let mut eval_buf = Cursor::new(Vec::<u8>::new());
 
@@ -27,8 +40,8 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
         &runtime_ast,
         &runtime_ast.sem_root_stmts,
         Environment::new(),
-        &mut None,
         &mut eval_buf,
+        None,
     )
     .unwrap();
 
