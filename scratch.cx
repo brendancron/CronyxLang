@@ -1,7 +1,9 @@
-fn greet(name: string) {
-    print("Hello" + name);
+fn greet(name) {
+    print("Hello, " + name);
 }
 
-meta {
+fn main() {
     greet("Brendan");
 }
+
+main();

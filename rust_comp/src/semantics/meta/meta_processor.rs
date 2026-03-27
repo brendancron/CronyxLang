@@ -1,7 +1,6 @@
 use super::conversion::*;
 use super::runtime_ast::*;
 use super::staged_forest::StagedForest;
-use super::process_dependency::ProcessDependency;
 use crate::runtime::gen_collector::{CollectorMode, GeneratedCollector, GeneratedOutput};
 use std::collections::{HashMap, VecDeque};
 
@@ -37,9 +36,7 @@ where
         }
 
         for dep in deps {
-            if let ProcessDependency::MetaTree(dep_id) = dep {
-                reverse_deps.entry(*dep_id).or_insert_with(Vec::new).push(*id);
-            }
+            reverse_deps.entry(dep.dep_id()).or_insert_with(Vec::new).push(*id);
         }
     }
 
@@ -77,6 +74,12 @@ where
                 }
             }
         }
+    }
+
+    // If any trees were never processed, there's a cycle.
+    let processed_count = degree_map.values().filter(|&&d| d == 0).count();
+    if processed_count < staged_forest.ast_map.len() {
+        return Err(String::from("Circular dependency detected between trees").into());
     }
 
     root_ast

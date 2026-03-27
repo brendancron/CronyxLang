@@ -64,6 +64,7 @@ fn main() {
             &mut id_provider,
             &type_env,
         ).unwrap();
+        staged_forest.resolve_symbol_deps().unwrap();
 
         let mut staged_forest_graph_file = to_file(out_dir, "staged_forest_graph.txt");
         writeln!(staged_forest_graph_file, "{:?}", staged_forest).unwrap();

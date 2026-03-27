@@ -32,6 +32,7 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
     let mut id_provider = IdProvider::new();
     let root_id = process_root(meta_ast, meta_ast.sem_root_stmts.clone(), &mut staged_forest, &mut id_provider, &type_env).unwrap();
     staged_forest.root_id = root_id;
+    staged_forest.resolve_symbol_deps().unwrap();
 
     let mut eval_buf = Cursor::new(Vec::<u8>::new());
     let meta_env = Environment::new();
@@ -114,6 +115,7 @@ mod script_integration {
         cx_test!(struct_struct,        "tests/core/structs",   "struct");
         cx_test!(modules_import,       "tests/core/modules",   "main");
         cx_test!(embed_embed,          "tests/core/embed",     "embed");
+        cx_test!(resolution_symbol,    "tests/core/resolution","symbol_res");
     }
 
     #[cfg(test)]
@@ -128,6 +130,7 @@ mod script_integration {
         cx_test!(codegen_gen_meta,     "tests/meta/codegen",   "gen_meta");
         cx_test!(codegen_greeting,     "tests/meta/codegen",   "greeting");
         cx_test!(codegen_sub1,         "tests/meta/codegen",   "sub1");
+        cx_test!(codegen_gen_symbol,   "tests/meta/codegen",   "gen_symbol");
         cx_test!(meta_fn,              "tests/meta/functions", "meta_fn");
         cx_test!(meta_fib,             "tests/meta/functions", "fib");
         cx_test!(reflection_typeof,    "tests/meta/reflection","typeof");

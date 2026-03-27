@@ -255,10 +255,26 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
     }
 }
 
+/// Hoist all FnDecl statements in `stmts` into the current scope before any statements run.
+/// This allows functions to be called before their definition point in the source.
+fn hoist_fndecls<W: Write>(stmts: &[usize], ctx: &mut EvalCtx<W>) {
+    for &stmt_id in stmts {
+        if let Some(RuntimeStmt::FnDecl { name, params, body }) = ctx.ast.get_stmt(stmt_id) {
+            let func = Rc::new(Function {
+                params: params.clone(),
+                body: *body,
+                env: Environment::new(),
+            });
+            ctx.env.define(name.clone(), Value::Function(func));
+        }
+    }
+}
+
 pub fn eval_stmts<W: Write>(
     stmts: &Vec<usize>,
     ctx: &mut EvalCtx<W>,
 ) -> Result<ExecResult, EvalError> {
+    hoist_fndecls(stmts, ctx);
     for stmt in stmts {
         match eval_stmt(*stmt, ctx)? {
             ExecResult::Continue => {}

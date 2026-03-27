@@ -5,4 +5,6 @@ pub enum MetaProcessError {
     EmbedFailed { path: String, error: String },
     UnknownType(String),
     Unimplemented(String),
+    UnresolvedSymbol(String),
+    CircularDependency,
 }

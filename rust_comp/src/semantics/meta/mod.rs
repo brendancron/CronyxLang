@@ -7,4 +7,5 @@ pub mod process_dependency;
 pub mod runtime_ast;
 pub mod staged_ast;
 pub mod staged_forest;
+pub mod symbol_collector;
 //pub mod substitution;
