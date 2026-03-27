@@ -1,6 +1,6 @@
 use super::environment::{EnvHandler, EnvRef, Environment};
 use super::result::ExecResult;
-use super::value::Value;
+use super::value::{Function, Value};
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::types::types::{self, Type};
@@ -130,20 +130,16 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                         Ok(v)
                     })?;
 
-            //let callee_env = Env::new_child(Rc::clone(&func.env));
-            let callee_env = Environment::new();
-
-            {
-                let mut e = callee_env.borrow_mut();
-                for (param, value) in func.params.iter().zip(arg_vals) {
-                    e.define(param.clone(), value);
-                }
+            ctx.env.push_scope();
+            for (param, value) in func.params.iter().zip(arg_vals) {
+                ctx.env.define(param.clone(), value);
             }
 
             let result = match eval_stmt(func.body, ctx)? {
                 ExecResult::Return(v) => v,
                 ExecResult::Continue => Value::Unit,
             };
+            ctx.env.pop_scope();
 
             Ok(result)
         }
@@ -219,14 +215,12 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
         }
 
         RuntimeStmt::FnDecl { name, params, body } => {
-            //let func = Rc::new(Function {
-            //    params: params.clone(),
-            //    body: body.clone(),
-            //    env: Rc::clone(&env),
-            //});
-
-            //ctx.env.define(name.clone(), Value::Function(func));
-
+            let func = Rc::new(Function {
+                params: params.clone(),
+                body: *body,
+                env: Environment::new(),
+            });
+            ctx.env.define(name.clone(), Value::Function(func));
             Ok(ExecResult::Continue)
         }
 
