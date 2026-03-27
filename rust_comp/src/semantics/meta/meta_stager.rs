@@ -175,6 +175,14 @@ pub fn process_stmt(
             });
         }
 
+        MetaStmt::Assign { name, expr } => {
+            let expr_id = process_expr(meta_ast, *expr, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Assign {
+                name: name.clone(),
+                expr: expr_id,
+            });
+        }
+
         MetaStmt::Print(expr) => {
             let expr_id = process_expr(meta_ast, *expr, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Print(expr_id));

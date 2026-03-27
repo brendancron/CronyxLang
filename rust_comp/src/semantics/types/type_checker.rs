@@ -144,6 +144,14 @@ fn infer_stmt(
             unit_type()
         }
 
+        MetaStmt::Assign { name, expr } => {
+            let expr_ty = infer_expr(ast, expr, env, subst, table)?;
+            if let Some(existing_ty) = env.lookup(name.as_str()) {
+                unify(&expr_ty, &existing_ty, subst)?;
+            }
+            unit_type()
+        }
+
         MetaStmt::FnDecl { name, params, body } => {
             let mut param_types = Vec::new();
             for _ in &params {

@@ -139,6 +139,10 @@ impl<'a> SubstCtx<'a> {
                 name: name.clone(),
                 expr: self.remap_expr(*expr),
             },
+            RuntimeStmt::Assign { name, expr } => RuntimeStmt::Assign {
+                name: name.clone(),
+                expr: self.remap_expr(*expr),
+            },
             RuntimeStmt::FnDecl { name, params, body } => RuntimeStmt::FnDecl {
                 name: self.subst_name(name),
                 params: params.clone(),

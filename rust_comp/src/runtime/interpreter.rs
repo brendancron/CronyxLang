@@ -205,6 +205,12 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             Ok(ExecResult::Continue)
         }
 
+        RuntimeStmt::Assign { name, expr } => {
+            let value = eval_expr(*expr, ctx)?;
+            ctx.env.assign(name, value).map_err(EvalError::UndefinedVariable)?;
+            Ok(ExecResult::Continue)
+        }
+
         RuntimeStmt::Block(stmts) => {
             ctx.env.push_scope();
             let res = eval_stmts(stmts, ctx);

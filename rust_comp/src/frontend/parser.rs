@@ -543,6 +543,15 @@ fn parse_stmt<'a>(
                 Ok(id)
             }
 
+            TokenType::Identifier if check(tokens, *pos + 1, TokenType::Equal) => {
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                consume(tokens, pos, TokenType::Equal)?;
+                let expr = parse_expr(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::Semicolon)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr });
+                Ok(id)
+            }
+
             _ => parse_expr_stmt(tokens, pos, ctx),
         },
         _ => parse_expr_stmt(tokens, pos, ctx),

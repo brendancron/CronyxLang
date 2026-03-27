@@ -78,6 +78,7 @@ pub fn convert_to_runtime(
             StagedStmt::MetaStmt(_) => continue,
             StagedStmt::ExprStmt(e) => RuntimeStmt::ExprStmt(e),
             StagedStmt::VarDecl { name, expr } => RuntimeStmt::VarDecl { name, expr },
+            StagedStmt::Assign { name, expr } => RuntimeStmt::Assign { name, expr },
             StagedStmt::FnDecl { name, params, body } => {
                 RuntimeStmt::FnDecl { name, params, body }
             }

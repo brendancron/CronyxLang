@@ -37,6 +37,14 @@ impl<'a> TypeAnnotatedView<'a> {
                 ],
             ),
 
+            MetaStmt::Assign { name, expr } => (
+                "Assign".into(),
+                vec![
+                    TreeNode::leaf(format!("Name({name})")),
+                    self.convert_expr(*expr),
+                ],
+            ),
+
             MetaStmt::FnDecl { name, params, body } => (
                 "FnDecl".into(),
                 vec![

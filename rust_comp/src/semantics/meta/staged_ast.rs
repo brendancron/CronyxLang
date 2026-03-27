@@ -89,6 +89,11 @@ pub enum StagedStmt {
         expr: usize,
     },
 
+    Assign {
+        name: String,
+        expr: usize,
+    },
+
     FnDecl {
         name: String,
         params: Vec<String>,
@@ -155,6 +160,14 @@ impl StagedAst {
 
             StagedStmt::VarDecl { name, expr } => (
                 "VarDecl".into(),
+                vec![
+                    TreeNode::leaf(format!("Name({name})")),
+                    self.convert_expr(*expr),
+                ],
+            ),
+
+            StagedStmt::Assign { name, expr } => (
+                "Assign".into(),
                 vec![
                     TreeNode::leaf(format!("Name({name})")),
                     self.convert_expr(*expr),

@@ -103,6 +103,10 @@ impl RuntimeAst {
                     name: name.clone(),
                     expr: remap_expr(*expr),
                 },
+                RuntimeStmt::Assign { name, expr } => RuntimeStmt::Assign {
+                    name: name.clone(),
+                    expr: remap_expr(*expr),
+                },
                 RuntimeStmt::FnDecl { name, params, body } => RuntimeStmt::FnDecl {
                     name: name.clone(),
                     params: params.clone(),
@@ -192,6 +196,11 @@ pub enum RuntimeStmt {
         expr: usize,
     },
 
+    Assign {
+        name: String,
+        expr: usize,
+    },
+
     FnDecl {
         name: String,
         params: Vec<String>,
@@ -257,6 +266,14 @@ impl RuntimeAst {
 
             RuntimeStmt::VarDecl { name, expr } => (
                 "VarDecl".into(),
+                vec![
+                    TreeNode::leaf(format!("Name({name})")),
+                    self.convert_expr(*expr),
+                ],
+            ),
+
+            RuntimeStmt::Assign { name, expr } => (
+                "Assign".into(),
                 vec![
                     TreeNode::leaf(format!("Name({name})")),
                     self.convert_expr(*expr),

@@ -59,6 +59,9 @@ fn collect_stmt_symbols(
             declares.insert(name.clone());
             collect_expr_symbols(ast, *expr, declares, uses, in_gen);
         }
+        StagedStmt::Assign { expr, .. } => {
+            collect_expr_symbols(ast, *expr, declares, uses, in_gen);
+        }
         StagedStmt::FnDecl { name, params, body } => {
             declares.insert(name.clone());
             for p in params { declares.insert(p.clone()); }
