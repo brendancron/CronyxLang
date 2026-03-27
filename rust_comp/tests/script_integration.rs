@@ -28,22 +28,26 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
     let type_env = type_check(meta_ast).map(|(_, env)| env).unwrap_or_else(|_| TypeEnv::new());
 
     let mut staged_forest = StagedForest::new();
+    staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
     let mut id_provider = IdProvider::new();
     let root_id = process_root(meta_ast, meta_ast.sem_root_stmts.clone(), &mut staged_forest, &mut id_provider, &type_env).unwrap();
     staged_forest.root_id = root_id;
 
-    let mut evaluator = InterpreterMetaEvaluator {
-        env: Environment::new(),
-        out: &mut io::stdout(),
-    };
-    let runtime_ast = process(staged_forest, &mut evaluator).unwrap();
-
     let mut eval_buf = Cursor::new(Vec::<u8>::new());
+    let meta_env = Environment::new();
+
+    let runtime_ast = {
+        let mut evaluator = InterpreterMetaEvaluator {
+            env: meta_env.clone(),
+            out: &mut eval_buf,
+        };
+        process(staged_forest, &mut evaluator).unwrap()
+    };
 
     eval(
         &runtime_ast,
         &runtime_ast.sem_root_stmts,
-        Environment::new(),
+        meta_env,
         &mut eval_buf,
         None,
     )

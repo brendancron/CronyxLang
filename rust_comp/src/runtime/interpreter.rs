@@ -4,7 +4,7 @@ use super::value::{Function, Value};
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::types::types::{self, Type};
-use crate::runtime::gen_collector::{collect_nodes_for_stmt, GeneratedCollector};
+use crate::runtime::gen_collector::{collect_and_subst, GeneratedCollector};
 use std::cell::RefCell;
 use std::io::Write;
 use std::rc::Rc;
@@ -80,9 +80,7 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             for e in exprs {
                 values.push(eval_expr(*e, ctx)?);
             }
-
-            //Ok(Value::List(Rc::new(RefCell::new(values))))
-            Err(EvalError::Unimplemented)
+            Ok(Value::List(Rc::new(RefCell::new(values))))
         }
 
         RuntimeExpr::Add(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
@@ -243,14 +241,12 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
                 .as_mut()
                 .ok_or(EvalError::GenOutsideMetaContext)?;
 
-            for stmt in stmts {
-                collect_nodes_for_stmt(
-                    ctx.ast,
-                    &stmt,
-                    &mut collector.output.supporting_stmts,
-                    &mut collector.output.exprs,
-                );
-                collector.collect_stmt(stmt).map_err(|_| EvalError::Unimplemented)?;
+            for stmt in &stmts {
+                let (transformed, new_stmts, new_exprs) =
+                    collect_and_subst(ctx.ast, stmt, ctx.env, &mut collector.id_provider);
+                collector.output.supporting_stmts.extend(new_stmts);
+                collector.output.exprs.extend(new_exprs);
+                collector.collect_stmt(transformed).map_err(|_| EvalError::Unimplemented)?;
             }
             Ok(ExecResult::Continue)
         }

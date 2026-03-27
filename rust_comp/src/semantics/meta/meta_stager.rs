@@ -135,7 +135,14 @@ pub fn process_expr(
         }
 
         MetaExpr::Embed(file_path) => {
-            staged_ast.insert_expr(staged_expr_id, StagedExpr::String(file_path.clone()));
+            let resolved = if let Some(dir) = &staged_forest.source_dir {
+                dir.join(file_path)
+            } else {
+                std::path::PathBuf::from(file_path)
+            };
+            let contents = std::fs::read_to_string(&resolved)
+                .map_err(|e| MetaProcessError::EmbedFailed { path: file_path.clone(), error: e.to_string() })?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::String(contents));
         }
     };
     Ok(staged_expr_id)

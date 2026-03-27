@@ -55,6 +55,7 @@ fn main() {
         // METAPROCESSING
 
         let mut staged_forest = StagedForest::new();
+        staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
         let mut id_provider = IdProvider::new();
         process_root(
             &meta_ast,
@@ -71,12 +72,15 @@ fn main() {
         staged_forest.format_tree(&mut staged_forest_file);
 
         let mut stdout = io::stdout();
+        let meta_env = Environment::new();
 
-        let mut evaluator = InterpreterMetaEvaluator {
-            env: Environment::new(),
-            out: &mut stdout,
+        let runtime_ast = {
+            let mut evaluator = InterpreterMetaEvaluator {
+                env: meta_env.clone(),
+                out: &mut stdout,
+            };
+            process(staged_forest, &mut evaluator).unwrap()
         };
-        let runtime_ast = process(staged_forest, &mut evaluator).unwrap();
 
         let mut runtime_ast_file = to_file(out_dir, "runtime_ast.txt");
         runtime_ast.format_tree(&mut runtime_ast_file);
@@ -88,7 +92,7 @@ fn main() {
         eval(
             &runtime_ast,
             &runtime_ast.sem_root_stmts,
-            Environment::new(),
+            meta_env,
             &mut io::stdout(),
             None,
         )

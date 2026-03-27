@@ -3,12 +3,14 @@ use super::staged_ast::*;
 use crate::frontend::id_provider::IdProvider;
 use crate::util::formatters::tree_formatter::{AsTree, TreeNode};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct StagedForest {
     pub root_id: usize,
     pub ast_map: HashMap<usize, StagedAst>,
     pub dependency_map: HashMap<usize, HashSet<ProcessDependency>>,
+    pub source_dir: Option<PathBuf>,
 }
 
 impl StagedForest {
@@ -17,6 +19,7 @@ impl StagedForest {
             root_id: 0,
             ast_map: HashMap::new(),
             dependency_map: HashMap::new(),
+            source_dir: None,
         }
     }
 

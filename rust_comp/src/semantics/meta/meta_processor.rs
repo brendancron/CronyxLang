@@ -43,6 +43,15 @@ where
         }
     }
 
+    // Collector IDs must not collide with any staged node or tree ID across the whole forest.
+    let global_max_id = staged_forest.ast_map
+        .keys()
+        .chain(staged_forest.ast_map.values().flat_map(|a| a.stmts.keys().chain(a.exprs.keys())))
+        .max()
+        .copied()
+        .unwrap_or(0);
+    let collector_start_id = global_max_id + 1;
+
     let mut root_ast = None;
 
     while let Some(tree_id) = tree_queue.pop_front() {
@@ -53,7 +62,7 @@ where
             root_ast = Some(runtime_ast);
         } else {
             // Execute meta blocks at compile time
-            let mut collector = GeneratedCollector::new(CollectorMode::ManyStmts);
+            let mut collector = GeneratedCollector::new(CollectorMode::ManyStmts, collector_start_id);
             evaluator.evaluate(&runtime_ast, &mut collector)?;
             meta_generated.insert(tree_id, collector.output);
         }

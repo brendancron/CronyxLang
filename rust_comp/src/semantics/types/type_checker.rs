@@ -48,7 +48,7 @@ fn infer_expr(
         MetaExpr::String(_) => string_type(),
 
         MetaExpr::Variable(name) => {
-            env.lookup(&name).ok_or(TypeError::UnboundVar(name))?
+            env.lookup(&name).unwrap_or_else(|| Type::Var(env.fresh()))
         }
 
         MetaExpr::Add(a, b) | MetaExpr::Sub(a, b) | MetaExpr::Mult(a, b) | MetaExpr::Div(a, b) => {
@@ -76,7 +76,7 @@ fn infer_expr(
         }
 
         MetaExpr::Call { callee, args } => {
-            let callee_ty = env.lookup(&callee).ok_or(TypeError::UnboundVar(callee))?;
+            let callee_ty = env.lookup(&callee).unwrap_or_else(|| Type::Var(env.fresh()));
 
             let mut arg_types = Vec::new();
             for arg_id in args {

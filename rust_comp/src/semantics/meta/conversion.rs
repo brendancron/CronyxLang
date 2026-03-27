@@ -18,6 +18,7 @@ pub fn convert_to_runtime(
         .stmts
         .keys()
         .chain(staged.exprs.keys())
+        .chain(meta_generated.values().flat_map(|o| o.supporting_stmts.keys().chain(o.exprs.keys())))
         .max()
         .copied()
         .unwrap_or(0)

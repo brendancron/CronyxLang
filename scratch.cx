@@ -1,4 +1,7 @@
-{
-    name: "Brendan",
-    age: 27
-};
+fn greet(name: string) {
+    print("Hello" + name);
+}
+
+meta {
+    greet("Brendan");
+}
