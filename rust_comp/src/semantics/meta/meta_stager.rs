@@ -235,7 +235,8 @@ pub fn process_stmt(
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(children));
         }
 
-        MetaStmt::FnDecl { name, params, body } => {
+        MetaStmt::FnDecl { name, params, body }
+        | MetaStmt::MetaFnDecl { name, params, body } => {
             let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::FnDecl {
                 name: name.clone(),
@@ -315,6 +316,7 @@ pub fn stage_all_files(
         let exports: Vec<String> = file.ast.sem_root_stmts.iter()
             .filter_map(|&id| match file.ast.get_stmt(id) {
                 Some(MetaStmt::FnDecl { name, .. }) => Some(name.clone()),
+                Some(MetaStmt::MetaFnDecl { name, .. }) => Some(name.clone()),
                 Some(MetaStmt::StructDecl { name, .. }) => Some(name.clone()),
                 _ => None,
             })
@@ -333,6 +335,7 @@ pub fn stage_all_files(
         for &stmt_id in &file.ast.sem_root_stmts {
             match file.ast.get_stmt(stmt_id) {
                 Some(MetaStmt::FnDecl { name, .. }) => export_names.push(name.clone()),
+                Some(MetaStmt::MetaFnDecl { name, .. }) => export_names.push(name.clone()),
                 Some(MetaStmt::StructDecl { name, .. }) => export_names.push(name.clone()),
                 _ => {}
             }
@@ -426,6 +429,7 @@ fn is_exportable_stmt(ast: &MetaAst, stmt_id: usize) -> bool {
     matches!(
         ast.get_stmt(stmt_id),
         Some(MetaStmt::FnDecl { .. })
+            | Some(MetaStmt::MetaFnDecl { .. })
             | Some(MetaStmt::StructDecl { .. })
             | Some(MetaStmt::MetaBlock(_))
     )

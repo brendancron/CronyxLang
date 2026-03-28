@@ -621,6 +621,33 @@ fn parse_meta_stmt(
     ctx: &mut ParseCtx,
 ) -> Result<usize, ParseError> {
     consume(tokens, pos, TokenType::Meta)?;
+
+    if check(tokens, *pos, TokenType::Func) {
+        consume(tokens, pos, TokenType::Func)?;
+        let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+
+        consume(tokens, pos, TokenType::LeftParen)?;
+        let params = parse_separated(
+            tokens,
+            pos,
+            ctx,
+            TokenType::Comma,
+            TokenType::RightParen,
+            |tokens, pos, _ctx| {
+                Ok(consume(tokens, pos, TokenType::Identifier)?.expect_str())
+            },
+        )?;
+        consume(tokens, pos, TokenType::RightParen)?;
+
+        consume(tokens, pos, TokenType::LeftBrace)?;
+        let body = parse_block(tokens, pos, ctx)?;
+        consume(tokens, pos, TokenType::RightBrace)?;
+
+        let meta_fn = MetaStmt::MetaFnDecl { name, params, body };
+        let id = ctx.ast.insert_stmt(&mut ctx.id_provider, meta_fn);
+        return Ok(id);
+    }
+
     let stmt = parse_stmt(tokens, pos, ctx)?;
     let meta_stmt = MetaStmt::MetaBlock(stmt);
     let id = ctx.ast.insert_stmt(&mut ctx.id_provider, meta_stmt);

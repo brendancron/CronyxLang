@@ -138,6 +138,11 @@ pub enum MetaStmt {
 
     // META
     MetaBlock(usize),
+    MetaFnDecl {
+        name: String,
+        params: Vec<String>,
+        body: usize,
+    },
     Gen(Vec<usize>),
 
     // TEMPORARY
@@ -270,6 +275,18 @@ impl MetaAst {
             MetaStmt::Import(decl) => ("Import".into(), vec![TreeNode::leaf(decl.path().to_string())]),
 
             MetaStmt::MetaBlock(s) => ("MetaBlock".into(), vec![self.convert_stmt(*s)]),
+
+            MetaStmt::MetaFnDecl { name, params, body } => (
+                "MetaFnDecl".into(),
+                vec![
+                    TreeNode::leaf(format!("Name({name})")),
+                    TreeNode::node(
+                        "Params",
+                        params.iter().map(|p| TreeNode::leaf(p.clone())).collect(),
+                    ),
+                    self.convert_stmt(*body),
+                ],
+            ),
 
             MetaStmt::Gen(stmts) => (
                 "Gen".into(),

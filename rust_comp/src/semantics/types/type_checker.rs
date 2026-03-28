@@ -255,6 +255,38 @@ fn infer_stmt(
             unit_type()
         }
 
+        MetaStmt::MetaFnDecl { name, params, body } => {
+            let mut param_types = Vec::new();
+            for _ in params.iter() {
+                param_types.push(Type::Var(env.fresh()));
+            }
+            let ret_tv = Type::Var(env.fresh());
+            let fn_type = Type::Func {
+                params: param_types.clone(),
+                ret: Box::new(ret_tv.clone()),
+            };
+            env.push_scope();
+            env.bind_mono(name.as_str(), fn_type.clone());
+            for (param, ty) in params.iter().zip(param_types.iter()) {
+                env.bind_mono(param.as_str(), ty.clone());
+            }
+            let saved_ret = ctx.return_type.take();
+            let saved_saw = ctx.saw_return;
+            ctx.return_type = Some(ret_tv.clone());
+            ctx.saw_return = false;
+            infer_stmt(ast, body, env, subst, ctx, table)?;
+            if !ctx.saw_return {
+                unify(&ret_tv, &unit_type(), subst)?;
+            }
+            ctx.return_type = saved_ret;
+            ctx.saw_return = saved_saw;
+            env.pop_scope();
+            let final_fn_type = fn_type.apply(subst);
+            let scheme = generalize(env, final_fn_type.clone());
+            env.bind(name.as_str(), scheme);
+            final_fn_type
+        }
+
         // These don't produce a meaningful type for the table
         MetaStmt::StructDecl { .. }
         | MetaStmt::Import(_)

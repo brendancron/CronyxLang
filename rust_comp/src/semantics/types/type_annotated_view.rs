@@ -105,6 +105,18 @@ impl<'a> TypeAnnotatedView<'a> {
 
             MetaStmt::MetaBlock(s) => ("MetaBlock".into(), vec![self.convert_stmt(*s)]),
 
+            MetaStmt::MetaFnDecl { name, params, body } => (
+                "MetaFnDecl".into(),
+                vec![
+                    TreeNode::leaf(format!("Name({name})")),
+                    TreeNode::node(
+                        "Params",
+                        params.iter().map(|p| TreeNode::leaf(p.clone())).collect(),
+                    ),
+                    self.convert_stmt(*body),
+                ],
+            ),
+
             MetaStmt::Gen(stmts) => (
                 "Gen".into(),
                 stmts.iter().map(|s| self.convert_stmt(*s)).collect(),
