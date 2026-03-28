@@ -1,0 +1,39 @@
+enum CardEffect {
+    Damage { amount: int },
+    Heal   { amount: int },
+    Draw   { count: int },
+    None,
+}
+
+var dmg  = CardEffect::Damage { amount: 15 };
+var heal = CardEffect::Heal   { amount: 5  };
+var draw = CardEffect::Draw   { count: 3   };
+var none = CardEffect::None;
+
+match dmg {
+    CardEffect::Damage { amount } => { print(amount); }
+    CardEffect::Heal   { amount } => { print(amount); }
+    CardEffect::Draw   { count  } => { print(count);  }
+    CardEffect::None              => { print("none");  }
+}
+
+match heal {
+    CardEffect::Damage { amount } => { print(amount); }
+    CardEffect::Heal   { amount } => { print(amount); }
+    CardEffect::Draw   { count  } => { print(count);  }
+    CardEffect::None              => { print("none");  }
+}
+
+match draw {
+    CardEffect::Damage { amount } => { print(amount); }
+    CardEffect::Heal   { amount } => { print(amount); }
+    CardEffect::Draw   { count  } => { print(count);  }
+    CardEffect::None              => { print("none");  }
+}
+
+match none {
+    CardEffect::Damage { amount } => { print(amount); }
+    CardEffect::Heal   { amount } => { print(amount); }
+    CardEffect::Draw   { count  } => { print(count);  }
+    CardEffect::None              => { print("none");  }
+}

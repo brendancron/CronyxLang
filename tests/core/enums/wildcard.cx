@@ -1,0 +1,20 @@
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+match Color::Red {
+    Color::Red => { print("red"); }
+    _ => { print("other"); }
+}
+
+match Color::Green {
+    Color::Red => { print("red"); }
+    _ => { print("other"); }
+}
+
+match Color::Blue {
+    Color::Red => { print("red"); }
+    _ => { print("other"); }
+}

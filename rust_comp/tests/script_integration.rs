@@ -205,6 +205,10 @@ mod script_integration {
         cx_test!(type_annot_var,   "tests/core/type_annotations", "var_annot");
         cx_test!(type_annot_fn,    "tests/core/type_annotations", "fn_annot");
         cx_test!(type_annot_mixed, "tests/core/type_annotations", "mixed_annot");
+        cx_test!(enum_unit_variants,   "tests/core/enums", "unit_variants");
+        cx_test!(enum_tuple_variants,  "tests/core/enums", "tuple_variants");
+        cx_test!(enum_struct_variants, "tests/core/enums", "struct_variants");
+        cx_test!(enum_wildcard,        "tests/core/enums", "wildcard");
     }
 
     #[cfg(test)]
