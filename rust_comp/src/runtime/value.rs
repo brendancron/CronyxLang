@@ -1,5 +1,6 @@
 use crate::runtime::environment::*;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
@@ -17,6 +18,8 @@ pub enum Value {
     List(Rc<RefCell<Vec<Value>>>),
 
     Function(Rc<Function>),
+
+    Module(Rc<HashMap<String, Value>>),
 
     Unit,
 }

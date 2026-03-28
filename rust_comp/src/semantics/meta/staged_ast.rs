@@ -1,3 +1,4 @@
+use crate::frontend::meta_ast::ImportDecl;
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
 
@@ -68,6 +69,17 @@ pub enum StagedExpr {
         args: Vec<usize>,
     },
 
+    DotAccess {
+        object: usize,
+        field: String,
+    },
+
+    DotCall {
+        object: usize,
+        method: String,
+        args: Vec<usize>,
+    },
+
     // BINOPS
     Add(usize, usize),
     Sub(usize, usize),
@@ -123,7 +135,7 @@ pub enum StagedStmt {
     Block(Vec<usize>),
 
     // UTIL
-    Import(String),
+    Import(ImportDecl),
 
     // META
     Gen(Vec<usize>),
@@ -238,7 +250,7 @@ impl StagedAst {
                 stmts.iter().map(|s| self.convert_stmt(*s)).collect(),
             ),
 
-            StagedStmt::Import(path) => ("Import".into(), vec![TreeNode::leaf(path.clone())]),
+            StagedStmt::Import(decl) => ("Import".into(), vec![TreeNode::leaf(decl.path().to_string())]),
 
             StagedStmt::Gen(stmts) => (
                 "Gen".into(),
@@ -285,6 +297,18 @@ impl StagedAst {
             StagedExpr::Call { callee, args } => (
                 format!("Call({callee})"),
                 args.iter().map(|e| self.convert_expr(*e)).collect(),
+            ),
+
+            StagedExpr::DotAccess { object, field } => (
+                format!("DotAccess(.{field})"),
+                vec![self.convert_expr(*object)],
+            ),
+
+            StagedExpr::DotCall { object, method, args } => (
+                format!("DotCall(.{method})"),
+                std::iter::once(self.convert_expr(*object))
+                    .chain(args.iter().map(|e| self.convert_expr(*e)))
+                    .collect(),
             ),
 
             StagedExpr::Add(a, b) => (

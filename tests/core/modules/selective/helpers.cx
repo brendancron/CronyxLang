@@ -1,0 +1,7 @@
+fn greet(name) {
+    print("Hello, " + name);
+}
+
+fn farewell(name) {
+    print("Goodbye, " + name);
+}

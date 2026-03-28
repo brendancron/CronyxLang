@@ -66,6 +66,17 @@ pub enum MetaExpr {
         args: Vec<usize>,
     },
 
+    DotAccess {
+        object: usize,
+        field: String,
+    },
+
+    DotCall {
+        object: usize,
+        method: String,
+        args: Vec<usize>,
+    },
+
     Typeof(String),
 
     Embed(String),
@@ -123,7 +134,7 @@ pub enum MetaStmt {
     Block(Vec<usize>),
 
     // UTIL
-    Import(String),
+    Import(ImportDecl),
 
     // META
     MetaBlock(usize),
@@ -137,6 +148,26 @@ pub enum MetaStmt {
 pub struct MetaFieldDecl {
     pub field_name: String,
     pub type_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum ImportDecl {
+    /// `import "path";`
+    Qualified { path: String },
+    /// `import "path" as alias;`
+    Aliased { path: String, alias: String },
+    /// `import { name1, name2 } from "path";`
+    Selective { names: Vec<String>, path: String },
+}
+
+impl ImportDecl {
+    pub fn path(&self) -> &str {
+        match self {
+            ImportDecl::Qualified { path } => path,
+            ImportDecl::Aliased { path, .. } => path,
+            ImportDecl::Selective { path, .. } => path,
+        }
+    }
 }
 
 impl AsTree for MetaAst {
@@ -236,7 +267,7 @@ impl MetaAst {
                 stmts.iter().map(|s| self.convert_stmt(*s)).collect(),
             ),
 
-            MetaStmt::Import(path) => ("Import".into(), vec![TreeNode::leaf(path.clone())]),
+            MetaStmt::Import(decl) => ("Import".into(), vec![TreeNode::leaf(decl.path().to_string())]),
 
             MetaStmt::MetaBlock(s) => ("MetaBlock".into(), vec![self.convert_stmt(*s)]),
 
@@ -280,6 +311,18 @@ impl MetaAst {
             MetaExpr::Call { callee, args } => (
                 format!("Call({callee})"),
                 args.iter().map(|e| self.convert_expr(*e)).collect(),
+            ),
+
+            MetaExpr::DotAccess { object, field } => (
+                format!("DotAccess(.{field})"),
+                vec![self.convert_expr(*object)],
+            ),
+
+            MetaExpr::DotCall { object, method, args } => (
+                format!("DotCall(.{method})"),
+                std::iter::once(self.convert_expr(*object))
+                    .chain(args.iter().map(|e| self.convert_expr(*e)))
+                    .collect(),
             ),
 
             MetaExpr::Typeof(name) => ("Typeof".into(), vec![TreeNode::leaf(name.clone())]),

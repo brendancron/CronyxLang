@@ -33,9 +33,11 @@ pub enum TokenType {
 
     // Keywords
     And,
+    As,
     Else,
     Embed,
     False,
+    From,
     Func,
     For,
     Gen,

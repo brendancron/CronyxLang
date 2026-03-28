@@ -1,15 +1,14 @@
 use std::fs::read_to_string;
-use std::io::{self, Cursor};
+use std::io::{Cursor};
 use std::path::PathBuf;
 
 use cronyx::frontend::id_provider::IdProvider;
-use cronyx::frontend::lexer::*;
-use cronyx::frontend::parser::*;
+use cronyx::frontend::module_loader::{load_compilation_unit, load_compilation_unit_with_autoscope, FileRole};
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
 use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
 use cronyx::semantics::meta::meta_processor::*;
-use cronyx::semantics::meta::meta_stager::process_root;
+use cronyx::semantics::meta::meta_stager::stage_all_files;
 use cronyx::semantics::meta::staged_forest::StagedForest;
 use cronyx::semantics::types::type_checker::type_check;
 use cronyx::semantics::types::type_env::TypeEnv;
@@ -17,23 +16,29 @@ use cronyx::semantics::types::type_env::TypeEnv;
 pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
     eprintln!("input : {}", root_path.display());
     eprintln!("expect: {}", out_path.display());
-    let in_buf = read_to_string(root_path).unwrap();
     let expected_out = read_to_string(out_path).unwrap();
 
-    let tokens = tokenize(&in_buf).unwrap();
-    let mut parse_ctx = ParseCtx::new();
-    let _ = parse(&tokens, &mut parse_ctx).unwrap();
-    let meta_ast = &(parse_ctx.ast);
+    // Load the compilation unit (entry file + explicit imports).
+    let files = load_compilation_unit(root_path)
+        .expect("failed to load compilation unit");
 
-    let type_env = type_check(meta_ast).map(|(_, env)| env).unwrap_or_else(|_| TypeEnv::new());
+    // Type-check the entry file.
+    let entry_ast = files.iter()
+        .find(|f| matches!(f.role, FileRole::Entry))
+        .map(|f| &f.ast)
+        .unwrap();
+    let type_env = type_check(entry_ast)
+        .map(|(_, env)| env)
+        .unwrap_or_else(|_| TypeEnv::new());
 
     let mut staged_forest = StagedForest::new();
     staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
     let mut id_provider = IdProvider::new();
-    let root_id = process_root(meta_ast, meta_ast.sem_root_stmts.clone(), &mut staged_forest, &mut id_provider, &type_env).unwrap();
-    staged_forest.root_id = root_id;
+
+    stage_all_files(&files, &mut staged_forest, &mut id_provider, &type_env).unwrap();
     staged_forest.resolve_symbol_deps().unwrap();
 
+    let module_bindings = staged_forest.module_bindings.clone();
     let mut eval_buf = Cursor::new(Vec::<u8>::new());
     let meta_env = Environment::new();
 
@@ -44,6 +49,10 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
         };
         process(staged_forest, &mut evaluator).unwrap()
     };
+
+    // Hoist all functions and create module namespace values before eval.
+    let mut setup_env = EnvHandler::from(meta_env.clone());
+    setup_modules(&runtime_ast, &module_bindings, &mut setup_env);
 
     eval(
         &runtime_ast,
@@ -79,11 +88,80 @@ fn test_dir(rel: &str) -> std::path::PathBuf {
     repo_root().join(rel)
 }
 
+fn run_test_autoscope(root_path: &PathBuf, out_path: &PathBuf) {
+    eprintln!("input : {}", root_path.display());
+    eprintln!("expect: {}", out_path.display());
+    let expected_out = read_to_string(out_path).unwrap();
+
+    let files = load_compilation_unit_with_autoscope(root_path)
+        .expect("failed to load compilation unit");
+
+    let entry_ast = files.iter()
+        .find(|f| matches!(f.role, FileRole::Entry))
+        .map(|f| &f.ast)
+        .unwrap();
+    let type_env = type_check(entry_ast)
+        .map(|(_, env)| env)
+        .unwrap_or_else(|_| TypeEnv::new());
+
+    let mut staged_forest = StagedForest::new();
+    staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
+    let mut id_provider = IdProvider::new();
+
+    stage_all_files(&files, &mut staged_forest, &mut id_provider, &type_env).unwrap();
+    staged_forest.resolve_symbol_deps().unwrap();
+
+    let module_bindings = staged_forest.module_bindings.clone();
+    let mut eval_buf = Cursor::new(Vec::<u8>::new());
+    let meta_env = Environment::new();
+
+    let runtime_ast = {
+        let mut evaluator = InterpreterMetaEvaluator {
+            env: meta_env.clone(),
+            out: &mut eval_buf,
+        };
+        process(staged_forest, &mut evaluator).unwrap()
+    };
+
+    let mut setup_env = EnvHandler::from(meta_env.clone());
+    setup_modules(&runtime_ast, &module_bindings, &mut setup_env);
+
+    eval(
+        &runtime_ast,
+        &runtime_ast.sem_root_stmts,
+        meta_env,
+        &mut eval_buf,
+        None,
+    )
+    .unwrap();
+
+    let actual = String::from_utf8(eval_buf.into_inner()).unwrap();
+
+    if normalize(&actual) != normalize(&expected_out) {
+        panic!(
+            "\n--- expected ---\n{}\n--- actual ---\n{}\n",
+            expected_out, actual
+        );
+    }
+}
+
 macro_rules! cx_test {
     ($test:ident, $dir:literal, $file:literal) => {
         #[test]
         fn $test() {
             run_test(
+                &test_dir(concat!($dir, "/", $file, ".cx")),
+                &test_dir(concat!($dir, "/", $file, ".txt")),
+            );
+        }
+    };
+}
+
+macro_rules! cx_test_autoscope {
+    ($test:ident, $dir:literal, $file:literal) => {
+        #[test]
+        fn $test() {
+            run_test_autoscope(
                 &test_dir(concat!($dir, "/", $file, ".cx")),
                 &test_dir(concat!($dir, "/", $file, ".txt")),
             );
@@ -113,7 +191,13 @@ mod script_integration {
         cx_test!(func_closure,         "tests/core/functions", "closure");
         cx_test!(list_list,            "tests/core/lists",     "list");
         cx_test!(struct_struct,        "tests/core/structs",   "struct");
-        cx_test!(modules_import,       "tests/core/modules",   "main");
+        cx_test!(modules_import,       "tests/core/modules",              "main");
+        cx_test!(modules_qualified,    "tests/core/modules/qualified",    "main");
+        cx_test!(modules_alias,        "tests/core/modules/alias",        "main");
+        cx_test!(modules_selective,    "tests/core/modules/selective",    "main");
+        cx_test!(modules_multi_export, "tests/core/modules/multi_export", "main");
+        cx_test!(modules_circular,     "tests/core/modules/circular",     "main");
+        cx_test_autoscope!(modules_same_dir, "tests/core/modules/same_dir", "main");
         cx_test!(embed_embed,          "tests/core/embed",     "embed");
         cx_test!(resolution_symbol,    "tests/core/resolution","symbol_res");
     }

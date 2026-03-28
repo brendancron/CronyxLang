@@ -1,3 +1,4 @@
+use crate::frontend::meta_ast::ImportDecl;
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
 
@@ -85,6 +86,15 @@ impl RuntimeAst {
                 }
                 RuntimeExpr::Call { callee, args } => RuntimeExpr::Call {
                     callee: callee.clone(),
+                    args: args.iter().map(|id| remap_expr(*id)).collect(),
+                },
+                RuntimeExpr::DotAccess { object, field } => RuntimeExpr::DotAccess {
+                    object: remap_expr(*object),
+                    field: field.clone(),
+                },
+                RuntimeExpr::DotCall { object, method, args } => RuntimeExpr::DotCall {
+                    object: remap_expr(*object),
+                    method: method.clone(),
                     args: args.iter().map(|id| remap_expr(*id)).collect(),
                 },
             };
@@ -177,6 +187,17 @@ pub enum RuntimeExpr {
         args: Vec<usize>,
     },
 
+    DotAccess {
+        object: usize,
+        field: String,
+    },
+
+    DotCall {
+        object: usize,
+        method: String,
+        args: Vec<usize>,
+    },
+
     // BINOPS
     Add(usize, usize),
     Sub(usize, usize),
@@ -230,7 +251,7 @@ pub enum RuntimeStmt {
     Block(Vec<usize>),
 
     // UTIL
-    Import(String),
+    Import(ImportDecl),
 
     // META
     Gen(Vec<usize>),
@@ -344,7 +365,7 @@ impl RuntimeAst {
                 stmts.iter().map(|s| self.convert_stmt(*s)).collect(),
             ),
 
-            RuntimeStmt::Import(path) => ("Import".into(), vec![TreeNode::leaf(path.clone())]),
+            RuntimeStmt::Import(decl) => ("Import".into(), vec![TreeNode::leaf(decl.path().to_string())]),
 
             RuntimeStmt::Gen(stmts) => (
                 "Gen".into(),
@@ -411,6 +432,18 @@ impl RuntimeAst {
             RuntimeExpr::Equals(a, b) => (
                 "Equals".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+
+            RuntimeExpr::DotAccess { object, field } => (
+                format!("DotAccess(.{field})"),
+                vec![self.convert_expr(*object)],
+            ),
+
+            RuntimeExpr::DotCall { object, method, args } => (
+                format!("DotCall(.{method})"),
+                std::iter::once(self.convert_expr(*object))
+                    .chain(args.iter().map(|e| self.convert_expr(*e)))
+                    .collect(),
             ),
         };
 

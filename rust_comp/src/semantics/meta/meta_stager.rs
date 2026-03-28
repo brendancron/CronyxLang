@@ -4,9 +4,10 @@ use super::staged_ast::*;
 use super::staged_forest::*;
 use crate::frontend::id_provider::IdProvider;
 use crate::frontend::meta_ast::*;
+use crate::frontend::module_loader::{FileRole, LoadedFile};
 use crate::semantics::types::type_env::TypeEnv;
 use crate::semantics::types::types::TypeScheme;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub fn process_root(
     meta_ast: &MetaAst,
@@ -134,6 +135,20 @@ pub fn process_expr(
             staged_ast.insert_expr(staged_expr_id, StagedExpr::String(type_str));
         }
 
+        MetaExpr::DotAccess { object, field } => {
+            let obj_id = process_expr(meta_ast, *object, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::DotAccess { object: obj_id, field: field.clone() });
+        }
+
+        MetaExpr::DotCall { object, method, args } => {
+            let obj_id = process_expr(meta_ast, *object, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let mut out_args = Vec::with_capacity(args.len());
+            for arg in args {
+                out_args.push(process_expr(meta_ast, *arg, staged_ast, id_provider, dependency_set, staged_forest, type_env)?);
+            }
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::DotCall { object: obj_id, method: method.clone(), args: out_args });
+        }
+
         MetaExpr::Embed(file_path) => {
             let resolved = if let Some(dir) = &staged_forest.source_dir {
                 dir.join(file_path)
@@ -258,7 +273,167 @@ pub fn process_stmt(
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::MetaStmt(MetaRef { ast_ref: ast_id }));
         }
 
-        MetaStmt::Import(_mod_name) => {}
+        MetaStmt::Import(decl) => {
+            // Import stmts are preserved in the AST so the ID is valid at runtime.
+            // Actual module namespace creation happens in setup_modules before eval.
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Import(decl.clone()));
+        }
     };
     Ok(staged_stmt_id)
+}
+
+/// Stage all files from a multi-file compilation unit into a single StagedForest.
+///
+/// - Entry file: all statements staged normally.
+/// - AutoScope / Explicit files: only FnDecl, StructDecl, and MetaBlock statements staged;
+///   their functions are merged into the root tree so they are available at runtime.
+///
+/// Module bindings (namespace records for explicit imports) are stored in
+/// `staged_forest.module_bindings` for use during runtime setup.
+pub fn stage_all_files(
+    files: &[LoadedFile],
+    staged_forest: &mut StagedForest,
+    id_provider: &mut IdProvider,
+    type_env: &TypeEnv,
+) -> Result<usize, MetaProcessError> {
+    let entry = files
+        .iter()
+        .find(|f| matches!(f.role, FileRole::Entry))
+        .expect("stage_all_files: no entry file in compilation unit");
+
+    let mut staged_ast = StagedAst::new();
+    let mut dependency_set: HashSet<ProcessDependency> = HashSet::new();
+    let mut sem_root_stmts: Vec<usize> = Vec::new();
+
+    // Build a map from path stem → exports for every file (used for transitive bindings).
+    let mut exports_by_stem: HashMap<String, Vec<String>> = HashMap::new();
+    for file in files {
+        let stem = file.path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        let exports: Vec<String> = file.ast.sem_root_stmts.iter()
+            .filter_map(|&id| match file.ast.get_stmt(id) {
+                Some(MetaStmt::FnDecl { name, .. }) => Some(name.clone()),
+                Some(MetaStmt::StructDecl { name, .. }) => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        exports_by_stem.insert(stem, exports);
+    }
+
+    // Stage non-entry files first (their decls become part of the root tree).
+    for file in files {
+        if matches!(file.role, FileRole::Entry) {
+            continue;
+        }
+
+        // Collect exported names from the MetaAst top-level decls.
+        let mut export_names: Vec<String> = Vec::new();
+        for &stmt_id in &file.ast.sem_root_stmts {
+            match file.ast.get_stmt(stmt_id) {
+                Some(MetaStmt::FnDecl { name, .. }) => export_names.push(name.clone()),
+                Some(MetaStmt::StructDecl { name, .. }) => export_names.push(name.clone()),
+                _ => {}
+            }
+        }
+
+        // Stage exportable statements into the shared root tree.
+        for &stmt_id in &file.ast.sem_root_stmts {
+            if !is_exportable_stmt(&file.ast, stmt_id) {
+                continue;
+            }
+            let staged_id = process_stmt(
+                &file.ast, stmt_id,
+                &mut staged_ast, id_provider,
+                &mut dependency_set, staged_forest, type_env,
+            )?;
+            sem_root_stmts.push(staged_id);
+        }
+
+        // Record module binding for explicit imports.
+        if let FileRole::Explicit(ref decl) = file.role {
+            let binding = match decl {
+                ImportDecl::Qualified { path } => {
+                    let bind_name = path_stem(path);
+                    ModuleBinding::Namespace { bind_name, exports: export_names }
+                }
+                ImportDecl::Aliased { alias, .. } => {
+                    ModuleBinding::Namespace { bind_name: alias.clone(), exports: export_names }
+                }
+                ImportDecl::Selective { names, .. } => {
+                    ModuleBinding::Selective { names: names.clone() }
+                }
+            };
+            staged_forest.module_bindings.push(binding);
+        }
+    }
+
+    // Scan non-entry file ASTs for imports that weren't directly recorded above
+    // (e.g. circular imports where peer.cx imports the entry file).
+    let bound_names: HashSet<String> = staged_forest.module_bindings.iter()
+        .filter_map(|b| match b {
+            ModuleBinding::Namespace { bind_name, .. } => Some(bind_name.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut extra_bindings: Vec<ModuleBinding> = Vec::new();
+    let mut already_bound = bound_names;
+    for file in files {
+        if matches!(file.role, FileRole::Entry) {
+            continue;
+        }
+        for &stmt_id in &file.ast.sem_root_stmts {
+            if let Some(MetaStmt::Import(decl)) = file.ast.get_stmt(stmt_id) {
+                let bind_name = match decl {
+                    ImportDecl::Qualified { path } => path_stem(path),
+                    ImportDecl::Aliased { alias, .. } => alias.clone(),
+                    ImportDecl::Selective { .. } => continue,
+                };
+                if !already_bound.contains(&bind_name) {
+                    if let Some(exports) = exports_by_stem.get(&bind_name) {
+                        extra_bindings.push(ModuleBinding::Namespace {
+                            bind_name: bind_name.clone(),
+                            exports: exports.clone(),
+                        });
+                        already_bound.insert(bind_name);
+                    }
+                }
+            }
+        }
+    }
+    staged_forest.module_bindings.extend(extra_bindings);
+
+    // Stage entry file statements.
+    for &stmt_id in &entry.ast.sem_root_stmts {
+        let staged_id = process_stmt(
+            &entry.ast, stmt_id,
+            &mut staged_ast, id_provider,
+            &mut dependency_set, staged_forest, type_env,
+        )?;
+        sem_root_stmts.push(staged_id);
+    }
+
+    staged_ast.sem_root_stmts = sem_root_stmts;
+    let root_id = staged_forest.insert_tree(staged_ast, id_provider);
+    staged_forest.insert_deps(dependency_set, root_id);
+    staged_forest.root_id = root_id;
+
+    Ok(root_id)
+}
+
+fn is_exportable_stmt(ast: &MetaAst, stmt_id: usize) -> bool {
+    matches!(
+        ast.get_stmt(stmt_id),
+        Some(MetaStmt::FnDecl { .. })
+            | Some(MetaStmt::StructDecl { .. })
+            | Some(MetaStmt::MetaBlock(_))
+    )
+}
+
+/// Extract the file-stem from an import path string.
+/// "util" → "util", "util.cx" → "util", "dir/util" → "util"
+fn path_stem(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.strip_suffix(".cx").unwrap_or(name).to_string()
 }

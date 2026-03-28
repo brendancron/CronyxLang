@@ -114,6 +114,19 @@ fn infer_expr(
 
         // Resolved at compile time by the metaprocessor — type is string
         MetaExpr::Typeof(_) | MetaExpr::Embed(_) => string_type(),
+
+        MetaExpr::DotAccess { object, .. } => {
+            infer_expr(ast, object, env, subst, table)?;
+            Type::Var(env.fresh())
+        }
+
+        MetaExpr::DotCall { object, args, .. } => {
+            infer_expr(ast, object, env, subst, table)?;
+            for arg_id in args {
+                infer_expr(ast, arg_id, env, subst, table)?;
+            }
+            Type::Var(env.fresh())
+        }
     };
 
     let ty = ty.apply(subst);

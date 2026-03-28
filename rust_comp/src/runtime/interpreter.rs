@@ -3,9 +3,11 @@ use super::result::ExecResult;
 use super::value::{Function, Value};
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
+use crate::semantics::meta::staged_forest::ModuleBinding;
 use crate::semantics::types::types::{self, Type};
 use crate::runtime::gen_collector::{collect_and_subst, GeneratedCollector};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -110,6 +112,55 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(x == y)),
             _ => Err(EvalError::TypeError(types::unit_type())),
         },
+
+        RuntimeExpr::DotAccess { object, field } => {
+            let obj = eval_expr(*object, ctx)?;
+            match obj {
+                Value::Struct { fields, .. } => {
+                    let borrowed = fields.borrow();
+                    borrowed.iter()
+                        .find(|(name, _)| name == field)
+                        .map(|(_, v)| v.clone())
+                        .ok_or_else(|| EvalError::UndefinedVariable(field.clone()))
+                }
+                Value::Module(map) => map.get(field)
+                    .cloned()
+                    .ok_or_else(|| EvalError::UndefinedVariable(field.clone())),
+                _ => Err(EvalError::TypeError(types::unit_type())),
+            }
+        }
+
+        RuntimeExpr::DotCall { object, method, args } => {
+            let obj = eval_expr(*object, ctx)?;
+            let func = match &obj {
+                Value::Module(map) => map.get(method)
+                    .cloned()
+                    .ok_or_else(|| EvalError::UndefinedVariable(method.clone()))?,
+                _ => return Err(EvalError::NonFunctionCall),
+            };
+            let func = match func {
+                Value::Function(f) => f,
+                _ => return Err(EvalError::NonFunctionCall),
+            };
+            if func.params.len() != args.len() {
+                return Err(EvalError::ArgumentMismatch);
+            }
+            let arg_vals = args.iter()
+                .try_fold(Vec::new(), |mut v, a| -> Result<Vec<Value>, EvalError> {
+                    v.push(eval_expr(*a, ctx)?);
+                    Ok(v)
+                })?;
+            ctx.env.push_scope();
+            for (param, value) in func.params.iter().zip(arg_vals) {
+                ctx.env.define(param.clone(), value);
+            }
+            let result = match eval_stmt(func.body, ctx)? {
+                ExecResult::Return(v) => v,
+                ExecResult::Continue => Value::Unit,
+            };
+            ctx.env.pop_scope();
+            Ok(result)
+        }
 
         RuntimeExpr::Call { callee, args } => {
             let func = match ctx.env.get(callee)? {
@@ -257,7 +308,10 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             Ok(ExecResult::Continue)
         }
 
-        _ => Err(EvalError::Unimplemented),
+        // Import stmts are handled before eval by setup_modules; nothing to do at runtime.
+        RuntimeStmt::Import(_) => Ok(ExecResult::Continue),
+
+        RuntimeStmt::StructDecl { .. } => Ok(ExecResult::Continue),
     }
 }
 
@@ -290,6 +344,41 @@ pub fn eval_stmts<W: Write>(
         }
     }
     Ok(ExecResult::Continue)
+}
+
+/// Pre-hoist all FnDecls in the entire RuntimeAst into the env, then create Module namespace
+/// values for each explicit import binding.
+///
+/// Call this once before `eval` when running a multi-file compilation.
+pub fn setup_modules(ast: &RuntimeAst, bindings: &[ModuleBinding], env: &mut EnvHandler) {
+    // Hoist every FnDecl in the AST (regardless of which tree it came from).
+    for stmt in ast.stmts.values() {
+        if let RuntimeStmt::FnDecl { name, params, body } = stmt {
+            let func = Rc::new(Function {
+                params: params.clone(),
+                body: *body,
+                env: Environment::new(),
+            });
+            env.define(name.clone(), Value::Function(func));
+        }
+    }
+
+    // Create namespace Module values for explicit imports.
+    for binding in bindings {
+        match binding {
+            ModuleBinding::Namespace { bind_name, exports } => {
+                let map: HashMap<String, Value> = exports
+                    .iter()
+                    .filter_map(|name| env.get(name).ok().map(|v| (name.clone(), v)))
+                    .collect();
+                env.define(bind_name.clone(), Value::Module(Rc::new(map)));
+            }
+            ModuleBinding::Selective { names } => {
+                // Selective imports are already in the env from hoisting; nothing to do.
+                let _ = names;
+            }
+        }
+    }
 }
 
 pub fn eval<W: Write>(

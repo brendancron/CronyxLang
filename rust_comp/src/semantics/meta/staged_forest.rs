@@ -7,6 +7,20 @@ use crate::util::formatters::tree_formatter::{AsTree, TreeNode};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+/// Describes how a module's names should be bound in the runtime environment.
+#[derive(Debug, Clone)]
+pub enum ModuleBinding {
+    /// `import "path"` or `import "path" as alias` — wrap exports in a Module value.
+    Namespace {
+        bind_name: String,     // "util" or alias
+        exports: Vec<String>,  // exported function/struct names
+    },
+    /// `import { name1, name2 } from "path"` — bind each export directly into scope.
+    Selective {
+        names: Vec<String>,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct StagedForest {
     pub root_id: usize,
@@ -18,6 +32,9 @@ pub struct StagedForest {
     pub symbol_provides: HashMap<String, usize>,
     /// tree_id → names: what each tree references but does not declare internally.
     pub symbol_uses: HashMap<usize, HashSet<String>>,
+
+    /// Module bindings to create in the runtime env before executing entry code.
+    pub module_bindings: Vec<ModuleBinding>,
 }
 
 impl StagedForest {
@@ -29,6 +46,7 @@ impl StagedForest {
             source_dir: None,
             symbol_provides: HashMap::new(),
             symbol_uses: HashMap::new(),
+            module_bindings: Vec::new(),
         }
     }
 
@@ -62,6 +80,11 @@ impl StagedForest {
             .collect();
 
         for (tree_id, uses) in uses_snapshot {
+            // Root tree is runtime code — symbol ordering is handled by hoisting, not deps.
+            // Only meta child trees need SymbolTree ordering constraints.
+            if tree_id == self.root_id {
+                continue;
+            }
             for name in &uses {
                 if let Some(&provider_id) = self.symbol_provides.get(name) {
                     if provider_id != tree_id {

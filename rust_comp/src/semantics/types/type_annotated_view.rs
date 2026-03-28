@@ -101,7 +101,7 @@ impl<'a> TypeAnnotatedView<'a> {
                 stmts.iter().map(|s| self.convert_stmt(*s)).collect(),
             ),
 
-            MetaStmt::Import(path) => ("Import".into(), vec![TreeNode::leaf(path.clone())]),
+            MetaStmt::Import(decl) => ("Import".into(), vec![TreeNode::leaf(decl.path().to_string())]),
 
             MetaStmt::MetaBlock(s) => ("MetaBlock".into(), vec![self.convert_stmt(*s)]),
 
@@ -177,6 +177,18 @@ impl<'a> TypeAnnotatedView<'a> {
             MetaExpr::Equals(a, b) => (
                 "Equals".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+
+            MetaExpr::DotAccess { object, field } => (
+                format!("DotAccess(.{field})"),
+                vec![self.convert_expr(*object)],
+            ),
+
+            MetaExpr::DotCall { object, method, args } => (
+                format!("DotCall(.{method})"),
+                std::iter::once(self.convert_expr(*object))
+                    .chain(args.iter().map(|e| self.convert_expr(*e)))
+                    .collect(),
             ),
         };
 

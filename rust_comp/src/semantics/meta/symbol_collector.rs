@@ -137,6 +137,15 @@ fn collect_expr_symbols(
                 collect_expr_symbols(ast, *field_expr, declares, uses, in_gen);
             }
         }
+        StagedExpr::DotAccess { object, .. } => {
+            collect_expr_symbols(ast, *object, declares, uses, in_gen);
+        }
+        StagedExpr::DotCall { object, args, .. } => {
+            collect_expr_symbols(ast, *object, declares, uses, in_gen);
+            for &arg in args {
+                collect_expr_symbols(ast, arg, declares, uses, in_gen);
+            }
+        }
         StagedExpr::Int(_) | StagedExpr::String(_) | StagedExpr::Bool(_)
         | StagedExpr::MetaExpr(_) => {}
     }

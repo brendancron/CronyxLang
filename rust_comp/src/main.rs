@@ -1,35 +1,29 @@
-use cronyx::frontend::lexer::*;
-use cronyx::frontend::parser::*;
 use cronyx::frontend::id_provider::IdProvider;
+use cronyx::frontend::module_loader::{load_compilation_unit_with_autoscope, FileRole};
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
 use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
 use cronyx::semantics::meta::meta_processor::process;
-use cronyx::semantics::meta::meta_stager::*;
+use cronyx::semantics::meta::meta_stager::stage_all_files;
 use cronyx::semantics::meta::staged_forest::StagedForest;
 use cronyx::semantics::types::type_annotated_view::TypeAnnotatedView;
 use cronyx::semantics::types::type_checker::type_check;
 use cronyx::util::formatters::tree_formatter::*;
 use std::fmt::Debug;
-use std::fs::{create_dir_all, read_to_string, File};
+use std::fs::{create_dir_all, File};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
 fn main() {
     fn run_pipeline(root_path: &PathBuf, out_dir: &PathBuf) {
-        let buf = read_to_string(root_path).unwrap();
         create_dir_all(&out_dir).unwrap();
 
-        // TOKENIZE
+        // LOAD all files in the compilation unit (entry + explicit imports)
+        let files = load_compilation_unit_with_autoscope(root_path)
+            .expect("failed to load compilation unit");
 
-        let tokens = tokenize(&buf).unwrap();
-        let mut tok_file = to_file(out_dir, "tokens.txt");
-        dump(&tokens, &mut tok_file);
-
-        // PARSE
-        let mut parse_ctx = ParseCtx::new();
-        let _ = parse(&tokens, &mut parse_ctx).unwrap();
-        let meta_ast = &(parse_ctx.ast);
+        let entry = files.iter().find(|f| matches!(f.role, FileRole::Entry)).unwrap();
+        let meta_ast = &entry.ast;
 
         let mut meta_ast_graph_file = to_file(out_dir, "meta_ast_graph.txt");
         writeln!(meta_ast_graph_file, "{:?}", meta_ast).unwrap();
@@ -57,13 +51,7 @@ fn main() {
         let mut staged_forest = StagedForest::new();
         staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
         let mut id_provider = IdProvider::new();
-        process_root(
-            &meta_ast,
-            meta_ast.sem_root_stmts.clone(),
-            &mut staged_forest,
-            &mut id_provider,
-            &type_env,
-        ).unwrap();
+        stage_all_files(&files, &mut staged_forest, &mut id_provider, &type_env).unwrap();
         staged_forest.resolve_symbol_deps().unwrap();
 
         let mut staged_forest_graph_file = to_file(out_dir, "staged_forest_graph.txt");
@@ -72,6 +60,7 @@ fn main() {
         let mut staged_forest_file = to_file(out_dir, "staged_forest.txt");
         staged_forest.format_tree(&mut staged_forest_file);
 
+        let module_bindings = staged_forest.module_bindings.clone();
         let mut stdout = io::stdout();
         let meta_env = Environment::new();
 
@@ -88,7 +77,10 @@ fn main() {
 
         let mut runtime_ast_graph_file = to_file(out_dir, "runtime_ast_graph.txt");
         writeln!(runtime_ast_graph_file, "{:?}", runtime_ast).unwrap();
-        // EVALUATION
+
+        // EVALUATION — setup module namespaces then run
+        let mut setup_env = EnvHandler::from(meta_env.clone());
+        setup_modules(&runtime_ast, &module_bindings, &mut setup_env);
 
         eval(
             &runtime_ast,

@@ -167,12 +167,19 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
             }
 
             '/' => {
-                tokens.push(Token {
-                    token_type: TokenType::Slash,
-                    line_number: line_number,
-                    metadata: None,
-                });
-                i += 1;
+                if i + 1 < len && chars[i + 1] == '/' {
+                    // Line comment — skip to end of line
+                    while i < len && chars[i] != '\n' {
+                        i += 1;
+                    }
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::Slash,
+                        line_number: line_number,
+                        metadata: None,
+                    });
+                    i += 1;
+                }
             }
 
             '*' => {
@@ -272,9 +279,11 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                 // Keywords
                 let tok_type = match name.as_str() {
                     "and" => TokenType::And,
+                    "as" => TokenType::As,
                     "else" => TokenType::Else,
                     "embed" => TokenType::Embed,
                     "false" => TokenType::False,
+                    "from" => TokenType::From,
                     "fn" => TokenType::Func,
                     "for" => TokenType::For,
                     "gen" => TokenType::Gen,

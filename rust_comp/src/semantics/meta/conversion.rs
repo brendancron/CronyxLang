@@ -68,6 +68,8 @@ pub fn convert_to_runtime(
                 RuntimeExpr::StructLiteral { type_name, fields }
             }
             StagedExpr::Call { callee, args } => RuntimeExpr::Call { callee, args },
+            StagedExpr::DotAccess { object, field } => RuntimeExpr::DotAccess { object, field },
+            StagedExpr::DotCall { object, method, args } => RuntimeExpr::DotCall { object, method, args },
             StagedExpr::MetaExpr(_) => return Err(AstConversionError::UnresolvedMeta(*id)),
         };
         runtime.insert_expr(*id, runtime_expr);

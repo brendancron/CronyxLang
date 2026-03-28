@@ -77,17 +77,12 @@
             "id": "0832765f150c1211",
             "type": "leaf",
             "state": {
-              "type": "canvas",
+              "type": "release-notes",
               "state": {
-                "file": "Untitled.canvas",
-                "viewState": {
-                  "x": 0,
-                  "y": 0,
-                  "zoom": 0
-                }
+                "currentVersion": "1.11.5"
               },
-              "icon": "lucide-layout-dashboard",
-              "title": "Untitled"
+              "icon": "lucide-book-up",
+              "title": "Release Notes 1.11.5"
             }
           }
         ]
@@ -254,6 +249,8 @@
   },
   "active": "8247722acf42eccd",
   "lastOpenFiles": [
+    "Cronyx Module System.md",
+    "ModuleSystem.md",
     "Phase Architecture.md",
     "Useful Commands.md",
     "TypeSystem.md",

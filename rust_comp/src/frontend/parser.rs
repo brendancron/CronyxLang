@@ -276,12 +276,46 @@ fn parse_factor<'a>(
     }
 }
 
+/// Parses postfix dot-access and dot-call after a primary expression.
+/// `foo.bar` → DotAccess, `foo.bar(args)` → DotCall, chainable.
+fn parse_postfix<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    let mut base = parse_factor(tokens, pos, ctx)?;
+
+    while check(tokens, *pos, TokenType::Dot) {
+        *pos += 1; // consume Dot
+        let field = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+        if check(tokens, *pos, TokenType::LeftParen) {
+            consume(tokens, pos, TokenType::LeftParen)?;
+            let args = parse_separated(
+                tokens, pos, ctx,
+                TokenType::Comma, TokenType::RightParen, parse_expr,
+            )?;
+            consume(tokens, pos, TokenType::RightParen)?;
+            base = ctx.ast.insert_expr(
+                &mut ctx.id_provider,
+                MetaExpr::DotCall { object: base, method: field, args },
+            );
+        } else {
+            base = ctx.ast.insert_expr(
+                &mut ctx.id_provider,
+                MetaExpr::DotAccess { object: base, field },
+            );
+        }
+    }
+
+    Ok(base)
+}
+
 fn parse_term<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
 ) -> Result<usize, ParseError> {
-    let mut left = parse_factor(tokens, pos, ctx)?;
+    let mut left = parse_postfix(tokens, pos, ctx)?;
 
     loop {
         match tokens.get(*pos) {
@@ -536,10 +570,33 @@ fn parse_stmt<'a>(
 
             TokenType::Import => {
                 consume(tokens, pos, TokenType::Import)?;
-                let mod_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                let decl = if check(tokens, *pos, TokenType::LeftBrace) {
+                    // import { name1, name2 } from "path";
+                    consume(tokens, pos, TokenType::LeftBrace)?;
+                    let names = parse_separated(
+                        tokens, pos, ctx,
+                        TokenType::Comma, TokenType::RightBrace,
+                        |tokens, pos, _ctx| {
+                            Ok(consume(tokens, pos, TokenType::Identifier)?.expect_str())
+                        },
+                    )?;
+                    consume(tokens, pos, TokenType::RightBrace)?;
+                    consume(tokens, pos, TokenType::From)?;
+                    let path = consume(tokens, pos, TokenType::String)?.expect_str();
+                    ImportDecl::Selective { names, path }
+                } else {
+                    // import "path"; or import "path" as alias;
+                    let path = consume(tokens, pos, TokenType::String)?.expect_str();
+                    if check(tokens, *pos, TokenType::As) {
+                        consume(tokens, pos, TokenType::As)?;
+                        let alias = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                        ImportDecl::Aliased { path, alias }
+                    } else {
+                        ImportDecl::Qualified { path }
+                    }
+                };
                 consume(tokens, pos, TokenType::Semicolon)?;
-                let import = MetaStmt::Import(mod_name);
-                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, import);
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Import(decl));
                 Ok(id)
             }
 
