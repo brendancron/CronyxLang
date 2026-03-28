@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Useful Commands.md",
+                "file": "Cronyx Type System.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Useful Commands"
+              "title": "Cronyx Type System"
             }
           },
           {
@@ -249,10 +249,12 @@
   },
   "active": "8247722acf42eccd",
   "lastOpenFiles": [
+    "Useful Commands.md",
+    "Cronyx Type System.md",
+    "Meta Functions.md",
     "Cronyx Module System.md",
     "ModuleSystem.md",
     "Phase Architecture.md",
-    "Useful Commands.md",
     "TypeSystem.md",
     "Hindley-Milner/HM Algorithm W.md",
     "Untitled.canvas",

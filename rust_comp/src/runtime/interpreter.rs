@@ -63,10 +63,6 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
         RuntimeExpr::Bool(b) => Ok(Value::Bool(*b)),
 
         RuntimeExpr::StructLiteral { type_name, fields } => {
-            //let _struct_def = decls
-            //    .get_struct(type_name)
-            //    .ok_or_else(|| EvalError::UnknownStructType(type_name.clone()))?;
-
             let mut fs = vec![];
 
             for (field_name, expr) in fields {
