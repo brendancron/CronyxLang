@@ -8,6 +8,7 @@ use cronyx::semantics::meta::meta_stager::stage_all_files;
 use cronyx::semantics::meta::staged_forest::StagedForest;
 use cronyx::semantics::types::type_annotated_view::TypeAnnotatedView;
 use cronyx::semantics::types::type_checker::type_check;
+use cronyx::semantics::types::type_env::TypeEnv;
 use cronyx::util::formatters::tree_formatter::*;
 use std::fmt::Debug;
 use std::fs::{create_dir_all, File};
@@ -67,6 +68,7 @@ fn main() {
         let runtime_ast = {
             let mut evaluator = InterpreterMetaEvaluator {
                 env: meta_env.clone(),
+                type_env: TypeEnv::new(),
                 out: &mut stdout,
             };
             process(staged_forest, &mut evaluator).unwrap()

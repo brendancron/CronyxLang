@@ -4,6 +4,7 @@ use super::value::{Function, Value};
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::meta::staged_forest::ModuleBinding;
+use crate::semantics::types::type_error::TypeError;
 use crate::semantics::types::types::{self, Type};
 use crate::runtime::gen_collector::{collect_and_subst, GeneratedCollector};
 use std::cell::RefCell;
@@ -18,10 +19,17 @@ pub enum EvalError {
     UnknownStructType(String),
     UndefinedVariable(String),
     TypeError(Type),
+    TypeCheckFailed(TypeError),
     NonFunctionCall,
     ArgumentMismatch,
     GenOutsideMetaContext,
     Unimplemented,
+}
+
+impl From<TypeError> for EvalError {
+    fn from(e: TypeError) -> Self {
+        EvalError::TypeCheckFailed(e)
+    }
 }
 
 // TODO this is not the correct way to do this

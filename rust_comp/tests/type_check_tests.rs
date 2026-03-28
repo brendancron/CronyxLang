@@ -2,10 +2,10 @@ use cronyx::frontend::id_provider::IdProvider;
 use cronyx::frontend::lexer::tokenize;
 use cronyx::frontend::meta_ast::*;
 use cronyx::frontend::parser::{parse, ParseCtx};
+use cronyx::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
+use cronyx::semantics::types::runtime_type_checker::type_check_runtime;
 use cronyx::semantics::types::type_checker::type_check;
 use cronyx::semantics::types::type_env::TypeEnv;
-use cronyx::semantics::types::type_error::TypeError;
-use cronyx::semantics::types::typed_ast::TypeTable;
 use cronyx::semantics::types::types::*;
 
 // --- Helpers ---
@@ -61,10 +61,13 @@ mod type_check_tests {
 
     // --- Variables ---
 
+    // Phase 1 is intentionally permissive: unbound variables get fresh type
+    // vars rather than erroring, because they may be introduced by meta blocks
+    // at compile time. Phase 2 (runtime_type_checker) is strict instead.
     #[test]
-    fn unbound_variable_errors() {
+    fn phase1_unbound_variable_is_permissive() {
         let ast = parse_source("var x = y;");
-        assert!(type_check(&ast).is_err());
+        assert!(type_check(&ast).is_ok());
     }
 
     #[test]
@@ -230,6 +233,43 @@ mod type_check_tests {
         let (_, mut env) = type_check(&ast).unwrap();
         assert_eq!(env.lookup("a"), Some(int_type()));
         assert_eq!(env.lookup("b"), Some(bool_type()));
+    }
+
+    // --- Phase 2: Runtime type checker ---
+
+    fn runtime_ast_var_decl(name: &str, expr: RuntimeExpr) -> RuntimeAst {
+        let mut ast = RuntimeAst::new();
+        ast.insert_expr(0, expr);
+        ast.insert_stmt(1, RuntimeStmt::VarDecl { name: name.into(), expr: 0 });
+        ast.sem_root_stmts = vec![1];
+        ast
+    }
+
+    #[test]
+    fn phase2_unbound_variable_errors() {
+        let ast = runtime_ast_var_decl("x", RuntimeExpr::Variable("y".into()));
+        let mut env = TypeEnv::new();
+        assert!(type_check_runtime(&ast, &mut env).is_err());
+    }
+
+    #[test]
+    fn phase2_bound_variable_ok() {
+        let mut ast = RuntimeAst::new();
+        // var x = 1; var y = x;
+        ast.insert_expr(0, RuntimeExpr::Int(1));
+        ast.insert_stmt(1, RuntimeStmt::VarDecl { name: "x".into(), expr: 0 });
+        ast.insert_expr(2, RuntimeExpr::Variable("x".into()));
+        ast.insert_stmt(3, RuntimeStmt::VarDecl { name: "y".into(), expr: 2 });
+        ast.sem_root_stmts = vec![1, 3];
+        let mut env = TypeEnv::new();
+        assert!(type_check_runtime(&ast, &mut env).is_ok());
+    }
+
+    #[test]
+    fn phase2_int_literal_ok() {
+        let ast = runtime_ast_var_decl("x", RuntimeExpr::Int(42));
+        let mut env = TypeEnv::new();
+        assert!(type_check_runtime(&ast, &mut env).is_ok());
     }
 
     // --- Record types ---

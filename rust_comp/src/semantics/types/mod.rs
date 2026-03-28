@@ -1,3 +1,4 @@
+pub mod runtime_type_checker;
 pub mod type_annotated_view;
 pub mod type_checker;
 pub mod type_env;

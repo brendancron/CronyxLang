@@ -1,11 +1,24 @@
 use super::conversion::*;
 use super::runtime_ast::*;
-use super::staged_forest::StagedForest;
+use super::staged_forest::{ModuleBinding, StagedForest};
 use crate::runtime::gen_collector::{CollectorMode, GeneratedCollector, GeneratedOutput};
+use crate::semantics::types::type_error::TypeError;
 use std::collections::{HashMap, VecDeque};
 
 pub trait MetaEvaluator {
     type Error;
+
+    /// Called once at the start of `process` with all module bindings so
+    /// implementations can seed their type environments. Default is a no-op.
+    fn register_module_bindings(&mut self, _bindings: &[ModuleBinding]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    /// Called before a RuntimeAst is evaluated or returned. Default is a no-op.
+    fn type_check(&mut self, ast: &RuntimeAst) -> Result<(), Self::Error> {
+        let _ = ast;
+        Ok(())
+    }
 
     fn evaluate(
         &mut self,
@@ -20,8 +33,10 @@ pub fn process<E: MetaEvaluator>(
     evaluator: &mut E,
 ) -> Result<RuntimeAst, E::Error>
 where
-    E::Error: From<AstConversionError> + From<String>,
+    E::Error: From<AstConversionError> + From<String> + From<TypeError>,
 {
+    evaluator.register_module_bindings(&staged_forest.module_bindings)?;
+
     let mut degree_map: HashMap<usize, usize> = HashMap::new();
     let mut tree_queue: VecDeque<usize> = VecDeque::new();
     let mut reverse_deps: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -56,9 +71,11 @@ where
         let runtime_ast = convert_to_runtime(staged_ast, &meta_generated)?;
 
         if tree_id == staged_forest.root_id {
+            evaluator.type_check(&runtime_ast)?;
             root_ast = Some(runtime_ast);
         } else {
-            // Execute meta blocks at compile time
+            // Type-check and execute meta blocks at compile time
+            evaluator.type_check(&runtime_ast)?;
             let mut collector = GeneratedCollector::new(CollectorMode::ManyStmts, collector_start_id);
             evaluator.evaluate(&runtime_ast, &mut collector)?;
             meta_generated.insert(tree_id, collector.output);

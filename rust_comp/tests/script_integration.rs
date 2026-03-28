@@ -45,6 +45,7 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
     let runtime_ast = {
         let mut evaluator = InterpreterMetaEvaluator {
             env: meta_env.clone(),
+            type_env: TypeEnv::new(),
             out: &mut eval_buf,
         };
         process(staged_forest, &mut evaluator).unwrap()
@@ -118,6 +119,7 @@ fn run_test_autoscope(root_path: &PathBuf, out_path: &PathBuf) {
     let runtime_ast = {
         let mut evaluator = InterpreterMetaEvaluator {
             env: meta_env.clone(),
+            type_env: TypeEnv::new(),
             out: &mut eval_buf,
         };
         process(staged_forest, &mut evaluator).unwrap()
