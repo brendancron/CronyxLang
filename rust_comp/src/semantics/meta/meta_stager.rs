@@ -149,6 +149,32 @@ pub fn process_expr(
             staged_ast.insert_expr(staged_expr_id, StagedExpr::DotCall { object: obj_id, method: method.clone(), args: out_args });
         }
 
+        MetaExpr::EnumConstructor { enum_name, variant, payload } => {
+            let staged_payload = match payload {
+                ConstructorPayload::Unit => ConstructorPayload::Unit,
+                ConstructorPayload::Tuple(exprs) => {
+                    let mut ids = Vec::new();
+                    for e in exprs {
+                        ids.push(process_expr(meta_ast, *e, staged_ast, id_provider, dependency_set, staged_forest, type_env)?);
+                    }
+                    ConstructorPayload::Tuple(ids)
+                }
+                ConstructorPayload::Struct(fields) => {
+                    let mut out = Vec::new();
+                    for (name, e) in fields {
+                        let id = process_expr(meta_ast, *e, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+                        out.push((name.clone(), id));
+                    }
+                    ConstructorPayload::Struct(out)
+                }
+            };
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::EnumConstructor {
+                enum_name: enum_name.clone(),
+                variant: variant.clone(),
+                payload: staged_payload,
+            });
+        }
+
         MetaExpr::Embed(file_path) => {
             let resolved = if let Some(dir) = &staged_forest.source_dir {
                 dir.join(file_path)
@@ -246,6 +272,26 @@ pub fn process_stmt(
         }
 
         MetaStmt::StructDecl { .. } => {}
+
+        MetaStmt::EnumDecl { name, variants } => {
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::EnumDecl {
+                name: name.clone(),
+                variants: variants.clone(),
+            });
+        }
+
+        MetaStmt::Match { scrutinee, arms } => {
+            let scrutinee_id = process_expr(meta_ast, *scrutinee, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let mut staged_arms = Vec::new();
+            for arm in arms {
+                let body_id = process_stmt(meta_ast, arm.body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+                staged_arms.push(MatchArm { pattern: arm.pattern.clone(), body: body_id });
+            }
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Match {
+                scrutinee: scrutinee_id,
+                arms: staged_arms,
+            });
+        }
 
         MetaStmt::Return(expr) => {
             let expr_id = expr

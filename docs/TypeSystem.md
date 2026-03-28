@@ -179,67 +179,49 @@ enum CardEffect {
 }
 ```
 
-**Recursive ADT**
-```
-enum Expr {
-    Num(int),
-    Add(Expr, Expr),
-    Mul(Expr, Expr),
-}
-```
-
 ---
 
 ## Pattern Matching
 
-`match` is an expression — it returns a value. Matches are exhaustive: the compiler errors if any variant is unhandled.
+`match` dispatches on an enum value. Each arm pairs a pattern with a block body; the first matching arm runs.
 
 **Basic match**
 ```
-var desc = match rarity {
-    Rarity::Common => "common",
-    Rarity::Uncommon => "uncommon",
-    Rarity::Rare => "rare",
-};
+match rarity {
+    Rarity::Common   => { print("common");   }
+    Rarity::Uncommon => { print("uncommon"); }
+    Rarity::Rare     => { print("rare");     }
+}
 ```
 
 **Destructuring variant data**
 ```
-var result = match effect {
-    CardEffect::Damage { amount } => hp - amount,
-    CardEffect::Heal { amount } => hp + amount,
-    CardEffect::Draw { count } => draw(count),
-    CardEffect::None => hp,
-};
+match effect {
+    CardEffect::Damage { amount } => { hp = hp - amount; }
+    CardEffect::Heal   { amount } => { hp = hp + amount; }
+    CardEffect::Draw   { count  } => { draw(count);      }
+    CardEffect::None              => {}
+}
 ```
 
-**Guards**
+**Tuple variant destructuring**
 ```
-var label = match card {
-    { energy } if energy > 5 => "expensive",
-    { energy } => "cheap",
-};
-```
-
-**Matching on object fields**
-
-Since object types are structural, `match` works on object shapes too — not just enums:
-
-```
-var area = match shape {
-    { radius } => 3.14 * radius * radius,
-    { width, height } => width * height,
-    _ => 0.0,
-};
+match shape {
+    Shape::Point      => { print("point"); }
+    Shape::Circle(r)  => { print(r);       }
+    Shape::Rect(w, h) => { print(w + h);   }
+}
 ```
 
 **Wildcard**
 ```
 match effect {
-    CardEffect::Damage { amount } => take_damage(amount),
-    _ => {},
+    CardEffect::Damage { amount } => { take_damage(amount); }
+    _                             => {}
 }
 ```
+
+Planned: match as expression, exhaustiveness checking, guards, structural matching on records.
 
 ---
 

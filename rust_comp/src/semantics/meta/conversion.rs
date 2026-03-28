@@ -70,6 +70,9 @@ pub fn convert_to_runtime(
             StagedExpr::Call { callee, args } => RuntimeExpr::Call { callee, args },
             StagedExpr::DotAccess { object, field } => RuntimeExpr::DotAccess { object, field },
             StagedExpr::DotCall { object, method, args } => RuntimeExpr::DotCall { object, method, args },
+            StagedExpr::EnumConstructor { enum_name, variant, payload } => {
+                RuntimeExpr::EnumConstructor { enum_name, variant, payload }
+            }
             StagedExpr::MetaExpr(_) => return Err(AstConversionError::UnresolvedMeta(*id)),
         };
         runtime.insert_expr(*id, runtime_expr);
@@ -123,6 +126,8 @@ pub fn convert_to_runtime(
                     fields: runtime_fields,
                 }
             }
+            StagedStmt::EnumDecl { name, variants } => RuntimeStmt::EnumDecl { name, variants },
+            StagedStmt::Match { scrutinee, arms } => RuntimeStmt::Match { scrutinee, arms },
         };
         runtime.insert_stmt(*id, runtime_stmt);
     }

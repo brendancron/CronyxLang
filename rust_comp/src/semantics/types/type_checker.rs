@@ -1,4 +1,4 @@
-use crate::frontend::meta_ast::*;
+use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings, *};
 use super::typed_ast::TypeTable;
 use super::type_env::TypeEnv;
 use super::type_error::TypeError;
@@ -120,6 +120,23 @@ fn infer_expr(
                 field_types.insert(field_name, t);
             }
             Type::Record(field_types)
+        }
+
+        MetaExpr::EnumConstructor { enum_name, payload, .. } => {
+            match payload {
+                ConstructorPayload::Tuple(ids) => {
+                    for id in ids {
+                        infer_expr(ast, id, env, subst, table)?;
+                    }
+                }
+                ConstructorPayload::Struct(fields) => {
+                    for (_, id) in fields {
+                        infer_expr(ast, id, env, subst, table)?;
+                    }
+                }
+                ConstructorPayload::Unit => {}
+            }
+            Type::Enum(enum_name.clone())
         }
 
         // Resolved at compile time by the metaprocessor — type is string
@@ -304,6 +321,45 @@ fn infer_stmt(
             let scheme = generalize(env, final_fn_type.clone());
             env.bind(name.as_str(), scheme);
             final_fn_type
+        }
+
+        MetaStmt::EnumDecl { name, variants } => {
+            env.register_enum(&name, variants.clone());
+            unit_type()
+        }
+
+        MetaStmt::Match { scrutinee, arms } => {
+            let _scrutinee_ty = infer_expr(ast, scrutinee, env, subst, table)?;
+            for arm in arms {
+                env.push_scope();
+                match &arm.pattern {
+                    Pattern::Wildcard => {}
+                    Pattern::Enum { enum_name, variant, bindings } => {
+                        if let Some(variants) = env.lookup_enum(enum_name).cloned() {
+                            if let Some(v) = variants.iter().find(|v| v.name == *variant) {
+                                match (&v.payload, bindings) {
+                                    (_, VariantBindings::Unit) => {}
+                                    (_, VariantBindings::Tuple(names)) => {
+                                        for name in names {
+                                            let tv = Type::Var(env.fresh());
+                                            env.bind_mono(name, tv);
+                                        }
+                                    }
+                                    (_, VariantBindings::Struct(names)) => {
+                                        for name in names {
+                                            let tv = Type::Var(env.fresh());
+                                            env.bind_mono(name, tv);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                infer_stmt(ast, arm.body, env, subst, ctx, table)?;
+                env.pop_scope();
+            }
+            unit_type()
         }
 
         // These don't produce a meaningful type for the table

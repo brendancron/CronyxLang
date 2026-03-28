@@ -1,4 +1,4 @@
-use crate::frontend::meta_ast::ImportDecl;
+use crate::frontend::meta_ast::{ConstructorPayload, ImportDecl, Pattern, VariantBindings};
 use crate::semantics::meta::runtime_ast::*;
 use super::type_env::TypeEnv;
 use super::type_error::TypeError;
@@ -145,6 +145,23 @@ fn infer_expr(
             }
             Ok(Type::Var(env.fresh()))
         }
+
+        RuntimeExpr::EnumConstructor { enum_name, payload, .. } => {
+            match payload {
+                ConstructorPayload::Tuple(ids) => {
+                    for id in ids {
+                        infer_expr(ast, id, env, subst)?;
+                    }
+                }
+                ConstructorPayload::Struct(fields) => {
+                    for (_, id) in fields {
+                        infer_expr(ast, id, env, subst)?;
+                    }
+                }
+                ConstructorPayload::Unit => {}
+            }
+            Ok(Type::Enum(enum_name.clone()))
+        }
     }
 }
 
@@ -276,6 +293,43 @@ fn infer_stmt(
 
         // StructDecl doesn't have checkable expressions.
         RuntimeStmt::StructDecl { .. } => {}
+
+        RuntimeStmt::EnumDecl { name, variants } => {
+            env.register_enum(&name, variants.clone());
+        }
+
+        RuntimeStmt::Match { scrutinee, arms } => {
+            infer_expr(ast, scrutinee, env, subst)?;
+            for arm in arms {
+                env.push_scope();
+                match &arm.pattern {
+                    Pattern::Wildcard => {}
+                    Pattern::Enum { enum_name, variant, bindings } => {
+                        if let Some(variants) = env.lookup_enum(enum_name).cloned() {
+                            if let Some(_v) = variants.iter().find(|v| v.name == *variant) {
+                                match bindings {
+                                    VariantBindings::Unit => {}
+                                    VariantBindings::Tuple(names) => {
+                                        for name in names {
+                                            let tv = Type::Var(env.fresh());
+                                            env.bind_mono(name, tv);
+                                        }
+                                    }
+                                    VariantBindings::Struct(names) => {
+                                        for name in names {
+                                            let tv = Type::Var(env.fresh());
+                                            env.bind_mono(name, tv);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                infer_stmt(ast, arm.body, env, subst, ctx)?;
+                env.pop_scope();
+            }
+        }
     }
     Ok(())
 }

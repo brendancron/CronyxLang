@@ -249,8 +249,9 @@
   },
   "active": "8247722acf42eccd",
   "lastOpenFiles": [
-    "Useful Commands.md",
+    "Enum Implementation Plan.md",
     "Cronyx Type System.md",
+    "Useful Commands.md",
     "Meta Functions.md",
     "Cronyx Module System.md",
     "ModuleSystem.md",
@@ -278,7 +279,6 @@
     "Hindley-Milner/HM Type Rules.md",
     "Hindley-Milner/HM Assignments & Expressions.md",
     "Hindley-Milner/Free and Bound Type Variables.md",
-    "Hindley-Milner",
-    "Key Takeaways.md"
+    "Hindley-Milner"
   ]
 }

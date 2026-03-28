@@ -1,10 +1,12 @@
 use super::type_utils::instantiate;
 use super::types::{Type, TypeScheme, TypeVar};
+use crate::frontend::meta_ast::EnumVariant;
 use std::collections::HashMap;
 
 pub struct TypeEnv {
     scopes: Vec<HashMap<String, TypeScheme>>,
     next_id: usize,
+    pub enums: HashMap<String, Vec<EnumVariant>>,
 }
 
 impl TypeEnv {
@@ -12,7 +14,16 @@ impl TypeEnv {
         Self {
             scopes: vec![HashMap::new()],
             next_id: 0,
+            enums: HashMap::new(),
         }
+    }
+
+    pub fn register_enum(&mut self, name: &str, variants: Vec<EnumVariant>) {
+        self.enums.insert(name.to_string(), variants);
+    }
+
+    pub fn lookup_enum(&self, name: &str) -> Option<&Vec<EnumVariant>> {
+        self.enums.get(name)
     }
 
     pub fn fresh(&mut self) -> TypeVar {

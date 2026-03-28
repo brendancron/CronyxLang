@@ -21,10 +21,12 @@ pub enum TokenType {
     BangEqual,
     Equal,
     EqualEqual,
+    FatArrow,
     Greater,
     GreaterEqual,
     Less,
     LessEqual,
+    DoubleColon,
 
     // Literals
     Identifier,
@@ -36,6 +38,7 @@ pub enum TokenType {
     As,
     Else,
     Embed,
+    Enum,
     False,
     From,
     Func,
@@ -44,6 +47,7 @@ pub enum TokenType {
     If,
     Import,
     In,
+    Match,
     Meta,
     Or,
     Print,
