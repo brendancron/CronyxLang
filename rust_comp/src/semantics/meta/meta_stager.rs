@@ -182,7 +182,7 @@ pub fn process_stmt(
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::ExprStmt(expr_id));
         }
 
-        MetaStmt::VarDecl { name, expr } => {
+        MetaStmt::VarDecl { name, expr, .. } => {
             let expr_id = process_expr(meta_ast, *expr, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::VarDecl {
                 name: name.clone(),
@@ -240,7 +240,7 @@ pub fn process_stmt(
             let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::FnDecl {
                 name: name.clone(),
-                params: params.clone(),
+                params: params.iter().map(|p| p.name.clone()).collect(),
                 body: body_id,
             });
         }

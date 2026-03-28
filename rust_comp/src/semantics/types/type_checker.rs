@@ -6,6 +6,16 @@ use super::type_subst::{unify, ApplySubst, TypeSubst};
 use super::type_utils::generalize;
 use super::types::*;
 
+fn resolve_annotation(s: &str) -> Option<Type> {
+    match s {
+        "int" => Some(int_type()),
+        "bool" => Some(bool_type()),
+        "string" => Some(string_type()),
+        "unit" => Some(unit_type()),
+        _ => None,
+    }
+}
+
 struct TypeCheckCtx {
     return_type: Option<Type>,
     saw_return: bool,
@@ -150,9 +160,12 @@ fn infer_stmt(
             unit_type()
         }
 
-        MetaStmt::VarDecl { name, expr } => {
+        MetaStmt::VarDecl { name, type_annotation, expr } => {
             let expr_ty = infer_expr(ast, expr, env, subst, table)?;
-            let scheme = generalize(env, expr_ty);
+            if let Some(declared_ty) = type_annotation.as_deref().and_then(resolve_annotation) {
+                unify(&expr_ty, &declared_ty, subst)?;
+            }
+            let scheme = generalize(env, expr_ty.apply(subst));
             env.bind(&name, scheme);
             unit_type()
         }
@@ -167,8 +180,11 @@ fn infer_stmt(
 
         MetaStmt::FnDecl { name, params, body } => {
             let mut param_types = Vec::new();
-            for _ in &params {
-                param_types.push(Type::Var(env.fresh()));
+            for p in &params {
+                let ty = p.ty.as_deref()
+                    .and_then(resolve_annotation)
+                    .unwrap_or_else(|| Type::Var(env.fresh()));
+                param_types.push(ty);
             }
             let ret_tv = Type::Var(env.fresh());
 
@@ -181,7 +197,7 @@ fn infer_stmt(
             env.bind_mono(&name, fn_type.clone());
 
             for (param, ty) in params.iter().zip(param_types.iter()) {
-                env.bind_mono(param, ty.clone());
+                env.bind_mono(&param.name, ty.clone());
             }
 
             let saved_ret = ctx.return_type.take();
@@ -257,8 +273,11 @@ fn infer_stmt(
 
         MetaStmt::MetaFnDecl { name, params, body } => {
             let mut param_types = Vec::new();
-            for _ in params.iter() {
-                param_types.push(Type::Var(env.fresh()));
+            for p in params.iter() {
+                let ty = p.ty.as_deref()
+                    .and_then(resolve_annotation)
+                    .unwrap_or_else(|| Type::Var(env.fresh()));
+                param_types.push(ty);
             }
             let ret_tv = Type::Var(env.fresh());
             let fn_type = Type::Func {
@@ -268,7 +287,7 @@ fn infer_stmt(
             env.push_scope();
             env.bind_mono(name.as_str(), fn_type.clone());
             for (param, ty) in params.iter().zip(param_types.iter()) {
-                env.bind_mono(param.as_str(), ty.clone());
+                env.bind_mono(param.name.as_str(), ty.clone());
             }
             let saved_ret = ctx.return_type.take();
             let saved_saw = ctx.saw_return;

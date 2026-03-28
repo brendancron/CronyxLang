@@ -97,6 +97,7 @@ pub enum MetaStmt {
     // DECLARATION
     VarDecl {
         name: String,
+        type_annotation: Option<String>,
         expr: usize,
     },
 
@@ -107,7 +108,7 @@ pub enum MetaStmt {
 
     FnDecl {
         name: String,
-        params: Vec<String>,
+        params: Vec<Param>,
         body: usize,
     },
 
@@ -140,13 +141,19 @@ pub enum MetaStmt {
     MetaBlock(usize),
     MetaFnDecl {
         name: String,
-        params: Vec<String>,
+        params: Vec<Param>,
         body: usize,
     },
     Gen(Vec<usize>),
 
     // TEMPORARY
     Print(usize),
+}
+
+#[derive(Debug, Clone)]
+pub struct Param {
+    pub name: String,
+    pub ty: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -192,10 +199,13 @@ impl MetaAst {
         let (label, mut children): (String, Vec<TreeNode>) = match stmt {
             MetaStmt::ExprStmt(e) => ("ExprStmt".into(), vec![self.convert_expr(*e)]),
 
-            MetaStmt::VarDecl { name, expr } => (
+            MetaStmt::VarDecl { name, type_annotation, expr } => (
                 "VarDecl".into(),
                 vec![
-                    TreeNode::leaf(format!("Name({name})")),
+                    TreeNode::leaf(match type_annotation {
+                        Some(ty) => format!("Name({name}: {ty})"),
+                        None => format!("Name({name})"),
+                    }),
                     self.convert_expr(*expr),
                 ],
             ),
@@ -214,7 +224,10 @@ impl MetaAst {
                     TreeNode::leaf(format!("Name({name})")),
                     TreeNode::node(
                         "Params",
-                        params.iter().map(|p| TreeNode::leaf(p.clone())).collect(),
+                        params.iter().map(|p| TreeNode::leaf(match &p.ty {
+                            Some(ty) => format!("{}: {}", p.name, ty),
+                            None => p.name.clone(),
+                        })).collect(),
                     ),
                     self.convert_stmt(*body),
                 ],
@@ -282,7 +295,10 @@ impl MetaAst {
                     TreeNode::leaf(format!("Name({name})")),
                     TreeNode::node(
                         "Params",
-                        params.iter().map(|p| TreeNode::leaf(p.clone())).collect(),
+                        params.iter().map(|p| TreeNode::leaf(match &p.ty {
+                            Some(ty) => format!("{}: {}", p.name, ty),
+                            None => p.name.clone(),
+                        })).collect(),
                     ),
                     self.convert_stmt(*body),
                 ],

@@ -71,6 +71,17 @@ fn consume_next<'a>(tokens: &'a [Token], pos: &mut usize) -> &'a Token {
     tok
 }
 
+fn parse_type_annot(tokens: &[Token], pos: &mut usize) -> Option<String> {
+    if check(tokens, *pos, TokenType::Colon) {
+        *pos += 1;
+        if let Some(tok) = tokens.get(*pos) {
+            *pos += 1;
+            return Some(tok.expect_str());
+        }
+    }
+    None
+}
+
 fn parse_separated<T>(
     tokens: &[Token],
     pos: &mut usize,
@@ -465,11 +476,13 @@ fn parse_stmt<'a>(
             TokenType::Var => {
                 consume(tokens, pos, TokenType::Var)?;
                 let ident = consume(tokens, pos, TokenType::Identifier)?;
+                let type_annotation = parse_type_annot(tokens, pos);
                 consume(tokens, pos, TokenType::Equal)?;
                 let expr = parse_expr(tokens, pos, ctx)?;
                 consume(tokens, pos, TokenType::Semicolon)?;
                 let var_decl = MetaStmt::VarDecl {
                     name: ident.expect_str(),
+                    type_annotation,
                     expr,
                 };
 
@@ -489,7 +502,9 @@ fn parse_stmt<'a>(
                     TokenType::Comma,
                     TokenType::RightParen,
                     |tokens, pos, _ctx| {
-                        Ok(consume(tokens, pos, TokenType::Identifier)?.expect_str())
+                        let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                        let ty = parse_type_annot(tokens, pos);
+                        Ok(Param { name, ty })
                     },
                 )?;
                 consume(tokens, pos, TokenType::RightParen)?;
@@ -634,7 +649,9 @@ fn parse_meta_stmt(
             TokenType::Comma,
             TokenType::RightParen,
             |tokens, pos, _ctx| {
-                Ok(consume(tokens, pos, TokenType::Identifier)?.expect_str())
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                let ty = parse_type_annot(tokens, pos);
+                Ok(Param { name, ty })
             },
         )?;
         consume(tokens, pos, TokenType::RightParen)?;

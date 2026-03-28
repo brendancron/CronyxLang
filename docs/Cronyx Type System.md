@@ -1,4 +1,4 @@
-Cronyx uses Hindley-Milner type inference — every expression has a type inferred automatically without annotations. The type checker runs in two phases: once before meta-processing on the full source AST, and once after meta-processing on the final runtime AST.
+Cronyx uses Hindley-Milner type inference — types are inferred automatically, with optional annotations available for documentation and constraint. The type checker runs in two phases: once before meta-processing on the full source AST, and once after meta-processing on the final runtime AST.
 
 ---
 
@@ -112,9 +112,47 @@ var dmg  = CardEffect::Damage { amount: 10 };
 
 ---
 
+## Type Annotations
+
+Type annotations are optional. When present, they act as constraints that the inferred type must satisfy — a mismatch is a `TypeMismatch` error.
+
+### Variable annotations
+
+```
+var x: int = 5;
+var name: string = "Alice";
+var flag: bool = true;
+```
+
+### Parameter annotations
+
+```
+fn add(a: int, b: int) {
+    return a + b;
+}
+
+fn greet(name: string) {
+    print("Hello " + name);
+}
+```
+
+Annotations can be mixed freely with unannotated parameters:
+
+```
+fn wrap(prefix: string, suffix) {
+    return prefix + suffix;
+}
+```
+
+The four annotatable primitive types are `int`, `bool`, `string`, and `unit`. Annotations on unknown type names are silently ignored (treated as unannotated).
+
+**No return type annotations** — return types are always inferred from `return` statements.
+
+---
+
 ## Type Inference
 
-Cronyx uses Algorithm W (Hindley-Milner) to infer types. No annotations are required in normal code — the type checker propagates constraints through the AST and resolves them via unification.
+Cronyx uses Algorithm W (Hindley-Milner) to infer types. Annotations are not required — the type checker propagates constraints through the AST and resolves them via unification.
 
 ### Unification
 
@@ -225,7 +263,6 @@ Imported module namespaces are given a fresh type variable. Member types within 
 
 ## Current Limitations
 
-- **No type annotations**: All types are inferred; there is no syntax to annotate a variable or parameter with an explicit type.
 - **No enums or ADTs**: Sum types and pattern matching are not yet implemented.
 - **No module member types**: Imported namespaces are opaque to the type checker.
 - **No lambda syntax**: Anonymous functions are not yet supported.

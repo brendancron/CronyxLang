@@ -26,6 +26,7 @@ fn ast_with_expr(expr: MetaExpr) -> (MetaAst, usize) {
     let expr_id = ast.insert_expr(&mut ids, expr);
     let stmt_id = ast.insert_stmt(&mut ids, MetaStmt::VarDecl {
         name: "_".into(),
+        type_annotation: None,
         expr: expr_id,
     });
     ast.sem_root_stmts.push(stmt_id);
@@ -292,6 +293,7 @@ mod type_check_tests {
         });
         let stmt = ast.insert_stmt(&mut ids, MetaStmt::VarDecl {
             name: "p".into(),
+            type_annotation: None,
             expr: record,
         });
         ast.sem_root_stmts.push(stmt);

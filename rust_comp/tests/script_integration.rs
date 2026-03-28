@@ -202,6 +202,9 @@ mod script_integration {
         cx_test_autoscope!(modules_same_dir, "tests/core/modules/same_dir", "main");
         cx_test!(embed_embed,          "tests/core/embed",     "embed");
         cx_test!(resolution_symbol,    "tests/core/resolution","symbol_res");
+        cx_test!(type_annot_var,   "tests/core/type_annotations", "var_annot");
+        cx_test!(type_annot_fn,    "tests/core/type_annotations", "fn_annot");
+        cx_test!(type_annot_mixed, "tests/core/type_annotations", "mixed_annot");
     }
 
     #[cfg(test)]

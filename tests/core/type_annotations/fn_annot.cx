@@ -1,0 +1,11 @@
+fn add(a: int, b: int) {
+    return a + b;
+}
+
+fn greet(name: string) {
+    print("Hello " + name);
+}
+
+var result = add(10, 32);
+print(result);
+greet("World");

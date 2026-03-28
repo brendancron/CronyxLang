@@ -29,10 +29,13 @@ impl<'a> TypeAnnotatedView<'a> {
                 vec![self.convert_expr(*e)],
             ),
 
-            MetaStmt::VarDecl { name, expr } => (
+            MetaStmt::VarDecl { name, type_annotation, expr } => (
                 "VarDecl".into(),
                 vec![
-                    TreeNode::leaf(format!("Name({name})")),
+                    TreeNode::leaf(match type_annotation {
+                        Some(ty) => format!("Name({name}: {ty})"),
+                        None => format!("Name({name})"),
+                    }),
                     self.convert_expr(*expr),
                 ],
             ),
@@ -51,7 +54,10 @@ impl<'a> TypeAnnotatedView<'a> {
                     TreeNode::leaf(format!("Name({name})")),
                     TreeNode::node(
                         "Params",
-                        params.iter().map(|p| TreeNode::leaf(p.clone())).collect(),
+                        params.iter().map(|p| TreeNode::leaf(match &p.ty {
+                            Some(ty) => format!("{}: {}", p.name, ty),
+                            None => p.name.clone(),
+                        })).collect(),
                     ),
                     self.convert_stmt(*body),
                 ],
@@ -111,7 +117,10 @@ impl<'a> TypeAnnotatedView<'a> {
                     TreeNode::leaf(format!("Name({name})")),
                     TreeNode::node(
                         "Params",
-                        params.iter().map(|p| TreeNode::leaf(p.clone())).collect(),
+                        params.iter().map(|p| TreeNode::leaf(match &p.ty {
+                            Some(ty) => format!("{}: {}", p.name, ty),
+                            None => p.name.clone(),
+                        })).collect(),
                     ),
                     self.convert_stmt(*body),
                 ],

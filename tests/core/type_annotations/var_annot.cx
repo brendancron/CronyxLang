@@ -1,0 +1,7 @@
+var x: int = 42;
+var name: string = "Alice";
+var flag: bool = true;
+
+print(x);
+print(name);
+print(flag);

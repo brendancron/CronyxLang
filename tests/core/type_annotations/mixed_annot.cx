@@ -1,0 +1,12 @@
+// Mix of annotated and unannotated params
+fn wrap(prefix: string, suffix) {
+    return prefix + suffix;
+}
+
+fn triple(n: int) {
+    return n * 3;
+}
+
+var result = triple(7);
+print(result);
+print(wrap("Hello, ", "world!"));
