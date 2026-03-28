@@ -1,24 +1,29 @@
-# Compiler
+# Cronyx
 
-## Make commands
+A statically-typed, metaprogramming-first language with Hindley-Milner type inference.
+
+See [docs/Cronyx.md](docs/Cronyx.md) for a language overview.
+
+## Building
 
 ```zsh
-make run FILE=examples/vanilla/hello.cx
+cd rust_comp
+cargo build
 ```
 
-# rust_comp Runner
+## Running
 
-## Build
-    cargo build
+```zsh
+cargo run -- path/to/file.cx
+```
 
-## Run
+Build artifacts are written to `../out/`.
 
-From a file:
-    cargo run -- path/to/file.cx
+## Testing
 
-From stdin:
-    cargo run -- -
+```zsh
+cargo test
+```
 
-## Output
-Artifacts are written to ../out.
-Relative embed paths resolve from the input file’s directory (or . for stdin).
+Integration tests live in `tests/` and are registered in `rust_comp/tests/script_integration.rs`.
+Each test consists of a `.cx` source file and a corresponding `.txt` file containing the expected output.
