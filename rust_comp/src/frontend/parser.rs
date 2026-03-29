@@ -121,6 +121,13 @@ fn parse_factor<'a>(
 ) -> Result<usize, ParseError> {
     match tokens.get(*pos) {
         Some(tok) => match tok.token_type {
+            TokenType::Bang => {
+                *pos += 1;
+                let operand = parse_factor(tokens, pos, ctx)?;
+                let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Not(operand));
+                Ok(id)
+            }
+
             TokenType::Number => {
                 consume_next(tokens, pos);
                 let id = ctx
@@ -340,25 +347,37 @@ fn parse_postfix<'a>(
 ) -> Result<usize, ParseError> {
     let mut base = parse_factor(tokens, pos, ctx)?;
 
-    while check(tokens, *pos, TokenType::Dot) {
-        *pos += 1; // consume Dot
-        let field = consume(tokens, pos, TokenType::Identifier)?.expect_str();
-        if check(tokens, *pos, TokenType::LeftParen) {
-            consume(tokens, pos, TokenType::LeftParen)?;
-            let args = parse_separated(
-                tokens, pos, ctx,
-                TokenType::Comma, TokenType::RightParen, parse_expr,
-            )?;
-            consume(tokens, pos, TokenType::RightParen)?;
+    loop {
+        if check(tokens, *pos, TokenType::Dot) {
+            *pos += 1; // consume Dot
+            let field = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+            if check(tokens, *pos, TokenType::LeftParen) {
+                consume(tokens, pos, TokenType::LeftParen)?;
+                let args = parse_separated(
+                    tokens, pos, ctx,
+                    TokenType::Comma, TokenType::RightParen, parse_expr,
+                )?;
+                consume(tokens, pos, TokenType::RightParen)?;
+                base = ctx.ast.insert_expr(
+                    &mut ctx.id_provider,
+                    MetaExpr::DotCall { object: base, method: field, args },
+                );
+            } else {
+                base = ctx.ast.insert_expr(
+                    &mut ctx.id_provider,
+                    MetaExpr::DotAccess { object: base, field },
+                );
+            }
+        } else if check(tokens, *pos, TokenType::LeftBracket) {
+            *pos += 1; // consume [
+            let index = parse_expr(tokens, pos, ctx)?;
+            consume(tokens, pos, TokenType::RightBracket)?;
             base = ctx.ast.insert_expr(
                 &mut ctx.id_provider,
-                MetaExpr::DotCall { object: base, method: field, args },
+                MetaExpr::Index { object: base, index },
             );
         } else {
-            base = ctx.ast.insert_expr(
-                &mut ctx.id_provider,
-                MetaExpr::DotAccess { object: base, field },
-            );
+            break;
         }
     }
 
@@ -422,6 +441,48 @@ fn parse_expr<'a>(
                     *pos += 1;
                     let right = parse_term(tokens, pos, ctx)?;
                     let node = MetaExpr::Equals(left, right);
+                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
+                }
+                TokenType::BangEqual => {
+                    *pos += 1;
+                    let right = parse_term(tokens, pos, ctx)?;
+                    let node = MetaExpr::NotEquals(left, right);
+                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
+                }
+                TokenType::Less => {
+                    *pos += 1;
+                    let right = parse_term(tokens, pos, ctx)?;
+                    let node = MetaExpr::Lt(left, right);
+                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
+                }
+                TokenType::Greater => {
+                    *pos += 1;
+                    let right = parse_term(tokens, pos, ctx)?;
+                    let node = MetaExpr::Gt(left, right);
+                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
+                }
+                TokenType::LessEqual => {
+                    *pos += 1;
+                    let right = parse_term(tokens, pos, ctx)?;
+                    let node = MetaExpr::Lte(left, right);
+                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
+                }
+                TokenType::GreaterEqual => {
+                    *pos += 1;
+                    let right = parse_term(tokens, pos, ctx)?;
+                    let node = MetaExpr::Gte(left, right);
+                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
+                }
+                TokenType::And => {
+                    *pos += 1;
+                    let right = parse_term(tokens, pos, ctx)?;
+                    let node = MetaExpr::And(left, right);
+                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
+                }
+                TokenType::Or => {
+                    *pos += 1;
+                    let right = parse_term(tokens, pos, ctx)?;
+                    let node = MetaExpr::Or(left, right);
                     left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
                 }
 
@@ -495,6 +556,19 @@ fn parse_stmt<'a>(
 
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, if_stmt);
                 Ok(id)
+            }
+
+            TokenType::While => {
+                consume(tokens, pos, TokenType::While)?;
+                consume(tokens, pos, TokenType::LeftParen)?;
+                let cond = parse_expr(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::RightParen)?;
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let body = parse_block(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let stmt = MetaStmt::WhileLoop { cond, body };
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, stmt);
+                return Ok(id);
             }
 
             TokenType::For => {
@@ -720,6 +794,21 @@ fn parse_stmt<'a>(
                 };
                 consume(tokens, pos, TokenType::Semicolon)?;
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Import(decl));
+                Ok(id)
+            }
+
+            TokenType::Identifier if check(tokens, *pos + 1, TokenType::LeftBracket) => {
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                let mut indices = Vec::new();
+                while check(tokens, *pos, TokenType::LeftBracket) {
+                    *pos += 1;
+                    indices.push(parse_expr(tokens, pos, ctx)?);
+                    consume(tokens, pos, TokenType::RightBracket)?;
+                }
+                consume(tokens, pos, TokenType::Equal)?;
+                let expr = parse_expr(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::Semicolon)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::IndexAssign { name, indices, expr });
                 Ok(id)
             }
 

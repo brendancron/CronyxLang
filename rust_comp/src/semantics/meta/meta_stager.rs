@@ -113,6 +113,45 @@ pub fn process_expr(
             let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_expr(staged_expr_id, StagedExpr::Equals(a_id, b_id));
         }
+        MetaExpr::NotEquals(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::NotEquals(a_id, b_id));
+        }
+        MetaExpr::Lt(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Lt(a_id, b_id));
+        }
+        MetaExpr::Gt(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Gt(a_id, b_id));
+        }
+        MetaExpr::Lte(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Lte(a_id, b_id));
+        }
+        MetaExpr::Gte(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Gte(a_id, b_id));
+        }
+        MetaExpr::And(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::And(a_id, b_id));
+        }
+        MetaExpr::Or(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Or(a_id, b_id));
+        }
+        MetaExpr::Not(a) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Not(a_id));
+        }
 
         MetaExpr::Call { callee, args } => {
             let mut out_args = Vec::with_capacity(args.len());
@@ -147,6 +186,12 @@ pub fn process_expr(
                 out_args.push(process_expr(meta_ast, *arg, staged_ast, id_provider, dependency_set, staged_forest, type_env)?);
             }
             staged_ast.insert_expr(staged_expr_id, StagedExpr::DotCall { object: obj_id, method: method.clone(), args: out_args });
+        }
+
+        MetaExpr::Index { object, index } => {
+            let obj_id = process_expr(meta_ast, *object, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let idx_id = process_expr(meta_ast, *index, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Index { object: obj_id, index: idx_id });
         }
 
         MetaExpr::EnumConstructor { enum_name, variant, payload } => {
@@ -224,6 +269,19 @@ pub fn process_stmt(
             });
         }
 
+        MetaStmt::IndexAssign { name, indices, expr } => {
+            let mut idx_ids = Vec::new();
+            for idx in indices {
+                idx_ids.push(process_expr(meta_ast, *idx, staged_ast, id_provider, dependency_set, staged_forest, type_env)?);
+            }
+            let expr_id = process_expr(meta_ast, *expr, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::IndexAssign {
+                name: name.clone(),
+                indices: idx_ids,
+                expr: expr_id,
+            });
+        }
+
         MetaStmt::Print(expr) => {
             let expr_id = process_expr(meta_ast, *expr, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Print(expr_id));
@@ -240,6 +298,15 @@ pub fn process_stmt(
                 cond: cond_id,
                 body: body_id,
                 else_branch: else_id,
+            });
+        }
+
+        MetaStmt::WhileLoop { cond, body } => {
+            let cond_id = process_expr(meta_ast, *cond, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::WhileLoop {
+                cond: cond_id,
+                body: body_id,
             });
         }
 

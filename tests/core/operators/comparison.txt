@@ -1,0 +1,6 @@
+lt
+gt
+lte
+gte
+ne
+eq

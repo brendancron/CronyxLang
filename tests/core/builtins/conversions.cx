@@ -1,0 +1,9 @@
+print(to_string(42));
+print(to_string(true));
+print(to_string(false));
+
+var n = to_int("7");
+print(n + 1);
+
+var m = to_int("100");
+print(m);

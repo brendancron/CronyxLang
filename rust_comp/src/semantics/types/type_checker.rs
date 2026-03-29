@@ -36,6 +36,15 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), TypeError> {
     let mut subst = TypeSubst::new();
     let mut ctx = TypeCheckCtx::new();
 
+    // Pre-bind built-in runtime functions
+    let alpha = env.fresh();
+    env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()) });
+    env.bind("to_string", TypeScheme::PolyType {
+        vars: vec![alpha],
+        ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()) },
+    });
+    env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type())    });
+
     for stmt_id in &ast.sem_root_stmts.clone() {
         infer_stmt(ast, *stmt_id, &mut env, &mut subst, &mut ctx, &mut table)?;
     }
@@ -79,10 +88,32 @@ fn infer_expr(
             int_type()
         }
 
-        MetaExpr::Equals(a, b) => {
+        MetaExpr::Equals(a, b) | MetaExpr::NotEquals(a, b) => {
             let ta = infer_expr(ast, a, env, subst, table)?;
             let tb = infer_expr(ast, b, env, subst, table)?;
             unify(&ta, &tb, subst)?;
+            bool_type()
+        }
+
+        MetaExpr::Lt(a, b) | MetaExpr::Gt(a, b) | MetaExpr::Lte(a, b) | MetaExpr::Gte(a, b) => {
+            let ta = infer_expr(ast, a, env, subst, table)?;
+            let tb = infer_expr(ast, b, env, subst, table)?;
+            unify(&ta, &int_type(), subst)?;
+            unify(&tb, &int_type(), subst)?;
+            bool_type()
+        }
+
+        MetaExpr::And(a, b) | MetaExpr::Or(a, b) => {
+            let ta = infer_expr(ast, a, env, subst, table)?;
+            let tb = infer_expr(ast, b, env, subst, table)?;
+            unify(&ta, &bool_type(), subst)?;
+            unify(&tb, &bool_type(), subst)?;
+            bool_type()
+        }
+
+        MetaExpr::Not(a) => {
+            let ta = infer_expr(ast, a, env, subst, table)?;
+            unify(&ta, &bool_type(), subst)?;
             bool_type()
         }
 
@@ -154,6 +185,12 @@ fn infer_expr(
             }
             Type::Var(env.fresh())
         }
+
+        MetaExpr::Index { object, index } => {
+            infer_expr(ast, object, env, subst, table)?;
+            infer_expr(ast, index, env, subst, table)?;
+            Type::Var(env.fresh())
+        }
     };
 
     let ty = ty.apply(subst);
@@ -192,6 +229,14 @@ fn infer_stmt(
             if let Some(existing_ty) = env.lookup(name.as_str()) {
                 unify(&expr_ty, &existing_ty, subst)?;
             }
+            unit_type()
+        }
+
+        MetaStmt::IndexAssign { indices, expr, .. } => {
+            for idx in indices {
+                infer_expr(ast, idx, env, subst, table)?;
+            }
+            infer_expr(ast, expr, env, subst, table)?;
             unit_type()
         }
 
@@ -268,6 +313,13 @@ fn infer_stmt(
             if let Some(else_id) = else_branch {
                 infer_stmt(ast, else_id, env, subst, ctx, table)?;
             }
+            unit_type()
+        }
+
+        MetaStmt::WhileLoop { cond, body } => {
+            let cond_ty = infer_expr(ast, cond, env, subst, table)?;
+            unify(&cond_ty, &bool_type(), subst)?;
+            infer_stmt(ast, body, env, subst, ctx, table)?;
             unit_type()
         }
 

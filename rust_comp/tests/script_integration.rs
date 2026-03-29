@@ -209,6 +209,17 @@ mod script_integration {
         cx_test!(enum_tuple_variants,  "tests/core/enums", "tuple_variants");
         cx_test!(enum_struct_variants, "tests/core/enums", "struct_variants");
         cx_test!(enum_wildcard,        "tests/core/enums", "wildcard");
+
+        // Required features for 0.1.0
+        cx_test!(ops_comparison,       "tests/core/operators", "comparison");
+        cx_test!(ops_logical,          "tests/core/operators", "logical");
+        cx_test!(control_while,        "tests/core/control",   "while");
+        cx_test!(list_index_access,    "tests/core/lists",     "index_access");
+        cx_test!(list_index_assign,    "tests/core/lists",     "index_assign");
+        cx_test!(list_methods,         "tests/core/lists",     "list_methods");
+        cx_test!(string_methods,       "tests/core/strings",   "string_methods");
+        cx_test!(builtins_readfile,    "tests/core/builtins",  "readfile");
+        cx_test!(builtins_conversions, "tests/core/builtins",  "conversions");
     }
 
     #[cfg(test)]

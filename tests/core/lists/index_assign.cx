@@ -1,0 +1,11 @@
+var row = [1, 2, 3];
+row[1] = 99;
+print(row[0]);
+print(row[1]);
+print(row[2]);
+
+var grid = [[1, 2], [3, 4]];
+grid[0][1] = 7;
+print(grid[0][0]);
+print(grid[0][1]);
+print(grid[1][0]);

@@ -74,9 +74,15 @@ impl RuntimeAst {
                 RuntimeExpr::Sub(a, b) => RuntimeExpr::Sub(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::Mult(a, b) => RuntimeExpr::Mult(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::Div(a, b) => RuntimeExpr::Div(remap_expr(*a), remap_expr(*b)),
-                RuntimeExpr::Equals(a, b) => {
-                    RuntimeExpr::Equals(remap_expr(*a), remap_expr(*b))
-                }
+                RuntimeExpr::Equals(a, b) => RuntimeExpr::Equals(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::NotEquals(a, b) => RuntimeExpr::NotEquals(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Lt(a, b) => RuntimeExpr::Lt(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Gt(a, b) => RuntimeExpr::Gt(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Lte(a, b) => RuntimeExpr::Lte(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Gte(a, b) => RuntimeExpr::Gte(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::And(a, b) => RuntimeExpr::And(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Or(a, b) => RuntimeExpr::Or(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Not(a) => RuntimeExpr::Not(remap_expr(*a)),
                 RuntimeExpr::StructLiteral { type_name, fields } => {
                     RuntimeExpr::StructLiteral {
                         type_name: type_name.clone(),
@@ -98,6 +104,10 @@ impl RuntimeAst {
                     object: remap_expr(*object),
                     method: method.clone(),
                     args: args.iter().map(|id| remap_expr(*id)).collect(),
+                },
+                RuntimeExpr::Index { object, index } => RuntimeExpr::Index {
+                    object: remap_expr(*object),
+                    index: remap_expr(*index),
                 },
                 RuntimeExpr::EnumConstructor { enum_name, variant, payload } => {
                     RuntimeExpr::EnumConstructor {
@@ -134,6 +144,11 @@ impl RuntimeAst {
                     name: name.clone(),
                     expr: remap_expr(*expr),
                 },
+                RuntimeStmt::IndexAssign { name, indices, expr } => RuntimeStmt::IndexAssign {
+                    name: name.clone(),
+                    indices: indices.iter().map(|i| remap_expr(*i)).collect(),
+                    expr: remap_expr(*expr),
+                },
                 RuntimeStmt::FnDecl { name, params, body } => RuntimeStmt::FnDecl {
                     name: name.clone(),
                     params: params.clone(),
@@ -157,6 +172,10 @@ impl RuntimeAst {
                     cond: remap_expr(*cond),
                     body: remap_stmt(*body),
                     else_branch: else_branch.map(|id| remap_stmt(id)),
+                },
+                RuntimeStmt::WhileLoop { cond, body } => RuntimeStmt::WhileLoop {
+                    cond: remap_expr(*cond),
+                    body: remap_stmt(*body),
                 },
                 RuntimeStmt::ForEach {
                     var,
@@ -226,6 +245,11 @@ pub enum RuntimeExpr {
         args: Vec<usize>,
     },
 
+    Index {
+        object: usize,
+        index: usize,
+    },
+
     EnumConstructor {
         enum_name: String,
         variant: String,
@@ -238,6 +262,14 @@ pub enum RuntimeExpr {
     Mult(usize, usize),
     Div(usize, usize),
     Equals(usize, usize),
+    NotEquals(usize, usize),
+    Lt(usize, usize),
+    Gt(usize, usize),
+    Lte(usize, usize),
+    Gte(usize, usize),
+    And(usize, usize),
+    Or(usize, usize),
+    Not(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -253,6 +285,12 @@ pub enum RuntimeStmt {
 
     Assign {
         name: String,
+        expr: usize,
+    },
+
+    IndexAssign {
+        name: String,
+        indices: Vec<usize>,
         expr: usize,
     },
 
@@ -282,6 +320,11 @@ pub enum RuntimeStmt {
         cond: usize,
         body: usize,
         else_branch: Option<usize>,
+    },
+
+    WhileLoop {
+        cond: usize,
+        body: usize,
     },
 
     ForEach {
@@ -345,6 +388,14 @@ impl RuntimeAst {
                 ],
             ),
 
+            RuntimeStmt::IndexAssign { name, indices, expr } => (
+                "IndexAssign".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(indices.iter().map(|i| self.convert_expr(*i)))
+                    .chain(std::iter::once(self.convert_expr(*expr)))
+                    .collect(),
+            ),
+
             RuntimeStmt::FnDecl { name, params, body } => (
                 "FnDecl".into(),
                 vec![
@@ -385,6 +436,14 @@ impl RuntimeAst {
                 }
                 ("IfStmt".into(), v)
             }
+
+            RuntimeStmt::WhileLoop { cond, body } => (
+                "WhileLoop".into(),
+                vec![
+                    TreeNode::node("Cond", vec![self.convert_expr(*cond)]),
+                    TreeNode::node("Body", vec![self.convert_stmt(*body)]),
+                ],
+            ),
 
             RuntimeStmt::ForEach {
                 var,
@@ -496,6 +555,38 @@ impl RuntimeAst {
                 "Equals".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
             ),
+            RuntimeExpr::NotEquals(a, b) => (
+                "NotEquals".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            RuntimeExpr::Lt(a, b) => (
+                "Lt".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            RuntimeExpr::Gt(a, b) => (
+                "Gt".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            RuntimeExpr::Lte(a, b) => (
+                "Lte".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            RuntimeExpr::Gte(a, b) => (
+                "Gte".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            RuntimeExpr::And(a, b) => (
+                "And".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            RuntimeExpr::Or(a, b) => (
+                "Or".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            RuntimeExpr::Not(a) => (
+                "Not".into(),
+                vec![self.convert_expr(*a)],
+            ),
 
             RuntimeExpr::DotAccess { object, field } => (
                 format!("DotAccess(.{field})"),
@@ -507,6 +598,11 @@ impl RuntimeAst {
                 std::iter::once(self.convert_expr(*object))
                     .chain(args.iter().map(|e| self.convert_expr(*e)))
                     .collect(),
+            ),
+
+            RuntimeExpr::Index { object, index } => (
+                "Index".into(),
+                vec![self.convert_expr(*object), self.convert_expr(*index)],
             ),
 
             RuntimeExpr::EnumConstructor { enum_name, variant, .. } => (

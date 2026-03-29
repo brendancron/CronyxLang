@@ -144,6 +144,11 @@ impl<'a> SubstCtx<'a> {
                 name: name.clone(),
                 expr: self.remap_expr(*expr),
             },
+            RuntimeStmt::IndexAssign { name, indices, expr } => RuntimeStmt::IndexAssign {
+                name: name.clone(),
+                indices: indices.iter().map(|i| self.remap_expr(*i)).collect(),
+                expr: self.remap_expr(*expr),
+            },
             RuntimeStmt::FnDecl { name, params, body } => RuntimeStmt::FnDecl {
                 name: self.subst_name(name),
                 params: params.clone(),
@@ -159,6 +164,10 @@ impl<'a> SubstCtx<'a> {
                 cond: self.remap_expr(*cond),
                 body: self.remap_stmt(*body),
                 else_branch: else_branch.map(|id| self.remap_stmt(id)),
+            },
+            RuntimeStmt::WhileLoop { cond, body } => RuntimeStmt::WhileLoop {
+                cond: self.remap_expr(*cond),
+                body: self.remap_stmt(*body),
             },
             RuntimeStmt::ForEach { var, iterable, body } => RuntimeStmt::ForEach {
                 var: var.clone(),
@@ -198,9 +207,19 @@ impl<'a> SubstCtx<'a> {
             RuntimeExpr::Sub(a, b) => RuntimeExpr::Sub(self.remap_expr(*a), self.remap_expr(*b)),
             RuntimeExpr::Mult(a, b) => RuntimeExpr::Mult(self.remap_expr(*a), self.remap_expr(*b)),
             RuntimeExpr::Div(a, b) => RuntimeExpr::Div(self.remap_expr(*a), self.remap_expr(*b)),
-            RuntimeExpr::Equals(a, b) => {
-                RuntimeExpr::Equals(self.remap_expr(*a), self.remap_expr(*b))
-            }
+            RuntimeExpr::Equals(a, b) => RuntimeExpr::Equals(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::NotEquals(a, b) => RuntimeExpr::NotEquals(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::Lt(a, b) => RuntimeExpr::Lt(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::Gt(a, b) => RuntimeExpr::Gt(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::Lte(a, b) => RuntimeExpr::Lte(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::Gte(a, b) => RuntimeExpr::Gte(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::And(a, b) => RuntimeExpr::And(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::Or(a, b) => RuntimeExpr::Or(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::Not(a) => RuntimeExpr::Not(self.remap_expr(*a)),
+            RuntimeExpr::Index { object, index } => RuntimeExpr::Index {
+                object: self.remap_expr(*object),
+                index: self.remap_expr(*index),
+            },
             RuntimeExpr::List(items) => {
                 RuntimeExpr::List(items.iter().map(|id| self.remap_expr(*id)).collect())
             }

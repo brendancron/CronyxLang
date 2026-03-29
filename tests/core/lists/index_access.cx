@@ -1,0 +1,8 @@
+var row = [10, 20, 30];
+print(row[0]);
+print(row[1]);
+print(row[2]);
+
+var grid = [[1, 2], [3, 4]];
+print(grid[0][1]);
+print(grid[1][0]);

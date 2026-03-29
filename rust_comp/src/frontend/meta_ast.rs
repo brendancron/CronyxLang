@@ -77,6 +77,11 @@ pub enum MetaExpr {
         args: Vec<usize>,
     },
 
+    Index {
+        object: usize,
+        index: usize,
+    },
+
     Typeof(String),
 
     Embed(String),
@@ -93,6 +98,14 @@ pub enum MetaExpr {
     Mult(usize, usize),
     Div(usize, usize),
     Equals(usize, usize),
+    NotEquals(usize, usize),
+    Lt(usize, usize),
+    Gt(usize, usize),
+    Lte(usize, usize),
+    Gte(usize, usize),
+    And(usize, usize),
+    Or(usize, usize),
+    Not(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +122,12 @@ pub enum MetaStmt {
 
     Assign {
         name: String,
+        expr: usize,
+    },
+
+    IndexAssign {
+        name: String,
+        indices: Vec<usize>,
         expr: usize,
     },
 
@@ -138,6 +157,11 @@ pub enum MetaStmt {
         cond: usize,
         body: usize,
         else_branch: Option<usize>,
+    },
+
+    WhileLoop {
+        cond: usize,
+        body: usize,
     },
 
     ForEach {
@@ -277,6 +301,14 @@ impl MetaAst {
                 ],
             ),
 
+            MetaStmt::IndexAssign { name, indices, expr } => (
+                "IndexAssign".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(indices.iter().map(|i| self.convert_expr(*i)))
+                    .chain(std::iter::once(self.convert_expr(*expr)))
+                    .collect(),
+            ),
+
             MetaStmt::FnDecl { name, params, body } => (
                 "FnDecl".into(),
                 vec![
@@ -320,6 +352,14 @@ impl MetaAst {
                 }
                 ("IfStmt".into(), v)
             }
+
+            MetaStmt::WhileLoop { cond, body } => (
+                "WhileLoop".into(),
+                vec![
+                    TreeNode::node("Cond", vec![self.convert_expr(*cond)]),
+                    TreeNode::node("Body", vec![self.convert_stmt(*body)]),
+                ],
+            ),
 
             MetaStmt::ForEach {
                 var,
@@ -436,6 +476,11 @@ impl MetaAst {
                     .collect(),
             ),
 
+            MetaExpr::Index { object, index } => (
+                "Index".into(),
+                vec![self.convert_expr(*object), self.convert_expr(*index)],
+            ),
+
             MetaExpr::EnumConstructor { enum_name, variant, payload } => (
                 format!("EnumConstructor({enum_name}::{variant})"),
                 match payload {
@@ -474,6 +519,38 @@ impl MetaAst {
             MetaExpr::Equals(a, b) => (
                 "Equals".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::NotEquals(a, b) => (
+                "NotEquals".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Lt(a, b) => (
+                "Lt".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Gt(a, b) => (
+                "Gt".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Lte(a, b) => (
+                "Lte".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Gte(a, b) => (
+                "Gte".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::And(a, b) => (
+                "And".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Or(a, b) => (
+                "Or".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Not(a) => (
+                "Not".into(),
+                vec![self.convert_expr(*a)],
             ),
         };
 

@@ -117,6 +117,73 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(x == y)),
             _ => Err(EvalError::TypeError(types::unit_type())),
         },
+        RuntimeExpr::NotEquals(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
+            (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x != y)),
+            (Value::String(x), Value::String(y)) => Ok(Value::Bool(x != y)),
+            (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(x != y)),
+            _ => Err(EvalError::TypeError(types::unit_type())),
+        },
+        RuntimeExpr::Lt(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
+            (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x < y)),
+            _ => Err(EvalError::TypeError(types::int_type())),
+        },
+        RuntimeExpr::Gt(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
+            (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x > y)),
+            _ => Err(EvalError::TypeError(types::int_type())),
+        },
+        RuntimeExpr::Lte(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
+            (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x <= y)),
+            _ => Err(EvalError::TypeError(types::int_type())),
+        },
+        RuntimeExpr::Gte(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
+            (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x >= y)),
+            _ => Err(EvalError::TypeError(types::int_type())),
+        },
+        RuntimeExpr::And(a, b) => {
+            match eval_expr(*a, ctx)? {
+                Value::Bool(false) => Ok(Value::Bool(false)),
+                Value::Bool(true) => match eval_expr(*b, ctx)? {
+                    Value::Bool(v) => Ok(Value::Bool(v)),
+                    _ => Err(EvalError::TypeError(types::bool_type())),
+                },
+                _ => Err(EvalError::TypeError(types::bool_type())),
+            }
+        }
+        RuntimeExpr::Or(a, b) => {
+            match eval_expr(*a, ctx)? {
+                Value::Bool(true) => Ok(Value::Bool(true)),
+                Value::Bool(false) => match eval_expr(*b, ctx)? {
+                    Value::Bool(v) => Ok(Value::Bool(v)),
+                    _ => Err(EvalError::TypeError(types::bool_type())),
+                },
+                _ => Err(EvalError::TypeError(types::bool_type())),
+            }
+        }
+        RuntimeExpr::Not(a) => match eval_expr(*a, ctx)? {
+            Value::Bool(v) => Ok(Value::Bool(!v)),
+            _ => Err(EvalError::TypeError(types::bool_type())),
+        },
+
+        RuntimeExpr::Index { object, index } => {
+            let obj = eval_expr(*object, ctx)?;
+            let idx = eval_expr(*index, ctx)?;
+            let i = match idx {
+                Value::Int(n) => n as usize,
+                _ => return Err(EvalError::TypeError(types::int_type())),
+            };
+            match obj {
+                Value::List(items) => {
+                    let borrowed = items.borrow();
+                    borrowed.get(i).cloned().ok_or_else(|| EvalError::UndefinedVariable(format!("index {i} out of bounds")))
+                }
+                Value::String(s) => {
+                    let ch = s.chars().nth(i)
+                        .ok_or_else(|| EvalError::UndefinedVariable(format!("index {i} out of bounds")))?;
+                    Ok(Value::String(ch.to_string()))
+                }
+                _ => Err(EvalError::TypeError(types::unit_type())),
+            }
+        }
 
         RuntimeExpr::DotAccess { object, field } => {
             let obj = eval_expr(*object, ctx)?;
@@ -137,6 +204,59 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
 
         RuntimeExpr::DotCall { object, method, args } => {
             let obj = eval_expr(*object, ctx)?;
+            let arg_vals: Result<Vec<Value>, EvalError> = args.iter().map(|a| eval_expr(*a, ctx)).collect();
+            let arg_vals = arg_vals?;
+
+            // String built-in methods
+            if let Value::String(ref s) = obj {
+                match method.as_str() {
+                    "len" => return Ok(Value::Int(s.chars().count() as i64)),
+                    "split" => {
+                        let delim = match arg_vals.first() {
+                            Some(Value::String(d)) => d.clone(),
+                            _ => return Err(EvalError::ArgumentMismatch),
+                        };
+                        let parts: Vec<Value> = s.split(delim.as_str()).map(|p| Value::String(p.to_string())).collect();
+                        return Ok(Value::List(Rc::new(RefCell::new(parts))));
+                    }
+                    "chars" => {
+                        let chars: Vec<Value> = s.chars().map(|c| Value::String(c.to_string())).collect();
+                        return Ok(Value::List(Rc::new(RefCell::new(chars))));
+                    }
+                    "trim" => return Ok(Value::String(s.trim().to_string())),
+                    "contains" => {
+                        let sub = match arg_vals.first() {
+                            Some(Value::String(d)) => d.clone(),
+                            _ => return Err(EvalError::ArgumentMismatch),
+                        };
+                        return Ok(Value::Bool(s.contains(sub.as_str())));
+                    }
+                    _ => {}
+                }
+            }
+
+            // List built-in methods
+            if let Value::List(ref items) = obj {
+                match method.as_str() {
+                    "len" => return Ok(Value::Int(items.borrow().len() as i64)),
+                    "push" => {
+                        let item = arg_vals.into_iter().next().ok_or(EvalError::ArgumentMismatch)?;
+                        items.borrow_mut().push(item);
+                        return Ok(Value::Unit);
+                    }
+                    "pop" => {
+                        let item = items.borrow_mut().pop().ok_or_else(|| EvalError::UndefinedVariable("pop on empty list".into()))?;
+                        return Ok(item);
+                    }
+                    "contains" => {
+                        let needle = arg_vals.first().ok_or(EvalError::ArgumentMismatch)?;
+                        let found = items.borrow().iter().any(|v| values_equal(v, needle));
+                        return Ok(Value::Bool(found));
+                    }
+                    _ => {}
+                }
+            }
+
             let func = match &obj {
                 Value::Module(map) => map.get(method)
                     .cloned()
@@ -147,14 +267,9 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 Value::Function(f) => f,
                 _ => return Err(EvalError::NonFunctionCall),
             };
-            if func.params.len() != args.len() {
+            if func.params.len() != arg_vals.len() {
                 return Err(EvalError::ArgumentMismatch);
             }
-            let arg_vals = args.iter()
-                .try_fold(Vec::new(), |mut v, a| -> Result<Vec<Value>, EvalError> {
-                    v.push(eval_expr(*a, ctx)?);
-                    Ok(v)
-                })?;
             ctx.env.push_scope();
             for (param, value) in func.params.iter().zip(arg_vals) {
                 ctx.env.define(param.clone(), value);
@@ -189,6 +304,40 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
         }
 
         RuntimeExpr::Call { callee, args } => {
+            // Built-in runtime functions
+            match callee.as_str() {
+                "readfile" => {
+                    let path = match eval_expr(*args.first().ok_or(EvalError::ArgumentMismatch)?, ctx)? {
+                        Value::String(s) => s,
+                        _ => return Err(EvalError::ArgumentMismatch),
+                    };
+                    let contents = std::fs::read_to_string(&path)
+                        .map_err(|e| EvalError::UndefinedVariable(format!("readfile: {e}")))?;
+                    return Ok(Value::String(contents));
+                }
+                "to_string" => {
+                    let v = eval_expr(*args.first().ok_or(EvalError::ArgumentMismatch)?, ctx)?;
+                    let s = match v {
+                        Value::Int(n) => n.to_string(),
+                        Value::Bool(b) => b.to_string(),
+                        Value::String(s) => s,
+                        _ => return Err(EvalError::TypeError(types::string_type())),
+                    };
+                    return Ok(Value::String(s));
+                }
+                "to_int" => {
+                    let v = eval_expr(*args.first().ok_or(EvalError::ArgumentMismatch)?, ctx)?;
+                    let n = match v {
+                        Value::String(s) => s.trim().parse::<i64>()
+                            .map_err(|_| EvalError::UndefinedVariable(format!("to_int: cannot parse '{s}'")))?,
+                        Value::Int(n) => n,
+                        _ => return Err(EvalError::TypeError(types::int_type())),
+                    };
+                    return Ok(Value::Int(n));
+                }
+                _ => {}
+            }
+
             let func = match ctx.env.get(callee)? {
                 Value::Function(f) => f,
                 _ => return Err(EvalError::NonFunctionCall),
@@ -246,6 +395,21 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             _ => Err(EvalError::TypeError(types::bool_type())),
         },
 
+        RuntimeStmt::WhileLoop { cond, body } => {
+            loop {
+                match eval_expr(*cond, ctx)? {
+                    Value::Bool(true) => {}
+                    Value::Bool(false) => break,
+                    _ => return Err(EvalError::TypeError(types::bool_type())),
+                }
+                match eval_stmt(*body, ctx)? {
+                    ExecResult::Return(v) => return Ok(ExecResult::Return(v)),
+                    ExecResult::Continue => {}
+                }
+            }
+            Ok(ExecResult::Continue)
+        }
+
         RuntimeStmt::ForEach {
             var,
             iterable,
@@ -285,6 +449,43 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
         RuntimeStmt::Assign { name, expr } => {
             let value = eval_expr(*expr, ctx)?;
             ctx.env.assign(name, value).map_err(EvalError::UndefinedVariable)?;
+            Ok(ExecResult::Continue)
+        }
+
+        RuntimeStmt::IndexAssign { name, indices, expr } => {
+            let new_val = eval_expr(*expr, ctx)?;
+            let root = ctx.env.get(name).map_err(EvalError::UndefinedVariable)?;
+            let mut idx_vals = Vec::new();
+            for &idx_id in indices.iter() {
+                let v = eval_expr(idx_id, ctx)?;
+                idx_vals.push(match v {
+                    Value::Int(n) => n as usize,
+                    _ => return Err(EvalError::TypeError(types::int_type())),
+                });
+            }
+            // Walk the nested list chain, mutation happens at the last index
+            let mut current = root;
+            for &i in idx_vals[..idx_vals.len() - 1].iter() {
+                current = match current {
+                    Value::List(items) => {
+                        let borrowed = items.borrow();
+                        borrowed.get(i).cloned().ok_or_else(|| EvalError::UndefinedVariable(format!("index {i} out of bounds")))?
+                    }
+                    _ => return Err(EvalError::TypeError(types::unit_type())),
+                };
+            }
+            let last = *idx_vals.last().unwrap();
+            match current {
+                Value::List(items) => {
+                    let mut borrowed = items.borrow_mut();
+                    if last < borrowed.len() {
+                        borrowed[last] = new_val;
+                    } else {
+                        return Err(EvalError::UndefinedVariable(format!("index {last} out of bounds")));
+                    }
+                }
+                _ => return Err(EvalError::TypeError(types::unit_type())),
+            }
             Ok(ExecResult::Continue)
         }
 
@@ -355,6 +556,15 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             }
             Ok(ExecResult::Continue)
         }
+    }
+}
+
+fn values_equal(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => x == y,
+        (Value::String(x), Value::String(y)) => x == y,
+        (Value::Bool(x), Value::Bool(y)) => x == y,
+        _ => false,
     }
 }
 

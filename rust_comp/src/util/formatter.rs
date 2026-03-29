@@ -40,6 +40,11 @@ impl<'a> Formatter<'a> {
                 format!("{}{} = {};", self.pad(), name, self.fmt_expr(expr))
             }
 
+            RuntimeStmt::IndexAssign { name, indices, expr } => {
+                let idx_str = indices.iter().map(|i| format!("[{}]", self.fmt_expr(*i))).collect::<String>();
+                format!("{}{}{} = {};", self.pad(), name, idx_str, self.fmt_expr(expr))
+            }
+
             RuntimeStmt::Print(e) => {
                 format!("{}print({});", self.pad(), self.fmt_expr(e))
             }
@@ -111,6 +116,12 @@ impl<'a> Formatter<'a> {
                     }
                 }
                 result
+            }
+
+            RuntimeStmt::WhileLoop { cond, body } => {
+                let cond_str = self.fmt_expr(cond);
+                let body_str = self.fmt_block_body(body);
+                format!("{}while ({}) {}", self.pad(), cond_str, body_str)
             }
 
             RuntimeStmt::ForEach { var, iterable, body } => {
@@ -187,6 +198,14 @@ impl<'a> Formatter<'a> {
             RuntimeExpr::Mult(a, b) => format!("{} * {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Div(a, b) => format!("{} / {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Equals(a, b) => format!("{} == {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::NotEquals(a, b) => format!("{} != {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Lt(a, b) => format!("{} < {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Gt(a, b) => format!("{} > {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Lte(a, b) => format!("{} <= {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Gte(a, b) => format!("{} >= {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::And(a, b) => format!("{} and {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Or(a, b) => format!("{} or {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Not(a) => format!("!{}", self.fmt_expr(a)),
 
             RuntimeExpr::Call { callee, args } => {
                 let args_str = args
@@ -208,6 +227,10 @@ impl<'a> Formatter<'a> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{}.{}({})", self.fmt_expr(object), method, args_str)
+            }
+
+            RuntimeExpr::Index { object, index } => {
+                format!("{}[{}]", self.fmt_expr(object), self.fmt_expr(index))
             }
 
             RuntimeExpr::List(items) => {

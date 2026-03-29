@@ -1,0 +1,16 @@
+var s = "hello world";
+print(s.len());
+
+var parts = s.split(" ");
+print(parts[0]);
+print(parts[1]);
+
+var chars = "abc".chars();
+print(chars[0]);
+print(chars[2]);
+
+var padded = "  hi  ";
+print(padded.trim());
+
+if (s.contains("world")) { print("found"); }
+if (s.contains("xyz"))   { print("not_found"); }

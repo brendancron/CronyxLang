@@ -1,0 +1,9 @@
+var a = 5;
+var b = 10;
+
+if (a < b)  { print("lt");  }
+if (b > a)  { print("gt");  }
+if (a <= 5) { print("lte"); }
+if (b >= 10){ print("gte"); }
+if (a != b) { print("ne");  }
+if (a == 5) { print("eq");  }

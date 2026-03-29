@@ -64,12 +64,21 @@ pub fn convert_to_runtime(
             StagedExpr::Mult(a, b) => RuntimeExpr::Mult(a, b),
             StagedExpr::Div(a, b) => RuntimeExpr::Div(a, b),
             StagedExpr::Equals(a, b) => RuntimeExpr::Equals(a, b),
+            StagedExpr::NotEquals(a, b) => RuntimeExpr::NotEquals(a, b),
+            StagedExpr::Lt(a, b) => RuntimeExpr::Lt(a, b),
+            StagedExpr::Gt(a, b) => RuntimeExpr::Gt(a, b),
+            StagedExpr::Lte(a, b) => RuntimeExpr::Lte(a, b),
+            StagedExpr::Gte(a, b) => RuntimeExpr::Gte(a, b),
+            StagedExpr::And(a, b) => RuntimeExpr::And(a, b),
+            StagedExpr::Or(a, b) => RuntimeExpr::Or(a, b),
+            StagedExpr::Not(a) => RuntimeExpr::Not(a),
             StagedExpr::StructLiteral { type_name, fields } => {
                 RuntimeExpr::StructLiteral { type_name, fields }
             }
             StagedExpr::Call { callee, args } => RuntimeExpr::Call { callee, args },
             StagedExpr::DotAccess { object, field } => RuntimeExpr::DotAccess { object, field },
             StagedExpr::DotCall { object, method, args } => RuntimeExpr::DotCall { object, method, args },
+            StagedExpr::Index { object, index } => RuntimeExpr::Index { object, index },
             StagedExpr::EnumConstructor { enum_name, variant, payload } => {
                 RuntimeExpr::EnumConstructor { enum_name, variant, payload }
             }
@@ -84,6 +93,7 @@ pub fn convert_to_runtime(
             StagedStmt::ExprStmt(e) => RuntimeStmt::ExprStmt(e),
             StagedStmt::VarDecl { name, expr } => RuntimeStmt::VarDecl { name, expr },
             StagedStmt::Assign { name, expr } => RuntimeStmt::Assign { name, expr },
+            StagedStmt::IndexAssign { name, indices, expr } => RuntimeStmt::IndexAssign { name, indices, expr },
             StagedStmt::FnDecl { name, params, body } => {
                 RuntimeStmt::FnDecl { name, params, body }
             }
@@ -104,6 +114,7 @@ pub fn convert_to_runtime(
                 body,
                 else_branch,
             },
+            StagedStmt::WhileLoop { cond, body } => RuntimeStmt::WhileLoop { cond, body },
             StagedStmt::ForEach {
                 var,
                 iterable,
