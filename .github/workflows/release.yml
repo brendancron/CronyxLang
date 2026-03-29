@@ -221,7 +221,7 @@ jobs:
       - name: Read SHA256 hash
         id: hashes
         run: |
-          WIN_SHA=$(cat "artifacts/cronyx-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip.sha256")
+          WIN_SHA=$(cat "artifacts/cronyx-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip.sha256" | tr -d '[:space:]')
           echo "win_sha=$WIN_SHA" >> $GITHUB_OUTPUT
 
       - name: Checkout scoop bucket
