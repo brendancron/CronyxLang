@@ -61,104 +61,32 @@ S...|...|   |  ...| |
 +---------+----------
 ```
 
+---
+
 ## Required Language Features
 
-The maze solver drives the entire 0.1.0 feature set. Below is the exact list of language features needed, in rough implementation order.
+The maze solver drives the entire 0.1.0 feature set. All 9 required features are implemented and covered by integration tests.
 
-### 1. Comparison Operators
-`<`, `>`, `<=`, `>=`, `!=`
+| # | Feature | Status | Test |
+|---|---|---|---|
+| 1 | Comparison operators (`<`, `>`, `<=`, `>=`, `!=`) | ✅ Done | `tests/core/operators/comparison` |
+| 2 | Logical operators (`and`, `or`, `!`) | ✅ Done | `tests/core/operators/logical` |
+| 3 | While loop | ✅ Done | `tests/core/control/while` |
+| 4 | List index access (`list[i]`, `grid[y][x]`) | ✅ Done | `tests/core/lists/index_access` |
+| 5 | Index assignment (`list[i] = v`, `grid[y][x] = v`) | ✅ Done | `tests/core/lists/index_assign` |
+| 6 | String built-in methods (`.len`, `.split`, `.chars`, `.trim`, `.contains`) | ✅ Done | `tests/core/strings/string_methods` |
+| 7 | List built-in methods (`.len`, `.push`, `.pop`, `.contains`) | ✅ Done | `tests/core/lists/list_methods` |
+| 8 | `readfile(path)` built-in | ✅ Done | `tests/core/builtins/readfile` |
+| 9 | `to_string` / `to_int` conversions | ✅ Done | `tests/core/builtins/conversions` |
 
-The tokens already exist in the lexer. Need to:
-- Add cases to `parse_expr` in `parser.rs` (same pattern as `==`)
-- Add `Lt`, `Gt`, `Lte`, `Gte`, `NotEquals` variants to `MetaExpr`, `StagedExpr`, `RuntimeExpr`
-- Wire through stager, conversion, runtime AST `compact()`, gen_collector, type checkers
-- Implement in `interpreter.rs` `eval_expr`
-- Update `formatter.rs`
+Note: `args()` is tabled from integration tests for now. It can be added as a pre-bound builtin using the same pattern as `readfile`.
 
-### 2. Logical Operators
-`&&`, `||`, `!` (or keyword forms `and`, `or`, `not`)
+### Implementation Notes
 
-`and` and `or` are already keywords in the lexer. `!` / `BangEqual` token exists.
-- Add `And(usize, usize)`, `Or(usize, usize)`, `Not(usize)` to the expr ASTs
-- Wire through the full pipeline same as comparisons
-- `And`/`Or` short-circuit in the interpreter
-- `Not` flips a bool value
-
-### 3. While Loop
-```
-while (condition) {
-    ...
-}
-```
-Token already exists in the lexer. Need to:
-- Add `TokenType::While` arm to `parse_stmt`
-- Add `WhileLoop { cond: usize, body: usize }` to `MetaStmt`, `StagedStmt`, `RuntimeStmt`
-- Wire through stager, conversion, runtime AST, gen_collector, type checkers
-- Implement in interpreter: evaluate cond, loop body until false, respect `Return`
-
-### 4. List Index Access
-```
-var row = grid[y];
-var cell = grid[y][x];
-```
-This is the largest gap. Requires new expression and statement syntax.
-- Add `Index { object: usize, index: usize }` to the expr ASTs
-- Parse `expr[expr]` in `parse_factor` after any primary expression (postfix, like function calls)
-- In the interpreter, evaluate `Index` on `Value::List` by unwrapping to the nth element
-- On `Value::String`, return the nth character as a one-character `Value::String`
-
-### 5. Index Assignment
-```
-grid[y][x] = ".";
-```
-Needed to mark the solution path on the maze.
-- Extend `parse_stmt` assignment handling: detect `ident[expr] = expr` and `ident[expr][expr] = expr`
-- Add `IndexAssign { name: String, indices: Vec<usize>, expr: usize }` to stmt ASTs
-- In the interpreter, resolve the chain of indices into the nested list and mutate in place
-- Lists are already `Rc<RefCell<Vec<Value>>>` so mutation is possible without structural changes
-
-### 6. String Built-in Methods
-Dispatch through the existing `DotCall` mechanism. Add a string method dispatch path in `eval_expr` for `DotCall` when the object is `Value::String`.
-
-Methods needed:
-| Method | Signature | Description |
-|---|---|---|
-| `str.len()` | `() -> int` | Character count |
-| `str.split(delim)` | `(string) -> [string]` | Split by delimiter, returns list |
-| `str.chars()` | `() -> [string]` | Each character as a one-char string |
-| `str.trim()` | `() -> string` | Strip leading/trailing whitespace |
-| `str.contains(sub)` | `(string) -> bool` | Substring check |
-
-### 7. List Built-in Methods
-Same approach — dispatch through `DotCall` when the object is `Value::List`.
-
-Methods needed:
-| Method | Signature | Description |
-|---|---|---|
-| `list.len()` | `() -> int` | Element count |
-| `list.push(item)` | `(T) -> unit` | Append to end (mutates in place) |
-| `list.pop()` | `() -> T` | Remove and return last element |
-| `list.contains(item)` | `(T) -> bool` | Membership check (equality-based) |
-
-### 8. Built-in Runtime Functions (I/O Helpers)
-These are explicit stopgaps for 0.1.0 — not a proper stdlib. They mirror how `print` is implemented as a statement keyword today, but as runtime expression builtins.
-
-| Built-in | Signature | Description |
-|---|---|---|
-| `readfile(path)` | `(string) -> string` | Read entire file as a string |
-| `args()` | `() -> [string]` | Return command-line arguments as a list |
-
-Implementation: handle these as special cases in `parse_factor` (like `print`) OR as pre-bound `Value::Function` entries in the root environment before `eval` runs.
-
-### 9. `to_string` / `to_int` Conversions
-Needed for printing ints in string context and parsing grid coordinates.
-
-| Built-in | Signature |
-|---|---|
-| `to_string(x)` | `(int \| bool) -> string` |
-| `to_int(s)` | `(string) -> int` |
-
-Can be pre-bound functions in the root environment, same approach as `readfile`/`args`.
+- Logical operators use keyword forms `and`/`or` (already in the lexer). `&&`/`||` are not lexed.
+- `to_string` is typed as polymorphic (`∀α. α -> string`) so it accepts `int`, `bool`, or `string`.
+- `readfile` paths are relative to the process working directory (the `rust_comp/` package root when running tests).
+- String and list built-in methods dispatch through the existing `DotCall` mechanism in the interpreter — no AST changes needed for new methods.
 
 ---
 
@@ -167,10 +95,11 @@ Can be pre-bound functions in the root environment, same approach as `readfile`/
 The following are deliberate shortcuts for 0.1.0 that will be revisited in later releases:
 
 - **`readfile` / `args`** — hard-coded built-ins, not a proper I/O library. A real `std.io` module is a post-0.1.0 concern.
-- **No error handling on file read** — `readfile` panics if the file doesn't exist. Proper result types come later.
+- **No error handling on file read** — `readfile` returns an error string if the file doesn't exist. Proper result types come later.
 - **No `break` / `continue`** — not needed for BFS if implemented with a while loop and queue. Can be added later.
 - **String indexing returns a single-char string** — there is no `char` type. `str[i]` returns `string`.
 - **Mutable list mutation only** — `list.push` / `list.pop` mutate in place. No persistent/immutable collections.
+- **Logical operators are keyword-only** — `and`/`or`/`!`. No `&&`/`||` tokens in the lexer.
 
 ---
 
@@ -307,3 +236,64 @@ The full `cx` toolchain manager is post-0.1.0 scope. For 0.1.0:
 - No project file yet — just `cronyx main.cx`
 
 Design the binary name and CLI now so the 0.2.0 split into `cx`/`cxc` isn't a breaking change.
+
+---
+
+# Next Steps to 0.1.0
+
+The language feature work is complete. What remains before shipping 0.1.0:
+
+## 1. Write the Maze Solver
+
+The actual proof-of-concept project. This is the real validation that the language is usable end-to-end.
+
+- Implement BFS over the grid to find the path from `S` to `E`
+- Mark the solution path with `.` characters using index assignment
+- Read the maze from a file passed as a command-line argument (requires `args()`)
+- Print the solved maze to stdout
+
+This will likely surface missing features or rough edges not covered by the unit tests.
+
+## 2. Implement `args()`
+
+Needed by the maze solver to accept the maze file path at the command line. Same pattern as `readfile` — a pre-bound builtin that calls `std::env::args()` in the interpreter and returns a `Value::List` of strings.
+
+## 3. Wire Up the CLI Binary
+
+The current entry point in `main.rs` runs a hardcoded file path. For 0.1.0, the binary needs to:
+- Accept a `.cx` file path as the first argument: `cronyx main.cx`
+- Exit with a non-zero status code on error
+- Print interpreter errors to stderr
+
+## 4. Build Release Binaries
+
+Use GitHub Actions (or build locally) to produce:
+- `cronyx-0.1.0-aarch64-apple-darwin`
+- `cronyx-0.1.0-x86_64-apple-darwin`
+
+Cross-compile with `cargo build --release --target <triple>`.
+
+## 5. Publish the Homebrew Tap
+
+Follow the Package Manager Install section above. Requires:
+- A tagged `v0.1.0` GitHub release with the binary archives attached
+- A new `homebrew-cronyx` GitHub repo with the formula
+
+---
+
+# Post-0.1.0 Roadmap
+
+Features deliberately deferred out of 0.1.0 scope:
+
+| Feature | Notes |
+|---|---|
+| `cx`/`cxc` toolchain split | Version manager + compiler split (see Compiler Version Handling section) |
+| `args()` proper | Currently tabled; needed for maze solver |
+| `break` / `continue` | Not needed for BFS but useful generally |
+| Proper error types | Result/Option types instead of panicking on bad input |
+| `std.io` module | Replace `readfile` hardcode with a real I/O library |
+| Linux / Windows packaging | `apt`, `snap`, `choco`, install script |
+| `&&` / `\|\|` token syntax | Currently `and`/`or` keywords only |
+| Tuples | Structural type for multi-value returns |
+| Type annotations enforcement | Parser accepts annotations but they are not fully enforced |
+| Better error messages | Parser/type errors currently expose internal names |
