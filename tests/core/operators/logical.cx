@@ -1,0 +1,9 @@
+var t = true;
+var f = false;
+
+if (t and t) { print("and_tt"); }
+if (t and f) { print("and_tf"); }
+if (f or t)  { print("or_ft"); }
+if (f or f)  { print("or_ff"); }
+if (!f)      { print("not_f"); }
+if (!t)      { print("not_t"); }

@@ -82,6 +82,11 @@ pub enum StagedExpr {
         args: Vec<usize>,
     },
 
+    Index {
+        object: usize,
+        index: usize,
+    },
+
     EnumConstructor {
         enum_name: String,
         variant: String,
@@ -94,6 +99,14 @@ pub enum StagedExpr {
     Mult(usize, usize),
     Div(usize, usize),
     Equals(usize, usize),
+    NotEquals(usize, usize),
+    Lt(usize, usize),
+    Gt(usize, usize),
+    Lte(usize, usize),
+    Gte(usize, usize),
+    And(usize, usize),
+    Or(usize, usize),
+    Not(usize),
 
     MetaExpr(MetaRef),
 }
@@ -111,6 +124,12 @@ pub enum StagedStmt {
 
     Assign {
         name: String,
+        expr: usize,
+    },
+
+    IndexAssign {
+        name: String,
+        indices: Vec<usize>,
         expr: usize,
     },
 
@@ -140,6 +159,11 @@ pub enum StagedStmt {
         cond: usize,
         body: usize,
         else_branch: Option<usize>,
+    },
+
+    WhileLoop {
+        cond: usize,
+        body: usize,
     },
 
     ForEach {
@@ -204,6 +228,14 @@ impl StagedAst {
                 ],
             ),
 
+            StagedStmt::IndexAssign { name, indices, expr } => (
+                "IndexAssign".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(indices.iter().map(|i| self.convert_expr(*i)))
+                    .chain(std::iter::once(self.convert_expr(*expr)))
+                    .collect(),
+            ),
+
             StagedStmt::FnDecl { name, params, body } => (
                 "FnDecl".into(),
                 vec![
@@ -244,6 +276,14 @@ impl StagedAst {
                 }
                 ("IfStmt".into(), v)
             }
+
+            StagedStmt::WhileLoop { cond, body } => (
+                "WhileLoop".into(),
+                vec![
+                    TreeNode::node("Cond", vec![self.convert_expr(*cond)]),
+                    TreeNode::node("Body", vec![self.convert_stmt(*body)]),
+                ],
+            ),
 
             StagedStmt::ForEach {
                 var,
@@ -348,6 +388,11 @@ impl StagedAst {
                     .collect(),
             ),
 
+            StagedExpr::Index { object, index } => (
+                "Index".into(),
+                vec![self.convert_expr(*object), self.convert_expr(*index)],
+            ),
+
             StagedExpr::Add(a, b) => (
                 "Add".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
@@ -371,6 +416,38 @@ impl StagedAst {
             StagedExpr::Equals(a, b) => (
                 "Equals".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            StagedExpr::NotEquals(a, b) => (
+                "NotEquals".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            StagedExpr::Lt(a, b) => (
+                "Lt".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            StagedExpr::Gt(a, b) => (
+                "Gt".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            StagedExpr::Lte(a, b) => (
+                "Lte".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            StagedExpr::Gte(a, b) => (
+                "Gte".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            StagedExpr::And(a, b) => (
+                "And".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            StagedExpr::Or(a, b) => (
+                "Or".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            StagedExpr::Not(a) => (
+                "Not".into(),
+                vec![self.convert_expr(*a)],
             ),
 
             StagedExpr::EnumConstructor { enum_name, variant, .. } => (

@@ -48,6 +48,14 @@ impl<'a> TypeAnnotatedView<'a> {
                 ],
             ),
 
+            MetaStmt::IndexAssign { name, indices, expr } => (
+                "IndexAssign".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(indices.iter().map(|i| self.convert_expr(*i)))
+                    .chain(std::iter::once(self.convert_expr(*expr)))
+                    .collect(),
+            ),
+
             MetaStmt::FnDecl { name, params, body } => (
                 "FnDecl".into(),
                 vec![
@@ -87,6 +95,14 @@ impl<'a> TypeAnnotatedView<'a> {
                 }
                 ("IfStmt".into(), v)
             }
+
+            MetaStmt::WhileLoop { cond, body } => (
+                "WhileLoop".into(),
+                vec![
+                    TreeNode::node("Cond", vec![self.convert_expr(*cond)]),
+                    TreeNode::node("Body", vec![self.convert_stmt(*body)]),
+                ],
+            ),
 
             MetaStmt::ForEach { var, iterable, body } => (
                 "ForEachStmt".into(),
@@ -208,6 +224,38 @@ impl<'a> TypeAnnotatedView<'a> {
                 "Equals".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
             ),
+            MetaExpr::NotEquals(a, b) => (
+                "NotEquals".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Lt(a, b) => (
+                "Lt".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Gt(a, b) => (
+                "Gt".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Lte(a, b) => (
+                "Lte".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Gte(a, b) => (
+                "Gte".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::And(a, b) => (
+                "And".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Or(a, b) => (
+                "Or".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+            MetaExpr::Not(a) => (
+                "Not".into(),
+                vec![self.convert_expr(*a)],
+            ),
 
             MetaExpr::DotAccess { object, field } => (
                 format!("DotAccess(.{field})"),
@@ -219,6 +267,11 @@ impl<'a> TypeAnnotatedView<'a> {
                 std::iter::once(self.convert_expr(*object))
                     .chain(args.iter().map(|e| self.convert_expr(*e)))
                     .collect(),
+            ),
+
+            MetaExpr::Index { object, index } => (
+                "Index".into(),
+                vec![self.convert_expr(*object), self.convert_expr(*index)],
             ),
 
             MetaExpr::EnumConstructor { enum_name, variant, .. } => (

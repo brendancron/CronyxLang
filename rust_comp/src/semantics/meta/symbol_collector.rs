@@ -62,6 +62,12 @@ fn collect_stmt_symbols(
         StagedStmt::Assign { expr, .. } => {
             collect_expr_symbols(ast, *expr, declares, uses, in_gen);
         }
+        StagedStmt::IndexAssign { indices, expr, .. } => {
+            for &idx in indices {
+                collect_expr_symbols(ast, idx, declares, uses, in_gen);
+            }
+            collect_expr_symbols(ast, *expr, declares, uses, in_gen);
+        }
         StagedStmt::FnDecl { name, params, body } => {
             declares.insert(name.clone());
             for p in params { declares.insert(p.clone()); }
@@ -71,6 +77,10 @@ fn collect_stmt_symbols(
         StagedStmt::ForEach { var, iterable, body } => {
             declares.insert(var.clone());
             collect_expr_symbols(ast, *iterable, declares, uses, in_gen);
+            collect_stmt_symbols(ast, *body, declares, uses, in_gen);
+        }
+        StagedStmt::WhileLoop { cond, body } => {
+            collect_expr_symbols(ast, *cond, declares, uses, in_gen);
             collect_stmt_symbols(ast, *body, declares, uses, in_gen);
         }
         StagedStmt::If { cond, body, else_branch } => {
@@ -130,9 +140,15 @@ fn collect_expr_symbols(
         }
         StagedExpr::Add(a, b) | StagedExpr::Sub(a, b)
         | StagedExpr::Mult(a, b) | StagedExpr::Div(a, b)
-        | StagedExpr::Equals(a, b) => {
+        | StagedExpr::Equals(a, b) | StagedExpr::NotEquals(a, b)
+        | StagedExpr::Lt(a, b) | StagedExpr::Gt(a, b)
+        | StagedExpr::Lte(a, b) | StagedExpr::Gte(a, b)
+        | StagedExpr::And(a, b) | StagedExpr::Or(a, b) => {
             collect_expr_symbols(ast, *a, declares, uses, in_gen);
             collect_expr_symbols(ast, *b, declares, uses, in_gen);
+        }
+        StagedExpr::Not(a) => {
+            collect_expr_symbols(ast, *a, declares, uses, in_gen);
         }
         StagedExpr::List(items) => {
             for &item in items {
@@ -152,6 +168,10 @@ fn collect_expr_symbols(
             for &arg in args {
                 collect_expr_symbols(ast, arg, declares, uses, in_gen);
             }
+        }
+        StagedExpr::Index { object, index } => {
+            collect_expr_symbols(ast, *object, declares, uses, in_gen);
+            collect_expr_symbols(ast, *index, declares, uses, in_gen);
         }
         StagedExpr::Int(_) | StagedExpr::String(_) | StagedExpr::Bool(_)
         | StagedExpr::MetaExpr(_) => {}

@@ -1,0 +1,13 @@
+var xs = [1, 2, 3];
+print(xs.len());
+
+xs.push(4);
+print(xs.len());
+print(xs[3]);
+
+var last = xs.pop();
+print(last);
+print(xs.len());
+
+if (xs.contains(2)) { print("has_2"); }
+if (xs.contains(9)) { print("has_9"); }

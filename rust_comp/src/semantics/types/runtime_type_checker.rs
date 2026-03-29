@@ -31,6 +31,16 @@ impl CheckCtx {
 pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<(), TypeError> {
     let mut subst = TypeSubst::new();
     let mut ctx = CheckCtx::new();
+
+    // Pre-bind built-in runtime functions
+    let alpha = env.fresh();
+    env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()) });
+    env.bind("to_string", TypeScheme::PolyType {
+        vars: vec![alpha],
+        ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()) },
+    });
+    env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type())    });
+
     hoist_fn_types(ast, &ast.sem_root_stmts, env, &mut subst);
     for &stmt_id in &ast.sem_root_stmts.clone() {
         infer_stmt(ast, stmt_id, env, &mut subst, &mut ctx)?;
@@ -92,10 +102,32 @@ fn infer_expr(
             Ok(int_type())
         }
 
-        RuntimeExpr::Equals(a, b) => {
+        RuntimeExpr::Equals(a, b) | RuntimeExpr::NotEquals(a, b) => {
             let ta = infer_expr(ast, a, env, subst)?;
             let tb = infer_expr(ast, b, env, subst)?;
             unify(&ta, &tb, subst)?;
+            Ok(bool_type())
+        }
+
+        RuntimeExpr::Lt(a, b) | RuntimeExpr::Gt(a, b) | RuntimeExpr::Lte(a, b) | RuntimeExpr::Gte(a, b) => {
+            let ta = infer_expr(ast, a, env, subst)?;
+            let tb = infer_expr(ast, b, env, subst)?;
+            unify(&ta, &int_type(), subst)?;
+            unify(&tb, &int_type(), subst)?;
+            Ok(bool_type())
+        }
+
+        RuntimeExpr::And(a, b) | RuntimeExpr::Or(a, b) => {
+            let ta = infer_expr(ast, a, env, subst)?;
+            let tb = infer_expr(ast, b, env, subst)?;
+            unify(&ta, &bool_type(), subst)?;
+            unify(&tb, &bool_type(), subst)?;
+            Ok(bool_type())
+        }
+
+        RuntimeExpr::Not(a) => {
+            let ta = infer_expr(ast, a, env, subst)?;
+            unify(&ta, &bool_type(), subst)?;
             Ok(bool_type())
         }
 
@@ -143,6 +175,12 @@ fn infer_expr(
             for arg_id in args {
                 infer_expr(ast, arg_id, env, subst)?;
             }
+            Ok(Type::Var(env.fresh()))
+        }
+
+        RuntimeExpr::Index { object, index } => {
+            infer_expr(ast, object, env, subst)?;
+            infer_expr(ast, index, env, subst)?;
             Ok(Type::Var(env.fresh()))
         }
 
@@ -195,6 +233,13 @@ fn infer_stmt(
             } else {
                 return Err(TypeError::UnboundVar(name.clone()));
             }
+        }
+
+        RuntimeStmt::IndexAssign { indices, expr, .. } => {
+            for idx in indices {
+                infer_expr(ast, idx, env, subst)?;
+            }
+            infer_expr(ast, expr, env, subst)?;
         }
 
         RuntimeStmt::FnDecl { name, params, body } => {
@@ -253,6 +298,12 @@ fn infer_stmt(
             if let Some(else_id) = else_branch {
                 infer_stmt(ast, else_id, env, subst, ctx)?;
             }
+        }
+
+        RuntimeStmt::WhileLoop { cond, body } => {
+            let cond_ty = infer_expr(ast, cond, env, subst)?;
+            unify(&cond_ty, &bool_type(), subst)?;
+            infer_stmt(ast, body, env, subst, ctx)?;
         }
 
         RuntimeStmt::ForEach { var, iterable, body } => {
