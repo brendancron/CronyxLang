@@ -1,4 +1,6 @@
-use crate::frontend::meta_ast::ImportDecl;
+use crate::frontend::meta_ast::{
+    ConstructorPayload, EnumVariant, ImportDecl, MatchArm,
+};
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
 
@@ -80,6 +82,12 @@ pub enum StagedExpr {
         args: Vec<usize>,
     },
 
+    EnumConstructor {
+        enum_name: String,
+        variant: String,
+        payload: ConstructorPayload,
+    },
+
     // BINOPS
     Add(usize, usize),
     Sub(usize, usize),
@@ -115,6 +123,16 @@ pub enum StagedStmt {
     StructDecl {
         name: String,
         fields: Vec<StagedFieldDecl>,
+    },
+
+    EnumDecl {
+        name: String,
+        variants: Vec<EnumVariant>,
+    },
+
+    Match {
+        scrutinee: usize,
+        arms: Vec<MatchArm>,
     },
 
     // CONTROL
@@ -257,6 +275,25 @@ impl StagedAst {
                 stmts.iter().map(|s| self.convert_stmt(*s)).collect(),
             ),
 
+            StagedStmt::EnumDecl { name, variants } => (
+                "EnumDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(variants.iter().map(|v| TreeNode::leaf(format!("Variant({})", v.name))))
+                    .collect(),
+            ),
+
+            StagedStmt::Match { scrutinee, arms } => (
+                "Match".into(),
+                std::iter::once(TreeNode::node("Scrutinee", vec![self.convert_expr(*scrutinee)]))
+                    .chain(arms.iter().map(|arm| {
+                        TreeNode::node("Arm", vec![
+                            TreeNode::leaf(format!("{:?}", arm.pattern)),
+                            self.convert_stmt(arm.body),
+                        ])
+                    }))
+                    .collect(),
+            ),
+
             StagedStmt::MetaStmt(meta_ref) => (
                 "MetaRef".into(),
                 vec![TreeNode::leaf(meta_ref.ast_ref.to_string())],
@@ -334,6 +371,11 @@ impl StagedAst {
             StagedExpr::Equals(a, b) => (
                 "Equals".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+
+            StagedExpr::EnumConstructor { enum_name, variant, .. } => (
+                format!("EnumConstructor({enum_name}::{variant})"),
+                vec![],
             ),
 
             StagedExpr::MetaExpr(meta_ref) => (

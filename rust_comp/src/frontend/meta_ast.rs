@@ -1,4 +1,4 @@
-use super::id_provider::*;
+use crate::util::id_provider::*;
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
 
@@ -81,6 +81,12 @@ pub enum MetaExpr {
 
     Embed(String),
 
+    EnumConstructor {
+        enum_name: String,
+        variant: String,
+        payload: ConstructorPayload,
+    },
+
     // BINOPS
     Add(usize, usize),
     Sub(usize, usize),
@@ -117,6 +123,16 @@ pub enum MetaStmt {
         fields: Vec<MetaFieldDecl>,
     },
 
+    EnumDecl {
+        name: String,
+        variants: Vec<EnumVariant>,
+    },
+
+    Match {
+        scrutinee: usize,
+        arms: Vec<MatchArm>,
+    },
+
     // CONTROL
     If {
         cond: usize,
@@ -148,6 +164,49 @@ pub enum MetaStmt {
 
     // TEMPORARY
     Print(usize),
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    pub payload: VariantPayload,
+}
+
+#[derive(Debug, Clone)]
+pub enum VariantPayload {
+    Unit,
+    Tuple(Vec<String>),
+    Struct(Vec<MetaFieldDecl>),
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    Wildcard,
+    Enum {
+        enum_name: String,
+        variant: String,
+        bindings: VariantBindings,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum VariantBindings {
+    Unit,
+    Tuple(Vec<String>),
+    Struct(Vec<String>),
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstructorPayload {
+    Unit,
+    Tuple(Vec<usize>),
+    Struct(Vec<(String, usize)>),
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +346,25 @@ impl MetaAst {
 
             MetaStmt::Import(decl) => ("Import".into(), vec![TreeNode::leaf(decl.path().to_string())]),
 
+            MetaStmt::EnumDecl { name, variants } => (
+                "EnumDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(variants.iter().map(|v| TreeNode::leaf(format!("Variant({})", v.name))))
+                    .collect(),
+            ),
+
+            MetaStmt::Match { scrutinee, arms } => (
+                "Match".into(),
+                std::iter::once(TreeNode::node("Scrutinee", vec![self.convert_expr(*scrutinee)]))
+                    .chain(arms.iter().map(|arm| {
+                        TreeNode::node("Arm", vec![
+                            TreeNode::leaf(format!("{:?}", arm.pattern)),
+                            self.convert_stmt(arm.body),
+                        ])
+                    }))
+                    .collect(),
+            ),
+
             MetaStmt::MetaBlock(s) => ("MetaBlock".into(), vec![self.convert_stmt(*s)]),
 
             MetaStmt::MetaFnDecl { name, params, body } => (
@@ -356,6 +434,17 @@ impl MetaAst {
                 std::iter::once(self.convert_expr(*object))
                     .chain(args.iter().map(|e| self.convert_expr(*e)))
                     .collect(),
+            ),
+
+            MetaExpr::EnumConstructor { enum_name, variant, payload } => (
+                format!("EnumConstructor({enum_name}::{variant})"),
+                match payload {
+                    ConstructorPayload::Unit => vec![],
+                    ConstructorPayload::Tuple(exprs) => exprs.iter().map(|e| self.convert_expr(*e)).collect(),
+                    ConstructorPayload::Struct(fields) => fields.iter()
+                        .map(|(n, e)| TreeNode::node(n.clone(), vec![self.convert_expr(*e)]))
+                        .collect(),
+                },
             ),
 
             MetaExpr::Typeof(name) => ("Typeof".into(), vec![TreeNode::leaf(name.clone())]),

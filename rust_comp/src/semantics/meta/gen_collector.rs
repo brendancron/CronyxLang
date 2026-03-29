@@ -1,6 +1,7 @@
-use crate::frontend::id_provider::IdProvider;
+use crate::util::id_provider::IdProvider;
 use crate::runtime::environment::EnvHandler;
 use crate::runtime::value::Value;
+use crate::frontend::meta_ast::{ConstructorPayload, MatchArm};
 use crate::semantics::meta::runtime_ast::*;
 use std::collections::HashMap;
 
@@ -164,7 +165,16 @@ impl<'a> SubstCtx<'a> {
                 iterable: self.remap_expr(*iterable),
                 body: self.remap_stmt(*body),
             },
-            RuntimeStmt::StructDecl { .. } | RuntimeStmt::Import(_) => stmt.clone(),
+            RuntimeStmt::StructDecl { .. }
+            | RuntimeStmt::Import(_)
+            | RuntimeStmt::EnumDecl { .. } => stmt.clone(),
+            RuntimeStmt::Match { scrutinee, arms } => RuntimeStmt::Match {
+                scrutinee: self.remap_expr(*scrutinee),
+                arms: arms.iter().map(|arm| MatchArm {
+                    pattern: arm.pattern.clone(),
+                    body: self.remap_stmt(arm.body),
+                }).collect(),
+            },
         }
     }
 
@@ -193,6 +203,21 @@ impl<'a> SubstCtx<'a> {
             }
             RuntimeExpr::List(items) => {
                 RuntimeExpr::List(items.iter().map(|id| self.remap_expr(*id)).collect())
+            }
+            RuntimeExpr::EnumConstructor { enum_name, variant, payload } => {
+                RuntimeExpr::EnumConstructor {
+                    enum_name: self.subst_name(enum_name),
+                    variant: variant.clone(),
+                    payload: match payload {
+                        ConstructorPayload::Unit => ConstructorPayload::Unit,
+                        ConstructorPayload::Tuple(ids) => {
+                            ConstructorPayload::Tuple(ids.iter().map(|id| self.remap_expr(*id)).collect())
+                        }
+                        ConstructorPayload::Struct(fields) => {
+                            ConstructorPayload::Struct(fields.iter().map(|(n, id)| (n.clone(), self.remap_expr(*id))).collect())
+                        }
+                    },
+                }
             }
             _ => expr.clone(), // Int, String, Bool
         }

@@ -158,12 +158,21 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
             }
 
             ':' => {
-                tokens.push(Token {
-                    token_type: TokenType::Colon,
-                    line_number: line_number,
-                    metadata: None,
-                });
-                i += 1;
+                if i + 1 < len && chars[i + 1] == ':' {
+                    tokens.push(Token {
+                        token_type: TokenType::DoubleColon,
+                        line_number: line_number,
+                        metadata: None,
+                    });
+                    i += 2;
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::Colon,
+                        line_number: line_number,
+                        metadata: None,
+                    });
+                    i += 1;
+                }
             }
 
             '/' => {
@@ -213,6 +222,13 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                 if i + 1 < len && chars[i + 1] == '=' {
                     tokens.push(Token {
                         token_type: TokenType::EqualEqual,
+                        line_number: line_number,
+                        metadata: None,
+                    });
+                    i += 2;
+                } else if i + 1 < len && chars[i + 1] == '>' {
+                    tokens.push(Token {
+                        token_type: TokenType::FatArrow,
                         line_number: line_number,
                         metadata: None,
                     });
@@ -292,6 +308,8 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                     "in" => TokenType::In,
                     "meta" => TokenType::Meta,
                     "or" => TokenType::Or,
+                    "enum" => TokenType::Enum,
+                    "match" => TokenType::Match,
                     "print" => TokenType::Print,
                     "return" => TokenType::Return,
                     "struct" => TokenType::Struct,

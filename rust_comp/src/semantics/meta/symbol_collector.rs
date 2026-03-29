@@ -100,6 +100,13 @@ fn collect_stmt_symbols(
             collect_expr_symbols(ast, *expr, declares, uses, in_gen);
         }
         StagedStmt::MetaStmt(_) | StagedStmt::Import(_) => {}
+        StagedStmt::EnumDecl { name, .. } => { declares.insert(name.clone()); }
+        StagedStmt::Match { scrutinee, arms } => {
+            collect_expr_symbols(ast, *scrutinee, declares, uses, in_gen);
+            for arm in arms {
+                collect_stmt_symbols(ast, arm.body, declares, uses, in_gen);
+            }
+        }
     }
 }
 
@@ -148,5 +155,17 @@ fn collect_expr_symbols(
         }
         StagedExpr::Int(_) | StagedExpr::String(_) | StagedExpr::Bool(_)
         | StagedExpr::MetaExpr(_) => {}
+        StagedExpr::EnumConstructor { payload, .. } => {
+            use crate::frontend::meta_ast::ConstructorPayload;
+            match payload {
+                ConstructorPayload::Tuple(ids) => {
+                    for &id in ids { collect_expr_symbols(ast, id, declares, uses, in_gen); }
+                }
+                ConstructorPayload::Struct(fields) => {
+                    for (_, id) in fields { collect_expr_symbols(ast, *id, declares, uses, in_gen); }
+                }
+                ConstructorPayload::Unit => {}
+            }
+        }
     }
 }

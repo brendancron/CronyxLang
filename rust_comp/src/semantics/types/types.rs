@@ -18,6 +18,7 @@ pub enum Type {
     Var(TypeVar),
     Func { params: Vec<Type>, ret: Box<Type> },
     Record(BTreeMap<String, Type>),
+    Enum(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -68,6 +69,7 @@ impl fmt::Display for Type {
                 let fs: Vec<String> = fields.iter().map(|(k, v)| format!("{k}: {v}")).collect();
                 write!(f, "{{ {} }}", fs.join(", "))
             }
+            Type::Enum(name) => write!(f, "{name}"),
         }
     }
 }

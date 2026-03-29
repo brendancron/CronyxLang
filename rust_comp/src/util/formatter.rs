@@ -1,423 +1,276 @@
-use crate::semantics::meta::expanded_ast::{ExpandedExpr, ExpandedStmt};
+use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings, VariantPayload};
+use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
 
-#[derive(Debug, Clone)]
-pub struct FormatSettings {
-    pub indent_size: usize,
-    pub indent_string: String,
-    pub line_ending: String,
-    pub spaces_around_binary_ops: bool,
-    pub spaces_inside_parens: bool,
-    pub spaces_inside_brackets: bool,
-    pub newline_after_block_open: bool,
-    pub newline_before_block_close: bool,
+pub struct Formatter<'a> {
+    ast: &'a RuntimeAst,
+    indent: usize,
 }
 
-impl Default for FormatSettings {
-    fn default() -> Self {
-        Self {
-            indent_size: 4,
-            indent_string: "    ".to_string(), // 4 spaces
-            line_ending: "\n".to_string(),
-            spaces_around_binary_ops: true,
-            spaces_inside_parens: false,
-            spaces_inside_brackets: false,
-            newline_after_block_open: true,
-            newline_before_block_close: true,
-        }
-    }
-}
-
-pub struct Formatter {
-    settings: FormatSettings,
-    current_indent: usize,
-}
-
-impl Formatter {
-    pub fn new(settings: FormatSettings) -> Self {
-        Self {
-            settings,
-            current_indent: 0,
-        }
+impl<'a> Formatter<'a> {
+    pub fn new(ast: &'a RuntimeAst) -> Self {
+        Self { ast, indent: 0 }
     }
 
-    pub fn with_default_settings() -> Self {
-        Self::new(FormatSettings::default())
+    fn pad(&self) -> String {
+        "    ".repeat(self.indent)
     }
 
-    fn indent(&self) -> String {
-        self.settings.indent_string.repeat(self.current_indent)
+    pub fn format_root(&mut self) -> String {
+        let root_ids: Vec<usize> = self.ast.sem_root_stmts.clone();
+        root_ids
+            .iter()
+            .map(|id| self.fmt_stmt(*id))
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
-    fn indent_increase(&mut self) {
-        self.current_indent += 1;
-    }
-
-    fn indent_decrease(&mut self) {
-        if self.current_indent > 0 {
-            self.current_indent -= 1;
-        }
-    }
-
-    pub fn format_stmt(&mut self, stmt: &ExpandedStmt) -> String {
+    fn fmt_stmt(&mut self, id: usize) -> String {
+        let stmt = self.ast.get_stmt(id).expect("invalid stmt id").clone();
         match stmt {
-            ExpandedStmt::ExprStmt(expr) => {
-                format!("{}{};", self.indent(), self.format_expr(expr))
+            RuntimeStmt::ExprStmt(e) => {
+                format!("{}{};", self.pad(), self.fmt_expr(e))
             }
 
-            ExpandedStmt::Assignment { name, expr } => {
-                format!(
-                    "{}var {} = {};",
-                    self.indent(),
-                    name,
-                    self.format_expr(expr)
-                )
+            RuntimeStmt::VarDecl { name, expr } => {
+                format!("{}var {} = {};", self.pad(), name, self.fmt_expr(expr))
             }
 
-            ExpandedStmt::Print(expr) => {
-                format!("{}print({});", self.indent(), self.format_expr(expr))
+            RuntimeStmt::Assign { name, expr } => {
+                format!("{}{} = {};", self.pad(), name, self.fmt_expr(expr))
             }
 
-            ExpandedStmt::If {
-                cond,
-                body,
-                else_branch,
-            } => {
-                let mut result = format!(
-                    "{}if ({}) {}",
-                    self.indent(),
-                    self.format_expr(cond),
-                    if self.settings.newline_after_block_open {
-                        format!("{{{}", self.settings.line_ending)
-                    } else {
-                        "{".to_string()
-                    }
-                );
-
-                self.indent_increase();
-                result.push_str(&self.format_stmt(body));
-                self.indent_decrease();
-
-                if let Some(else_stmt) = else_branch {
-                    if self.settings.newline_before_block_close {
-                        result.push_str(&self.settings.line_ending);
-                        result.push_str(&self.indent());
-                    }
-                    result.push('}');
-
-                    // Handle else-if chains
-                    match else_stmt.as_ref() {
-                        ExpandedStmt::If { .. } => {
-                            // For else-if, format recursively but replace leading "if" with "else if"
-                            result.push_str(" else ");
-                            let saved_indent = self.current_indent;
-                            self.current_indent = 0;
-                            let mut else_str = self.format_stmt(else_stmt);
-                            self.current_indent = saved_indent;
-
-                            // Remove any leading indent and replace "if" with nothing (we already added "else")
-                            let indent_prefix = self.settings.indent_string.repeat(saved_indent);
-                            if else_str.starts_with(&indent_prefix) {
-                                else_str = else_str[indent_prefix.len()..].to_string();
-                            }
-                            if else_str.starts_with("if ") {
-                                else_str = else_str[3..].to_string();
-                            }
-                            result.push_str(&else_str);
-                        }
-                        _ => {
-                            // Regular else block
-                            result.push_str(" else ");
-                            result.push_str(&if self.settings.newline_after_block_open {
-                                format!("{{{}", self.settings.line_ending)
-                            } else {
-                                "{".to_string()
-                            });
-                            self.indent_increase();
-                            result.push_str(&self.format_stmt(else_stmt));
-                            self.indent_decrease();
-                            if self.settings.newline_before_block_close {
-                                result.push_str(&self.settings.line_ending);
-                                result.push_str(&self.indent());
-                            }
-                            result.push('}');
-                        }
-                    }
-                } else {
-                    if self.settings.newline_before_block_close {
-                        result.push_str(&self.settings.line_ending);
-                        result.push_str(&self.indent());
-                    }
-                    result.push('}');
-                }
-
-                result
+            RuntimeStmt::Print(e) => {
+                format!("{}print({});", self.pad(), self.fmt_expr(e))
             }
 
-            ExpandedStmt::ForEach {
-                var,
-                iterable,
-                body,
-            } => {
-                let mut result = format!(
-                    "{}for ({} in {}) {}",
-                    self.indent(),
-                    var,
-                    self.format_expr(iterable),
-                    if self.settings.newline_after_block_open {
-                        format!("{{{}", self.settings.line_ending)
-                    } else {
-                        "{".to_string()
-                    }
-                );
+            RuntimeStmt::Return(opt_e) => match opt_e {
+                None => format!("{}return;", self.pad()),
+                Some(e) => format!("{}return {};", self.pad(), self.fmt_expr(e)),
+            },
 
-                self.indent_increase();
-                result.push_str(&self.format_stmt(body));
-                self.indent_decrease();
-
-                if self.settings.newline_before_block_close {
-                    result.push_str(&self.settings.line_ending);
-                    result.push_str(&self.indent());
-                }
-                result.push('}');
-
-                result
-            }
-
-            ExpandedStmt::Block(stmts) => {
-                if stmts.is_empty() {
-                    return format!("{}{{}}", self.indent());
-                }
-
-                let mut result = if self.settings.newline_after_block_open {
-                    format!("{}{{{}", self.indent(), self.settings.line_ending)
-                } else {
-                    format!("{}{{", self.indent())
-                };
-
-                self.indent_increase();
-                for stmt in stmts {
-                    result.push_str(&self.format_stmt(stmt));
-                    result.push_str(&self.settings.line_ending);
-                }
-                self.indent_decrease();
-
-                if self.settings.newline_before_block_close {
-                    result.push_str(&self.indent());
-                }
-                result.push('}');
-
-                result
-            }
-
-            ExpandedStmt::FnDecl { name, params, body } => {
+            RuntimeStmt::FnDecl { name, params, body } => {
                 let params_str = params.join(", ");
-                let mut result = format!(
-                    "{}fn {}({}) {}",
-                    self.indent(),
-                    name,
-                    params_str,
-                    if self.settings.newline_after_block_open {
-                        format!("{{{}", self.settings.line_ending)
+                let body_str = self.fmt_block_body(body);
+                format!("{}fn {}({}) {}", self.pad(), name, params_str, body_str)
+            }
+
+            RuntimeStmt::StructDecl { name, fields } => {
+                let indent = self.pad();
+                let fields_str = fields
+                    .iter()
+                    .map(|f| format!("    {}{}: {},", indent, f.field_name, f.type_name))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("{}struct {} {{\n{}\n{}}}", indent, name, fields_str, indent)
+            }
+
+            RuntimeStmt::EnumDecl { name, variants } => {
+                let indent = self.pad();
+                let variants_str = variants
+                    .iter()
+                    .map(|v| {
+                        let payload = match &v.payload {
+                            VariantPayload::Unit => String::new(),
+                            VariantPayload::Tuple(types) => format!("({})", types.join(", ")),
+                            VariantPayload::Struct(fields) => {
+                                let fs = fields
+                                    .iter()
+                                    .map(|f| format!("{}: {}", f.field_name, f.type_name))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!(" {{ {} }}", fs)
+                            }
+                        };
+                        format!("    {}{}{},", indent, v.name, payload)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("{}enum {} {{\n{}\n{}}}", indent, name, variants_str, indent)
+            }
+
+            RuntimeStmt::If { cond, body, else_branch } => {
+                let cond_str = self.fmt_expr(cond);
+                let body_str = self.fmt_block_body(body);
+                let mut result = format!("{}if ({}) {}", self.pad(), cond_str, body_str);
+                if let Some(else_id) = else_branch {
+                    // Check if it's an else-if chain
+                    let is_if = matches!(
+                        self.ast.get_stmt(else_id),
+                        Some(RuntimeStmt::If { .. })
+                    );
+                    if is_if {
+                        let saved = self.indent;
+                        self.indent = 0;
+                        let else_str = self.fmt_stmt(else_id);
+                        self.indent = saved;
+                        result.push_str(&format!(" else {}", else_str.trim_start()));
                     } else {
-                        "{".to_string()
+                        let else_str = self.fmt_block_body(else_id);
+                        result.push_str(&format!(" else {}", else_str));
                     }
-                );
-
-                self.indent_increase();
-                result.push_str(&self.format_stmt(body));
-                self.indent_decrease();
-
-                if self.settings.newline_before_block_close {
-                    result.push_str(&self.settings.line_ending);
-                    result.push_str(&self.indent());
                 }
-                result.push('}');
-
                 result
             }
 
-            ExpandedStmt::Return(expr) => {
-                if let Some(expr) = expr {
-                    format!("{}return {};", self.indent(), self.format_expr(expr))
-                } else {
-                    format!("{}return;", self.indent())
-                }
+            RuntimeStmt::ForEach { var, iterable, body } => {
+                let iter_str = self.fmt_expr(iterable);
+                let body_str = self.fmt_block_body(body);
+                format!("{}for ({} in {}) {}", self.pad(), var, iter_str, body_str)
             }
 
-            ExpandedStmt::Gen(stmts) => {
-                let mut result = format!("{}gen ", self.indent());
-                for (i, stmt) in stmts.iter().enumerate() {
-                    if i > 0 {
-                        result.push(' ');
-                    }
-                    // Gen statements are typically single expressions
-                    result.push_str(&self.format_stmt(stmt));
-                }
-                result
+            RuntimeStmt::Block(stmts) => self.fmt_block_stmts(&stmts),
+
+            RuntimeStmt::Match { scrutinee, arms } => {
+                let scrutinee_str = self.fmt_expr(scrutinee);
+                let outer = self.pad();
+                self.indent += 1;
+                let arm_indent = self.pad();
+                let arms_str: String = arms
+                    .iter()
+                    .map(|arm| {
+                        let pattern_str = fmt_pattern(&arm.pattern);
+                        let body_str = self.fmt_block_body(arm.body);
+                        format!("{}{} => {}", arm_indent, pattern_str, body_str)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.indent -= 1;
+                format!("{}match {} {{\n{}\n{}}}", outer, scrutinee_str, arms_str, outer)
+            }
+
+            // Meta-pipeline artifacts — not part of runtime source output
+            RuntimeStmt::Import(_) | RuntimeStmt::Gen(_) => String::new(),
+        }
+    }
+
+    /// Format a stmt ID as a braced block: `{\n    ...\n}`.
+    fn fmt_block_body(&mut self, id: usize) -> String {
+        let stmt = self.ast.get_stmt(id).expect("invalid stmt id").clone();
+        match stmt {
+            RuntimeStmt::Block(stmts) => self.fmt_block_stmts(&stmts),
+            _ => {
+                self.indent += 1;
+                let body = self.fmt_stmt(id);
+                self.indent -= 1;
+                format!("{{\n{}\n{}}}", body, self.pad())
             }
         }
     }
 
-    pub fn format_expr(&self, expr: &ExpandedExpr) -> String {
+    fn fmt_block_stmts(&mut self, stmts: &[usize]) -> String {
+        let stmts = stmts.to_vec();
+        self.indent += 1;
+        let lines: Vec<String> = stmts
+            .iter()
+            .map(|id| self.fmt_stmt(*id))
+            .filter(|l| !l.is_empty())
+            .collect();
+        self.indent -= 1;
+        if lines.is_empty() {
+            format!("{}{{}}", self.pad())
+        } else {
+            format!("{{\n{}\n{}}}", lines.join("\n"), self.pad())
+        }
+    }
+
+    fn fmt_expr(&mut self, id: usize) -> String {
+        let expr = self.ast.get_expr(id).expect("invalid expr id").clone();
         match expr {
-            ExpandedExpr::Int(n) => n.to_string(),
-            ExpandedExpr::String(s) => format!("\"{}\"", s),
-            ExpandedExpr::Bool(true) => "true".to_string(),
-            ExpandedExpr::Bool(false) => "false".to_string(),
+            RuntimeExpr::Int(n) => n.to_string(),
+            RuntimeExpr::String(s) => format!("\"{}\"", s),
+            RuntimeExpr::Bool(b) => b.to_string(),
+            RuntimeExpr::Variable(name) => name,
 
-            ExpandedExpr::Variable(name) => name.clone(),
+            RuntimeExpr::Add(a, b) => format!("{} + {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Sub(a, b) => format!("{} - {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Mult(a, b) => format!("{} * {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Div(a, b) => format!("{} / {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Equals(a, b) => format!("{} == {}", self.fmt_expr(a), self.fmt_expr(b)),
 
-            ExpandedExpr::StructLiteral { type_name, fields } => {
-                if fields.is_empty() {
-                    format!("{} {{}}", type_name)
-                } else {
-                    let fields_str = fields
-                        .iter()
-                        .map(|(name, expr)| format!("{}: {}", name, self.format_expr(expr)))
-                        .collect::<Vec<_>>()
-                        .join(&format!(",{}", self.settings.line_ending));
-
-                    // For struct literals, we want multi-line format with proper indentation
-                    format!(
-                        "{} {{{}{}{}}}",
-                        type_name, self.settings.line_ending, fields_str, self.settings.line_ending
-                    )
-                }
-            }
-
-            ExpandedExpr::List(exprs) => {
-                let items_str = exprs
-                    .iter()
-                    .map(|e| self.format_expr(e))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                let space_open = if self.settings.spaces_inside_brackets {
-                    " "
-                } else {
-                    ""
-                };
-                let space_close = if self.settings.spaces_inside_brackets {
-                    " "
-                } else {
-                    ""
-                };
-                format!("[{}{}{}]", space_open, items_str, space_close)
-            }
-
-            ExpandedExpr::Add(left, right) => {
-                let op = if self.settings.spaces_around_binary_ops {
-                    " + "
-                } else {
-                    "+"
-                };
-                format!(
-                    "{}{}{}",
-                    self.format_expr(left),
-                    op,
-                    self.format_expr(right)
-                )
-            }
-
-            ExpandedExpr::Sub(left, right) => {
-                let op = if self.settings.spaces_around_binary_ops {
-                    " - "
-                } else {
-                    "-"
-                };
-                format!(
-                    "{}{}{}",
-                    self.format_expr(left),
-                    op,
-                    self.format_expr(right)
-                )
-            }
-
-            ExpandedExpr::Mult(left, right) => {
-                let op = if self.settings.spaces_around_binary_ops {
-                    " * "
-                } else {
-                    "*"
-                };
-                format!(
-                    "{}{}{}",
-                    self.format_expr(left),
-                    op,
-                    self.format_expr(right)
-                )
-            }
-
-            ExpandedExpr::Div(left, right) => {
-                let op = if self.settings.spaces_around_binary_ops {
-                    " / "
-                } else {
-                    "/"
-                };
-                format!(
-                    "{}{}{}",
-                    self.format_expr(left),
-                    op,
-                    self.format_expr(right)
-                )
-            }
-
-            ExpandedExpr::Equals(left, right) => {
-                let op = if self.settings.spaces_around_binary_ops {
-                    " == "
-                } else {
-                    "=="
-                };
-                format!(
-                    "{}{}{}",
-                    self.format_expr(left),
-                    op,
-                    self.format_expr(right)
-                )
-            }
-
-            ExpandedExpr::Call { callee, args } => {
+            RuntimeExpr::Call { callee, args } => {
                 let args_str = args
                     .iter()
-                    .map(|e| self.format_expr(e))
+                    .map(|id| self.fmt_expr(*id))
                     .collect::<Vec<_>>()
                     .join(", ");
-
-                let space_open = if self.settings.spaces_inside_parens {
-                    " "
-                } else {
-                    ""
-                };
-                let space_close = if self.settings.spaces_inside_parens {
-                    " "
-                } else {
-                    ""
-                };
-                format!("{}({}{}{})", callee, space_open, args_str, space_close)
+                format!("{}({})", callee, args_str)
             }
+
+            RuntimeExpr::DotAccess { object, field } => {
+                format!("{}.{}", self.fmt_expr(object), field)
+            }
+
+            RuntimeExpr::DotCall { object, method, args } => {
+                let args_str = args
+                    .iter()
+                    .map(|id| self.fmt_expr(*id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}.{}({})", self.fmt_expr(object), method, args_str)
+            }
+
+            RuntimeExpr::List(items) => {
+                let items_str = items
+                    .iter()
+                    .map(|id| self.fmt_expr(*id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("[{}]", items_str)
+            }
+
+            RuntimeExpr::StructLiteral { type_name, fields } => {
+                let fields_str = fields
+                    .iter()
+                    .map(|(name, id)| format!("{}: {}", name, self.fmt_expr(*id)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if type_name.is_empty() {
+                    format!("{{ {} }}", fields_str)
+                } else {
+                    format!("{} {{ {} }}", type_name, fields_str)
+                }
+            }
+
+            RuntimeExpr::EnumConstructor { enum_name, variant, payload } => match payload {
+                ConstructorPayload::Unit => format!("{}::{}", enum_name, variant),
+                ConstructorPayload::Tuple(ids) => {
+                    let args = ids
+                        .iter()
+                        .map(|id| self.fmt_expr(*id))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{}::{}({})", enum_name, variant, args)
+                }
+                ConstructorPayload::Struct(fields) => {
+                    let fs = fields
+                        .iter()
+                        .map(|(name, id)| format!("{}: {}", name, self.fmt_expr(*id)))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{}::{} {{ {} }}", enum_name, variant, fs)
+                }
+            },
         }
     }
 }
 
-// Convenience functions
-pub fn format_stmts(stmts: &[ExpandedStmt], settings: FormatSettings) -> String {
-    let mut formatter = Formatter::new(settings);
-    stmts
-        .iter()
-        .map(|stmt| formatter.format_stmt(stmt))
-        .collect::<Vec<_>>()
-        .join(&formatter.settings.line_ending)
-        + &formatter.settings.line_ending
+fn fmt_pattern(pattern: &Pattern) -> String {
+    match pattern {
+        Pattern::Wildcard => "_".to_string(),
+        Pattern::Enum { enum_name, variant, bindings } => match bindings {
+            VariantBindings::Unit => format!("{}::{}", enum_name, variant),
+            VariantBindings::Tuple(names) => {
+                format!("{}::{}({})", enum_name, variant, names.join(", "))
+            }
+            VariantBindings::Struct(names) => {
+                format!("{}::{} {{ {} }}", enum_name, variant, names.join(", "))
+            }
+        },
+    }
 }
 
-pub fn format_stmts_default(stmts: &[ExpandedStmt]) -> String {
-    format_stmts(stmts, FormatSettings::default())
-}
-
-pub fn format_expr(expr: &ExpandedExpr, settings: FormatSettings) -> String {
-    let formatter = Formatter::new(settings);
-    formatter.format_expr(expr)
-}
-
-pub fn format_expr_default(expr: &ExpandedExpr) -> String {
-    format_expr(expr, FormatSettings::default())
+/// Format a `RuntimeAst` into source-like text for debugging.
+pub fn format_runtime_ast(ast: &RuntimeAst) -> String {
+    Formatter::new(ast).format_root()
 }

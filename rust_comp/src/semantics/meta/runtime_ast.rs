@@ -1,4 +1,6 @@
-use crate::frontend::meta_ast::ImportDecl;
+use crate::frontend::meta_ast::{
+    ConstructorPayload, EnumVariant, ImportDecl, MatchArm,
+};
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
 
@@ -97,6 +99,21 @@ impl RuntimeAst {
                     method: method.clone(),
                     args: args.iter().map(|id| remap_expr(*id)).collect(),
                 },
+                RuntimeExpr::EnumConstructor { enum_name, variant, payload } => {
+                    RuntimeExpr::EnumConstructor {
+                        enum_name: enum_name.clone(),
+                        variant: variant.clone(),
+                        payload: match payload {
+                            ConstructorPayload::Unit => ConstructorPayload::Unit,
+                            ConstructorPayload::Tuple(ids) => {
+                                ConstructorPayload::Tuple(ids.iter().map(|id| remap_expr(*id)).collect())
+                            }
+                            ConstructorPayload::Struct(fields) => {
+                                ConstructorPayload::Struct(fields.iter().map(|(n, id)| (n.clone(), remap_expr(*id))).collect())
+                            }
+                        },
+                    }
+                }
             };
             out.insert_expr(remap_expr(*old_id), new_expr);
         }
@@ -150,6 +167,17 @@ impl RuntimeAst {
                     iterable: remap_expr(*iterable),
                     body: remap_stmt(*body),
                 },
+                RuntimeStmt::EnumDecl { name, variants } => RuntimeStmt::EnumDecl {
+                    name: name.clone(),
+                    variants: variants.clone(),
+                },
+                RuntimeStmt::Match { scrutinee, arms } => RuntimeStmt::Match {
+                    scrutinee: remap_expr(*scrutinee),
+                    arms: arms.iter().map(|arm| MatchArm {
+                        pattern: arm.pattern.clone(),
+                        body: remap_stmt(arm.body),
+                    }).collect(),
+                },
             };
             out.insert_stmt(remap_stmt(*old_id), new_stmt);
         }
@@ -198,6 +226,12 @@ pub enum RuntimeExpr {
         args: Vec<usize>,
     },
 
+    EnumConstructor {
+        enum_name: String,
+        variant: String,
+        payload: ConstructorPayload,
+    },
+
     // BINOPS
     Add(usize, usize),
     Sub(usize, usize),
@@ -231,6 +265,16 @@ pub enum RuntimeStmt {
     StructDecl {
         name: String,
         fields: Vec<RuntimeFieldDecl>,
+    },
+
+    EnumDecl {
+        name: String,
+        variants: Vec<EnumVariant>,
+    },
+
+    Match {
+        scrutinee: usize,
+        arms: Vec<MatchArm>,
     },
 
     // CONTROL
@@ -373,6 +417,25 @@ impl RuntimeAst {
             ),
 
             RuntimeStmt::Print(e) => ("PrintStmt".into(), vec![self.convert_expr(*e)]),
+
+            RuntimeStmt::EnumDecl { name, variants } => (
+                "EnumDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(variants.iter().map(|v| TreeNode::leaf(format!("Variant({})", v.name))))
+                    .collect(),
+            ),
+
+            RuntimeStmt::Match { scrutinee, arms } => (
+                "Match".into(),
+                std::iter::once(TreeNode::node("Scrutinee", vec![self.convert_expr(*scrutinee)]))
+                    .chain(arms.iter().map(|arm| {
+                        TreeNode::node("Arm", vec![
+                            TreeNode::leaf(format!("{:?}", arm.pattern)),
+                            self.convert_stmt(arm.body),
+                        ])
+                    }))
+                    .collect(),
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));
@@ -444,6 +507,11 @@ impl RuntimeAst {
                 std::iter::once(self.convert_expr(*object))
                     .chain(args.iter().map(|e| self.convert_expr(*e)))
                     .collect(),
+            ),
+
+            RuntimeExpr::EnumConstructor { enum_name, variant, .. } => (
+                format!("EnumConstructor({enum_name}::{variant})"),
+                vec![],
             ),
         };
 

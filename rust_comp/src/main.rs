@@ -1,4 +1,4 @@
-use cronyx::frontend::id_provider::IdProvider;
+use cronyx::util::id_provider::IdProvider;
 use cronyx::frontend::module_loader::{load_compilation_unit_with_autoscope, FileRole};
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
@@ -9,6 +9,7 @@ use cronyx::semantics::meta::staged_forest::StagedForest;
 use cronyx::semantics::types::type_annotated_view::TypeAnnotatedView;
 use cronyx::semantics::types::type_checker::type_check;
 use cronyx::semantics::types::type_env::TypeEnv;
+use cronyx::util::formatter::format_runtime_ast;
 use cronyx::util::formatters::tree_formatter::*;
 use std::fmt::Debug;
 use std::fs::{create_dir_all, File};
@@ -79,6 +80,9 @@ fn main() {
 
         let mut runtime_ast_graph_file = to_file(out_dir, "runtime_ast_graph.txt");
         writeln!(runtime_ast_graph_file, "{:?}", runtime_ast).unwrap();
+
+        let mut runtime_code_file = to_file(out_dir, "runtime_code.cx");
+        write!(runtime_code_file, "{}", format_runtime_ast(&runtime_ast)).unwrap();
 
         // EVALUATION — setup module namespaces then run
         let mut setup_env = EnvHandler::from(meta_env.clone());

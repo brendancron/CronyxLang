@@ -1,12 +1,13 @@
 use super::environment::{EnvHandler, EnvRef, Environment};
 use super::result::ExecResult;
-use super::value::{Function, Value};
+use super::value::{EnumValuePayload, Function, Value};
+use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings};
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::meta::staged_forest::ModuleBinding;
 use crate::semantics::types::type_error::TypeError;
 use crate::semantics::types::types::{self, Type};
-use crate::runtime::gen_collector::{collect_and_subst, GeneratedCollector};
+use crate::semantics::meta::gen_collector::{collect_and_subst, GeneratedCollector};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
@@ -166,6 +167,27 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             Ok(result)
         }
 
+        RuntimeExpr::EnumConstructor { enum_name, variant, payload } => {
+            let val_payload = match payload {
+                ConstructorPayload::Unit => EnumValuePayload::Unit,
+                ConstructorPayload::Tuple(ids) => {
+                    let vals: Result<Vec<_>, _> = ids.iter().map(|id| eval_expr(*id, ctx)).collect();
+                    EnumValuePayload::Tuple(vals?)
+                }
+                ConstructorPayload::Struct(fields) => {
+                    let vals: Result<Vec<_>, _> = fields.iter()
+                        .map(|(name, id)| eval_expr(*id, ctx).map(|v| (name.clone(), v)))
+                        .collect();
+                    EnumValuePayload::Struct(vals?)
+                }
+            };
+            Ok(Value::Enum {
+                enum_name: enum_name.clone(),
+                variant: variant.clone(),
+                payload: val_payload,
+            })
+        }
+
         RuntimeExpr::Call { callee, args } => {
             let func = match ctx.env.get(callee)? {
                 Value::Function(f) => f,
@@ -316,6 +338,61 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
         RuntimeStmt::Import(_) => Ok(ExecResult::Continue),
 
         RuntimeStmt::StructDecl { .. } => Ok(ExecResult::Continue),
+
+        RuntimeStmt::EnumDecl { .. } => Ok(ExecResult::Continue),
+
+        RuntimeStmt::Match { scrutinee, arms } => {
+            let val = eval_expr(*scrutinee, ctx)?;
+            for arm in arms {
+                ctx.env.push_scope();
+                let matched = match_pattern(&arm.pattern, &val, ctx)?;
+                if matched {
+                    let result = eval_stmt(arm.body, ctx)?;
+                    ctx.env.pop_scope();
+                    return Ok(result);
+                }
+                ctx.env.pop_scope();
+            }
+            Ok(ExecResult::Continue)
+        }
+    }
+}
+
+fn match_pattern<W: Write>(
+    pattern: &Pattern,
+    value: &Value,
+    ctx: &mut EvalCtx<W>,
+) -> Result<bool, EvalError> {
+    match pattern {
+        Pattern::Wildcard => Ok(true),
+        Pattern::Enum { enum_name: _, variant, bindings } => {
+            if let Value::Enum { variant: val_variant, payload, .. } = value {
+                if val_variant != variant {
+                    return Ok(false);
+                }
+                match (bindings, payload) {
+                    (VariantBindings::Unit, EnumValuePayload::Unit) => {}
+                    (VariantBindings::Tuple(names), EnumValuePayload::Tuple(vals)) => {
+                        for (name, val) in names.iter().zip(vals.iter()) {
+                            ctx.env.define(name.clone(), val.clone());
+                        }
+                    }
+                    (VariantBindings::Struct(names), EnumValuePayload::Struct(fields)) => {
+                        for name in names {
+                            let val = fields.iter()
+                                .find(|(f, _)| f == name)
+                                .map(|(_, v)| v.clone())
+                                .ok_or_else(|| EvalError::UndefinedVariable(name.clone()))?;
+                            ctx.env.define(name.clone(), val);
+                        }
+                    }
+                    _ => return Ok(false),
+                }
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
     }
 }
 

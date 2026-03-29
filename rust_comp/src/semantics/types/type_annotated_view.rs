@@ -132,6 +132,15 @@ impl<'a> TypeAnnotatedView<'a> {
             ),
 
             MetaStmt::Print(e) => ("PrintStmt".into(), vec![self.convert_expr(*e)]),
+
+            MetaStmt::EnumDecl { name, .. } => (format!("EnumDecl({name})"), vec![]),
+
+            MetaStmt::Match { scrutinee, arms } => (
+                "Match".into(),
+                std::iter::once(self.convert_expr(*scrutinee))
+                    .chain(arms.iter().map(|arm| self.convert_stmt(arm.body)))
+                    .collect(),
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));
@@ -210,6 +219,11 @@ impl<'a> TypeAnnotatedView<'a> {
                 std::iter::once(self.convert_expr(*object))
                     .chain(args.iter().map(|e| self.convert_expr(*e)))
                     .collect(),
+            ),
+
+            MetaExpr::EnumConstructor { enum_name, variant, .. } => (
+                format!("EnumConstructor({enum_name}::{variant})"),
+                vec![],
             ),
         };
 

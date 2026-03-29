@@ -48,27 +48,6 @@ var xs = [1, 2, 3];
 // type: [int]
 ```
 
-### Tuples
-
-Tuples are fixed-length, heterogeneous groupings of values. Unlike records, fields are positional rather than named.
-
-```
-var pair = (1, "hello");
-// type: (int, string)
-
-var triple = (true, 42, "done");
-// type: (bool, int, string)
-```
-
-Fields are accessed by index using dot notation:
-
-```
-var x = pair.0;   // 1    : int
-var y = pair.1;   // "hello" : string
-```
-
-Tuples are most useful as lightweight return types and as payloads in enum variants.
-
 ### Enums
 
 Enums are nominal sum types — a value of an enum type is exactly one of its declared variants. Variants can carry no data, a positional tuple of fields, or a set of named fields.
@@ -85,8 +64,8 @@ enum Direction {
 // Tuple variants — positional payload
 enum Shape {
     Point,
-    Circle(float),
-    Rect(float, float),
+    Circle(int),
+    Rect(int, int),
 }
 
 // Struct variants — named payload
@@ -104,11 +83,54 @@ An enum can mix all three variant forms freely.
 
 ```
 var dir  = Direction::South;
-var circ = Shape::Circle(3.14);
+var circ = Shape::Circle(5);
 var dmg  = CardEffect::Damage { amount: 10 };
 ```
 
 **Enum types are nominal.** Two enums with identical variants are still distinct types. The constructor syntax `Enum::Variant` makes the enum name explicit at every construction site.
+
+### Pattern Matching
+
+`match` destructures an enum value against a list of arms. Each arm pairs a pattern with a block body. Arms are tried in order; the first matching arm runs.
+
+```
+match dir {
+    Direction::North => { print("north"); }
+    Direction::South => { print("south"); }
+    Direction::East  => { print("east");  }
+    Direction::West  => { print("west");  }
+}
+```
+
+**Tuple variant destructuring** — bindings are positional:
+
+```
+match shape {
+    Shape::Point      => { print("point"); }
+    Shape::Circle(r)  => { print(r); }
+    Shape::Rect(w, h) => { print(w + h); }
+}
+```
+
+**Struct variant destructuring** — bindings are by field name:
+
+```
+match effect {
+    CardEffect::Damage { amount } => { print(amount); }
+    CardEffect::Heal   { amount } => { print(amount); }
+    CardEffect::Draw   { count  } => { print(count);  }
+    CardEffect::None              => { print("none");  }
+}
+```
+
+**Wildcard** — `_` matches any value and binds nothing:
+
+```
+match color {
+    Color::Red => { print("red"); }
+    _          => { print("other"); }
+}
+```
 
 ---
 
@@ -263,7 +285,7 @@ Imported module namespaces are given a fresh type variable. Member types within 
 
 ## Current Limitations
 
-- **No enums or ADTs**: Sum types and pattern matching are not yet implemented.
 - **No module member types**: Imported namespaces are opaque to the type checker.
 - **No lambda syntax**: Anonymous functions are not yet supported.
 - **Struct fields are unchecked**: Record literals are typed structurally by their fields; struct declarations exist in the AST but field access is not type-checked against a declared schema.
+- **Non-exhaustive match**: The compiler does not check that match arms cover all variants.

@@ -1,4 +1,4 @@
-use super::id_provider::*;
+use crate::util::id_provider::*;
 use super::meta_ast::*;
 use super::token::*;
 
@@ -185,6 +185,47 @@ fn parse_factor<'a>(
             TokenType::Identifier => {
                 let name = consume_next(tokens, pos).expect_str();
 
+                // EnumName::Variant or EnumName::Variant(...) or EnumName::Variant { ... }
+                if check(tokens, *pos, TokenType::DoubleColon) {
+                    consume(tokens, pos, TokenType::DoubleColon)?;
+                    let variant = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    let payload = if check(tokens, *pos, TokenType::LeftParen) {
+                        consume(tokens, pos, TokenType::LeftParen)?;
+                        let exprs = parse_separated(
+                            tokens, pos, ctx,
+                            TokenType::Comma, TokenType::RightParen,
+                            parse_expr,
+                        )?;
+                        consume(tokens, pos, TokenType::RightParen)?;
+                        ConstructorPayload::Tuple(exprs)
+                    } else if check(tokens, *pos, TokenType::LeftBrace)
+                        && check(tokens, *pos + 1, TokenType::Identifier)
+                        && check(tokens, *pos + 2, TokenType::Colon)
+                    {
+                        consume(tokens, pos, TokenType::LeftBrace)?;
+                        let fields = parse_separated(
+                            tokens, pos, ctx,
+                            TokenType::Comma, TokenType::RightBrace,
+                            |tokens, pos, ctx| {
+                                let field_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                                consume(tokens, pos, TokenType::Colon)?;
+                                let expr_id = parse_expr(tokens, pos, ctx)?;
+                                Ok((field_name, expr_id))
+                            },
+                        )?;
+                        consume(tokens, pos, TokenType::RightBrace)?;
+                        ConstructorPayload::Struct(fields)
+                    } else {
+                        ConstructorPayload::Unit
+                    };
+                    let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::EnumConstructor {
+                        enum_name: name,
+                        variant,
+                        payload,
+                    });
+                    return Ok(id);
+                }
+
                 if check(tokens, *pos, TokenType::LeftParen) {
                     consume(tokens, pos, TokenType::LeftParen)?;
                     let args = parse_separated(
@@ -201,7 +242,10 @@ fn parse_factor<'a>(
                         .ast
                         .insert_expr(&mut ctx.id_provider, MetaExpr::Call { callee: name, args });
                     Ok(id)
-                } else if check(tokens, *pos, TokenType::LeftBrace) {
+                } else if check(tokens, *pos, TokenType::LeftBrace)
+                    && check(tokens, *pos + 1, TokenType::Identifier)
+                    && check(tokens, *pos + 2, TokenType::Colon)
+                {
                     consume(tokens, pos, TokenType::LeftBrace)?;
 
                     let fields = parse_separated(
@@ -581,6 +625,70 @@ fn parse_stmt<'a>(
                 }
             }
 
+            TokenType::Enum => {
+                consume(tokens, pos, TokenType::Enum)?;
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let mut variants = Vec::new();
+                while !check(tokens, *pos, TokenType::RightBrace) {
+                    let variant_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    let payload = if check(tokens, *pos, TokenType::LeftParen) {
+                        consume(tokens, pos, TokenType::LeftParen)?;
+                        let types = parse_separated(
+                            tokens, pos, ctx,
+                            TokenType::Comma, TokenType::RightParen,
+                            |tokens, pos, _ctx| {
+                                Ok(consume(tokens, pos, TokenType::Identifier)?.expect_str())
+                            },
+                        )?;
+                        consume(tokens, pos, TokenType::RightParen)?;
+                        VariantPayload::Tuple(types)
+                    } else if check(tokens, *pos, TokenType::LeftBrace) {
+                        consume(tokens, pos, TokenType::LeftBrace)?;
+                        let fields = parse_separated(
+                            tokens, pos, ctx,
+                            TokenType::Semicolon, TokenType::RightBrace,
+                            |tokens, pos, _ctx| {
+                                let field_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                                consume(tokens, pos, TokenType::Colon)?;
+                                let type_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                                Ok(MetaFieldDecl { field_name, type_name })
+                            },
+                        )?;
+                        consume(tokens, pos, TokenType::RightBrace)?;
+                        VariantPayload::Struct(fields)
+                    } else {
+                        VariantPayload::Unit
+                    };
+                    variants.push(EnumVariant { name: variant_name, payload });
+                    // Variants are separated by commas; trailing comma is allowed
+                    if check(tokens, *pos, TokenType::Comma) {
+                        *pos += 1;
+                    }
+                }
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::EnumDecl { name, variants });
+                Ok(id)
+            }
+
+            TokenType::Match => {
+                consume(tokens, pos, TokenType::Match)?;
+                let scrutinee = parse_expr(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let mut arms = Vec::new();
+                while !check(tokens, *pos, TokenType::RightBrace) {
+                    let pattern = parse_pattern(tokens, pos)?;
+                    consume(tokens, pos, TokenType::FatArrow)?;
+                    consume(tokens, pos, TokenType::LeftBrace)?;
+                    let body = parse_block(tokens, pos, ctx)?;
+                    consume(tokens, pos, TokenType::RightBrace)?;
+                    arms.push(MatchArm { pattern, body });
+                }
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Match { scrutinee, arms });
+                Ok(id)
+            }
+
             TokenType::Meta => parse_meta_stmt(tokens, pos, ctx),
 
             TokenType::Import => {
@@ -628,6 +736,42 @@ fn parse_stmt<'a>(
         },
         _ => parse_expr_stmt(tokens, pos, ctx),
     }
+}
+
+fn parse_pattern(tokens: &[Token], pos: &mut usize) -> Result<Pattern, ParseError> {
+    // Wildcard: _
+    if check(tokens, *pos, TokenType::Identifier) {
+        if tokens[*pos].expect_str() == "_" {
+            *pos += 1;
+            return Ok(Pattern::Wildcard);
+        }
+    }
+    // EnumName::Variant or EnumName::Variant(x, y) or EnumName::Variant { field }
+    let enum_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+    consume(tokens, pos, TokenType::DoubleColon)?;
+    let variant = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+    let bindings = if check(tokens, *pos, TokenType::LeftParen) {
+        consume(tokens, pos, TokenType::LeftParen)?;
+        let mut names = Vec::new();
+        while !check(tokens, *pos, TokenType::RightParen) {
+            names.push(consume(tokens, pos, TokenType::Identifier)?.expect_str());
+            if check(tokens, *pos, TokenType::Comma) { *pos += 1; }
+        }
+        consume(tokens, pos, TokenType::RightParen)?;
+        VariantBindings::Tuple(names)
+    } else if check(tokens, *pos, TokenType::LeftBrace) {
+        consume(tokens, pos, TokenType::LeftBrace)?;
+        let mut names = Vec::new();
+        while !check(tokens, *pos, TokenType::RightBrace) {
+            names.push(consume(tokens, pos, TokenType::Identifier)?.expect_str());
+            if check(tokens, *pos, TokenType::Comma) { *pos += 1; }
+        }
+        consume(tokens, pos, TokenType::RightBrace)?;
+        VariantBindings::Struct(names)
+    } else {
+        VariantBindings::Unit
+    };
+    Ok(Pattern::Enum { enum_name, variant, bindings })
 }
 
 fn parse_meta_stmt(

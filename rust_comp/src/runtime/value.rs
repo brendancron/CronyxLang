@@ -5,6 +5,13 @@ use std::fmt;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
+pub enum EnumValuePayload {
+    Unit,
+    Tuple(Vec<Value>),
+    Struct(Vec<(String, Value)>),
+}
+
+#[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
     String(String),
@@ -13,6 +20,12 @@ pub enum Value {
     Struct {
         type_name: String,
         fields: Rc<RefCell<Vec<(String, Value)>>>,
+    },
+
+    Enum {
+        enum_name: String,
+        variant: String,
+        payload: EnumValuePayload,
     },
 
     List(Rc<RefCell<Vec<Value>>>),
