@@ -1,5 +1,5 @@
 use crate::runtime::environment::EnvRef;
-use crate::runtime::gen_collector::GeneratedCollector;
+use crate::semantics::meta::gen_collector::GeneratedCollector;
 use crate::runtime::interpreter::{eval, EvalError};
 use crate::semantics::meta::meta_processor::*;
 use crate::semantics::meta::runtime_ast::*;

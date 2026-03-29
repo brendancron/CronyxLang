@@ -1,6 +1,6 @@
 use super::runtime_ast::*;
 use super::staged_ast::*;
-use crate::runtime::gen_collector::GeneratedOutput;
+use crate::semantics::meta::gen_collector::GeneratedOutput;
 use std::collections::HashMap;
 
 #[derive(Debug)]

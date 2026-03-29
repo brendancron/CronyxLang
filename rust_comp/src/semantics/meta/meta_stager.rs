@@ -2,7 +2,7 @@ use super::meta_process_error::*;
 use super::process_dependency::*;
 use super::staged_ast::*;
 use super::staged_forest::*;
-use crate::frontend::id_provider::IdProvider;
+use crate::util::id_provider::IdProvider;
 use crate::frontend::meta_ast::*;
 use crate::frontend::module_loader::{FileRole, LoadedFile};
 use crate::semantics::types::type_env::TypeEnv;

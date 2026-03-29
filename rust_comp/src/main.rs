@@ -1,4 +1,4 @@
-use cronyx::frontend::id_provider::IdProvider;
+use cronyx::util::id_provider::IdProvider;
 use cronyx::frontend::module_loader::{load_compilation_unit_with_autoscope, FileRole};
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;

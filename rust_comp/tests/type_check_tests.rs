@@ -1,4 +1,4 @@
-use cronyx::frontend::id_provider::IdProvider;
+use cronyx::util::id_provider::IdProvider;
 use cronyx::frontend::lexer::tokenize;
 use cronyx::frontend::meta_ast::*;
 use cronyx::frontend::parser::{parse, ParseCtx};

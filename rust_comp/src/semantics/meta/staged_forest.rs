@@ -2,7 +2,7 @@ use super::meta_process_error::*;
 use super::process_dependency::*;
 use super::staged_ast::*;
 use super::symbol_collector::*;
-use crate::frontend::id_provider::IdProvider;
+use crate::util::id_provider::IdProvider;
 use crate::util::formatters::tree_formatter::{AsTree, TreeNode};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

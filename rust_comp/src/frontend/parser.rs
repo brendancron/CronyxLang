@@ -1,4 +1,4 @@
-use super::id_provider::*;
+use crate::util::id_provider::*;
 use super::meta_ast::*;
 use super::token::*;
 

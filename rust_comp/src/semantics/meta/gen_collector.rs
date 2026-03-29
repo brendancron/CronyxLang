@@ -1,4 +1,4 @@
-use crate::frontend::id_provider::IdProvider;
+use crate::util::id_provider::IdProvider;
 use crate::runtime::environment::EnvHandler;
 use crate::runtime::value::Value;
 use crate::frontend::meta_ast::{ConstructorPayload, MatchArm};

@@ -1,7 +1,7 @@
 use super::conversion::*;
 use super::runtime_ast::*;
 use super::staged_forest::{ModuleBinding, StagedForest};
-use crate::runtime::gen_collector::{CollectorMode, GeneratedCollector, GeneratedOutput};
+use crate::semantics::meta::gen_collector::{CollectorMode, GeneratedCollector, GeneratedOutput};
 use crate::semantics::types::type_error::TypeError;
 use std::collections::{HashMap, VecDeque};
 

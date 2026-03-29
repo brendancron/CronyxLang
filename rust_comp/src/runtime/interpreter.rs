@@ -7,7 +7,7 @@ use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::meta::staged_forest::ModuleBinding;
 use crate::semantics::types::type_error::TypeError;
 use crate::semantics::types::types::{self, Type};
-use crate::runtime::gen_collector::{collect_and_subst, GeneratedCollector};
+use crate::semantics::meta::gen_collector::{collect_and_subst, GeneratedCollector};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;

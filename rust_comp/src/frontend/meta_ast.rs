@@ -1,4 +1,4 @@
-use super::id_provider::*;
+use crate::util::id_provider::*;
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
 
