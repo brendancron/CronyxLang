@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust_comp/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('rust_comp/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Build release binary
+        working-directory: rust_comp
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          BINARY=rust_comp/target/${{ matrix.target }}/release/cronyx
+          ARCHIVE=cronyx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          tar -czf "$ARCHIVE" -C "$(dirname $BINARY)" "$(basename $BINARY)"
+          echo "ARCHIVE=$ARCHIVE" >> $GITHUB_ENV
+          shasum -a 256 "$ARCHIVE" | awk '{print $1}' > "$ARCHIVE.sha256"
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cronyx-${{ matrix.target }}
+          path: |
+            cronyx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+            cronyx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Cronyx ${{ github.ref_name }}
+          body: |
+            ## Install
+
+            ```
+            brew tap brendancron/cronyx
+            brew install cronyx
+            ```
+
+            ## Manual download
+
+            Download the binary for your platform from the assets below, unpack, and place `cronyx` on your `$PATH`.
+          files: artifacts/*
+          fail_on_unmatched_files: true
+
+  update-tap:
+    name: Update Homebrew Tap
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Read SHA256 hashes
+        id: hashes
+        run: |
+          ARM_SHA=$(cat artifacts/cronyx-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz.sha256)
+          X86_SHA=$(cat artifacts/cronyx-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz.sha256)
+          echo "arm_sha=$ARM_SHA" >> $GITHUB_OUTPUT
+          echo "x86_sha=$X86_SHA" >> $GITHUB_OUTPUT
+
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: brendancron/homebrew-cronyx
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-cronyx
+
+      - name: Update formula
+        env:
+          VERSION: ${{ github.ref_name }}
+          ARM_SHA: ${{ steps.hashes.outputs.arm_sha }}
+          X86_SHA: ${{ steps.hashes.outputs.x86_sha }}
+        run: |
+          # Strip leading 'v' from tag for the version field
+          VER=${VERSION#v}
+          cat > homebrew-cronyx/Formula/cronyx.rb << EOF
+          class Cronyx < Formula
+            desc "Cronyx programming language compiler/interpreter"
+            homepage "https://github.com/brendancron/CronyxLang"
+            version "$VER"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/brendancron/CronyxLang/releases/download/${VERSION}/cronyx-${VERSION}-aarch64-apple-darwin.tar.gz"
+                sha256 "$ARM_SHA"
+              else
+                url "https://github.com/brendancron/CronyxLang/releases/download/${VERSION}/cronyx-${VERSION}-x86_64-apple-darwin.tar.gz"
+                sha256 "$X86_SHA"
+              end
+            end
+
+            def install
+              bin.install "cronyx"
+            end
+
+            test do
+              (testpath/"hello.cx").write('print("hello");')
+              assert_match "hello", shell_output("#{bin}/cronyx hello.cx")
+            end
+          end
+          EOF
+
+      - name: Commit and push formula update
+        working-directory: homebrew-cronyx
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/cronyx.rb
+          git commit -m "cronyx ${{ github.ref_name }}"
+          git push
