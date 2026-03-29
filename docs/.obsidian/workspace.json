@@ -244,6 +244,7 @@
   },
   "active": "39ca65ae2952a527",
   "lastOpenFiles": [
+    "Cronyx Language Reference.md",
     "Path to 0.1.0.md",
     "Cronyx Type System.md",
     "Enum Implementation Plan.md",
@@ -273,7 +274,6 @@
     "Hindley-Milner/Substitutions/Combining Substitutions.md",
     "Hindley-Milner/Substitutions",
     "Hindley-Milner/HM Type Rules.md",
-    "Hindley-Milner/HM Assignments & Expressions.md",
     "Hindley-Milner"
   ]
 }
