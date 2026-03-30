@@ -6,14 +6,15 @@ Cronyx is a statically-typed, expression-oriented scripting language. Source fil
 
 ## Types
 
-| Type     | Examples                   |
-|----------|----------------------------|
-| `int`    | `0`, `42`, `-7`            |
-| `bool`   | `true`, `false`            |
-| `string` | `"hello"`, `"world"`       |
-| `list`   | `[1, 2, 3]`, `["a", "b"]` |
-| struct   | user-defined               |
-| enum     | user-defined               |
+| Type     | Examples                        |
+|----------|---------------------------------|
+| `int`    | `0`, `42`, `-7`                 |
+| `bool`   | `true`, `false`                 |
+| `string` | `"hello"`, `"world"`            |
+| `list`   | `[1, 2, 3]`, `["a", "b"]`      |
+| tuple    | `(1, "hi", true)`               |
+| struct   | user-defined                    |
+| enum     | user-defined                    |
 
 ---
 
@@ -48,6 +49,7 @@ var a = 10 + 3;   // 13
 var b = 10 - 3;   // 7
 var c = 10 * 3;   // 30
 var d = 10 / 3;   // 3  (integer division)
+var e = -5;       // unary minus
 ```
 
 String concatenation uses `+`:
@@ -75,15 +77,14 @@ a >= b
 
 ## Logical Operators
 
-Use keyword forms `and`, `or`, and prefix `!`. Short-circuit evaluation applies.
+Use `&&`, `||`, and prefix `!`. Short-circuit evaluation applies.
 
 ```cronyx
-if (x > 0 and x < 10) { ... }
-if (flag or other)    { ... }
+if (x > 0 && x < 10) { ... }
+if (flag || other)    { ... }
 if (!flag)            { ... }
+if (!arr[i])          { ... }   // ! applies after index operators
 ```
-
-Note: `&&` and `||` are **not** supported. Use `and` and `or`.
 
 ---
 
@@ -121,15 +122,27 @@ Braces are required. Condition must be in parentheses.
 var i = 0;
 while (i < 5) {
     print(i);
-    i = i + 1;
+    i++;
 }
 ```
+
+Compound assignment shorthands: `x += n`, `x -= n`, `x++`, `x--`.
 
 ---
 
 ## For Loop
 
-Iterates over a list:
+**C-style** — `for (init; cond; incr)`:
+
+```cronyx
+for (var i = 0; i < 5; i++) {
+    print(i);
+}
+```
+
+`init` can be a `var` declaration or assignment. `incr` supports `i++`, `i--`, `i += n`, `i -= n`, or any assignment.
+
+**For-each** — iterates over a list:
 
 ```cronyx
 var names = ["alice", "bob", "charlie"];
@@ -219,6 +232,34 @@ print(xs.len());       // 4
 var last = xs.pop();   // 4
 print(xs.contains(2)); // true
 ```
+
+---
+
+## Tuples
+
+Create with parentheses, two or more elements. Access fields with `.0`, `.1`, etc.
+
+```cronyx
+var t = (10, "hello", true);
+print(t.0);   // 10
+print(t.1);   // hello
+print(t.2);   // true
+```
+
+Functions can return tuples:
+
+```cronyx
+fn minmax(a, b) {
+    if (a < b) { return (a, b); }
+    return (b, a);
+}
+
+var pair = minmax(7, 3);
+print(pair.0);   // 3
+print(pair.1);   // 7
+```
+
+Negative values in tuple literals work as expected: `(0, -1)`.
 
 ---
 
@@ -429,18 +470,22 @@ print(n + 1);   // 43
 
 ## Operator Precedence (high to low)
 
-| Level | Operators                                 |
-|-------|-------------------------------------------|
-| 1     | `!` (prefix unary)                        |
-| 2     | `*`, `/`                                  |
-| 3     | `+`, `-`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `and`, `or` |
-| 4     | Postfix: `.field`, `.method(args)`, `[i]` |
+| Level | Operators                                   |
+|-------|---------------------------------------------|
+| 1     | Postfix: `.field`, `.method(args)`, `[i]`   |
+| 2     | `!`, `-` (prefix unary)                     |
+| 3     | `*`, `/`                                    |
+| 4     | `+`, `-`                                    |
+| 5     | `<`, `>`, `<=`, `>=`                        |
+| 6     | `==`, `!=`                                  |
+| 7     | `&&`                                        |
+| 8     | `\|\|` (lowest)                             |
 
 Use parentheses to force evaluation order:
 
 ```cronyx
 var result = (a + b) * c;
-if ((x > 0) and (y > 0)) { ... }
+if (x > 0 && y > 0) { ... }   // no extra parens needed
 ```
 
 ---
@@ -501,9 +546,9 @@ match r {
 
 ---
 
-## What Is NOT Supported (as of 0.1.0)
+## What Is NOT Supported (as of 0.1.1)
 
-- `&&` / `||` — use `and` / `or`
+- `and` / `or` keywords — use `&&` / `||`
 - `break` / `continue` in loops
 - `char` type — string indexing returns a single-char `string`
 - Result/Option types — no built-in error handling

@@ -1,0 +1,15 @@
+var a = -5;
+print(a);
+
+var b = -a;
+print(b);
+
+var list = [1, -2, 3];
+print(list[1]);
+
+var t = (0, -1);
+print(t.0);
+print(t.1);
+
+var x = 10 + -3;
+print(x);

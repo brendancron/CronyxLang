@@ -227,6 +227,8 @@ mod script_integration {
         cx_test!(ops_precedence,         "tests/core/operators", "precedence");
         cx_test!(ops_logical_symbols,    "tests/core/operators", "logical_symbols");
         cx_test!(ops_compound_assign,    "tests/core/operators", "compound_assign");
+        cx_test!(ops_unary_minus,        "tests/core/operators", "unary_minus");
+        cx_test!(ops_not_index,          "tests/core/operators", "not_index");
     }
 
     #[cfg(test)]

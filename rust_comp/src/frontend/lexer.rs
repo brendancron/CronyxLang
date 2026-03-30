@@ -55,7 +55,7 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                 line_number += 1;
                 i += 1;
             }
-            ' ' | '\t' => {
+            '\r' | ' ' | '\t' => {
                 i += 1;
             }
 
