@@ -45,7 +45,7 @@ impl<'a, W: Write> MetaEvaluator for InterpreterMetaEvaluator<'a, W> {
         ast: &RuntimeAst,
         collector: &mut GeneratedCollector,
     ) -> Result<(), Self::Error> {
-        eval(ast, &ast.sem_root_stmts, self.env.clone(), self.out, Some(collector))?;
+        eval(ast, &ast.sem_root_stmts, self.env.clone(), self.out, Some(collector), None)?;
         Ok(())
     }
 }

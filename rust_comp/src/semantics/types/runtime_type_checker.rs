@@ -351,6 +351,9 @@ fn infer_stmt(
                         env.bind_mono(name, ty);
                     }
                 }
+                ImportDecl::Wildcard { .. } => {
+                    unreachable!("wildcard imports must be expanded by module_loader before type checking")
+                }
             }
         }
 

@@ -1,5 +1,5 @@
 use cronyx::util::id_provider::IdProvider;
-use cronyx::frontend::module_loader::{load_compilation_unit_with_autoscope, FileRole};
+use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
 use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
@@ -21,7 +21,7 @@ fn main() {
         create_dir_all(&out_dir).unwrap();
 
         // LOAD all files in the compilation unit (entry + explicit imports)
-        let files = load_compilation_unit_with_autoscope(root_path)
+        let files = load_compilation_unit(root_path)
             .expect("failed to load compilation unit");
 
         let entry = files.iter().find(|f| matches!(f.role, FileRole::Entry)).unwrap();
@@ -94,6 +94,7 @@ fn main() {
             meta_env,
             &mut io::stdout(),
             None,
+            root_path.parent().map(|p| p.to_path_buf()),
         )
         .unwrap();
     }

@@ -51,6 +51,7 @@ pub struct EvalCtx<'a, W> {
     pub env: &'a mut EnvHandler,
     pub ast: &'a RuntimeAst,
     pub gen_collector: Option<&'a mut GeneratedCollector>,
+    pub source_dir: Option<std::path::PathBuf>,
 }
 
 pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
@@ -324,7 +325,12 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                         Value::String(s) => s,
                         _ => return Err(EvalError::ArgumentMismatch),
                     };
-                    let contents = std::fs::read_to_string(&path)
+                    let resolved = if let Some(ref dir) = ctx.source_dir {
+                        dir.join(&path)
+                    } else {
+                        std::path::PathBuf::from(&path)
+                    };
+                    let contents = std::fs::read_to_string(&resolved)
                         .map_err(|e| EvalError::UndefinedVariable(format!("readfile: {e}")))?;
                     return Ok(Value::String(contents));
                 }
@@ -691,12 +697,14 @@ pub fn eval<W: Write>(
     env: EnvRef,
     out: &mut W,
     gen_collector: Option<&mut GeneratedCollector>,
+    source_dir: Option<std::path::PathBuf>,
 ) -> Result<ExecResult, EvalError> {
     let mut ctx = EvalCtx {
         ast,
         env: &mut EnvHandler::from(env),
         out,
         gen_collector,
+        source_dir,
     };
     eval_stmts(&root_stmts, &mut ctx)
 }

@@ -402,7 +402,7 @@ match x {
 
 ## Imports
 
-Three forms:
+Only explicitly imported files are loaded. There is no automatic loading of sibling files.
 
 ### Qualified (module namespace)
 
@@ -428,6 +428,19 @@ import { greet, add } from "helpers";
 greet("World");
 ```
 
+### Wildcard (directory import)
+
+Load every `.cx` file in a directory, each as its own qualified module:
+
+```cronyx
+import "utils/*";
+
+print(math.add(2, 3));       // utils/math.cx → math module
+print(strings.greet("World")); // utils/strings.cx → strings module
+```
+
+Only the `/*` glob is supported; nested wildcards are not.
+
 Import paths are relative to the current file, without the `.cx` extension.
 
 ---
@@ -440,7 +453,7 @@ Prints any value to stdout followed by a newline.
 
 ### `readfile(path)`
 
-Reads a file at `path` (relative to the working directory) and returns its contents as a `string`. Returns an error string if the file does not exist.
+Reads a file at `path` (relative to the source file's directory) and returns its contents as a `string`.
 
 ```cronyx
 var contents = readfile("data.txt");
