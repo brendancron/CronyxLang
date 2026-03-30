@@ -493,6 +493,9 @@ pub fn stage_all_files(
                 ImportDecl::Selective { names, .. } => {
                     ModuleBinding::Selective { names: names.clone() }
                 }
+                ImportDecl::Wildcard { .. } => {
+                    unreachable!("wildcard imports must be expanded by module_loader before staging")
+                }
             };
             staged_forest.module_bindings.push(binding);
         }
@@ -518,6 +521,7 @@ pub fn stage_all_files(
                     ImportDecl::Qualified { path } => path_stem(path),
                     ImportDecl::Aliased { alias, .. } => alias.clone(),
                     ImportDecl::Selective { .. } => continue,
+                    ImportDecl::Wildcard { .. } => continue,
                 };
                 if !already_bound.contains(&bind_name) {
                     if let Some(exports) = exports_by_stem.get(&bind_name) {

@@ -259,6 +259,9 @@ pub enum ImportDecl {
     Aliased { path: String, alias: String },
     /// `import { name1, name2 } from "path";`
     Selective { names: Vec<String>, path: String },
+    /// `import "dir/*";` — expanded to Qualified imports by the module loader before
+    /// the rest of the pipeline sees it; never appears in a fully-loaded compilation.
+    Wildcard { path: String },
 }
 
 impl ImportDecl {
@@ -267,7 +270,25 @@ impl ImportDecl {
             ImportDecl::Qualified { path } => path,
             ImportDecl::Aliased { path, .. } => path,
             ImportDecl::Selective { path, .. } => path,
+            ImportDecl::Wildcard { path } => path,
         }
+    }
+}
+
+impl MetaAst {
+    /// Insert a stmt with a freshly-generated ID that is guaranteed not to collide
+    /// with any existing stmt or expr ID.  Useful for post-parse transformations.
+    pub fn inject_stmt(&mut self, stmt: MetaStmt) -> usize {
+        let max_stmt = self.stmts.keys().max().copied().unwrap_or(0);
+        let max_expr = self.exprs.keys().max().copied().unwrap_or(0);
+        let id = max_stmt.max(max_expr) + 1;
+        self.stmts.insert(id, stmt);
+        id
+    }
+
+    /// Remove a stmt by ID (does not touch `sem_root_stmts`).
+    pub fn remove_stmt(&mut self, id: usize) {
+        self.stmts.remove(&id);
     }
 }
 

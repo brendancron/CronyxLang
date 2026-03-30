@@ -886,9 +886,12 @@ fn parse_stmt<'a>(
                     let path = consume(tokens, pos, TokenType::String)?.expect_str();
                     ImportDecl::Selective { names, path }
                 } else {
-                    // import "path"; or import "path" as alias;
+                    // import "path";  or  import "path" as alias;  or  import "dir/*";
                     let path = consume(tokens, pos, TokenType::String)?.expect_str();
-                    if check(tokens, *pos, TokenType::As) {
+                    if path.ends_with("/*") {
+                        let dir = path.trim_end_matches("/*").to_string();
+                        ImportDecl::Wildcard { path: dir }
+                    } else if check(tokens, *pos, TokenType::As) {
                         consume(tokens, pos, TokenType::As)?;
                         let alias = consume(tokens, pos, TokenType::Identifier)?.expect_str();
                         ImportDecl::Aliased { path, alias }

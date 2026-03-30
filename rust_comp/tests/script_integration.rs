@@ -3,7 +3,7 @@ use std::io::{Cursor};
 use std::path::PathBuf;
 
 use cronyx::util::id_provider::IdProvider;
-use cronyx::frontend::module_loader::{load_compilation_unit, load_compilation_unit_with_autoscope, FileRole};
+use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
 use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
@@ -61,6 +61,7 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
         meta_env,
         &mut eval_buf,
         None,
+        root_path.parent().map(|p| p.to_path_buf()),
     )
     .unwrap();
 
@@ -89,63 +90,6 @@ fn test_dir(rel: &str) -> std::path::PathBuf {
     repo_root().join(rel)
 }
 
-fn run_test_autoscope(root_path: &PathBuf, out_path: &PathBuf) {
-    eprintln!("input : {}", root_path.display());
-    eprintln!("expect: {}", out_path.display());
-    let expected_out = read_to_string(out_path).unwrap();
-
-    let files = load_compilation_unit_with_autoscope(root_path)
-        .expect("failed to load compilation unit");
-
-    let entry_ast = files.iter()
-        .find(|f| matches!(f.role, FileRole::Entry))
-        .map(|f| &f.ast)
-        .unwrap();
-    let type_env = type_check(entry_ast)
-        .map(|(_, env)| env)
-        .unwrap_or_else(|_| TypeEnv::new());
-
-    let mut staged_forest = StagedForest::new();
-    staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
-    let mut id_provider = IdProvider::new();
-
-    stage_all_files(&files, &mut staged_forest, &mut id_provider, &type_env).unwrap();
-    staged_forest.resolve_symbol_deps().unwrap();
-
-    let module_bindings = staged_forest.module_bindings.clone();
-    let mut eval_buf = Cursor::new(Vec::<u8>::new());
-    let meta_env = Environment::new();
-
-    let runtime_ast = {
-        let mut evaluator = InterpreterMetaEvaluator {
-            env: meta_env.clone(),
-            type_env: TypeEnv::new(),
-            out: &mut eval_buf,
-        };
-        process(staged_forest, &mut evaluator).unwrap()
-    };
-
-    let mut setup_env = EnvHandler::from(meta_env.clone());
-    setup_modules(&runtime_ast, &module_bindings, &mut setup_env);
-
-    eval(
-        &runtime_ast,
-        &runtime_ast.sem_root_stmts,
-        meta_env,
-        &mut eval_buf,
-        None,
-    )
-    .unwrap();
-
-    let actual = String::from_utf8(eval_buf.into_inner()).unwrap();
-
-    if normalize(&actual) != normalize(&expected_out) {
-        panic!(
-            "\n--- expected ---\n{}\n--- actual ---\n{}\n",
-            expected_out, actual
-        );
-    }
-}
 
 macro_rules! cx_test {
     ($test:ident, $dir:literal, $file:literal) => {
@@ -159,17 +103,6 @@ macro_rules! cx_test {
     };
 }
 
-macro_rules! cx_test_autoscope {
-    ($test:ident, $dir:literal, $file:literal) => {
-        #[test]
-        fn $test() {
-            run_test_autoscope(
-                &test_dir(concat!($dir, "/", $file, ".cx")),
-                &test_dir(concat!($dir, "/", $file, ".txt")),
-            );
-        }
-    };
-}
 
 #[cfg(test)]
 mod script_integration {
@@ -199,7 +132,8 @@ mod script_integration {
         cx_test!(modules_selective,    "tests/core/modules/selective",    "main");
         cx_test!(modules_multi_export, "tests/core/modules/multi_export", "main");
         cx_test!(modules_circular,     "tests/core/modules/circular",     "main");
-        cx_test_autoscope!(modules_same_dir, "tests/core/modules/same_dir", "main");
+        cx_test!(modules_same_dir,    "tests/core/modules/same_dir",    "main");
+        cx_test!(modules_wildcard,    "tests/core/modules/wildcard",    "main");
         cx_test!(embed_embed,          "tests/core/embed",     "embed");
         cx_test!(resolution_symbol,    "tests/core/resolution","symbol_res");
         cx_test!(type_annot_var,   "tests/core/type_annotations", "var_annot");

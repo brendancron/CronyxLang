@@ -10,8 +10,6 @@ use std::{fs, io};
 pub enum FileRole {
     /// The program entry point; all top-level statements run.
     Entry,
-    /// A sibling `.cx` file in the same directory as the entry; only fn/struct/meta collected.
-    AutoScope,
     /// Explicitly imported via an `import` statement; carries the original decl for binding.
     Explicit(ImportDecl),
 }
@@ -29,8 +27,8 @@ pub enum LoadError {
     Parse { path: PathBuf, error: String },
 }
 
-/// Load all files reachable from `entry`, returning them in BFS discovery order.
-/// The entry file is always first; auto-scope siblings are last.
+/// Load all files reachable from `entry` via explicit imports (including `import "dir/*"`).
+/// The entry file is always first.
 pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError> {
     let entry_canonical = fs::canonicalize(entry)
         .map_err(|e| LoadError::Io { path: entry.to_path_buf(), error: e })?;
@@ -39,8 +37,10 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
     let mut visited: HashSet<PathBuf> = HashSet::new();
     let mut result: Vec<LoadedFile> = Vec::new();
 
-    // Parse entry file
-    let entry_ast = parse_file(&entry_canonical)?;
+    // Parse and expand wildcards in the entry file
+    let mut entry_ast = parse_file(&entry_canonical)?;
+    expand_wildcard_imports(&mut entry_ast, &entry_dir)
+        .map_err(|e| LoadError::Io { path: entry_dir.clone(), error: e })?;
     let explicit_imports = collect_imports(&entry_ast);
     visited.insert(entry_canonical.clone());
 
@@ -66,10 +66,12 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
         }
         visited.insert(canonical.clone());
 
-        let ast = parse_file(&canonical)?;
+        let mut ast = parse_file(&canonical)?;
+        let file_dir = canonical.parent().unwrap().to_path_buf();
+        expand_wildcard_imports(&mut ast, &file_dir)
+            .map_err(|e| LoadError::Io { path: file_dir.clone(), error: e })?;
         let transitive = collect_imports(&ast);
 
-        let file_dir = canonical.parent().unwrap().to_path_buf();
         for tdecl in transitive {
             let tpath = resolve_import(&file_dir, tdecl.path());
             queue.push_back((tdecl, tpath));
@@ -81,35 +83,6 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
     Ok(result)
 }
 
-/// Load a compilation unit with same-directory auto-scope enabled.
-/// Sibling `.cx` files in the entry file's directory are added as `AutoScope` files
-/// (FnDecl/StructDecl/MetaBlock only — no runtime statements).
-///
-/// NOTE: Do not use this in test harnesses where test files share a directory.
-pub fn load_compilation_unit_with_autoscope(entry: &Path) -> Result<Vec<LoadedFile>, LoadError> {
-    let entry_canonical = fs::canonicalize(entry)
-        .map_err(|e| LoadError::Io { path: entry.to_path_buf(), error: e })?;
-    let entry_dir = entry_canonical.parent().unwrap().to_path_buf();
-
-    let mut files = load_compilation_unit(entry)?;
-    let visited: std::collections::HashSet<PathBuf> = files.iter().map(|f| f.path.clone()).collect();
-
-    let siblings = glob_cx_files(&entry_dir)
-        .map_err(|e| LoadError::Io { path: entry_dir.clone(), error: e })?;
-
-    for sibling in siblings {
-        let canonical = fs::canonicalize(&sibling)
-            .map_err(|e| LoadError::Io { path: sibling.clone(), error: e })?;
-        if visited.contains(&canonical) {
-            continue;
-        }
-        let ast = parse_file(&canonical)?;
-        files.push(LoadedFile { path: canonical, ast, role: FileRole::AutoScope });
-    }
-
-    Ok(files)
-}
-
 fn parse_file(path: &Path) -> Result<MetaAst, LoadError> {
     let source = fs::read_to_string(path)
         .map_err(|e| LoadError::Io { path: path.to_path_buf(), error: e })?;
@@ -119,6 +92,45 @@ fn parse_file(path: &Path) -> Result<MetaAst, LoadError> {
     parse(&tokens, &mut ctx)
         .map_err(|e| LoadError::Parse { path: path.to_path_buf(), error: format!("{e:?}") })?;
     Ok(ctx.ast)
+}
+
+/// Replace every `Import(Wildcard { path: dir })` node in `ast.sem_root_stmts` with
+/// individual `Import(Qualified { path: "dir/stem" })` nodes — one per `.cx` file found
+/// in `base_dir/dir`.  Files are sorted for deterministic ordering.
+fn expand_wildcard_imports(ast: &mut MetaAst, base_dir: &Path) -> Result<(), io::Error> {
+    let original = std::mem::take(&mut ast.sem_root_stmts);
+
+    for id in original {
+        let wildcard_dir = match ast.get_stmt(id) {
+            Some(MetaStmt::Import(ImportDecl::Wildcard { path })) => Some(path.clone()),
+            _ => None,
+        };
+
+        if let Some(dir_path) = wildcard_dir {
+            ast.remove_stmt(id);
+            let dir = base_dir.join(&dir_path);
+            let mut files: Vec<PathBuf> = fs::read_dir(&dir)
+                .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", dir.display())))?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("cx"))
+                .map(|e| e.path())
+                .collect();
+            files.sort();
+            for file in files {
+                let stem = file.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let rel_path = format!("{}/{}", dir_path, stem);
+                let new_id = ast.inject_stmt(MetaStmt::Import(ImportDecl::Qualified { path: rel_path }));
+                ast.sem_root_stmts.push(new_id);
+            }
+        } else {
+            ast.sem_root_stmts.push(id);
+        }
+    }
+
+    Ok(())
 }
 
 fn collect_imports(ast: &MetaAst) -> Vec<ImportDecl> {

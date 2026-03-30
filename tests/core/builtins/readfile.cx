@@ -1,2 +1,2 @@
-var contents = readfile("../tests/core/builtins/readfile_data.txt");
+var contents = readfile("readfile_data.txt");
 print(contents.trim());

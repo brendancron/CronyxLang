@@ -1,2 +1,2 @@
-// main.cx — greet is defined in helpers.cx (same dir), no import needed
-greet("World");
+import "helpers";
+helpers.greet("World");
