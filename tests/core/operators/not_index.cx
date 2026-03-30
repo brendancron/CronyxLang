@@ -1,0 +1,13 @@
+var flags = [true, false, true];
+print(!flags[0]);
+print(!flags[1]);
+
+var visited = [];
+visited.push(false);
+visited.push(true);
+if (!visited[0]) { print("unvisited"); }
+if (!visited[1]) { print("should not print"); }
+
+var nested = [[false, true], [true, false]];
+print(!nested[0][0]);
+print(!nested[0][1]);

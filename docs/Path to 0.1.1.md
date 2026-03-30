@@ -9,6 +9,9 @@
 | 3 | Operator precedence (comparisons above `&&`/`\|\|`) | ✅ Done | `tests/core/operators/precedence` |
 | 4 | `&&` / `\|\|` replacing `and` / `or` | ✅ Done | `tests/core/operators/logical_symbols` |
 | 5 | Compound assignment: `+=`, `-=`, `++`, `--` | ✅ Done | `tests/core/operators/compound_assign` |
+| 6 | Unary minus (`-expr`, negative literals) | ✅ Done | `tests/core/operators/unary_minus` |
+| 7 | `!` before indexed expressions (`!arr[i]`) | ✅ Done | `tests/core/operators/not_index` |
+| 8 | Windows carriage returns (`\r`) tolerated by lexer | ✅ Done | — |
 
 ---
 

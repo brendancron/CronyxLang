@@ -123,8 +123,16 @@ fn parse_factor<'a>(
         Some(tok) => match tok.token_type {
             TokenType::Bang => {
                 *pos += 1;
-                let operand = parse_factor(tokens, pos, ctx)?;
+                let operand = parse_postfix(tokens, pos, ctx)?;
                 let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Not(operand));
+                Ok(id)
+            }
+
+            TokenType::Minus => {
+                *pos += 1;
+                let operand = parse_postfix(tokens, pos, ctx)?;
+                let zero = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Int(0));
+                let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Sub(zero, operand));
                 Ok(id)
             }
 
