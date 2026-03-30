@@ -220,6 +220,13 @@ mod script_integration {
         cx_test!(string_methods,       "tests/core/strings",   "string_methods");
         cx_test!(builtins_readfile,    "tests/core/builtins",  "readfile");
         cx_test!(builtins_conversions, "tests/core/builtins",  "conversions");
+
+        // Required features for 0.1.1
+        cx_test!(control_for_c,          "tests/core/control",   "for_c");
+        cx_test!(tuples_basic,           "tests/core/tuples",    "tuple_basic");
+        cx_test!(ops_precedence,         "tests/core/operators", "precedence");
+        cx_test!(ops_logical_symbols,    "tests/core/operators", "logical_symbols");
+        cx_test!(ops_compound_assign,    "tests/core/operators", "compound_assign");
     }
 
     #[cfg(test)]

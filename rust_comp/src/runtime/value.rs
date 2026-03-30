@@ -30,6 +30,8 @@ pub enum Value {
 
     List(Rc<RefCell<Vec<Value>>>),
 
+    Tuple(Vec<Value>),
+
     Function(Rc<Function>),
 
     Module(Rc<HashMap<String, Value>>),
@@ -70,6 +72,14 @@ impl fmt::Display for Value {
                     write!(f, "{v}")?;
                 }
                 write!(f, "]")
+            }
+            Value::Tuple(items) => {
+                write!(f, "(")?;
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{v}")?;
+                }
+                write!(f, ")")
             }
             Value::Struct { type_name, fields } => {
                 let map = fields.borrow();

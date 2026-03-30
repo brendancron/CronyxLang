@@ -108,6 +108,12 @@ pub enum StagedExpr {
     Or(usize, usize),
     Not(usize),
 
+    Tuple(Vec<usize>),
+    TupleIndex {
+        object: usize,
+        index: usize,
+    },
+
     MetaExpr(MetaRef),
 }
 
@@ -455,6 +461,14 @@ impl StagedAst {
                 vec![],
             ),
 
+            StagedExpr::Tuple(items) => (
+                "Tuple".into(),
+                items.iter().map(|e| self.convert_expr(*e)).collect(),
+            ),
+            StagedExpr::TupleIndex { object, index } => (
+                format!("TupleIndex(.{index})"),
+                vec![self.convert_expr(*object)],
+            ),
             StagedExpr::MetaExpr(meta_ref) => (
                 "MetaRef".into(),
                 vec![TreeNode::leaf(meta_ref.ast_ref.to_string())],

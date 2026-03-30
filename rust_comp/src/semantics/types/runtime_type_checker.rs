@@ -184,6 +184,18 @@ fn infer_expr(
             Ok(Type::Var(env.fresh()))
         }
 
+        RuntimeExpr::Tuple(items) => {
+            for item_id in items {
+                infer_expr(ast, item_id, env, subst)?;
+            }
+            Ok(Type::Var(env.fresh()))
+        }
+
+        RuntimeExpr::TupleIndex { object, .. } => {
+            infer_expr(ast, object, env, subst)?;
+            Ok(Type::Var(env.fresh()))
+        }
+
         RuntimeExpr::EnumConstructor { enum_name, payload, .. } => {
             match payload {
                 ConstructorPayload::Tuple(ids) => {

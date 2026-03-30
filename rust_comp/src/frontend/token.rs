@@ -27,6 +27,12 @@ pub enum TokenType {
     Less,
     LessEqual,
     DoubleColon,
+    AmpAmp,
+    PipePipe,
+    PlusEqual,
+    MinusEqual,
+    PlusPlus,
+    MinusMinus,
 
     // Literals
     Identifier,

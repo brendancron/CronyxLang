@@ -185,6 +185,19 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             }
         }
 
+        RuntimeExpr::Tuple(items) => {
+            let vals: Result<Vec<Value>, EvalError> = items.iter().map(|id| eval_expr(*id, ctx)).collect();
+            Ok(Value::Tuple(vals?))
+        }
+
+        RuntimeExpr::TupleIndex { object, index } => {
+            match eval_expr(*object, ctx)? {
+                Value::Tuple(items) => items.into_iter().nth(*index)
+                    .ok_or_else(|| EvalError::UndefinedVariable(format!("tuple index {} out of bounds", index))),
+                _ => Err(EvalError::TypeError(types::unit_type())),
+            }
+        }
+
         RuntimeExpr::DotAccess { object, field } => {
             let obj = eval_expr(*object, ctx)?;
             match obj {

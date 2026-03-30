@@ -278,6 +278,15 @@ impl<'a> TypeAnnotatedView<'a> {
                 format!("EnumConstructor({enum_name}::{variant})"),
                 vec![],
             ),
+
+            MetaExpr::Tuple(items) => (
+                "Tuple".into(),
+                items.iter().map(|e| self.convert_expr(*e)).collect(),
+            ),
+            MetaExpr::TupleIndex { object, index } => (
+                format!("TupleIndex(.{index})"),
+                vec![self.convert_expr(*object)],
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

@@ -27,12 +27,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Path to 0.1.0.md",
+                "file": "Cronyx Language Reference.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Path to 0.1.0"
+              "title": "Cronyx Language Reference"
             }
           },
           {
@@ -244,13 +244,15 @@
   },
   "active": "39ca65ae2952a527",
   "lastOpenFiles": [
-    "Cronyx Language Reference.md",
     "Path to 0.1.0.md",
+    "Path to 0.1.1.md",
+    "Cronyx Module System.md",
     "Cronyx Type System.md",
+    "Cronyx.md",
+    "Cronyx Language Reference.md",
     "Enum Implementation Plan.md",
     "Useful Commands.md",
     "Meta Functions.md",
-    "Cronyx Module System.md",
     "ModuleSystem.md",
     "Phase Architecture.md",
     "TypeSystem.md",
@@ -264,7 +266,6 @@
     "Excalidraw",
     "TODO.md",
     "Tasks",
-    "Cronyx.md",
     "Hindley-Milner/Type Order in HM.md",
     "Hindley-Milner/HM Type System.md",
     "Type Checker.md",
@@ -273,7 +274,6 @@
     "Hindley-Milner/Substitutions/Substitutions in Logic.md",
     "Hindley-Milner/Substitutions/Combining Substitutions.md",
     "Hindley-Milner/Substitutions",
-    "Hindley-Milner/HM Type Rules.md",
     "Hindley-Milner"
   ]
 }

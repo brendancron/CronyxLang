@@ -1,0 +1,10 @@
+var t = (10, "hello", true);
+print(t.0);
+print(t.1);
+print(t.2);
+
+fn pair(a, b) {
+    return (a, b);
+}
+var p = pair(3, 4);
+print(p.0 + p.1);
