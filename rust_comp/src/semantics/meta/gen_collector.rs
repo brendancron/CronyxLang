@@ -238,6 +238,13 @@ impl<'a> SubstCtx<'a> {
                     },
                 }
             }
+            RuntimeExpr::Tuple(items) => {
+                RuntimeExpr::Tuple(items.iter().map(|id| self.remap_expr(*id)).collect())
+            }
+            RuntimeExpr::TupleIndex { object, index } => RuntimeExpr::TupleIndex {
+                object: self.remap_expr(*object),
+                index: *index,
+            },
             _ => expr.clone(), // Int, String, Bool
         }
     }

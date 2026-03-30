@@ -162,9 +162,21 @@ fn parse_factor<'a>(
 
             TokenType::LeftParen => {
                 consume(tokens, pos, TokenType::LeftParen)?;
-                let expr_id = parse_expr(tokens, pos, ctx)?;
-                consume(tokens, pos, TokenType::RightParen)?;
-                Ok(expr_id)
+                let first = parse_expr(tokens, pos, ctx)?;
+                if check(tokens, *pos, TokenType::Comma) {
+                    // Tuple literal: (a, b, ...)
+                    let mut elems = vec![first];
+                    while check(tokens, *pos, TokenType::Comma) {
+                        *pos += 1;
+                        elems.push(parse_expr(tokens, pos, ctx)?);
+                    }
+                    consume(tokens, pos, TokenType::RightParen)?;
+                    let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Tuple(elems));
+                    Ok(id)
+                } else {
+                    consume(tokens, pos, TokenType::RightParen)?;
+                    Ok(first)
+                }
             }
 
             TokenType::Typeof => {
@@ -350,6 +362,15 @@ fn parse_postfix<'a>(
     loop {
         if check(tokens, *pos, TokenType::Dot) {
             *pos += 1; // consume Dot
+            // Numeric dot access: tuple.0, tuple.1
+            if check(tokens, *pos, TokenType::Number) {
+                let idx = consume_next(tokens, pos).expect_int() as usize;
+                base = ctx.ast.insert_expr(
+                    &mut ctx.id_provider,
+                    MetaExpr::TupleIndex { object: base, index: idx },
+                );
+                continue;
+            }
             let field = consume(tokens, pos, TokenType::Identifier)?.expect_str();
             if check(tokens, *pos, TokenType::LeftParen) {
                 consume(tokens, pos, TokenType::LeftParen)?;
@@ -384,113 +405,155 @@ fn parse_postfix<'a>(
     Ok(base)
 }
 
+/// Level 6: * /
 fn parse_term<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
 ) -> Result<usize, ParseError> {
     let mut left = parse_postfix(tokens, pos, ctx)?;
-
     loop {
-        match tokens.get(*pos) {
-            Some(tok) => match tok.token_type {
-                TokenType::Star => {
-                    *pos += 1;
-                    let right = parse_factor(tokens, pos, ctx)?;
-                    let node = MetaExpr::Mult(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                TokenType::Slash => {
-                    *pos += 1;
-                    let right = parse_factor(tokens, pos, ctx)?;
-                    let node = MetaExpr::Div(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                _ => return Ok(left),
-            },
+        match tokens.get(*pos).map(|t| t.token_type) {
+            Some(TokenType::Star) => {
+                *pos += 1;
+                let right = parse_postfix(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Mult(left, right));
+            }
+            Some(TokenType::Slash) => {
+                *pos += 1;
+                let right = parse_postfix(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Div(left, right));
+            }
             _ => return Ok(left),
         }
     }
 }
 
-fn parse_expr<'a>(
+/// Level 5: + -
+fn parse_addition<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
 ) -> Result<usize, ParseError> {
     let mut left = parse_term(tokens, pos, ctx)?;
-
     loop {
-        match tokens.get(*pos) {
-            Some(tok) => match tok.token_type {
-                TokenType::Plus => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::Add(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-
-                TokenType::Minus => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::Sub(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-
-                TokenType::EqualEqual => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::Equals(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                TokenType::BangEqual => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::NotEquals(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                TokenType::Less => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::Lt(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                TokenType::Greater => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::Gt(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                TokenType::LessEqual => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::Lte(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                TokenType::GreaterEqual => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::Gte(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                TokenType::And => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::And(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-                TokenType::Or => {
-                    *pos += 1;
-                    let right = parse_term(tokens, pos, ctx)?;
-                    let node = MetaExpr::Or(left, right);
-                    left = ctx.ast.insert_expr(&mut ctx.id_provider, node);
-                }
-
-                _ => return Ok(left),
-            },
+        match tokens.get(*pos).map(|t| t.token_type) {
+            Some(TokenType::Plus) => {
+                *pos += 1;
+                let right = parse_term(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Add(left, right));
+            }
+            Some(TokenType::Minus) => {
+                *pos += 1;
+                let right = parse_term(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Sub(left, right));
+            }
             _ => return Ok(left),
         }
     }
+}
+
+/// Level 4: < > <= >=
+fn parse_comparison<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    let mut left = parse_addition(tokens, pos, ctx)?;
+    loop {
+        match tokens.get(*pos).map(|t| t.token_type) {
+            Some(TokenType::Less) => {
+                *pos += 1;
+                let right = parse_addition(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lt(left, right));
+            }
+            Some(TokenType::Greater) => {
+                *pos += 1;
+                let right = parse_addition(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Gt(left, right));
+            }
+            Some(TokenType::LessEqual) => {
+                *pos += 1;
+                let right = parse_addition(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lte(left, right));
+            }
+            Some(TokenType::GreaterEqual) => {
+                *pos += 1;
+                let right = parse_addition(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Gte(left, right));
+            }
+            _ => return Ok(left),
+        }
+    }
+}
+
+/// Level 3: == !=
+fn parse_equality<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    let mut left = parse_comparison(tokens, pos, ctx)?;
+    loop {
+        match tokens.get(*pos).map(|t| t.token_type) {
+            Some(TokenType::EqualEqual) => {
+                *pos += 1;
+                let right = parse_comparison(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Equals(left, right));
+            }
+            Some(TokenType::BangEqual) => {
+                *pos += 1;
+                let right = parse_comparison(tokens, pos, ctx)?;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::NotEquals(left, right));
+            }
+            _ => return Ok(left),
+        }
+    }
+}
+
+/// Level 2: &&
+fn parse_and<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    let mut left = parse_equality(tokens, pos, ctx)?;
+    loop {
+        if tokens.get(*pos).map(|t| t.token_type) == Some(TokenType::AmpAmp) {
+            *pos += 1;
+            let right = parse_equality(tokens, pos, ctx)?;
+            left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::And(left, right));
+        } else {
+            return Ok(left);
+        }
+    }
+}
+
+/// Level 1 (lowest): ||
+fn parse_or<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    let mut left = parse_and(tokens, pos, ctx)?;
+    loop {
+        if tokens.get(*pos).map(|t| t.token_type) == Some(TokenType::PipePipe) {
+            *pos += 1;
+            let right = parse_and(tokens, pos, ctx)?;
+            left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Or(left, right));
+        } else {
+            return Ok(left);
+        }
+    }
+}
+
+/// Entry point for expression parsing (lowest precedence = `||`).
+fn parse_expr<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    parse_or(tokens, pos, ctx)
 }
 
 fn parse_expr_stmt<'a>(
@@ -574,21 +637,54 @@ fn parse_stmt<'a>(
             TokenType::For => {
                 consume(tokens, pos, TokenType::For)?;
                 consume(tokens, pos, TokenType::LeftParen)?;
-                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
-                consume(tokens, pos, TokenType::In)?;
-                let iter = parse_expr(tokens, pos, ctx)?;
-                consume(tokens, pos, TokenType::RightParen)?;
-                consume(tokens, pos, TokenType::LeftBrace)?;
-                let inner = parse_block(tokens, pos, ctx)?;
-                consume(tokens, pos, TokenType::RightBrace)?;
-                let for_stmt = MetaStmt::ForEach {
-                    var: name,
-                    iterable: iter,
-                    body: inner,
-                };
 
-                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, for_stmt);
-                Ok(id)
+                // Distinguish: for (var ...) or for (ident in ...) vs for (ident ...)
+                let is_c_style = check(tokens, *pos, TokenType::Var)
+                    || (check(tokens, *pos, TokenType::Identifier)
+                        && !check(tokens, *pos + 1, TokenType::In));
+
+                if is_c_style {
+                    // C-style: for (init; cond; incr) { body }
+                    // init is a full stmt (consumes its own `;`)
+                    let init = parse_stmt(tokens, pos, ctx)?;
+                    let cond = parse_expr(tokens, pos, ctx)?;
+                    consume(tokens, pos, TokenType::Semicolon)?;
+                    let incr = parse_for_incr(tokens, pos, ctx)?;
+                    consume(tokens, pos, TokenType::RightParen)?;
+                    consume(tokens, pos, TokenType::LeftBrace)?;
+                    let body_inner = parse_block(tokens, pos, ctx)?;
+                    consume(tokens, pos, TokenType::RightBrace)?;
+
+                    // Desugar to: Block([init, WhileLoop(cond, Block([body, incr]))])
+                    let while_body = ctx.ast.insert_stmt(
+                        &mut ctx.id_provider,
+                        MetaStmt::Block(vec![body_inner, incr]),
+                    );
+                    let while_stmt = ctx.ast.insert_stmt(
+                        &mut ctx.id_provider,
+                        MetaStmt::WhileLoop { cond, body: while_body },
+                    );
+                    let id = ctx.ast.insert_stmt(
+                        &mut ctx.id_provider,
+                        MetaStmt::Block(vec![init, while_stmt]),
+                    );
+                    Ok(id)
+                } else {
+                    // for-each: for (ident in iterable)
+                    let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    consume(tokens, pos, TokenType::In)?;
+                    let iter = parse_expr(tokens, pos, ctx)?;
+                    consume(tokens, pos, TokenType::RightParen)?;
+                    consume(tokens, pos, TokenType::LeftBrace)?;
+                    let inner = parse_block(tokens, pos, ctx)?;
+                    consume(tokens, pos, TokenType::RightBrace)?;
+                    let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::ForEach {
+                        var: name,
+                        iterable: iter,
+                        body: inner,
+                    });
+                    Ok(id)
+                }
             }
 
             TokenType::Var => {
@@ -797,6 +893,50 @@ fn parse_stmt<'a>(
                 Ok(id)
             }
 
+            TokenType::Identifier if check(tokens, *pos + 1, TokenType::PlusPlus) => {
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                *pos += 1; // consume ++
+                consume(tokens, pos, TokenType::Semicolon)?;
+                let var_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name.clone()));
+                let one_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Int(1));
+                let expr = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Add(var_id, one_id));
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr });
+                Ok(id)
+            }
+
+            TokenType::Identifier if check(tokens, *pos + 1, TokenType::MinusMinus) => {
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                *pos += 1; // consume --
+                consume(tokens, pos, TokenType::Semicolon)?;
+                let var_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name.clone()));
+                let one_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Int(1));
+                let expr = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Sub(var_id, one_id));
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr });
+                Ok(id)
+            }
+
+            TokenType::Identifier if check(tokens, *pos + 1, TokenType::PlusEqual) => {
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                *pos += 1; // consume +=
+                let rhs = parse_expr(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::Semicolon)?;
+                let var_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name.clone()));
+                let expr = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Add(var_id, rhs));
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr });
+                Ok(id)
+            }
+
+            TokenType::Identifier if check(tokens, *pos + 1, TokenType::MinusEqual) => {
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                *pos += 1; // consume -=
+                let rhs = parse_expr(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::Semicolon)?;
+                let var_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name.clone()));
+                let expr = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Sub(var_id, rhs));
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr });
+                Ok(id)
+            }
+
             TokenType::Identifier if check(tokens, *pos + 1, TokenType::LeftBracket) => {
                 let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
                 let mut indices = Vec::new();
@@ -824,6 +964,52 @@ fn parse_stmt<'a>(
             _ => parse_expr_stmt(tokens, pos, ctx),
         },
         _ => parse_expr_stmt(tokens, pos, ctx),
+    }
+}
+
+/// Parse the increment clause of a C-style for loop (no trailing `;`).
+/// Handles: `i++`, `i--`, `i += expr`, `i -= expr`, `i = expr`.
+fn parse_for_incr<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+    match tokens.get(*pos).map(|t| t.token_type) {
+        Some(TokenType::PlusPlus) => {
+            *pos += 1;
+            let var_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name.clone()));
+            let one_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Int(1));
+            let expr = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Add(var_id, one_id));
+            Ok(ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr }))
+        }
+        Some(TokenType::MinusMinus) => {
+            *pos += 1;
+            let var_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name.clone()));
+            let one_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Int(1));
+            let expr = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Sub(var_id, one_id));
+            Ok(ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr }))
+        }
+        Some(TokenType::PlusEqual) => {
+            *pos += 1;
+            let rhs = parse_expr(tokens, pos, ctx)?;
+            let var_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name.clone()));
+            let expr = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Add(var_id, rhs));
+            Ok(ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr }))
+        }
+        Some(TokenType::MinusEqual) => {
+            *pos += 1;
+            let rhs = parse_expr(tokens, pos, ctx)?;
+            let var_id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name.clone()));
+            let expr = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Sub(var_id, rhs));
+            Ok(ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr }))
+        }
+        Some(TokenType::Equal) => {
+            *pos += 1;
+            let expr = parse_expr(tokens, pos, ctx)?;
+            Ok(ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr }))
+        }
+        _ => panic!("expected increment expression in for loop"),
     }
 }
 

@@ -203,8 +203,8 @@ impl<'a> Formatter<'a> {
             RuntimeExpr::Gt(a, b) => format!("{} > {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Lte(a, b) => format!("{} <= {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Gte(a, b) => format!("{} >= {}", self.fmt_expr(a), self.fmt_expr(b)),
-            RuntimeExpr::And(a, b) => format!("{} and {}", self.fmt_expr(a), self.fmt_expr(b)),
-            RuntimeExpr::Or(a, b) => format!("{} or {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::And(a, b) => format!("{} && {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Or(a, b) => format!("{} || {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Not(a) => format!("!{}", self.fmt_expr(a)),
 
             RuntimeExpr::Call { callee, args } => {
@@ -231,6 +231,19 @@ impl<'a> Formatter<'a> {
 
             RuntimeExpr::Index { object, index } => {
                 format!("{}[{}]", self.fmt_expr(object), self.fmt_expr(index))
+            }
+
+            RuntimeExpr::Tuple(items) => {
+                let items_str = items
+                    .iter()
+                    .map(|id| self.fmt_expr(*id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({})", items_str)
+            }
+
+            RuntimeExpr::TupleIndex { object, index } => {
+                format!("{}.{}", self.fmt_expr(object), index)
             }
 
             RuntimeExpr::List(items) => {

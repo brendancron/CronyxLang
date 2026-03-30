@@ -83,6 +83,13 @@ impl RuntimeAst {
                 RuntimeExpr::And(a, b) => RuntimeExpr::And(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::Or(a, b) => RuntimeExpr::Or(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::Not(a) => RuntimeExpr::Not(remap_expr(*a)),
+                RuntimeExpr::Tuple(items) => {
+                    RuntimeExpr::Tuple(items.iter().map(|id| remap_expr(*id)).collect())
+                }
+                RuntimeExpr::TupleIndex { object, index } => RuntimeExpr::TupleIndex {
+                    object: remap_expr(*object),
+                    index: *index,
+                },
                 RuntimeExpr::StructLiteral { type_name, fields } => {
                     RuntimeExpr::StructLiteral {
                         type_name: type_name.clone(),
@@ -270,6 +277,12 @@ pub enum RuntimeExpr {
     And(usize, usize),
     Or(usize, usize),
     Not(usize),
+
+    Tuple(Vec<usize>),
+    TupleIndex {
+        object: usize,
+        index: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -608,6 +621,16 @@ impl RuntimeAst {
             RuntimeExpr::EnumConstructor { enum_name, variant, .. } => (
                 format!("EnumConstructor({enum_name}::{variant})"),
                 vec![],
+            ),
+
+            RuntimeExpr::Tuple(items) => (
+                "Tuple".into(),
+                items.iter().map(|e| self.convert_expr(*e)).collect(),
+            ),
+
+            RuntimeExpr::TupleIndex { object, index } => (
+                format!("TupleIndex(.{index})"),
+                vec![self.convert_expr(*object)],
             ),
         };
 

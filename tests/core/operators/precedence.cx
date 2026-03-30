@@ -1,0 +1,12 @@
+// Comparisons bind tighter than && / ||
+if (2 > 1 && 3 > 2)     { print("ok1"); }
+if (1 > 2 || 3 > 2)     { print("ok2"); }
+if (2 + 3 > 4 && 1 < 2) { print("ok3"); }
+
+// ! binds tightest of all
+if (!false && true)      { print("ok4"); }
+if (!true  || !false)    { print("ok5"); }
+
+// Arithmetic before comparison
+if (2 * 3 > 5)           { print("ok6"); }
+if (10 - 3 == 7)         { print("ok7"); }

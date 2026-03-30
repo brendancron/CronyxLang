@@ -220,6 +220,19 @@ pub fn process_expr(
             });
         }
 
+        MetaExpr::Tuple(exprs) => {
+            let mut ids = Vec::with_capacity(exprs.len());
+            for e in exprs {
+                ids.push(process_expr(meta_ast, *e, staged_ast, id_provider, dependency_set, staged_forest, type_env)?);
+            }
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Tuple(ids));
+        }
+
+        MetaExpr::TupleIndex { object, index } => {
+            let obj_id = process_expr(meta_ast, *object, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::TupleIndex { object: obj_id, index: *index });
+        }
+
         MetaExpr::Embed(file_path) => {
             let resolved = if let Some(dir) = &staged_forest.source_dir {
                 dir.join(file_path)

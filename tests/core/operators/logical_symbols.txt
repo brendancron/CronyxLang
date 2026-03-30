@@ -1,0 +1,3 @@
+and_tt
+or_ft
+not_f

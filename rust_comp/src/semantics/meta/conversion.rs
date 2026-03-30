@@ -82,6 +82,8 @@ pub fn convert_to_runtime(
             StagedExpr::EnumConstructor { enum_name, variant, payload } => {
                 RuntimeExpr::EnumConstructor { enum_name, variant, payload }
             }
+            StagedExpr::Tuple(items) => RuntimeExpr::Tuple(items),
+            StagedExpr::TupleIndex { object, index } => RuntimeExpr::TupleIndex { object, index },
             StagedExpr::MetaExpr(_) => return Err(AstConversionError::UnresolvedMeta(*id)),
         };
         runtime.insert_expr(*id, runtime_expr);

@@ -106,6 +106,12 @@ pub enum MetaExpr {
     And(usize, usize),
     Or(usize, usize),
     Not(usize),
+
+    Tuple(Vec<usize>),
+    TupleIndex {
+        object: usize,
+        index: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -551,6 +557,14 @@ impl MetaAst {
             MetaExpr::Not(a) => (
                 "Not".into(),
                 vec![self.convert_expr(*a)],
+            ),
+            MetaExpr::Tuple(items) => (
+                "Tuple".into(),
+                items.iter().map(|e| self.convert_expr(*e)).collect(),
+            ),
+            MetaExpr::TupleIndex { object, index } => (
+                format!("TupleIndex(.{index})"),
+                vec![self.convert_expr(*object)],
             ),
         };
 

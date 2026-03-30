@@ -191,6 +191,18 @@ fn infer_expr(
             infer_expr(ast, index, env, subst, table)?;
             Type::Var(env.fresh())
         }
+
+        MetaExpr::Tuple(items) => {
+            for item_id in items {
+                infer_expr(ast, item_id, env, subst, table)?;
+            }
+            Type::Var(env.fresh())
+        }
+
+        MetaExpr::TupleIndex { object, .. } => {
+            infer_expr(ast, object, env, subst, table)?;
+            Type::Var(env.fresh())
+        }
     };
 
     let ty = ty.apply(subst);

@@ -173,6 +173,14 @@ fn collect_expr_symbols(
             collect_expr_symbols(ast, *object, declares, uses, in_gen);
             collect_expr_symbols(ast, *index, declares, uses, in_gen);
         }
+        StagedExpr::Tuple(items) => {
+            for &item in items {
+                collect_expr_symbols(ast, item, declares, uses, in_gen);
+            }
+        }
+        StagedExpr::TupleIndex { object, .. } => {
+            collect_expr_symbols(ast, *object, declares, uses, in_gen);
+        }
         StagedExpr::Int(_) | StagedExpr::String(_) | StagedExpr::Bool(_)
         | StagedExpr::MetaExpr(_) => {}
         StagedExpr::EnumConstructor { payload, .. } => {
