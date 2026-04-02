@@ -1,9 +1,0 @@
-fn greet(name) {
-    print("Hello, " + name);
-}
-
-fn main() {
-    greet("Brendan");
-}
-
-main();

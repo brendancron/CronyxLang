@@ -4,26 +4,46 @@ A statically-typed, metaprogramming-first language with Hindley-Milner type infe
 
 See [docs/Cronyx.md](docs/Cronyx.md) for a language overview.
 
-## Building
+# Installation
 
-```zsh
-cd rust_comp
-cargo build
+## Package Managers
+
+### Windows
+
+#### Scoop
+
+Add the bucket
+```
+scoop bucket add cronyx https://github.com/brendancron/scoop-cronyx
 ```
 
-## Running
-
-```zsh
-cargo run -- path/to/file.cx
+Install
+```
+scoop install cronyx
 ```
 
-Build artifacts are written to `../out/`.
-
-## Testing
-
-```zsh
-cargo test
+Update
+```
+scoop update
+scoop update cronyx
 ```
 
-Integration tests live in `tests/` and are registered in `rust_comp/tests/script_integration.rs`.
-Each test consists of a `.cx` source file and a corresponding `.txt` file containing the expected output.
+### MacOS
+
+#### Homebrew
+
+Add the tap
+```
+brew tap brendancron/cronyx
+```
+
+Install
+```
+brew install cronyx
+```
+
+Update
+```
+brew update
+brew upgrade cronyx
+```
