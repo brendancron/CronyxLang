@@ -271,6 +271,31 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 }
             }
 
+            // Trait method dispatch: struct value + impl_registry lookup
+            if let Value::Struct { ref type_name, .. } = obj {
+                if let Some(fn_name) = ctx.ast.impl_registry.get(&(type_name.clone(), method.clone())).cloned() {
+                    let func = match ctx.env.get(&fn_name)? {
+                        Value::Function(f) => f,
+                        _ => return Err(EvalError::NonFunctionCall),
+                    };
+                    // params includes "self" as first entry
+                    if func.params.len() != arg_vals.len() + 1 {
+                        return Err(EvalError::ArgumentMismatch);
+                    }
+                    ctx.env.push_scope();
+                    ctx.env.define(func.params[0].clone(), obj.clone());
+                    for (param, value) in func.params[1..].iter().zip(arg_vals) {
+                        ctx.env.define(param.clone(), value);
+                    }
+                    let result = match eval_stmt(func.body, ctx)? {
+                        ExecResult::Return(v) => v,
+                        ExecResult::Continue => Value::Unit,
+                    };
+                    ctx.env.pop_scope();
+                    return Ok(result);
+                }
+            }
+
             let func = match &obj {
                 Value::Module(map) => map.get(method)
                     .cloned()

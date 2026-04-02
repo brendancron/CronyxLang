@@ -1,0 +1,32 @@
+trait Show {
+    fn show(self) -> string;
+}
+
+struct Point {
+    x: int;
+    y: int
+}
+
+struct Color {
+    r: int;
+    g: int;
+    b: int
+}
+
+impl Show for Point {
+    fn show(self) -> string {
+        return "(" + to_string(self.x) + ", " + to_string(self.y) + ")";
+    }
+}
+
+impl Show for Color {
+    fn show(self) -> string {
+        return "rgb(" + to_string(self.r) + ", " + to_string(self.g) + ", " + to_string(self.b) + ")";
+    }
+}
+
+var p = Point { x: 1, y: 2 };
+var c = Color { r: 255, g: 128, b: 0 };
+
+print(p.show());
+print(c.show());

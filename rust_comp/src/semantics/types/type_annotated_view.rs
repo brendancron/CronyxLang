@@ -149,6 +149,20 @@ impl<'a> TypeAnnotatedView<'a> {
 
             MetaStmt::Print(e) => ("PrintStmt".into(), vec![self.convert_expr(*e)]),
 
+            MetaStmt::TraitDecl { name, methods } => (
+                "TraitDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(methods.iter().map(|m| TreeNode::leaf(format!("Method({m})"))))
+                    .collect(),
+            ),
+
+            MetaStmt::ImplDecl { trait_name, type_name, methods } => (
+                "ImplDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("{trait_name} for {type_name}")))
+                    .chain(methods.iter().map(|m| TreeNode::leaf(format!("Method({})", m.name))))
+                    .collect(),
+            ),
+
             MetaStmt::EnumDecl { name, .. } => (format!("EnumDecl({name})"), vec![]),
 
             MetaStmt::Match { scrutinee, arms } => (

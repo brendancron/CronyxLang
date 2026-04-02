@@ -1,0 +1,18 @@
+struct Pair<A, B> {
+    first: A;
+    second: B
+}
+
+struct Box<T> {
+    value: T
+}
+
+var p1 = Pair { first: 1, second: "one" };
+var p2 = Pair { first: true, second: 99 };
+var b  = Box { value: [1, 2, 3] };
+
+print(p1.first);
+print(p1.second);
+print(p2.first);
+print(p2.second);
+print(b.value[1]);

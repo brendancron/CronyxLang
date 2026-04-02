@@ -1,0 +1,30 @@
+trait Describe {
+    fn describe(self) -> string;
+}
+
+struct Circle {
+    radius: int
+}
+
+struct Rectangle {
+    width: int;
+    height: int
+}
+
+impl Describe for Circle {
+    fn describe(self) -> string {
+        return "circle with radius " + to_string(self.radius);
+    }
+}
+
+impl Describe for Rectangle {
+    fn describe(self) -> string {
+        return "rectangle " + to_string(self.width) + "x" + to_string(self.height);
+    }
+}
+
+var c = Circle { radius: 5 };
+var r = Rectangle { width: 3, height: 4 };
+
+print(c.describe());
+print(r.describe());

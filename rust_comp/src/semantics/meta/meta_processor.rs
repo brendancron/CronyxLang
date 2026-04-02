@@ -37,6 +37,12 @@ where
 {
     evaluator.register_module_bindings(&staged_forest.module_bindings)?;
 
+    let impl_registry: HashMap<(String, String), String> = staged_forest
+        .impl_registry
+        .iter()
+        .map(|(t, m, f)| ((t.clone(), m.clone()), f.clone()))
+        .collect();
+
     let mut degree_map: HashMap<usize, usize> = HashMap::new();
     let mut tree_queue: VecDeque<usize> = VecDeque::new();
     let mut reverse_deps: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -100,7 +106,10 @@ where
     }
 
     root_ast
-        .map(|ast| ast.compact())
+        .map(|mut ast| {
+            ast.impl_registry = impl_registry;
+            ast.compact()
+        })
         .ok_or_else(|| {
             let err: E::Error = String::from("Root AST not found in dependency tree").into();
             err

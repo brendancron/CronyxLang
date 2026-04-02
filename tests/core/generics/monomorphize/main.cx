@@ -1,0 +1,26 @@
+// Same generic function used with different concrete types.
+// Each call should produce an independent, fully-typed specialization.
+
+fn wrap<T>(x) {
+    return [x];
+}
+
+fn swap<A, B>(pair) {
+    return (pair.1, pair.0);
+}
+
+var ints    = wrap(7);
+var strings = wrap("hi");
+var bools   = wrap(false);
+
+print(ints[0]);
+print(strings[0]);
+print(bools[0]);
+
+var swapped_nums = swap((1, 2));
+var swapped_mix  = swap(("left", 42));
+
+print(swapped_nums.0);
+print(swapped_nums.1);
+print(swapped_mix.0);
+print(swapped_mix.1);

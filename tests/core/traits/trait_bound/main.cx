@@ -1,0 +1,35 @@
+trait Summary {
+    fn summarize(self) -> string;
+}
+
+struct Article {
+    title: string;
+    author: string
+}
+
+struct Tweet {
+    username: string;
+    content: string
+}
+
+impl Summary for Article {
+    fn summarize(self) -> string {
+        return self.title + " by " + self.author;
+    }
+}
+
+impl Summary for Tweet {
+    fn summarize(self) -> string {
+        return self.username + ": " + self.content;
+    }
+}
+
+fn notify<T: Summary>(item) {
+    print("Breaking news: " + item.summarize());
+}
+
+var a = Article { title: "Cronyx 0.1.4", author: "brendancron" };
+var t = Tweet { username: "cronyx_lang", content: "traits are here" };
+
+notify(a);
+notify(t);

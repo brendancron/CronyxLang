@@ -430,7 +430,9 @@ fn infer_stmt(
         MetaStmt::StructDecl { .. }
         | MetaStmt::Import(_)
         | MetaStmt::MetaBlock(_)
-        | MetaStmt::Gen(_) => unit_type(),
+        | MetaStmt::Gen(_)
+        | MetaStmt::TraitDecl { .. }
+        | MetaStmt::ImplDecl { .. } => unit_type(),
     };
 
     let ty = ty.apply(subst);

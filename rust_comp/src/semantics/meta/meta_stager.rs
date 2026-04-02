@@ -351,7 +351,42 @@ pub fn process_stmt(
             });
         }
 
-        MetaStmt::StructDecl { .. } => {}
+        MetaStmt::StructDecl { name, fields } => {
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::StructDecl {
+                name: name.clone(),
+                fields: fields.iter().map(|f| StagedFieldDecl {
+                    field_name: f.field_name.clone(),
+                    type_name: f.type_name.clone(),
+                }).collect(),
+            });
+        }
+
+        MetaStmt::TraitDecl { .. } => {
+            // Trait declarations are purely compile-time contracts; nothing is emitted at runtime.
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(vec![]));
+        }
+
+        MetaStmt::ImplDecl { type_name, methods, .. } => {
+            let type_name = type_name.clone();
+            let methods = methods.clone();
+            let mut fn_ids = Vec::new();
+            for method in &methods {
+                let fn_id = id_provider.next();
+                let body_id = process_stmt(
+                    meta_ast, method.body,
+                    staged_ast, id_provider, dependency_set, staged_forest, type_env,
+                )?;
+                let mangled = format!("{}__{}", type_name, method.name);
+                staged_ast.insert_stmt(fn_id, StagedStmt::FnDecl {
+                    name: mangled.clone(),
+                    params: method.params.iter().map(|p| p.name.clone()).collect(),
+                    body: body_id,
+                });
+                fn_ids.push(fn_id);
+                staged_forest.impl_registry.push((type_name.clone(), method.name.clone(), mangled));
+            }
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(fn_ids));
+        }
 
         MetaStmt::EnumDecl { name, variants } => {
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::EnumDecl {
@@ -562,6 +597,8 @@ fn is_exportable_stmt(ast: &MetaAst, stmt_id: usize) -> bool {
             | Some(MetaStmt::MetaFnDecl { .. })
             | Some(MetaStmt::StructDecl { .. })
             | Some(MetaStmt::MetaBlock(_))
+            | Some(MetaStmt::TraitDecl { .. })
+            | Some(MetaStmt::ImplDecl { .. })
     )
 }
 

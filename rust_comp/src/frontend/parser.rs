@@ -82,6 +82,49 @@ fn parse_type_annot(tokens: &[Token], pos: &mut usize) -> Option<String> {
     None
 }
 
+/// Consume and discard an optional `<T, U: Bound + Bound2, ...>` type parameter list.
+/// Handles nested `<` `>` for complex types.
+fn skip_type_params(tokens: &[Token], pos: &mut usize) {
+    if !check(tokens, *pos, TokenType::Less) {
+        return;
+    }
+    *pos += 1; // consume <
+    let mut depth = 1usize;
+    while *pos < tokens.len() && depth > 0 {
+        match tokens[*pos].token_type {
+            TokenType::Less => { depth += 1; *pos += 1; }
+            TokenType::Greater => { depth -= 1; *pos += 1; }
+            _ => { *pos += 1; }
+        }
+    }
+}
+
+/// Consume and discard an optional `-> TypeName` return type annotation.
+fn skip_return_type(tokens: &[Token], pos: &mut usize) {
+    if !check(tokens, *pos, TokenType::Arrow) {
+        return;
+    }
+    *pos += 1; // consume ->
+    // Consume one token for the return type (identifier or bracket-wrapped)
+    if check(tokens, *pos, TokenType::LeftBracket) {
+        // [T] style — consume until ]
+        *pos += 1;
+        while *pos < tokens.len() && !check(tokens, *pos, TokenType::RightBracket) {
+            *pos += 1;
+        }
+        if check(tokens, *pos, TokenType::RightBracket) { *pos += 1; }
+    } else if check(tokens, *pos, TokenType::LeftParen) {
+        // (A, B) tuple style — consume until )
+        *pos += 1;
+        while *pos < tokens.len() && !check(tokens, *pos, TokenType::RightParen) {
+            *pos += 1;
+        }
+        if check(tokens, *pos, TokenType::RightParen) { *pos += 1; }
+    } else {
+        *pos += 1; // single identifier
+    }
+}
+
 fn parse_separated<T>(
     tokens: &[Token],
     pos: &mut usize,
@@ -715,6 +758,7 @@ fn parse_stmt<'a>(
             TokenType::Func => {
                 consume(tokens, pos, TokenType::Func)?;
                 let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                skip_type_params(tokens, pos);
 
                 consume(tokens, pos, TokenType::LeftParen)?;
                 let params = parse_separated(
@@ -730,6 +774,7 @@ fn parse_stmt<'a>(
                     },
                 )?;
                 consume(tokens, pos, TokenType::RightParen)?;
+                skip_return_type(tokens, pos);
 
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let body = parse_block(tokens, pos, ctx)?;
@@ -743,6 +788,7 @@ fn parse_stmt<'a>(
             TokenType::Struct => {
                 consume(tokens, pos, TokenType::Struct)?;
                 let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                skip_type_params(tokens, pos);
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let fields = parse_separated(
                     tokens,
@@ -969,6 +1015,66 @@ fn parse_stmt<'a>(
                 let expr = parse_expr(tokens, pos, ctx)?;
                 consume(tokens, pos, TokenType::Semicolon)?;
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr });
+                Ok(id)
+            }
+
+            TokenType::Trait => {
+                consume(tokens, pos, TokenType::Trait)?;
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let mut method_names = Vec::new();
+                while !check(tokens, *pos, TokenType::RightBrace) {
+                    // fn method_name<T>(params) -> ReturnType;
+                    consume(tokens, pos, TokenType::Func)?;
+                    let method_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    skip_type_params(tokens, pos);
+                    consume(tokens, pos, TokenType::LeftParen)?;
+                    // consume params
+                    while !check(tokens, *pos, TokenType::RightParen) {
+                        *pos += 1;
+                    }
+                    consume(tokens, pos, TokenType::RightParen)?;
+                    skip_return_type(tokens, pos);
+                    consume(tokens, pos, TokenType::Semicolon)?;
+                    method_names.push(method_name);
+                }
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::TraitDecl { name, methods: method_names });
+                Ok(id)
+            }
+
+            TokenType::Impl => {
+                consume(tokens, pos, TokenType::Impl)?;
+                let trait_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                // optional <T> bounds after trait name
+                skip_type_params(tokens, pos);
+                consume(tokens, pos, TokenType::For)?;
+                let type_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let mut methods = Vec::new();
+                while !check(tokens, *pos, TokenType::RightBrace) {
+                    consume(tokens, pos, TokenType::Func)?;
+                    let method_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    skip_type_params(tokens, pos);
+                    consume(tokens, pos, TokenType::LeftParen)?;
+                    let params = parse_separated(
+                        tokens, pos, ctx,
+                        TokenType::Comma, TokenType::RightParen,
+                        |tokens, pos, _ctx| {
+                            let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                            let ty = parse_type_annot(tokens, pos);
+                            Ok(Param { name, ty })
+                        },
+                    )?;
+                    consume(tokens, pos, TokenType::RightParen)?;
+                    skip_return_type(tokens, pos);
+                    consume(tokens, pos, TokenType::LeftBrace)?;
+                    let body = parse_block(tokens, pos, ctx)?;
+                    consume(tokens, pos, TokenType::RightBrace)?;
+                    methods.push(ImplMethodDecl { name: method_name, params, body });
+                }
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::ImplDecl { trait_name, type_name, methods });
                 Ok(id)
             }
 
