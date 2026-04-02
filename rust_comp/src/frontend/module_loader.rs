@@ -158,14 +158,3 @@ fn resolve_import(base_dir: &Path, import_path: &str) -> PathBuf {
     p
 }
 
-fn glob_cx_files(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("cx") {
-            files.push(path);
-        }
-    }
-    Ok(files)
-}
