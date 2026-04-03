@@ -6,7 +6,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../.git/refs/tags");
 
     let version = Command::new("git")
-        .args(["describe", "--tags", "--always"])
+        .args(["describe", "--tags", "--abbrev=0"])
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
