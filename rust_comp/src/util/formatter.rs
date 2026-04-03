@@ -54,7 +54,7 @@ impl<'a> Formatter<'a> {
                 Some(e) => format!("{}return {};", self.pad(), self.fmt_expr(e)),
             },
 
-            RuntimeStmt::FnDecl { name, params, body } => {
+            RuntimeStmt::FnDecl { name, params, body, .. } => {
                 let params_str = params.join(", ");
                 let body_str = self.fmt_block_body(body);
                 format!("{}fn {}({}) {}", self.pad(), name, params_str, body_str)

@@ -7,6 +7,7 @@ use crate::semantics::meta::staged_forest::ModuleBinding;
 use crate::semantics::types::runtime_type_checker::type_check_runtime;
 use crate::semantics::types::type_env::TypeEnv;
 use crate::semantics::types::types::Type;
+use std::collections::HashMap;
 use std::io::Write;
 
 pub struct InterpreterMetaEvaluator<'a, W: Write> {
@@ -36,7 +37,7 @@ impl<'a, W: Write> MetaEvaluator for InterpreterMetaEvaluator<'a, W> {
         Ok(())
     }
 
-    fn type_check(&mut self, ast: &RuntimeAst) -> Result<(), Self::Error> {
+    fn type_check(&mut self, ast: &RuntimeAst) -> Result<HashMap<usize, Type>, Self::Error> {
         type_check_runtime(ast, &mut self.type_env).map_err(EvalError::from)
     }
 

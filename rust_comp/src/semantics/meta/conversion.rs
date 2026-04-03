@@ -96,8 +96,8 @@ pub fn convert_to_runtime(
             StagedStmt::VarDecl { name, expr } => RuntimeStmt::VarDecl { name, expr },
             StagedStmt::Assign { name, expr } => RuntimeStmt::Assign { name, expr },
             StagedStmt::IndexAssign { name, indices, expr } => RuntimeStmt::IndexAssign { name, indices, expr },
-            StagedStmt::FnDecl { name, params, body } => {
-                RuntimeStmt::FnDecl { name, params, body }
+            StagedStmt::FnDecl { name, params, type_params, body } => {
+                RuntimeStmt::FnDecl { name, params, type_params, body }
             }
             StagedStmt::Print(e) => RuntimeStmt::Print(e),
             StagedStmt::Return(e) => RuntimeStmt::Return(e),

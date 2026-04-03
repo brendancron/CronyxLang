@@ -160,9 +160,10 @@ impl RuntimeAst {
                     indices: indices.iter().map(|i| remap_expr(*i)).collect(),
                     expr: remap_expr(*expr),
                 },
-                RuntimeStmt::FnDecl { name, params, body } => RuntimeStmt::FnDecl {
+                RuntimeStmt::FnDecl { name, params, type_params, body } => RuntimeStmt::FnDecl {
                     name: name.clone(),
                     params: params.clone(),
+                    type_params: type_params.clone(),
                     body: remap_stmt(*body),
                 },
                 RuntimeStmt::StructDecl { name, fields } => RuntimeStmt::StructDecl {
@@ -317,6 +318,7 @@ pub enum RuntimeStmt {
     FnDecl {
         name: String,
         params: Vec<String>,
+        type_params: Vec<String>,
         body: usize,
     },
 
@@ -416,7 +418,7 @@ impl RuntimeAst {
                     .collect(),
             ),
 
-            RuntimeStmt::FnDecl { name, params, body } => (
+            RuntimeStmt::FnDecl { name, params, type_params: _, body } => (
                 "FnDecl".into(),
                 vec![
                     TreeNode::leaf(format!("Name({name})")),

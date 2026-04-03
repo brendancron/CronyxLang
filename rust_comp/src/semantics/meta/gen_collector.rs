@@ -149,9 +149,10 @@ impl<'a> SubstCtx<'a> {
                 indices: indices.iter().map(|i| self.remap_expr(*i)).collect(),
                 expr: self.remap_expr(*expr),
             },
-            RuntimeStmt::FnDecl { name, params, body } => RuntimeStmt::FnDecl {
+            RuntimeStmt::FnDecl { name, params, type_params, body } => RuntimeStmt::FnDecl {
                 name: self.subst_name(name),
                 params: params.clone(),
+                type_params: type_params.clone(),
                 body: self.remap_stmt(*body),
             },
             RuntimeStmt::Block(children) => {

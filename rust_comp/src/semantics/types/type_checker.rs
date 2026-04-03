@@ -252,7 +252,7 @@ fn infer_stmt(
             unit_type()
         }
 
-        MetaStmt::FnDecl { name, params, body } => {
+        MetaStmt::FnDecl { name, params, body, .. } => {
             let mut param_types = Vec::new();
             for p in &params {
                 let ty = p.ty.as_deref()

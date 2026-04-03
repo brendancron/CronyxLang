@@ -540,7 +540,7 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             res
         }
 
-        RuntimeStmt::FnDecl { name, params, body } => {
+        RuntimeStmt::FnDecl { name, params, body, .. } => {
             let func = Rc::new(Function {
                 params: params.clone(),
                 body: *body,
@@ -654,7 +654,7 @@ fn match_pattern<W: Write>(
 /// This allows functions to be called before their definition point in the source.
 fn hoist_fndecls<W: Write>(stmts: &[usize], ctx: &mut EvalCtx<W>) {
     for &stmt_id in stmts {
-        if let Some(RuntimeStmt::FnDecl { name, params, body }) = ctx.ast.get_stmt(stmt_id) {
+        if let Some(RuntimeStmt::FnDecl { name, params, body, .. }) = ctx.ast.get_stmt(stmt_id) {
             let func = Rc::new(Function {
                 params: params.clone(),
                 body: *body,
@@ -688,7 +688,7 @@ pub fn eval_stmts<W: Write>(
 pub fn setup_modules(ast: &RuntimeAst, bindings: &[ModuleBinding], env: &mut EnvHandler) {
     // Hoist every FnDecl in the AST (regardless of which tree it came from).
     for stmt in ast.stmts.values() {
-        if let RuntimeStmt::FnDecl { name, params, body } = stmt {
+        if let RuntimeStmt::FnDecl { name, params, body, .. } = stmt {
             let func = Rc::new(Function {
                 params: params.clone(),
                 body: *body,

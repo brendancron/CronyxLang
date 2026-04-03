@@ -341,12 +341,22 @@ pub fn process_stmt(
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(children));
         }
 
-        MetaStmt::FnDecl { name, params, body }
-        | MetaStmt::MetaFnDecl { name, params, body } => {
+        MetaStmt::FnDecl { name, params, type_params, body } => {
             let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::FnDecl {
                 name: name.clone(),
                 params: params.iter().map(|p| p.name.clone()).collect(),
+                type_params: type_params.clone(),
+                body: body_id,
+            });
+        }
+
+        MetaStmt::MetaFnDecl { name, params, body } => {
+            let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::FnDecl {
+                name: name.clone(),
+                params: params.iter().map(|p| p.name.clone()).collect(),
+                type_params: vec![],
                 body: body_id,
             });
         }
@@ -380,6 +390,7 @@ pub fn process_stmt(
                 staged_ast.insert_stmt(fn_id, StagedStmt::FnDecl {
                     name: mangled.clone(),
                     params: method.params.iter().map(|p| p.name.clone()).collect(),
+                    type_params: vec![],
                     body: body_id,
                 });
                 fn_ids.push(fn_id);

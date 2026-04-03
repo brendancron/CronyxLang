@@ -140,6 +140,7 @@ pub enum MetaStmt {
     FnDecl {
         name: String,
         params: Vec<Param>,
+        type_params: Vec<String>,
         body: usize,
     },
 
@@ -355,10 +356,14 @@ impl MetaAst {
                     .collect(),
             ),
 
-            MetaStmt::FnDecl { name, params, body } => (
+            MetaStmt::FnDecl { name, params, type_params, body } => (
                 "FnDecl".into(),
                 vec![
-                    TreeNode::leaf(format!("Name({name})")),
+                    TreeNode::leaf(if type_params.is_empty() {
+                        format!("Name({name})")
+                    } else {
+                        format!("Name({name}<{}>)", type_params.join(", "))
+                    }),
                     TreeNode::node(
                         "Params",
                         params.iter().map(|p| TreeNode::leaf(match &p.ty {

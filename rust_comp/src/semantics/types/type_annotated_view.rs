@@ -56,7 +56,7 @@ impl<'a> TypeAnnotatedView<'a> {
                     .collect(),
             ),
 
-            MetaStmt::FnDecl { name, params, body } => (
+            MetaStmt::FnDecl { name, params, body, .. } => (
                 "FnDecl".into(),
                 vec![
                     TreeNode::leaf(format!("Name({name})")),

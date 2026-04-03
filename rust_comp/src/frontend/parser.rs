@@ -84,19 +84,38 @@ fn parse_type_annot(tokens: &[Token], pos: &mut usize) -> Option<String> {
 
 /// Consume and discard an optional `<T, U: Bound + Bound2, ...>` type parameter list.
 /// Handles nested `<` `>` for complex types.
-fn skip_type_params(tokens: &[Token], pos: &mut usize) {
+/// Parse an optional `<T, U: Bound, ...>` type-parameter list.
+/// Returns the bare parameter names (bounds are discarded).
+/// Consumes no tokens if there is no `<`.
+fn parse_type_params(tokens: &[Token], pos: &mut usize) -> Vec<String> {
     if !check(tokens, *pos, TokenType::Less) {
-        return;
+        return vec![];
     }
     *pos += 1; // consume <
+    let mut names = Vec::new();
     let mut depth = 1usize;
     while *pos < tokens.len() && depth > 0 {
         match tokens[*pos].token_type {
             TokenType::Less => { depth += 1; *pos += 1; }
             TokenType::Greater => { depth -= 1; *pos += 1; }
+            TokenType::Comma if depth == 1 => { *pos += 1; }
+            TokenType::Colon if depth == 1 => {
+                // skip bound tokens until the next `,` or `>`
+                *pos += 1;
+                while *pos < tokens.len()
+                    && !matches!(tokens[*pos].token_type, TokenType::Comma | TokenType::Greater)
+                {
+                    *pos += 1;
+                }
+            }
+            TokenType::Identifier if depth == 1 => {
+                names.push(tokens[*pos].expect_str());
+                *pos += 1;
+            }
             _ => { *pos += 1; }
         }
     }
+    names
 }
 
 /// Consume and discard an optional `-> TypeName` return type annotation.
@@ -758,7 +777,7 @@ fn parse_stmt<'a>(
             TokenType::Func => {
                 consume(tokens, pos, TokenType::Func)?;
                 let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
-                skip_type_params(tokens, pos);
+                let type_params = parse_type_params(tokens, pos);
 
                 consume(tokens, pos, TokenType::LeftParen)?;
                 let params = parse_separated(
@@ -780,7 +799,7 @@ fn parse_stmt<'a>(
                 let body = parse_block(tokens, pos, ctx)?;
                 consume(tokens, pos, TokenType::RightBrace)?;
 
-                let fn_decl = MetaStmt::FnDecl { name, params, body };
+                let fn_decl = MetaStmt::FnDecl { name, params, type_params, body };
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, fn_decl);
                 Ok(id)
             }
@@ -788,7 +807,7 @@ fn parse_stmt<'a>(
             TokenType::Struct => {
                 consume(tokens, pos, TokenType::Struct)?;
                 let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
-                skip_type_params(tokens, pos);
+                parse_type_params(tokens, pos); // type params on structs are parsed but discarded for now
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let fields = parse_separated(
                     tokens,
@@ -1027,7 +1046,7 @@ fn parse_stmt<'a>(
                     // fn method_name<T>(params) -> ReturnType;
                     consume(tokens, pos, TokenType::Func)?;
                     let method_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
-                    skip_type_params(tokens, pos);
+                    parse_type_params(tokens, pos);
                     consume(tokens, pos, TokenType::LeftParen)?;
                     // consume params
                     while !check(tokens, *pos, TokenType::RightParen) {
@@ -1047,7 +1066,7 @@ fn parse_stmt<'a>(
                 consume(tokens, pos, TokenType::Impl)?;
                 let trait_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
                 // optional <T> bounds after trait name
-                skip_type_params(tokens, pos);
+                parse_type_params(tokens, pos);
                 consume(tokens, pos, TokenType::For)?;
                 let type_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
                 consume(tokens, pos, TokenType::LeftBrace)?;
@@ -1055,7 +1074,7 @@ fn parse_stmt<'a>(
                 while !check(tokens, *pos, TokenType::RightBrace) {
                     consume(tokens, pos, TokenType::Func)?;
                     let method_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
-                    skip_type_params(tokens, pos);
+                    parse_type_params(tokens, pos);
                     consume(tokens, pos, TokenType::LeftParen)?;
                     let params = parse_separated(
                         tokens, pos, ctx,
