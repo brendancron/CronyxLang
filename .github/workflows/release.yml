@@ -39,18 +39,18 @@ jobs:
 
       - name: Package binary
         run: |
-          BINARY=rust_comp/target/${{ matrix.target }}/release/cronyx
-          ARCHIVE=cronyx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          BINARY=rust_comp/target/${{ matrix.target }}/release/cronyxc
+          ARCHIVE=cronyxc-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
           tar -czf "$ARCHIVE" -C "$(dirname $BINARY)" "$(basename $BINARY)"
           shasum -a 256 "$ARCHIVE" | awk '{print $1}' > "$ARCHIVE.sha256"
 
       - name: Upload archive artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cronyx-${{ matrix.target }}
+          name: cronyxc-${{ matrix.target }}
           path: |
-            cronyx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
-            cronyx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+            cronyxc-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+            cronyxc-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
 
   build-windows:
     name: Build (x86_64-pc-windows-msvc)
@@ -82,18 +82,18 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}"
-          $archive = "cronyx-$version-x86_64-pc-windows-msvc.zip"
-          Compress-Archive -Path "rust_comp/target/x86_64-pc-windows-msvc/release/cronyx.exe" -DestinationPath $archive
+          $archive = "cronyxc-$version-x86_64-pc-windows-msvc.zip"
+          Compress-Archive -Path "rust_comp/target/x86_64-pc-windows-msvc/release/cronyxc.exe" -DestinationPath $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
           Set-Content -Path "$archive.sha256" -Value $hash
 
       - name: Upload archive artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cronyx-x86_64-pc-windows-msvc
+          name: cronyxc-x86_64-pc-windows-msvc
           path: |
-            cronyx-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip
-            cronyx-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip.sha256
+            cronyxc-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip
+            cronyxc-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip.sha256
 
   release:
     name: Create GitHub Release
@@ -114,161 +114,16 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Cronyx ${{ github.ref_name }}
+          name: cronyxc ${{ github.ref_name }}
           body: |
             ## Install
 
-            **macOS (Homebrew)**
-            ```
-            brew tap brendancron/cronyx
-            brew install cronyx
-            ```
-
-            **Windows (Scoop)**
-            ```
-            scoop bucket add cronyx https://github.com/brendancron/scoop-cronyx
-            scoop install cronyx
-            ```
-
-            ## Manual download
-
             Download the binary for your platform from the assets below and place it on your `$PATH`.
+
+            | Platform | File |
+            |----------|------|
+            | macOS (Apple Silicon) | `cronyxc-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` |
+            | macOS (Intel) | `cronyxc-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` |
+            | Windows (x64) | `cronyxc-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip` |
           files: artifacts/*
           fail_on_unmatched_files: true
-
-  update-tap:
-    name: Update Homebrew Tap
-    needs: release
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Read SHA256 hashes
-        id: hashes
-        run: |
-          ARM_SHA=$(cat "artifacts/cronyx-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz.sha256")
-          X86_SHA=$(cat "artifacts/cronyx-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz.sha256")
-          echo "arm_sha=$ARM_SHA" >> $GITHUB_OUTPUT
-          echo "x86_sha=$X86_SHA" >> $GITHUB_OUTPUT
-
-      - name: Checkout homebrew tap
-        uses: actions/checkout@v4
-        with:
-          repository: brendancron/homebrew-cronyx
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-cronyx
-
-      - name: Update formula
-        env:
-          VERSION: ${{ github.ref_name }}
-          ARM_SHA: ${{ steps.hashes.outputs.arm_sha }}
-          X86_SHA: ${{ steps.hashes.outputs.x86_sha }}
-        run: |
-          VER=${VERSION#v}
-          cat > homebrew-cronyx/Formula/cronyx.rb << EOF
-          class Cronyx < Formula
-            desc "Cronyx programming language compiler/interpreter"
-            homepage "https://github.com/brendancron/CronyxLang"
-            version "$VER"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/brendancron/CronyxLang/releases/download/${VERSION}/cronyx-${VERSION}-aarch64-apple-darwin.tar.gz"
-                sha256 "$ARM_SHA"
-              else
-                url "https://github.com/brendancron/CronyxLang/releases/download/${VERSION}/cronyx-${VERSION}-x86_64-apple-darwin.tar.gz"
-                sha256 "$X86_SHA"
-              end
-            end
-
-            def install
-              bin.install "cronyx"
-            end
-
-            test do
-              (testpath/"hello.cx").write('print("hello");')
-              assert_match "hello", shell_output("#{bin}/cronyx hello.cx")
-            end
-          end
-          EOF
-
-      - name: Commit and push formula update
-        working-directory: homebrew-cronyx
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/cronyx.rb
-          git commit -m "cronyx ${{ github.ref_name }}"
-          git push
-
-  update-scoop:
-    name: Update Scoop Bucket
-    needs: release
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Read SHA256 hash
-        id: hashes
-        run: |
-          WIN_SHA=$(cat "artifacts/cronyx-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip.sha256" | tr -d '[:space:]')
-          echo "win_sha=$WIN_SHA" >> $GITHUB_OUTPUT
-
-      - name: Checkout scoop bucket
-        uses: actions/checkout@v4
-        with:
-          repository: brendancron/scoop-cronyx
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: scoop-cronyx
-
-      - name: Update manifest
-        env:
-          VERSION: ${{ github.ref_name }}
-          WIN_SHA: ${{ steps.hashes.outputs.win_sha }}
-        run: |
-          VER=${VERSION#v}
-          mkdir -p scoop-cronyx/bucket
-          cat > scoop-cronyx/bucket/cronyx.json << EOF
-          {
-              "version": "$VER",
-              "description": "Cronyx programming language compiler/interpreter",
-              "homepage": "https://github.com/brendancron/CronyxLang",
-              "license": "MIT",
-              "architecture": {
-                  "64bit": {
-                      "url": "https://github.com/brendancron/CronyxLang/releases/download/${VERSION}/cronyx-${VERSION}-x86_64-pc-windows-msvc.zip",
-                      "hash": "$WIN_SHA",
-                      "bin": "cronyx.exe"
-                  }
-              },
-              "checkver": {
-                  "github": "https://github.com/brendancron/CronyxLang"
-              },
-              "autoupdate": {
-                  "architecture": {
-                      "64bit": {
-                          "url": "https://github.com/brendancron/CronyxLang/releases/download/v\$version/cronyx-v\$version-x86_64-pc-windows-msvc.zip"
-                      }
-                  }
-              }
-          }
-          EOF
-
-      - name: Commit and push manifest update
-        working-directory: scoop-cronyx
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add bucket/cronyx.json
-          git commit -m "cronyx ${{ github.ref_name }}"
-          git push
