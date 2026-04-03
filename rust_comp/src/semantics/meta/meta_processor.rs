@@ -1,8 +1,10 @@
 use super::conversion::*;
+use super::monomorphize::monomorphize;
 use super::runtime_ast::*;
 use super::staged_forest::{ModuleBinding, StagedForest};
 use crate::semantics::meta::gen_collector::{CollectorMode, GeneratedCollector, GeneratedOutput};
 use crate::semantics::types::type_error::TypeError;
+use crate::semantics::types::types::Type;
 use std::collections::{HashMap, VecDeque};
 
 pub trait MetaEvaluator {
@@ -14,10 +16,12 @@ pub trait MetaEvaluator {
         Ok(())
     }
 
-    /// Called before a RuntimeAst is evaluated or returned. Default is a no-op.
-    fn type_check(&mut self, ast: &RuntimeAst) -> Result<(), Self::Error> {
+    /// Called before a RuntimeAst is evaluated or returned.
+    /// Returns a map from expression ID to its inferred type (used for monomorphization).
+    /// Default is a no-op that returns an empty map.
+    fn type_check(&mut self, ast: &RuntimeAst) -> Result<HashMap<usize, Type>, Self::Error> {
         let _ = ast;
-        Ok(())
+        Ok(HashMap::new())
     }
 
     fn evaluate(
@@ -36,6 +40,12 @@ where
     E::Error: From<AstConversionError> + From<String> + From<TypeError>,
 {
     evaluator.register_module_bindings(&staged_forest.module_bindings)?;
+
+    let impl_registry: HashMap<(String, String), String> = staged_forest
+        .impl_registry
+        .iter()
+        .map(|(t, m, f)| ((t.clone(), m.clone()), f.clone()))
+        .collect();
 
     let mut degree_map: HashMap<usize, usize> = HashMap::new();
     let mut tree_queue: VecDeque<usize> = VecDeque::new();
@@ -71,8 +81,8 @@ where
         let runtime_ast = convert_to_runtime(staged_ast, &meta_generated)?;
 
         if tree_id == staged_forest.root_id {
-            evaluator.type_check(&runtime_ast)?;
-            root_ast = Some(runtime_ast);
+            let type_map = evaluator.type_check(&runtime_ast)?;
+            root_ast = Some((runtime_ast, type_map));
         } else {
             // Type-check and execute meta blocks at compile time
             evaluator.type_check(&runtime_ast)?;
@@ -100,7 +110,11 @@ where
     }
 
     root_ast
-        .map(|ast| ast.compact())
+        .map(|(mut ast, type_map)| {
+            ast.impl_registry = impl_registry;
+            monomorphize(&mut ast, &type_map);
+            ast.compact()
+        })
         .ok_or_else(|| {
             let err: E::Error = String::from("Root AST not found in dependency tree").into();
             err

@@ -2,19 +2,22 @@
 
 Cronyx is a statically-typed, expression-oriented scripting language. Source files use the `.cx` extension and are run with `cronyx main.cx`.
 
+*Current version: 0.1.4*
+
 ---
 
 ## Types
 
-| Type     | Examples                        |
-|----------|---------------------------------|
-| `int`    | `0`, `42`, `-7`                 |
-| `bool`   | `true`, `false`                 |
-| `string` | `"hello"`, `"world"`            |
-| `list`   | `[1, 2, 3]`, `["a", "b"]`      |
-| tuple    | `(1, "hi", true)`               |
-| struct   | user-defined                    |
-| enum     | user-defined                    |
+| Type     | Examples                  |
+| -------- | ------------------------- |
+| `int`    | `0`, `42`, `-7`           |
+| `bool`   | `true`, `false`           |
+| `string` | `"hello"`, `"world"`      |
+| `list`   | `[1, 2, 3]`, `["a", "b"]` |
+| tuple    | `(1, "hi", true)`         |
+| struct   | user-defined              |
+| enum     | user-defined              |
+| trait    | user-defined contract     |
 
 ---
 
@@ -218,12 +221,12 @@ grid[1][0] = 99;
 
 ### List Methods
 
-| Method              | Returns  | Description                          |
-|---------------------|----------|--------------------------------------|
-| `xs.len()`          | `int`    | Number of elements                   |
-| `xs.push(val)`      | void     | Appends `val` in place               |
-| `xs.pop()`          | element  | Removes and returns the last element |
-| `xs.contains(val)`  | `bool`   | True if `val` is in the list         |
+| Method             | Returns | Description                          |
+| ------------------ | ------- | ------------------------------------ |
+| `xs.len()`         | `int`   | Number of elements                   |
+| `xs.push(val)`     | void    | Appends `val` in place               |
+| `xs.pop()`         | element | Removes and returns the last element |
+| `xs.contains(val)` | `bool`  | True if `val` is in the list         |
 
 ```cronyx
 var xs = [1, 2, 3];
@@ -282,13 +285,13 @@ print(s[0]);   // "a"
 
 ### String Methods
 
-| Method             | Returns         | Description                              |
-|--------------------|-----------------|------------------------------------------|
-| `s.len()`          | `int`           | Number of Unicode characters             |
-| `s.split(sep)`     | `list[string]`  | Split on delimiter string                |
-| `s.chars()`        | `list[string]`  | List of single-character strings         |
-| `s.trim()`         | `string`        | Strip leading/trailing whitespace        |
-| `s.contains(sub)`  | `bool`          | True if `sub` is a substring             |
+| Method            | Returns        | Description                       |
+| ----------------- | -------------- | --------------------------------- |
+| `s.len()`         | `int`          | Number of Unicode characters      |
+| `s.split(sep)`    | `list[string]` | Split on delimiter string         |
+| `s.chars()`       | `list[string]` | List of single-character strings  |
+| `s.trim()`        | `string`       | Strip leading/trailing whitespace |
+| `s.contains(sub)` | `bool`         | True if `sub` is a substring      |
 
 ```cronyx
 var s = "hello world";
@@ -320,6 +323,123 @@ print(p.y);   // 4
 ```
 
 Fields in the definition are separated by `;`. Fields in the literal are separated by `,`.
+
+---
+
+## Traits
+
+A `trait` declares a named set of method signatures that a type must implement.
+
+```cronyx
+trait Describe {
+    fn describe(self) -> string;
+}
+```
+
+Method signatures use `self` as the receiver and may include a `-> ReturnType` annotation. The body is omitted — a trait only declares the contract.
+
+---
+
+## Impl
+
+An `impl` block provides a concrete implementation of a trait for a specific struct type.
+
+```cronyx
+impl Describe for Circle {
+    fn describe(self) -> string {
+        return "circle with radius " + to_string(self.radius);
+    }
+}
+```
+
+- `self` inside a method refers to the receiver value. It is a regular parameter — mutating `self` does not affect the original binding at the call site.
+- Multiple types can implement the same trait; a type can implement multiple traits.
+- Methods are called with dot syntax: `c.describe()`.
+
+```cronyx
+trait Show {
+    fn show(self) -> string;
+}
+
+struct Point {
+    x: int;
+    y: int
+}
+
+impl Show for Point {
+    fn show(self) -> string {
+        return "(" + to_string(self.x) + ", " + to_string(self.y) + ")";
+    }
+}
+
+var p = Point { x: 3, y: 4 };
+print(p.show());   // (3, 4)
+```
+
+---
+
+## Generics
+
+Functions can declare type parameters with `<T>`. The type arguments are always **inferred** at call sites — you never write `identity<int>(42)`.
+
+```cronyx
+fn identity<T>(x) {
+    return x;
+}
+
+fn first<T>(list) {
+    return list[0];
+}
+
+print(identity(42));        // 42
+print(identity("hello"));   // hello
+print(first([10, 20, 30])); // 10
+```
+
+Multiple type parameters:
+
+```cronyx
+fn swap<A, B>(pair) {
+    return (pair.1, pair.0);
+}
+
+var result = swap((1, "hi"));
+print(result.0);   // hi
+print(result.1);   // 1
+```
+
+Struct declarations can also take type parameters (syntax only — fields accept any type):
+
+```cronyx
+struct Pair<A, B> {
+    first: A;
+    second: B
+}
+
+var p = Pair { first: 1, second: "one" };
+print(p.first);    // 1
+print(p.second);   // one
+```
+
+### Trait Bounds
+
+A type parameter can be constrained to require a trait implementation using `<T: TraitName>`:
+
+```cronyx
+trait Summary {
+    fn summarize(self) -> string;
+}
+
+fn notify<T: Summary>(item) {
+    print("Breaking news: " + item.summarize());
+}
+```
+
+Bounds are parsed and documented but not enforced at compile time in 0.1.4 — the call will fail at runtime if the method is missing.
+
+### Monomorphization
+
+The compiler produces one concrete copy of each generic function per unique set of argument types. The original generic template is removed from the output. Calling `wrap(7)` and `wrap("hi")` emits two distinct functions — `wrap__int` and `wrap__str` — internally. The programmer never writes or sees these names.
 
 ---
 
@@ -483,16 +603,16 @@ print(n + 1);   // 43
 
 ## Operator Precedence (high to low)
 
-| Level | Operators                                   |
-|-------|---------------------------------------------|
-| 1     | Postfix: `.field`, `.method(args)`, `[i]`   |
-| 2     | `!`, `-` (prefix unary)                     |
-| 3     | `*`, `/`                                    |
-| 4     | `+`, `-`                                    |
-| 5     | `<`, `>`, `<=`, `>=`                        |
-| 6     | `==`, `!=`                                  |
-| 7     | `&&`                                        |
-| 8     | `\|\|` (lowest)                             |
+| Level | Operators                                 |
+| ----- | ----------------------------------------- |
+| 1     | Postfix: `.field`, `.method(args)`, `[i]` |
+| 2     | `!`, `-` (prefix unary)                   |
+| 3     | `*`, `/`                                  |
+| 4     | `+`, `-`                                  |
+| 5     | `<`, `>`, `<=`, `>=`                      |
+| 6     | `==`, `!=`                                |
+| 7     | `&&`                                      |
+| 8     | `\|\|` (lowest)                           |
 
 Use parentheses to force evaluation order:
 
@@ -534,6 +654,48 @@ for (w in words) {
 print(results.len());
 ```
 
+## Complete Example: Traits and Impl
+
+```cronyx
+trait Summary {
+    fn summarize(self) -> string;
+}
+
+struct Article {
+    title: string;
+    author: string
+}
+
+struct Tweet {
+    username: string;
+    content: string
+}
+
+impl Summary for Article {
+    fn summarize(self) -> string {
+        return self.title + " by " + self.author;
+    }
+}
+
+impl Summary for Tweet {
+    fn summarize(self) -> string {
+        return self.username + ": " + self.content;
+    }
+}
+
+fn notify<T: Summary>(item) {
+    print("Breaking news: " + item.summarize());
+}
+
+var a = Article { title: "Cronyx 0.1.4", author: "brendancron" };
+var t = Tweet { username: "cronyx_lang", content: "traits are here" };
+
+notify(a);   // Breaking news: Cronyx 0.1.4 by brendancron
+notify(t);   // Breaking news: cronyx_lang: traits are here
+```
+
+---
+
 ## Complete Example: Enum + Match
 
 ```cronyx
@@ -559,7 +721,7 @@ match r {
 
 ---
 
-## What Is NOT Supported (as of 0.1.1)
+## What Is NOT Supported (as of 0.1.4)
 
 - `and` / `or` keywords — use `&&` / `||`
 - `break` / `continue` in loops
@@ -567,3 +729,6 @@ match r {
 - Result/Option types — no built-in error handling
 - `args()` built-in — planned for 0.2.0
 - `std.io` module — use `readfile()` built-in for file I/O
+- Trait bound enforcement — `<T: Trait>` is parsed but not checked at compile time
+- Dynamic dispatch (`dyn Trait`) — all trait resolution is static
+- Generic struct monomorphization in `--dump-all` output — generic structs work at runtime but their declarations are not specialized in the emitted code

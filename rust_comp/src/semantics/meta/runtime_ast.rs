@@ -9,6 +9,9 @@ pub struct RuntimeAst {
     pub sem_root_stmts: Vec<usize>,
     pub exprs: HashMap<usize, RuntimeExpr>,
     pub stmts: HashMap<usize, RuntimeStmt>,
+    /// Maps (type_name, method_name) → mangled FnDecl name in this AST.
+    /// Used by the interpreter to dispatch trait method calls on struct values.
+    pub impl_registry: HashMap<(String, String), String>,
 }
 
 impl RuntimeAst {
@@ -17,6 +20,7 @@ impl RuntimeAst {
             sem_root_stmts: vec![],
             exprs: HashMap::new(),
             stmts: HashMap::new(),
+            impl_registry: HashMap::new(),
         }
     }
 
@@ -156,9 +160,10 @@ impl RuntimeAst {
                     indices: indices.iter().map(|i| remap_expr(*i)).collect(),
                     expr: remap_expr(*expr),
                 },
-                RuntimeStmt::FnDecl { name, params, body } => RuntimeStmt::FnDecl {
+                RuntimeStmt::FnDecl { name, params, type_params, body } => RuntimeStmt::FnDecl {
                     name: name.clone(),
                     params: params.clone(),
+                    type_params: type_params.clone(),
                     body: remap_stmt(*body),
                 },
                 RuntimeStmt::StructDecl { name, fields } => RuntimeStmt::StructDecl {
@@ -207,6 +212,9 @@ impl RuntimeAst {
             };
             out.insert_stmt(remap_stmt(*old_id), new_stmt);
         }
+
+        // impl_registry stores string names — IDs are not embedded, so copy as-is.
+        out.impl_registry = self.impl_registry.clone();
 
         out
     }
@@ -310,6 +318,7 @@ pub enum RuntimeStmt {
     FnDecl {
         name: String,
         params: Vec<String>,
+        type_params: Vec<String>,
         body: usize,
     },
 
@@ -409,7 +418,7 @@ impl RuntimeAst {
                     .collect(),
             ),
 
-            RuntimeStmt::FnDecl { name, params, body } => (
+            RuntimeStmt::FnDecl { name, params, type_params: _, body } => (
                 "FnDecl".into(),
                 vec![
                     TreeNode::leaf(format!("Name({name})")),

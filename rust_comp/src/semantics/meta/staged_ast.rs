@@ -142,6 +142,7 @@ pub enum StagedStmt {
     FnDecl {
         name: String,
         params: Vec<String>,
+        type_params: Vec<String>,
         body: usize,
     },
 
@@ -242,7 +243,7 @@ impl StagedAst {
                     .collect(),
             ),
 
-            StagedStmt::FnDecl { name, params, body } => (
+            StagedStmt::FnDecl { name, params, type_params: _, body } => (
                 "FnDecl".into(),
                 vec![
                     TreeNode::leaf(format!("Name({name})")),

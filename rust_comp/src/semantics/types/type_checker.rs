@@ -252,7 +252,7 @@ fn infer_stmt(
             unit_type()
         }
 
-        MetaStmt::FnDecl { name, params, body } => {
+        MetaStmt::FnDecl { name, params, body, .. } => {
             let mut param_types = Vec::new();
             for p in &params {
                 let ty = p.ty.as_deref()
@@ -430,7 +430,9 @@ fn infer_stmt(
         MetaStmt::StructDecl { .. }
         | MetaStmt::Import(_)
         | MetaStmt::MetaBlock(_)
-        | MetaStmt::Gen(_) => unit_type(),
+        | MetaStmt::Gen(_)
+        | MetaStmt::TraitDecl { .. }
+        | MetaStmt::ImplDecl { .. } => unit_type(),
     };
 
     let ty = ty.apply(subst);

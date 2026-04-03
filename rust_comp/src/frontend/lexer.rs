@@ -137,6 +137,9 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                 } else if i + 1 < len && chars[i + 1] == '=' {
                     tokens.push(Token { token_type: TokenType::MinusEqual, line_number, metadata: None });
                     i += 2;
+                } else if i + 1 < len && chars[i + 1] == '>' {
+                    tokens.push(Token { token_type: TokenType::Arrow, line_number, metadata: None });
+                    i += 2;
                 } else {
                     tokens.push(Token { token_type: TokenType::Minus, line_number, metadata: None });
                     i += 1;
@@ -329,6 +332,7 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                     "for" => TokenType::For,
                     "gen" => TokenType::Gen,
                     "if" => TokenType::If,
+                    "impl" => TokenType::Impl,
                     "import" => TokenType::Import,
                     "in" => TokenType::In,
                     "meta" => TokenType::Meta,
@@ -337,6 +341,7 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                     "print" => TokenType::Print,
                     "return" => TokenType::Return,
                     "struct" => TokenType::Struct,
+                    "trait" => TokenType::Trait,
                     "true" => TokenType::True,
                     "typeof" => TokenType::Typeof,
                     "var" => TokenType::Var,

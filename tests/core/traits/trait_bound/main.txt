@@ -1,0 +1,2 @@
+Breaking news: Cronyx 0.1.4 by brendancron
+Breaking news: cronyx_lang: traits are here

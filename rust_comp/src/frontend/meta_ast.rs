@@ -140,6 +140,7 @@ pub enum MetaStmt {
     FnDecl {
         name: String,
         params: Vec<Param>,
+        type_params: Vec<String>,
         body: usize,
     },
 
@@ -194,6 +195,25 @@ pub enum MetaStmt {
 
     // TEMPORARY
     Print(usize),
+
+    TraitDecl {
+        name: String,
+        /// Method names declared in the trait (signatures only — no bodies).
+        methods: Vec<String>,
+    },
+
+    ImplDecl {
+        trait_name: String,
+        type_name: String,
+        methods: Vec<ImplMethodDecl>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct ImplMethodDecl {
+    pub name: String,
+    pub params: Vec<Param>,  // first param is typically "self"
+    pub body: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -336,10 +356,14 @@ impl MetaAst {
                     .collect(),
             ),
 
-            MetaStmt::FnDecl { name, params, body } => (
+            MetaStmt::FnDecl { name, params, type_params, body } => (
                 "FnDecl".into(),
                 vec![
-                    TreeNode::leaf(format!("Name({name})")),
+                    TreeNode::leaf(if type_params.is_empty() {
+                        format!("Name({name})")
+                    } else {
+                        format!("Name({name}<{}>)", type_params.join(", "))
+                    }),
                     TreeNode::node(
                         "Params",
                         params.iter().map(|p| TreeNode::leaf(match &p.ty {
@@ -455,6 +479,20 @@ impl MetaAst {
             ),
 
             MetaStmt::Print(e) => ("PrintStmt".into(), vec![self.convert_expr(*e)]),
+
+            MetaStmt::TraitDecl { name, methods } => (
+                "TraitDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(methods.iter().map(|m| TreeNode::leaf(format!("Method({m})"))))
+                    .collect(),
+            ),
+
+            MetaStmt::ImplDecl { trait_name, type_name, methods } => (
+                "ImplDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("{trait_name} for {type_name}")))
+                    .chain(methods.iter().map(|m| TreeNode::leaf(format!("Method({})", m.name))))
+                    .collect(),
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

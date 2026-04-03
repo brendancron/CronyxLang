@@ -1,0 +1,14 @@
+fn identity<T>(x) {
+    return x;
+}
+
+fn first<T>(list) {
+    return list[0];
+}
+
+print(identity(42));
+print(identity("hello"));
+print(identity(true));
+
+print(first([10, 20, 30]));
+print(first(["a", "b", "c"]));

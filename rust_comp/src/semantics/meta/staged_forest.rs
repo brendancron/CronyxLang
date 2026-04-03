@@ -35,6 +35,10 @@ pub struct StagedForest {
 
     /// Module bindings to create in the runtime env before executing entry code.
     pub module_bindings: Vec<ModuleBinding>,
+
+    /// Impl method registry: (type_name, method_name) → mangled_fn_name.
+    /// Populated by the stager when processing ImplDecl statements.
+    pub impl_registry: Vec<(String, String, String)>,
 }
 
 impl StagedForest {
@@ -47,6 +51,7 @@ impl StagedForest {
             symbol_provides: HashMap::new(),
             symbol_uses: HashMap::new(),
             module_bindings: Vec::new(),
+            impl_registry: Vec::new(),
         }
     }
 

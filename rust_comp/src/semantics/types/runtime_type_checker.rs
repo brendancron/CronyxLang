@@ -5,6 +5,7 @@ use super::type_error::TypeError;
 use super::type_subst::{unify, ApplySubst, TypeSubst};
 use super::type_utils::generalize;
 use super::types::*;
+use std::collections::HashMap;
 
 fn path_stem(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
@@ -28,9 +29,10 @@ impl CheckCtx {
 /// unbound variable is a hard error. `env` is threaded in and mutated so that
 /// names introduced in earlier mini-trees remain visible when checking later
 /// ones (mirrors how the meta interpreter shares its environment).
-pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<(), TypeError> {
+pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap<usize, Type>, TypeError> {
     let mut subst = TypeSubst::new();
     let mut ctx = CheckCtx::new();
+    let mut type_map: HashMap<usize, Type> = HashMap::new();
 
     // Pre-bind built-in runtime functions
     let alpha = env.fresh();
@@ -43,9 +45,14 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<(), Typ
 
     hoist_fn_types(ast, &ast.sem_root_stmts, env, &mut subst);
     for &stmt_id in &ast.sem_root_stmts.clone() {
-        infer_stmt(ast, stmt_id, env, &mut subst, &mut ctx)?;
+        infer_stmt(ast, stmt_id, env, &mut subst, &mut ctx, &mut type_map)?;
     }
-    Ok(())
+
+    // Apply the final substitution so callers see concrete types, not raw type vars.
+    let resolved = type_map.into_iter()
+        .map(|(id, ty)| (id, ty.apply(&subst)))
+        .collect();
+    Ok(resolved)
 }
 
 /// Pre-register all FnDecl types in a stmt list so forward calls type-check.
@@ -74,79 +81,80 @@ fn infer_expr(
     expr_id: usize,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
+    type_map: &mut HashMap<usize, Type>,
 ) -> Result<Type, TypeError> {
     let expr = ast.get_expr(expr_id).ok_or(TypeError::Unsupported)?.clone();
-    match expr {
-        RuntimeExpr::Int(_) => Ok(int_type()),
-        RuntimeExpr::Bool(_) => Ok(bool_type()),
-        RuntimeExpr::String(_) => Ok(string_type()),
+    let ty = match expr {
+        RuntimeExpr::Int(_) => int_type(),
+        RuntimeExpr::Bool(_) => bool_type(),
+        RuntimeExpr::String(_) => string_type(),
 
-        RuntimeExpr::Variable(name) => {
-            env.lookup(&name).ok_or_else(|| TypeError::UnboundVar(name.clone()))
+        RuntimeExpr::Variable(ref name) => {
+            env.lookup(name).ok_or_else(|| TypeError::UnboundVar(name.clone()))?
         }
 
         RuntimeExpr::Add(a, b) => {
-            let ta = infer_expr(ast, a, env, subst)?;
-            let tb = infer_expr(ast, b, env, subst)?;
+            let ta = infer_expr(ast, a, env, subst, type_map)?;
+            let tb = infer_expr(ast, b, env, subst, type_map)?;
             let tv = Type::Var(env.fresh());
             unify(&ta, &tv, subst)?;
             unify(&tb, &tv, subst)?;
-            Ok(tv.apply(subst))
+            tv.apply(subst)
         }
 
         RuntimeExpr::Sub(a, b) | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b) => {
-            let ta = infer_expr(ast, a, env, subst)?;
-            let tb = infer_expr(ast, b, env, subst)?;
+            let ta = infer_expr(ast, a, env, subst, type_map)?;
+            let tb = infer_expr(ast, b, env, subst, type_map)?;
             unify(&ta, &int_type(), subst)?;
             unify(&tb, &int_type(), subst)?;
-            Ok(int_type())
+            int_type()
         }
 
         RuntimeExpr::Equals(a, b) | RuntimeExpr::NotEquals(a, b) => {
-            let ta = infer_expr(ast, a, env, subst)?;
-            let tb = infer_expr(ast, b, env, subst)?;
+            let ta = infer_expr(ast, a, env, subst, type_map)?;
+            let tb = infer_expr(ast, b, env, subst, type_map)?;
             unify(&ta, &tb, subst)?;
-            Ok(bool_type())
+            bool_type()
         }
 
         RuntimeExpr::Lt(a, b) | RuntimeExpr::Gt(a, b) | RuntimeExpr::Lte(a, b) | RuntimeExpr::Gte(a, b) => {
-            let ta = infer_expr(ast, a, env, subst)?;
-            let tb = infer_expr(ast, b, env, subst)?;
+            let ta = infer_expr(ast, a, env, subst, type_map)?;
+            let tb = infer_expr(ast, b, env, subst, type_map)?;
             unify(&ta, &int_type(), subst)?;
             unify(&tb, &int_type(), subst)?;
-            Ok(bool_type())
+            bool_type()
         }
 
         RuntimeExpr::And(a, b) | RuntimeExpr::Or(a, b) => {
-            let ta = infer_expr(ast, a, env, subst)?;
-            let tb = infer_expr(ast, b, env, subst)?;
+            let ta = infer_expr(ast, a, env, subst, type_map)?;
+            let tb = infer_expr(ast, b, env, subst, type_map)?;
             unify(&ta, &bool_type(), subst)?;
             unify(&tb, &bool_type(), subst)?;
-            Ok(bool_type())
+            bool_type()
         }
 
         RuntimeExpr::Not(a) => {
-            let ta = infer_expr(ast, a, env, subst)?;
+            let ta = infer_expr(ast, a, env, subst, type_map)?;
             unify(&ta, &bool_type(), subst)?;
-            Ok(bool_type())
+            bool_type()
         }
 
         RuntimeExpr::List(items) => {
             let elem_tv = Type::Var(env.fresh());
             for item_id in items {
-                let t = infer_expr(ast, item_id, env, subst)?;
+                let t = infer_expr(ast, item_id, env, subst, type_map)?;
                 unify(&t, &elem_tv, subst)?;
             }
-            Ok(elem_tv.apply(subst))
+            elem_tv.apply(subst)
         }
 
-        RuntimeExpr::Call { callee, args } => {
+        RuntimeExpr::Call { ref callee, ref args } => {
             let callee_ty = env
-                .lookup(&callee)
+                .lookup(callee)
                 .ok_or_else(|| TypeError::UnboundVar(callee.clone()))?;
             let mut arg_types = Vec::new();
-            for arg_id in args {
-                arg_types.push(infer_expr(ast, arg_id, env, subst)?);
+            for &arg_id in args {
+                arg_types.push(infer_expr(ast, arg_id, env, subst, type_map)?);
             }
             let ret_tv = Type::Var(env.fresh());
             let expected_fn = Type::Func {
@@ -154,65 +162,67 @@ fn infer_expr(
                 ret: Box::new(ret_tv.clone()),
             };
             unify(&callee_ty, &expected_fn, subst)?;
-            Ok(ret_tv.apply(subst))
+            ret_tv.apply(subst)
         }
 
-        RuntimeExpr::StructLiteral { fields, .. } => {
+        RuntimeExpr::StructLiteral { ref fields, .. } => {
             for (_, expr_id) in fields {
-                infer_expr(ast, expr_id, env, subst)?;
+                infer_expr(ast, *expr_id, env, subst, type_map)?;
             }
-            Ok(Type::Var(env.fresh()))
+            Type::Var(env.fresh())
         }
 
         // Module dot-access — we don't track module member types yet.
         RuntimeExpr::DotAccess { object, .. } => {
-            infer_expr(ast, object, env, subst)?;
-            Ok(Type::Var(env.fresh()))
+            infer_expr(ast, object, env, subst, type_map)?;
+            Type::Var(env.fresh())
         }
 
-        RuntimeExpr::DotCall { object, args, .. } => {
-            infer_expr(ast, object, env, subst)?;
-            for arg_id in args {
-                infer_expr(ast, arg_id, env, subst)?;
+        RuntimeExpr::DotCall { object, ref args, .. } => {
+            infer_expr(ast, object, env, subst, type_map)?;
+            for &arg_id in args {
+                infer_expr(ast, arg_id, env, subst, type_map)?;
             }
-            Ok(Type::Var(env.fresh()))
+            Type::Var(env.fresh())
         }
 
         RuntimeExpr::Index { object, index } => {
-            infer_expr(ast, object, env, subst)?;
-            infer_expr(ast, index, env, subst)?;
-            Ok(Type::Var(env.fresh()))
+            infer_expr(ast, object, env, subst, type_map)?;
+            infer_expr(ast, index, env, subst, type_map)?;
+            Type::Var(env.fresh())
         }
 
-        RuntimeExpr::Tuple(items) => {
-            for item_id in items {
-                infer_expr(ast, item_id, env, subst)?;
+        RuntimeExpr::Tuple(ref items) => {
+            for &item_id in items {
+                infer_expr(ast, item_id, env, subst, type_map)?;
             }
-            Ok(Type::Var(env.fresh()))
+            Type::Var(env.fresh())
         }
 
         RuntimeExpr::TupleIndex { object, .. } => {
-            infer_expr(ast, object, env, subst)?;
-            Ok(Type::Var(env.fresh()))
+            infer_expr(ast, object, env, subst, type_map)?;
+            Type::Var(env.fresh())
         }
 
-        RuntimeExpr::EnumConstructor { enum_name, payload, .. } => {
+        RuntimeExpr::EnumConstructor { ref enum_name, ref payload, .. } => {
             match payload {
                 ConstructorPayload::Tuple(ids) => {
-                    for id in ids {
-                        infer_expr(ast, id, env, subst)?;
+                    for &id in ids {
+                        infer_expr(ast, id, env, subst, type_map)?;
                     }
                 }
                 ConstructorPayload::Struct(fields) => {
                     for (_, id) in fields {
-                        infer_expr(ast, id, env, subst)?;
+                        infer_expr(ast, *id, env, subst, type_map)?;
                     }
                 }
                 ConstructorPayload::Unit => {}
             }
-            Ok(Type::Enum(enum_name.clone()))
+            Type::Enum(enum_name.clone())
         }
-    }
+    };
+    type_map.insert(expr_id, ty.clone());
+    Ok(ty)
 }
 
 fn infer_stmt(
@@ -221,25 +231,26 @@ fn infer_stmt(
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
     ctx: &mut CheckCtx,
+    type_map: &mut HashMap<usize, Type>,
 ) -> Result<(), TypeError> {
     let stmt = ast.get_stmt(stmt_id).ok_or(TypeError::Unsupported)?.clone();
     match stmt {
         RuntimeStmt::ExprStmt(expr_id) => {
-            infer_expr(ast, expr_id, env, subst)?;
+            infer_expr(ast, expr_id, env, subst, type_map)?;
         }
 
         RuntimeStmt::Print(expr_id) => {
-            infer_expr(ast, expr_id, env, subst)?;
+            infer_expr(ast, expr_id, env, subst, type_map)?;
         }
 
         RuntimeStmt::VarDecl { name, expr } => {
-            let ty = infer_expr(ast, expr, env, subst)?;
+            let ty = infer_expr(ast, expr, env, subst, type_map)?;
             let scheme = generalize(env, ty);
             env.bind(&name, scheme);
         }
 
         RuntimeStmt::Assign { name, expr } => {
-            let ty = infer_expr(ast, expr, env, subst)?;
+            let ty = infer_expr(ast, expr, env, subst, type_map)?;
             if let Some(existing) = env.lookup(&name) {
                 unify(&ty, &existing, subst)?;
             } else {
@@ -249,12 +260,12 @@ fn infer_stmt(
 
         RuntimeStmt::IndexAssign { indices, expr, .. } => {
             for idx in indices {
-                infer_expr(ast, idx, env, subst)?;
+                infer_expr(ast, idx, env, subst, type_map)?;
             }
-            infer_expr(ast, expr, env, subst)?;
+            infer_expr(ast, expr, env, subst, type_map)?;
         }
 
-        RuntimeStmt::FnDecl { name, params, body } => {
+        RuntimeStmt::FnDecl { name, params, body, .. } => {
             let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
             let ret_tv = Type::Var(env.fresh());
             let fn_type = Type::Func {
@@ -270,7 +281,7 @@ fn infer_stmt(
             let saved_saw = ctx.saw_return;
             ctx.return_type = Some(ret_tv.clone());
             ctx.saw_return = false;
-            infer_stmt(ast, body, env, subst, ctx)?;
+            infer_stmt(ast, body, env, subst, ctx, type_map)?;
             if !ctx.saw_return {
                 unify(&ret_tv, &unit_type(), subst)?;
             }
@@ -284,7 +295,7 @@ fn infer_stmt(
         RuntimeStmt::Return(opt_expr) => {
             let ty = match opt_expr {
                 None => unit_type(),
-                Some(expr_id) => infer_expr(ast, expr_id, env, subst)?,
+                Some(expr_id) => infer_expr(ast, expr_id, env, subst, type_map)?,
             };
             if let Some(ret_ty) = ctx.return_type.as_ref() {
                 unify(&ty, ret_ty, subst)?;
@@ -298,32 +309,32 @@ fn infer_stmt(
             env.push_scope();
             hoist_fn_types(ast, &stmts, env, subst);
             for child_id in &stmts {
-                infer_stmt(ast, *child_id, env, subst, ctx)?;
+                infer_stmt(ast, *child_id, env, subst, ctx, type_map)?;
             }
             env.pop_scope();
         }
 
         RuntimeStmt::If { cond, body, else_branch } => {
-            let cond_ty = infer_expr(ast, cond, env, subst)?;
+            let cond_ty = infer_expr(ast, cond, env, subst, type_map)?;
             unify(&cond_ty, &bool_type(), subst)?;
-            infer_stmt(ast, body, env, subst, ctx)?;
+            infer_stmt(ast, body, env, subst, ctx, type_map)?;
             if let Some(else_id) = else_branch {
-                infer_stmt(ast, else_id, env, subst, ctx)?;
+                infer_stmt(ast, else_id, env, subst, ctx, type_map)?;
             }
         }
 
         RuntimeStmt::WhileLoop { cond, body } => {
-            let cond_ty = infer_expr(ast, cond, env, subst)?;
+            let cond_ty = infer_expr(ast, cond, env, subst, type_map)?;
             unify(&cond_ty, &bool_type(), subst)?;
-            infer_stmt(ast, body, env, subst, ctx)?;
+            infer_stmt(ast, body, env, subst, ctx, type_map)?;
         }
 
         RuntimeStmt::ForEach { var, iterable, body } => {
-            infer_expr(ast, iterable, env, subst)?;
+            infer_expr(ast, iterable, env, subst, type_map)?;
             env.push_scope();
             let var_ty = Type::Var(env.fresh());
             env.bind_mono(&var, var_ty);
-            infer_stmt(ast, body, env, subst, ctx)?;
+            infer_stmt(ast, body, env, subst, ctx, type_map)?;
             env.pop_scope();
         }
 
@@ -365,7 +376,7 @@ fn infer_stmt(
         }
 
         RuntimeStmt::Match { scrutinee, arms } => {
-            infer_expr(ast, scrutinee, env, subst)?;
+            infer_expr(ast, scrutinee, env, subst, type_map)?;
             for arm in arms {
                 env.push_scope();
                 match &arm.pattern {
@@ -392,7 +403,7 @@ fn infer_stmt(
                         }
                     }
                 }
-                infer_stmt(ast, arm.body, env, subst, ctx)?;
+                infer_stmt(ast, arm.body, env, subst, ctx, type_map)?;
                 env.pop_scope();
             }
         }

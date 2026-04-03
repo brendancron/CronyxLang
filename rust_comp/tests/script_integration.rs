@@ -163,6 +163,14 @@ mod script_integration {
         cx_test!(ops_compound_assign,    "tests/core/operators", "compound_assign");
         cx_test!(ops_unary_minus,        "tests/core/operators", "unary_minus");
         cx_test!(ops_not_index,          "tests/core/operators", "not_index");
+
+        // Required features for 0.1.4
+        cx_test!(traits_basic_impl,      "tests/core/traits/basic_impl",      "main");
+        cx_test!(traits_multiple_impls,  "tests/core/traits/multiple_impls",  "main");
+        cx_test!(traits_trait_bound,     "tests/core/traits/trait_bound",     "main");
+        cx_test!(generics_generic_fn,    "tests/core/generics/generic_fn",    "main");
+        cx_test!(generics_generic_struct,"tests/core/generics/generic_struct","main");
+        cx_test!(generics_monomorphize,  "tests/core/generics/monomorphize",  "main");
     }
 
     #[cfg(test)]

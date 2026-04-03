@@ -91,7 +91,7 @@ mod type_check_tests {
     #[test]
     fn block_scope_does_not_leak() {
         let ast = parse_source("{ var x = 1; }");
-        let (_, mut env) = type_check(&ast).unwrap();
+        let (_, env) = type_check(&ast).unwrap();
         assert!(env.get_type("x").is_none());
     }
 
@@ -119,7 +119,7 @@ mod type_check_tests {
     fn if_branch_scope_does_not_leak() {
         // The if body is a Block, so its bindings are properly scoped
         let ast = parse_source("if (true) { var x = 1; }");
-        let (_, mut env) = type_check(&ast).unwrap();
+        let (_, env) = type_check(&ast).unwrap();
         assert!(env.get_type("x").is_none());
     }
 
