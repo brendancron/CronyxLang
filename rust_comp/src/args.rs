@@ -42,7 +42,7 @@ impl CliArgs {
                     );
                 }
                 "--version" | "-V" => {
-                    println!("cronyx {}", env!("CRONYX_VERSION"));
+                    println!("cronyxc {}", env!("CRONYXC_VERSION"));
                     std::process::exit(0);
                 }
                 "--help" | "-h" => {
@@ -51,7 +51,7 @@ impl CliArgs {
                 }
                 flag if flag.starts_with("--") => {
                     eprintln!("unknown flag: {flag}");
-                    eprintln!("run `cronyx --help` for usage");
+                    eprintln!("run `cronyxc --help` for usage");
                     std::process::exit(1);
                 }
                 path => {
@@ -80,10 +80,10 @@ impl CliArgs {
 
     fn help_text() -> &'static str {
         concat!(
-            "cronyx ", env!("CRONYX_VERSION"), "\n",
+            "cronyxc ", env!("CRONYXC_VERSION"), "\n",
             "\n",
             "USAGE:\n",
-            "    cronyx <source.cx> [FLAGS]\n",
+            "    cronyxc <source.cx> [FLAGS]\n",
             "\n",
             "FLAGS:\n",
             "    --dump-ast            Write meta_ast.txt + meta_ast_graph.txt\n",
