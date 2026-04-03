@@ -42,7 +42,7 @@ impl CliArgs {
                     );
                 }
                 "--version" | "-V" => {
-                    println!("cronyx {}", env!("CARGO_PKG_VERSION"));
+                    println!("cronyx {}", env!("CRONYX_VERSION"));
                     std::process::exit(0);
                 }
                 "--help" | "-h" => {
@@ -80,7 +80,7 @@ impl CliArgs {
 
     fn help_text() -> &'static str {
         concat!(
-            "cronyx ", env!("CARGO_PKG_VERSION"), "\n",
+            "cronyx ", env!("CRONYX_VERSION"), "\n",
             "\n",
             "USAGE:\n",
             "    cronyx <source.cx> [FLAGS]\n",
