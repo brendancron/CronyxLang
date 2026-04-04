@@ -1,0 +1,39 @@
+{
+  "name": "cronyx",
+  "displayName": "Cronyx",
+  "description": "Syntax highlighting for the Cronyx language (.cx)",
+  "version": "0.0.1",
+  "publisher": "BrendanCron",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brendancron/compiler"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "cronyx",
+        "aliases": [
+          "Cronyx",
+          "cx"
+        ],
+        "extensions": [
+          ".cx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cronyx",
+        "scopeName": "source.cx",
+        "path": "./syntaxes/cronyx.tmLanguage.json"
+      }
+    ]
+  }
+}

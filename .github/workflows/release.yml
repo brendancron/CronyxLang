@@ -130,5 +130,6 @@ jobs:
             | macOS (Apple Silicon) | `cronyxc-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` |
             | macOS (Intel) | `cronyxc-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` |
             | Windows (x64) | `cronyxc-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip` |
+
           files: artifacts/*
           fail_on_unmatched_files: true

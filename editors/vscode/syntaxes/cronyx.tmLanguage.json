@@ -1,0 +1,87 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Cronyx",
+  "scopeName": "source.cx",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#meta-blocks" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#type-names" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.cx"
+    },
+    "strings": {
+      "name": "string.quoted.double.cx",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "match": "\\\\[ntr\\\\\"']",
+          "name": "constant.character.escape.cx"
+        }
+      ]
+    },
+    "meta-blocks": {
+      "comment": "Highlight meta {} and gen {} as special constructs",
+      "patterns": [
+        {
+          "match": "\\b(meta|gen)\\b",
+          "name": "keyword.other.meta.cx"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(if|else|for|while|in|return|match)\\b",
+          "name": "keyword.control.cx"
+        },
+        {
+          "match": "\\b(fn|var|struct|enum|trait|impl|import|from|as|embed|typeof)\\b",
+          "name": "keyword.declaration.cx"
+        },
+        {
+          "match": "\\b(print)\\b",
+          "name": "support.function.builtin.cx"
+        }
+      ]
+    },
+    "types": {
+      "match": "\\b(int|bool|string|unit)\\b",
+      "name": "storage.type.cx"
+    },
+    "constants": {
+      "match": "\\b(true|false)\\b",
+      "name": "constant.language.cx"
+    },
+    "numbers": {
+      "match": "\\b[0-9]+\\b",
+      "name": "constant.numeric.cx"
+    },
+    "type-names": {
+      "comment": "PascalCase identifiers are treated as type/enum names",
+      "match": "\\b[A-Z][a-zA-Z0-9_]*\\b",
+      "name": "entity.name.type.cx"
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "(=>|->|::|==|!=|<=|>=|\\+=|-=|\\+\\+|--|&&|\\|\\|)",
+          "name": "keyword.operator.cx"
+        },
+        {
+          "match": "[+\\-*/<>=!&|]",
+          "name": "keyword.operator.cx"
+        }
+      ]
+    }
+  }
+}
