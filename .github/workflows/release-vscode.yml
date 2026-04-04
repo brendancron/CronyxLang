@@ -1,0 +1,66 @@
+name: Release VSCode Extension
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+
+jobs:
+  release:
+    name: Package and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Package extension
+        working-directory: editors/vscode
+        run: vsce package --no-dependencies -o cronyx-${{ github.ref_name }}.vsix
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Cronyx VSCode Extension ${{ github.ref_name }}
+          body: |
+            ## Install
+
+            Download `cronyx-${{ github.ref_name }}.vsix` and run:
+            ```
+            code --install-extension cronyx-${{ github.ref_name }}.vsix
+            ```
+
+            Or search for **Cronyx** in the VSCode Extensions panel.
+          files: editors/vscode/cronyx-${{ github.ref_name }}.vsix
+
+  publish:
+    name: Publish to Marketplace
+    needs: [release]
+    runs-on: ubuntu-latest
+    if: ${{ vars.PUBLISH_VSCODE == 'true' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Publish to VSCode Marketplace
+        working-directory: editors/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: vsce publish --no-dependencies -p "$VSCE_PAT"
