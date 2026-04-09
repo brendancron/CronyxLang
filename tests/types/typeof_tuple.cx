@@ -1,0 +1,6 @@
+var pair = (1, "hello");
+var triple = (true, 42, "world");
+var nested = ((1, 2), "abc");
+print(typeof(pair));
+print(typeof(triple));
+print(typeof(nested));

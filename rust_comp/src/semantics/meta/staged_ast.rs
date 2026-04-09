@@ -114,6 +114,12 @@ pub enum StagedExpr {
         index: usize,
     },
 
+    SliceRange {
+        object: usize,
+        start: Option<usize>,
+        end: Option<usize>,
+    },
+
     MetaExpr(MetaRef),
 }
 
@@ -469,6 +475,13 @@ impl StagedAst {
             StagedExpr::TupleIndex { object, index } => (
                 format!("TupleIndex(.{index})"),
                 vec![self.convert_expr(*object)],
+            ),
+            StagedExpr::SliceRange { object, start, end } => (
+                "SliceRange".into(),
+                std::iter::once(self.convert_expr(*object))
+                    .chain(start.map(|s| self.convert_expr(s)))
+                    .chain(end.map(|e| self.convert_expr(e)))
+                    .collect(),
             ),
             StagedExpr::MetaExpr(meta_ref) => (
                 "MetaRef".into(),

@@ -461,12 +461,45 @@ fn parse_postfix<'a>(
             }
         } else if check(tokens, *pos, TokenType::LeftBracket) {
             *pos += 1; // consume [
-            let index = parse_expr(tokens, pos, ctx)?;
-            consume(tokens, pos, TokenType::RightBracket)?;
-            base = ctx.ast.insert_expr(
-                &mut ctx.id_provider,
-                MetaExpr::Index { object: base, index },
-            );
+            // Detect slice range: `[:]`, `[start:]`, `[:end]`, `[start:end]`
+            let is_range = check(tokens, *pos, TokenType::Colon);
+
+            if is_range {
+                // `[:]` or `[:end]`
+                *pos += 1; // consume :
+                let end = if check(tokens, *pos, TokenType::RightBracket) {
+                    None
+                } else {
+                    Some(parse_expr(tokens, pos, ctx)?)
+                };
+                consume(tokens, pos, TokenType::RightBracket)?;
+                base = ctx.ast.insert_expr(
+                    &mut ctx.id_provider,
+                    MetaExpr::SliceRange { object: base, start: None, end },
+                );
+            } else {
+                let first = parse_expr(tokens, pos, ctx)?;
+                if check(tokens, *pos, TokenType::Colon) {
+                    // `[start:]` or `[start:end]`
+                    *pos += 1; // consume :
+                    let end = if check(tokens, *pos, TokenType::RightBracket) {
+                        None
+                    } else {
+                        Some(parse_expr(tokens, pos, ctx)?)
+                    };
+                    consume(tokens, pos, TokenType::RightBracket)?;
+                    base = ctx.ast.insert_expr(
+                        &mut ctx.id_provider,
+                        MetaExpr::SliceRange { object: base, start: Some(first), end },
+                    );
+                } else {
+                    consume(tokens, pos, TokenType::RightBracket)?;
+                    base = ctx.ast.insert_expr(
+                        &mut ctx.id_provider,
+                        MetaExpr::Index { object: base, index: first },
+                    );
+                }
+            }
         } else {
             break;
         }

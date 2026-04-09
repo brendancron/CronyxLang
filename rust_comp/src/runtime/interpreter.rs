@@ -168,19 +168,53 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
         RuntimeExpr::Index { object, index } => {
             let obj = eval_expr(*object, ctx)?;
             let idx = eval_expr(*index, ctx)?;
-            let i = match idx {
-                Value::Int(n) => n as usize,
+            let n = match idx {
+                Value::Int(n) => n,
                 _ => return Err(EvalError::TypeError(types::int_type())),
             };
             match obj {
                 Value::List(items) => {
                     let borrowed = items.borrow();
-                    borrowed.get(i).cloned().ok_or_else(|| EvalError::UndefinedVariable(format!("index {i} out of bounds")))
+                    let len = borrowed.len() as i64;
+                    let i = if n < 0 { (len + n) as usize } else { n as usize };
+                    borrowed.get(i).cloned().ok_or_else(|| EvalError::UndefinedVariable(format!("index {n} out of bounds")))
                 }
                 Value::String(s) => {
-                    let ch = s.chars().nth(i)
-                        .ok_or_else(|| EvalError::UndefinedVariable(format!("index {i} out of bounds")))?;
-                    Ok(Value::String(ch.to_string()))
+                    let chars: Vec<char> = s.chars().collect();
+                    let len = chars.len() as i64;
+                    let i = if n < 0 { (len + n) as usize } else { n as usize };
+                    chars.get(i).map(|c| Value::String(c.to_string()))
+                        .ok_or_else(|| EvalError::UndefinedVariable(format!("index {n} out of bounds")))
+                }
+                _ => Err(EvalError::TypeError(types::unit_type())),
+            }
+        }
+
+        RuntimeExpr::SliceRange { object, start, end } => {
+            let obj = eval_expr(*object, ctx)?;
+            match obj {
+                Value::List(items) => {
+                    let borrowed = items.borrow();
+                    let len = borrowed.len() as i64;
+                    let resolve = |n: i64| -> usize {
+                        if n < 0 { (len + n).max(0) as usize } else { n.min(len) as usize }
+                    };
+                    let s = match start {
+                        Some(id) => match eval_expr(*id, ctx)? {
+                            Value::Int(n) => resolve(n),
+                            _ => return Err(EvalError::TypeError(types::int_type())),
+                        },
+                        None => 0,
+                    };
+                    let e = match end {
+                        Some(id) => match eval_expr(*id, ctx)? {
+                            Value::Int(n) => resolve(n),
+                            _ => return Err(EvalError::TypeError(types::int_type())),
+                        },
+                        None => len as usize,
+                    };
+                    let slice: Vec<Value> = borrowed[s.min(borrowed.len())..e.min(borrowed.len())].to_vec();
+                    Ok(Value::List(std::rc::Rc::new(std::cell::RefCell::new(slice))))
                 }
                 _ => Err(EvalError::TypeError(types::unit_type())),
             }

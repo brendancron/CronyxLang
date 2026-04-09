@@ -123,7 +123,21 @@ fn infer_expr(
                 let t = infer_expr(ast, item_id, env, subst, table)?;
                 unify(&t, &elem_tv, subst)?;
             }
-            elem_tv.apply(subst)
+            Type::Slice(Box::new(elem_tv.apply(subst)))
+        }
+
+        MetaExpr::SliceRange { object, start, end } => {
+            let obj_ty = infer_expr(ast, object, env, subst, table)?;
+            if let Some(start_id) = start {
+                let t = infer_expr(ast, start_id, env, subst, table)?;
+                unify(&t, &int_type(), subst)?;
+            }
+            if let Some(end_id) = end {
+                let t = infer_expr(ast, end_id, env, subst, table)?;
+                unify(&t, &int_type(), subst)?;
+            }
+            // Result is the same slice type as the object
+            obj_ty.apply(subst)
         }
 
         MetaExpr::Call { callee, args } => {
@@ -193,15 +207,19 @@ fn infer_expr(
         }
 
         MetaExpr::Tuple(items) => {
+            let mut elem_types = Vec::new();
             for item_id in items {
-                infer_expr(ast, item_id, env, subst, table)?;
+                elem_types.push(infer_expr(ast, item_id, env, subst, table)?);
             }
-            Type::Var(env.fresh())
+            Type::Tuple(elem_types)
         }
 
-        MetaExpr::TupleIndex { object, .. } => {
-            infer_expr(ast, object, env, subst, table)?;
-            Type::Var(env.fresh())
+        MetaExpr::TupleIndex { object, index } => {
+            let obj_ty = infer_expr(ast, object, env, subst, table)?;
+            match obj_ty.apply(subst) {
+                Type::Tuple(elems) => elems.get(index).cloned().unwrap_or_else(|| Type::Var(env.fresh())),
+                _ => Type::Var(env.fresh()),
+            }
         }
     };
 

@@ -1,0 +1,22 @@
+var nums = [1, 2, 3, 4, 5];
+
+// from index
+var tail = nums[2:];
+print(tail[0]);
+print(tail[1]);
+print(tail[2]);
+
+// to index
+var head = nums[:3];
+print(head[0]);
+print(head[2]);
+
+// both bounds
+var mid = nums[1:4];
+print(mid[0]);
+print(mid[2]);
+
+// negative end
+var drop_last = nums[0:-1];
+print(drop_last[0]);
+print(drop_last[3]);

@@ -16,6 +16,11 @@ fn mangle_type(ty: &Type) -> String {
             let keys = fields.keys().cloned().collect::<Vec<_>>().join("_");
             format!("rec_{keys}")
         }
+        Type::Tuple(items) => {
+            let inner = items.iter().map(mangle_type).collect::<Vec<_>>().join("_");
+            format!("tuple_{inner}")
+        }
+        Type::Slice(elem) => format!("slice_{}", mangle_type(elem)),
         Type::Enum(name) => name.clone(),
     }
 }
@@ -87,6 +92,11 @@ fn clone_expr(
                     fields.iter().map(|(n, id)| (n.clone(), ce!(*id))).collect(),
                 ),
             },
+        },
+        RuntimeExpr::SliceRange { object, start, end } => RuntimeExpr::SliceRange {
+            object: ce!(object),
+            start: start.map(|s| ce!(s)),
+            end: end.map(|e| ce!(e)),
         },
     };
 

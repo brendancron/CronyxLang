@@ -233,6 +233,13 @@ pub fn process_expr(
             staged_ast.insert_expr(staged_expr_id, StagedExpr::TupleIndex { object: obj_id, index: *index });
         }
 
+        MetaExpr::SliceRange { object, start, end } => {
+            let obj_id = process_expr(meta_ast, *object, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let start_id = start.map(|s| process_expr(meta_ast, s, staged_ast, id_provider, dependency_set, staged_forest, type_env)).transpose()?;
+            let end_id = end.map(|e| process_expr(meta_ast, e, staged_ast, id_provider, dependency_set, staged_forest, type_env)).transpose()?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::SliceRange { object: obj_id, start: start_id, end: end_id });
+        }
+
         MetaExpr::Embed(file_path) => {
             let resolved = if let Some(dir) = &staged_forest.source_dir {
                 dir.join(file_path)

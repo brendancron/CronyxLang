@@ -1,0 +1,2 @@
+{ x: int, y: int }
+{ active: bool, age: int, name: string }

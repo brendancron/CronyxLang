@@ -1,0 +1,17 @@
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+enum Shape {
+    Circle(int),
+    Rectangle(int, int)
+}
+
+var c = Color::Red;
+var s = Shape::Circle(5);
+var r = Shape::Rectangle(3, 4);
+print(typeof(c));
+print(typeof(s));
+print(typeof(r));
