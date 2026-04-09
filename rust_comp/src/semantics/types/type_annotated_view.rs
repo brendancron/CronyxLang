@@ -301,6 +301,13 @@ impl<'a> TypeAnnotatedView<'a> {
                 format!("TupleIndex(.{index})"),
                 vec![self.convert_expr(*object)],
             ),
+            MetaExpr::SliceRange { object, start, end } => (
+                "SliceRange".into(),
+                std::iter::once(self.convert_expr(*object))
+                    .chain(start.map(|s| self.convert_expr(s)))
+                    .chain(end.map(|e| self.convert_expr(e)))
+                    .collect(),
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

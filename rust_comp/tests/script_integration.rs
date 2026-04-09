@@ -164,6 +164,18 @@ mod script_integration {
         cx_test!(ops_unary_minus,        "tests/core/operators", "unary_minus");
         cx_test!(ops_not_index,          "tests/core/operators", "not_index");
 
+        // Slices
+        cx_test!(slice_negative_index, "tests/core/slices", "negative_index");
+        cx_test!(slice_range,          "tests/core/slices", "slice_range");
+
+        // typeof / type reflection
+        cx_test!(types_typeof_primitives, "tests/types", "typeof_primitives");
+        cx_test!(types_typeof_slice,      "tests/types", "typeof_slice");
+        cx_test!(types_typeof_tuple,      "tests/types", "typeof_tuple");
+        cx_test!(types_typeof_record,     "tests/types", "typeof_record");
+        cx_test!(types_typeof_fn,         "tests/types", "typeof_fn");
+        cx_test!(types_typeof_enum,       "tests/types", "typeof_enum");
+
         // Required features for 0.1.4
         cx_test!(traits_basic_impl,      "tests/core/traits/basic_impl",      "main");
         cx_test!(traits_multiple_impls,  "tests/core/traits/multiple_impls",  "main");

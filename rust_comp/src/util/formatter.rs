@@ -287,6 +287,13 @@ impl<'a> Formatter<'a> {
                     format!("{}::{} {{ {} }}", enum_name, variant, fs)
                 }
             },
+
+            RuntimeExpr::SliceRange { object, start, end } => {
+                let obj_str = self.fmt_expr(object);
+                let start_str = start.map(|s| self.fmt_expr(s)).unwrap_or_default();
+                let end_str = end.map(|e| self.fmt_expr(e)).unwrap_or_default();
+                format!("{}[{}:{}]", obj_str, start_str, end_str)
+            }
         }
     }
 }

@@ -94,6 +94,11 @@ impl RuntimeAst {
                     object: remap_expr(*object),
                     index: *index,
                 },
+                RuntimeExpr::SliceRange { object, start, end } => RuntimeExpr::SliceRange {
+                    object: remap_expr(*object),
+                    start: start.map(|id| remap_expr(id)),
+                    end: end.map(|id| remap_expr(id)),
+                },
                 RuntimeExpr::StructLiteral { type_name, fields } => {
                     RuntimeExpr::StructLiteral {
                         type_name: type_name.clone(),
@@ -290,6 +295,12 @@ pub enum RuntimeExpr {
     TupleIndex {
         object: usize,
         index: usize,
+    },
+
+    SliceRange {
+        object: usize,
+        start: Option<usize>,
+        end: Option<usize>,
     },
 }
 
@@ -640,6 +651,14 @@ impl RuntimeAst {
             RuntimeExpr::TupleIndex { object, index } => (
                 format!("TupleIndex(.{index})"),
                 vec![self.convert_expr(*object)],
+            ),
+
+            RuntimeExpr::SliceRange { object, start, end } => (
+                "SliceRange".into(),
+                std::iter::once(self.convert_expr(*object))
+                    .chain(start.map(|s| self.convert_expr(s)))
+                    .chain(end.map(|e| self.convert_expr(e)))
+                    .collect(),
             ),
         };
 

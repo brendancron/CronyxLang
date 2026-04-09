@@ -145,7 +145,20 @@ fn infer_expr(
                 let t = infer_expr(ast, item_id, env, subst, type_map)?;
                 unify(&t, &elem_tv, subst)?;
             }
-            elem_tv.apply(subst)
+            Type::Slice(Box::new(elem_tv.apply(subst)))
+        }
+
+        RuntimeExpr::SliceRange { object, start, end } => {
+            let obj_ty = infer_expr(ast, object, env, subst, type_map)?;
+            if let Some(start_id) = start {
+                let t = infer_expr(ast, start_id, env, subst, type_map)?;
+                unify(&t, &int_type(), subst)?;
+            }
+            if let Some(end_id) = end {
+                let t = infer_expr(ast, end_id, env, subst, type_map)?;
+                unify(&t, &int_type(), subst)?;
+            }
+            obj_ty.apply(subst)
         }
 
         RuntimeExpr::Call { ref callee, ref args } => {
@@ -193,15 +206,19 @@ fn infer_expr(
         }
 
         RuntimeExpr::Tuple(ref items) => {
+            let mut elem_types = Vec::new();
             for &item_id in items {
-                infer_expr(ast, item_id, env, subst, type_map)?;
+                elem_types.push(infer_expr(ast, item_id, env, subst, type_map)?);
             }
-            Type::Var(env.fresh())
+            Type::Tuple(elem_types)
         }
 
-        RuntimeExpr::TupleIndex { object, .. } => {
-            infer_expr(ast, object, env, subst, type_map)?;
-            Type::Var(env.fresh())
+        RuntimeExpr::TupleIndex { object, index } => {
+            let obj_ty = infer_expr(ast, object, env, subst, type_map)?;
+            match obj_ty.apply(subst) {
+                Type::Tuple(elems) => elems.get(index).cloned().unwrap_or_else(|| Type::Var(env.fresh())),
+                _ => Type::Var(env.fresh()),
+            }
         }
 
         RuntimeExpr::EnumConstructor { ref enum_name, ref payload, .. } => {

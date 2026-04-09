@@ -1,0 +1,6 @@
+fn double(n) { return n * 2; }
+fn greet(name) { return "hello " + name; }
+fn is_positive(n) { return n > 0; }
+print(typeof(double));
+print(typeof(greet));
+print(typeof(is_positive));

@@ -26,6 +26,14 @@ impl FreeTypeVars for Type {
                 }
                 set
             }
+            Type::Tuple(items) => {
+                let mut set = HashSet::new();
+                for t in items {
+                    set.extend(t.free_type_vars());
+                }
+                set
+            }
+            Type::Slice(elem) => elem.free_type_vars(),
             _ => HashSet::new(),
         }
     }

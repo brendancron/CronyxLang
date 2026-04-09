@@ -29,6 +29,8 @@ impl ApplySubst for Type {
             Type::Record(fields) => Type::Record(
                 fields.iter().map(|(k, v)| (k.clone(), v.apply(subst))).collect()
             ),
+            Type::Tuple(items) => Type::Tuple(items.iter().map(|t| t.apply(subst)).collect()),
+            Type::Slice(elem) => Type::Slice(Box::new(elem.apply(subst))),
             _ => self.clone(),
         }
     }
@@ -103,6 +105,20 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
             }
             Ok(())
         }
+
+        (Type::Slice(ea), Type::Slice(eb)) => unify(ea, eb, subst),
+
+        (Type::Tuple(ta), Type::Tuple(tb)) => {
+            if ta.len() != tb.len() {
+                return Err(TypeError::TypeMismatch { expected: a, found: b });
+            }
+            for (x, y) in ta.iter().zip(tb.iter()) {
+                unify(x, y, subst)?;
+            }
+            Ok(())
+        }
+
+        (Type::Enum(na), Type::Enum(nb)) if na == nb => Ok(()),
 
         _ => Err(TypeError::TypeMismatch {
             expected: a,

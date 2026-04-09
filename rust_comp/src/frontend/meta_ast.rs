@@ -112,6 +112,12 @@ pub enum MetaExpr {
         object: usize,
         index: usize,
     },
+
+    SliceRange {
+        object: usize,
+        start: Option<usize>,
+        end: Option<usize>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -624,6 +630,13 @@ impl MetaAst {
             MetaExpr::TupleIndex { object, index } => (
                 format!("TupleIndex(.{index})"),
                 vec![self.convert_expr(*object)],
+            ),
+            MetaExpr::SliceRange { object, start, end } => (
+                "SliceRange".into(),
+                std::iter::once(self.convert_expr(*object))
+                    .chain(start.map(|s| self.convert_expr(s)))
+                    .chain(end.map(|e| self.convert_expr(e)))
+                    .collect(),
             ),
         };
 

@@ -1,0 +1,8 @@
+var nums = [1, 2, 3];
+var flags = [true, false, true];
+var words = ["hello", "world"];
+var nested = [[1, 2], [3, 4]];
+print(typeof(nums));
+print(typeof(flags));
+print(typeof(words));
+print(typeof(nested));
