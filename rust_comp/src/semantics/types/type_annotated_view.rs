@@ -171,6 +171,23 @@ impl<'a> TypeAnnotatedView<'a> {
                     .chain(arms.iter().map(|arm| self.convert_stmt(arm.body)))
                     .collect(),
             ),
+
+            MetaStmt::EffectDecl { name, .. } => (format!("EffectDecl({name})"), vec![]),
+
+            MetaStmt::WithFn { op_name, body, .. } => (
+                "WithFn".into(),
+                vec![TreeNode::leaf(format!("Op({op_name})")), self.convert_stmt(*body)],
+            ),
+
+            MetaStmt::WithCtl { op_name, body, .. } => (
+                "WithCtl".into(),
+                vec![TreeNode::leaf(format!("Op({op_name})")), self.convert_stmt(*body)],
+            ),
+
+            MetaStmt::Resume(opt_expr) => (
+                "Resume".into(),
+                opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

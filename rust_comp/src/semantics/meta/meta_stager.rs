@@ -458,6 +458,40 @@ pub fn process_stmt(
             // Actual module namespace creation happens in setup_modules before eval.
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Import(decl.clone()));
         }
+
+        MetaStmt::EffectDecl { name, ops } => {
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::EffectDecl {
+                name: name.clone(),
+                ops: ops.clone(),
+            });
+        }
+
+        MetaStmt::WithFn { op_name, params, ret_ty, body } => {
+            let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::WithFn {
+                op_name: op_name.clone(),
+                params: params.clone(),
+                ret_ty: ret_ty.clone(),
+                body: body_id,
+            });
+        }
+
+        MetaStmt::WithCtl { op_name, params, ret_ty, body } => {
+            let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::WithCtl {
+                op_name: op_name.clone(),
+                params: params.clone(),
+                ret_ty: ret_ty.clone(),
+                body: body_id,
+            });
+        }
+
+        MetaStmt::Resume(opt_expr) => {
+            let opt_id = opt_expr
+                .map(|e| process_expr(meta_ast, e, staged_ast, id_provider, dependency_set, staged_forest, type_env))
+                .transpose()?;
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Resume(opt_id));
+        }
     };
     Ok(staged_stmt_id)
 }

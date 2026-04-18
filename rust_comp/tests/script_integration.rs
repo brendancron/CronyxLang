@@ -185,6 +185,130 @@ mod script_integration {
         cx_test!(generics_monomorphize,  "tests/core/generics/monomorphize",  "main");
     }
 
+    /// Algebraic effects tests — organized by implementation phase.
+    /// Tests are expected to fail until the corresponding phase is implemented.
+    /// As each phase lands, more tests will pass.
+    #[cfg(test)]
+    mod effects {
+        use super::*;
+
+        // Phase 1: Parsing — effect declarations parse without crashing
+        #[test]
+        fn effect_decl_parse() {
+            run_test(
+                &test_dir("tests/effects/effect_decl_parse/effect_decl_parse.cx"),
+                &test_dir("tests/effects/effect_decl_parse/effect_decl_parse.txt"),
+            );
+        }
+
+        // Phase 2: fn effects
+        #[test] #[ignore] // enable after Phase 2
+        fn effect_log() {
+            run_test(
+                &test_dir("tests/effects/log/log.cx"),
+                &test_dir("tests/effects/log/log.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 2
+        fn effect_fn_shadow() {
+            run_test(
+                &test_dir("tests/effects/fn_shadow/fn_shadow.cx"),
+                &test_dir("tests/effects/fn_shadow/fn_shadow.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 2
+        fn effect_fn_scoped() {
+            run_test(
+                &test_dir("tests/effects/fn_scoped/fn_scoped.cx"),
+                &test_dir("tests/effects/fn_scoped/fn_scoped.txt"),
+            );
+        }
+
+        // Phase 3: ctl effects — single resume
+        #[test] #[ignore] // enable after Phase 3
+        fn effect_yield() {
+            run_test(
+                &test_dir("tests/effects/yield/yield.cx"),
+                &test_dir("tests/effects/yield/yield.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 3
+        fn effect_yield_nested_fn() {
+            run_test(
+                &test_dir("tests/effects/yield_nested_fn/yield_nested_fn.cx"),
+                &test_dir("tests/effects/yield_nested_fn/yield_nested_fn.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 3
+        fn effect_yield_in_while() {
+            run_test(
+                &test_dir("tests/effects/yield_in_while/yield_in_while.cx"),
+                &test_dir("tests/effects/yield_in_while/yield_in_while.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 3
+        fn effect_ctl_no_resume() {
+            run_test(
+                &test_dir("tests/effects/ctl_no_resume/ctl_no_resume.cx"),
+                &test_dir("tests/effects/ctl_no_resume/ctl_no_resume.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 3
+        fn effect_resume_with_value() {
+            run_test(
+                &test_dir("tests/effects/resume_with_value/resume_with_value.cx"),
+                &test_dir("tests/effects/resume_with_value/resume_with_value.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 3
+        fn effect_across_functions() {
+            run_test(
+                &test_dir("tests/effects/effect_across_functions/effect_across_functions.cx"),
+                &test_dir("tests/effects/effect_across_functions/effect_across_functions.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 3
+        fn effect_handler_override() {
+            run_test(
+                &test_dir("tests/effects/handler_override/handler_override.cx"),
+                &test_dir("tests/effects/handler_override/handler_override.txt"),
+            );
+        }
+
+        // Phase 4: ctl effects — multi resume
+        #[test] #[ignore] // enable after Phase 4
+        fn effect_flip() {
+            run_test(
+                &test_dir("tests/effects/flip/flip.cx"),
+                &test_dir("tests/effects/flip/flip.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 4
+        fn effect_nested_effects() {
+            run_test(
+                &test_dir("tests/effects/nested_effects/nested_effects.cx"),
+                &test_dir("tests/effects/nested_effects/nested_effects.txt"),
+            );
+        }
+
+        #[test] #[ignore] // enable after Phase 4
+        fn effect_multi_resume_accumulate() {
+            run_test(
+                &test_dir("tests/effects/multi_resume_accumulate/multi_resume_accumulate.cx"),
+                &test_dir("tests/effects/multi_resume_accumulate/multi_resume_accumulate.txt"),
+            );
+        }
+    }
+
     #[cfg(test)]
     mod meta {
         use super::*;

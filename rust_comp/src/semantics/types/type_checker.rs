@@ -450,7 +450,11 @@ fn infer_stmt(
         | MetaStmt::MetaBlock(_)
         | MetaStmt::Gen(_)
         | MetaStmt::TraitDecl { .. }
-        | MetaStmt::ImplDecl { .. } => unit_type(),
+        | MetaStmt::ImplDecl { .. }
+        | MetaStmt::EffectDecl { .. }
+        | MetaStmt::WithFn { .. }
+        | MetaStmt::WithCtl { .. }
+        | MetaStmt::Resume(_) => unit_type(),
     };
 
     let ty = ty.apply(subst);

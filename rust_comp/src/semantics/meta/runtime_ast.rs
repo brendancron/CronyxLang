@@ -1,5 +1,5 @@
 use crate::frontend::meta_ast::{
-    ConstructorPayload, EnumVariant, ImportDecl, MatchArm,
+    ConstructorPayload, EffectOp, EnumVariant, ImportDecl, MatchArm, Param,
 };
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
@@ -214,6 +214,25 @@ impl RuntimeAst {
                         body: remap_stmt(arm.body),
                     }).collect(),
                 },
+                RuntimeStmt::EffectDecl { name, ops } => RuntimeStmt::EffectDecl {
+                    name: name.clone(),
+                    ops: ops.clone(),
+                },
+                RuntimeStmt::WithFn { op_name, params, ret_ty, body } => RuntimeStmt::WithFn {
+                    op_name: op_name.clone(),
+                    params: params.clone(),
+                    ret_ty: ret_ty.clone(),
+                    body: remap_stmt(*body),
+                },
+                RuntimeStmt::WithCtl { op_name, params, ret_ty, body } => RuntimeStmt::WithCtl {
+                    op_name: op_name.clone(),
+                    params: params.clone(),
+                    ret_ty: ret_ty.clone(),
+                    body: remap_stmt(*body),
+                },
+                RuntimeStmt::Resume(opt_expr) => {
+                    RuntimeStmt::Resume(opt_expr.map(|id| remap_expr(id)))
+                },
             };
             out.insert_stmt(remap_stmt(*old_id), new_stmt);
         }
@@ -376,6 +395,28 @@ pub enum RuntimeStmt {
     // META
     Gen(Vec<usize>),
 
+    // EFFECTS
+    EffectDecl {
+        name: String,
+        ops: Vec<EffectOp>,
+    },
+
+    WithFn {
+        op_name: String,
+        params: Vec<Param>,
+        ret_ty: Option<String>,
+        body: usize,
+    },
+
+    WithCtl {
+        op_name: String,
+        params: Vec<Param>,
+        ret_ty: Option<String>,
+        body: usize,
+    },
+
+    Resume(Option<usize>),
+
     // TEMPORARY
     Print(usize),
 }
@@ -527,6 +568,28 @@ impl RuntimeAst {
                         ])
                     }))
                     .collect(),
+            ),
+
+            RuntimeStmt::EffectDecl { name, ops } => (
+                "EffectDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(ops.iter().map(|op| TreeNode::leaf(op.name.clone())))
+                    .collect(),
+            ),
+
+            RuntimeStmt::WithFn { op_name, body, .. } => (
+                "WithFn".into(),
+                vec![TreeNode::leaf(format!("Op({op_name})")), self.convert_stmt(*body)],
+            ),
+
+            RuntimeStmt::WithCtl { op_name, body, .. } => (
+                "WithCtl".into(),
+                vec![TreeNode::leaf(format!("Op({op_name})")), self.convert_stmt(*body)],
+            ),
+
+            RuntimeStmt::Resume(opt_expr) => (
+                "Resume".into(),
+                opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
             ),
         };
 

@@ -424,6 +424,12 @@ fn infer_stmt(
                 env.pop_scope();
             }
         }
+
+        // Effects — no-op for now; type checking added in Phase 5.
+        RuntimeStmt::EffectDecl { .. }
+        | RuntimeStmt::WithFn { .. }
+        | RuntimeStmt::WithCtl { .. }
+        | RuntimeStmt::Resume(_) => {}
     }
     Ok(())
 }

@@ -1,0 +1,14 @@
+effect flip {
+    ctl flip(): bool;
+}
+
+with ctl flip(): bool {
+    resume true;
+    resume false;
+}
+
+if(flip()) {
+    print("Heads!");
+} else {
+    print("Tails!");
+}

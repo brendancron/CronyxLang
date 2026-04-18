@@ -620,6 +620,15 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
 
         RuntimeStmt::EnumDecl { .. } => Ok(ExecResult::Continue),
 
+        // Effects — stubs for Phase 1; implemented in Phases 2-4.
+        RuntimeStmt::EffectDecl { .. } => Ok(ExecResult::Continue),
+
+        RuntimeStmt::WithFn { .. } => Err(EvalError::Unimplemented),
+
+        RuntimeStmt::WithCtl { .. } => Err(EvalError::Unimplemented),
+
+        RuntimeStmt::Resume(_) => Err(EvalError::Unimplemented),
+
         RuntimeStmt::Match { scrutinee, arms } => {
             let val = eval_expr(*scrutinee, ctx)?;
             for arm in arms {

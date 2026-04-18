@@ -121,6 +121,20 @@ pub enum MetaExpr {
 }
 
 #[derive(Debug, Clone)]
+pub enum EffectOpKind {
+    Fn,
+    Ctl,
+}
+
+#[derive(Debug, Clone)]
+pub struct EffectOp {
+    pub kind: EffectOpKind,
+    pub name: String,
+    pub params: Vec<Param>,
+    pub ret_ty: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub enum MetaStmt {
     // RAW EXPR STMTS
     ExprStmt(usize),
@@ -198,6 +212,29 @@ pub enum MetaStmt {
         body: usize,
     },
     Gen(Vec<usize>),
+
+    // EFFECTS
+    EffectDecl {
+        name: String,
+        ops: Vec<EffectOp>,
+    },
+
+    WithFn {
+        op_name: String,
+        params: Vec<Param>,
+        ret_ty: Option<String>,
+        body: usize,
+    },
+
+    WithCtl {
+        op_name: String,
+        params: Vec<Param>,
+        ret_ty: Option<String>,
+        body: usize,
+    },
+
+    /// `resume` or `resume expr`
+    Resume(Option<usize>),
 
     // TEMPORARY
     Print(usize),
@@ -498,6 +535,53 @@ impl MetaAst {
                 std::iter::once(TreeNode::leaf(format!("{trait_name} for {type_name}")))
                     .chain(methods.iter().map(|m| TreeNode::leaf(format!("Method({})", m.name))))
                     .collect(),
+            ),
+
+            MetaStmt::EffectDecl { name, ops } => (
+                "EffectDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(ops.iter().map(|op| TreeNode::leaf(format!(
+                        "{:?} {}({}): {}",
+                        op.kind, op.name,
+                        op.params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", "),
+                        op.ret_ty.as_deref().unwrap_or("unit"),
+                    ))))
+                    .collect(),
+            ),
+
+            MetaStmt::WithFn { op_name, params, ret_ty, body } => (
+                "WithFn".into(),
+                vec![
+                    TreeNode::leaf(format!("Op({op_name}): {}", ret_ty.as_deref().unwrap_or("unit"))),
+                    TreeNode::node(
+                        "Params",
+                        params.iter().map(|p| TreeNode::leaf(match &p.ty {
+                            Some(ty) => format!("{}: {}", p.name, ty),
+                            None => p.name.clone(),
+                        })).collect(),
+                    ),
+                    self.convert_stmt(*body),
+                ],
+            ),
+
+            MetaStmt::WithCtl { op_name, params, ret_ty, body } => (
+                "WithCtl".into(),
+                vec![
+                    TreeNode::leaf(format!("Op({op_name}): {}", ret_ty.as_deref().unwrap_or("unit"))),
+                    TreeNode::node(
+                        "Params",
+                        params.iter().map(|p| TreeNode::leaf(match &p.ty {
+                            Some(ty) => format!("{}: {}", p.name, ty),
+                            None => p.name.clone(),
+                        })).collect(),
+                    ),
+                    self.convert_stmt(*body),
+                ],
+            ),
+
+            MetaStmt::Resume(opt_expr) => (
+                "Resume".into(),
+                opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
             ),
         };
 

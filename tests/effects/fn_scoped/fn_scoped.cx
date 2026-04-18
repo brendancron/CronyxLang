@@ -1,0 +1,14 @@
+// Phase 2: fn handler should be scoped — active only after installation.
+// Tests that handler is available for all subsequent statements.
+
+effect emit {
+    fn emit(val: int): unit;
+}
+
+with fn emit(val: int): unit {
+    print(val * 10);
+}
+
+emit(1);
+emit(2);
+emit(3);
