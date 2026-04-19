@@ -25,6 +25,20 @@ pub enum EvalError {
     ArgumentMismatch,
     GenOutsideMetaContext,
     Unimplemented,
+    /// A `ctl` handler ran to completion without calling `resume` — the remaining computation is discarded.
+    EffectAborted,
+    /// A multi-resume handler took over; abort the original computation at the call site.
+    MultiResumed,
+    /// A `ctl` handler collected multiple resume values; carries them up to the nearest
+    /// `eval_stmts` so it can replay the suffix stmts for each value.
+    CtlSuspend { op_name: String, resume_values: Vec<Value> },
+}
+
+/// Entry in the ctl handler stack installed by `with ctl`.
+pub struct CtlHandlerEntry {
+    pub op_name: String,
+    pub params: Vec<String>,
+    pub body: usize,
 }
 
 impl From<TypeError> for EvalError {
@@ -52,6 +66,16 @@ pub struct EvalCtx<'a, W> {
     pub ast: &'a RuntimeAst,
     pub gen_collector: Option<&'a mut GeneratedCollector>,
     pub source_dir: Option<std::path::PathBuf>,
+    /// Stack of active `ctl` handlers — last installed wins on lookup.
+    pub ctl_handlers: Vec<CtlHandlerEntry>,
+    /// When true, `resume` pushes to `collected_resumes` instead of returning `Resumed`.
+    /// Used during multi-resume collection phase.
+    pub collecting_resumes: bool,
+    pub collected_resumes: Vec<Value>,
+    /// Pre-decided return values for multi-resume replay passes.
+    /// Each entry is (op_name, value). When a matching ctl op is called,
+    /// the value is consumed and returned directly without dispatching to the handler.
+    pub replay_stack: Vec<(String, Value)>,
 }
 
 pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
@@ -324,6 +348,7 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                     let result = match eval_stmt(func.body, ctx)? {
                         ExecResult::Return(v) => v,
                         ExecResult::Continue => Value::Unit,
+                        ExecResult::Resumed(v) => v,
                     };
                     ctx.env.pop_scope();
                     return Ok(result);
@@ -350,6 +375,7 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             let result = match eval_stmt(func.body, ctx)? {
                 ExecResult::Return(v) => v,
                 ExecResult::Continue => Value::Unit,
+                ExecResult::Resumed(v) => v,
             };
             ctx.env.pop_scope();
             Ok(result)
@@ -377,6 +403,14 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
         }
 
         RuntimeExpr::Call { callee, args } => {
+            // Replay check must come first: a pre-decided value overrides everything,
+            // including built-ins (so `choose` returns the replayed value on re-runs).
+            let replay_pos = ctx.replay_stack.iter().rposition(|(op, _)| op == callee);
+            if let Some(pos) = replay_pos {
+                let (_, val) = ctx.replay_stack.remove(pos);
+                return Ok(val);
+            }
+
             // Built-in runtime functions
             match callee.as_str() {
                 "readfile" => {
@@ -416,6 +450,47 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 _ => {}
             }
 
+            // Check ctl handler stack before env lookup (last installed wins).
+            let ctl_info = ctx.ctl_handlers.iter().rev()
+                .find(|h| h.op_name == *callee)
+                .map(|h| (h.params.clone(), h.body));
+
+            if let Some((params, body)) = ctl_info {
+                let arg_vals: Vec<Value> = args.iter()
+                    .map(|a| eval_expr(*a, ctx))
+                    .collect::<Result<_, _>>()?;
+                if params.len() != arg_vals.len() {
+                    return Err(EvalError::ArgumentMismatch);
+                }
+                ctx.env.push_scope();
+                for (param, val) in params.iter().zip(arg_vals) {
+                    ctx.env.define(param.clone(), val);
+                }
+
+                // Run handler body in collection mode to capture all resume calls.
+                let old_collecting = ctx.collecting_resumes;
+                let old_resumes = std::mem::take(&mut ctx.collected_resumes);
+                ctx.collecting_resumes = true;
+                let _handler_result = eval_stmt(body, ctx)?;
+                let resume_values = std::mem::replace(&mut ctx.collected_resumes, old_resumes);
+                ctx.collecting_resumes = old_collecting;
+                ctx.env.pop_scope();
+
+                if resume_values.is_empty() {
+                    return Err(EvalError::EffectAborted);
+                }
+                if resume_values.len() == 1 {
+                    // Single resume — return the value directly (existing path, no changes).
+                    return Ok(resume_values.into_iter().next().unwrap());
+                }
+
+                // Multi-resume — bubble the values up so eval_stmts can replay stmts[i..]
+                // (the call-site suffix) once per resume value. This gives the correct
+                // delimited continuation rather than re-running from the with-ctl boundary.
+                let op_name = callee.clone();
+                return Err(EvalError::CtlSuspend { op_name, resume_values });
+            }
+
             let func = match ctx.env.get(callee)? {
                 Value::Function(f) => f,
                 _ => return Err(EvalError::NonFunctionCall),
@@ -440,6 +515,7 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             let result = match eval_stmt(func.body, ctx)? {
                 ExecResult::Return(v) => v,
                 ExecResult::Continue => Value::Unit,
+                ExecResult::Resumed(v) => v,
             };
             ctx.env.pop_scope();
 
@@ -482,6 +558,7 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
                 }
                 match eval_stmt(*body, ctx)? {
                     ExecResult::Return(v) => return Ok(ExecResult::Return(v)),
+                    ExecResult::Resumed(v) => return Ok(ExecResult::Resumed(v)),
                     ExecResult::Continue => {}
                 }
             }
@@ -503,6 +580,10 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
                     ExecResult::Return(v) => {
                         ctx.env.pop_scope();
                         return Ok(ExecResult::Return(v));
+                    }
+                    ExecResult::Resumed(v) => {
+                        ctx.env.pop_scope();
+                        return Ok(ExecResult::Resumed(v));
                     }
                     ExecResult::Continue => {}
                 }
@@ -620,14 +701,45 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
 
         RuntimeStmt::EnumDecl { .. } => Ok(ExecResult::Continue),
 
-        // Effects — stubs for Phase 1; implemented in Phases 2-4.
+        // Effects
         RuntimeStmt::EffectDecl { .. } => Ok(ExecResult::Continue),
 
-        RuntimeStmt::WithFn { .. } => Err(EvalError::Unimplemented),
+        // Phase 2: fn effects — install handler as a regular function in the environment.
+        // Normal name lookup then dispatches to it when op_name(...) is called.
+        RuntimeStmt::WithFn { op_name, params, body, .. } => {
+            let func = Rc::new(Function {
+                params: params.iter().map(|p| p.name.clone()).collect(),
+                body: *body,
+                env: Environment::new(),
+            });
+            ctx.env.define(op_name.clone(), Value::Function(func));
+            Ok(ExecResult::Continue)
+        }
 
-        RuntimeStmt::WithCtl { .. } => Err(EvalError::Unimplemented),
+        // Note: WithCtl is normally intercepted before reaching here by the eval_stmts loop.
+        // This arm is a fallback for any direct eval_stmt call on a WithCtl node.
+        RuntimeStmt::WithCtl { op_name, params, body, .. } => {
+            ctx.ctl_handlers.push(CtlHandlerEntry {
+                op_name: op_name.clone(),
+                params: params.iter().map(|p| p.name.clone()).collect(),
+                body: *body,
+            });
+            Ok(ExecResult::Continue)
+        }
 
-        RuntimeStmt::Resume(_) => Err(EvalError::Unimplemented),
+        RuntimeStmt::Resume(opt_expr) => {
+            let val = match opt_expr {
+                None => Value::Unit,
+                Some(expr_id) => eval_expr(*expr_id, ctx)?,
+            };
+            if ctx.collecting_resumes {
+                // Collection mode: gather the value and let the handler body continue.
+                ctx.collected_resumes.push(val);
+                Ok(ExecResult::Continue)
+            } else {
+                Ok(ExecResult::Resumed(val))
+            }
+        }
 
         RuntimeStmt::Match { scrutinee, arms } => {
             let val = eval_expr(*scrutinee, ctx)?;
@@ -713,13 +825,57 @@ pub fn eval_stmts<W: Write>(
     ctx: &mut EvalCtx<W>,
 ) -> Result<ExecResult, EvalError> {
     hoist_fndecls(stmts, ctx);
-    for stmt in stmts {
-        match eval_stmt(*stmt, ctx)? {
-            ExecResult::Continue => {}
-            ExecResult::Return(v) => {
-                return Ok(ExecResult::Return(v));
+    let mut i = 0;
+    while i < stmts.len() {
+        let stmt_id = stmts[i];
+
+        // Special handling for WithCtl: capture the remaining stmts as the continuation
+        // so multi-resume can re-run them for each `resume` call.
+        let with_ctl_info = match ctx.ast.get_stmt(stmt_id) {
+            Some(RuntimeStmt::WithCtl { op_name, params, body, .. }) => {
+                Some((op_name.clone(), params.iter().map(|p| p.name.clone()).collect::<Vec<_>>(), *body))
             }
+            _ => None,
+        };
+        if let Some((op_name, param_names, body)) = with_ctl_info {
+            let continuation: Vec<usize> = stmts[i + 1..].to_vec();
+            ctx.ctl_handlers.push(CtlHandlerEntry { op_name, params: param_names, body });
+            let result = eval_stmts(&continuation, ctx);
+            ctx.ctl_handlers.pop();
+            return match result {
+                Err(EvalError::MultiResumed) => Ok(ExecResult::Continue),
+                other => other,
+            };
         }
+
+        match eval_stmt(stmt_id, ctx) {
+            Ok(ExecResult::Continue) => {}
+            Ok(ExecResult::Return(v)) => return Ok(ExecResult::Return(v)),
+            Ok(ExecResult::Resumed(v)) => return Ok(ExecResult::Resumed(v)),
+            // Multi-resume already completed all branches — propagate the abort signal.
+            Err(EvalError::MultiResumed) => return Err(EvalError::MultiResumed),
+            // A ctl op fired with multiple resume values. Replay stmts[i..] once per value:
+            // stmts[i] re-runs the same statement but the effect call hits the replay_stack
+            // and returns the pre-decided value, so stmts[i] completes normally. Then
+            // stmts[i+1..] continue. Any further ctl ops in those stmts fire their own
+            // CtlSuspend and are caught recursively by the inner eval_stmts.
+            Err(EvalError::CtlSuspend { op_name, resume_values }) => {
+                let suffix: Vec<usize> = stmts[i..].to_vec();
+                for resume_val in resume_values {
+                    ctx.replay_stack.push((op_name.clone(), resume_val));
+                    match eval_stmts(&suffix, ctx) {
+                        Ok(_) | Err(EvalError::MultiResumed) => {}
+                        // Branch pruned by assert(false) or an empty choose — skip silently.
+                        Err(EvalError::EffectAborted) => {}
+                        Err(e) => return Err(e),
+                    }
+                    ctx.replay_stack.retain(|(op, _)| op != &op_name);
+                }
+                return Err(EvalError::MultiResumed);
+            }
+            Err(e) => return Err(e),
+        }
+        i += 1;
     }
     Ok(ExecResult::Continue)
 }
@@ -773,6 +929,16 @@ pub fn eval<W: Write>(
         out,
         gen_collector,
         source_dir,
+        ctl_handlers: Vec::new(),
+        collecting_resumes: false,
+        collected_resumes: Vec::new(),
+        replay_stack: Vec::new(),
     };
-    eval_stmts(&root_stmts, &mut ctx)
+    match eval_stmts(&root_stmts, &mut ctx) {
+        // Handler ran without resume — computation was intentionally discarded (e.g. abort).
+        Err(EvalError::EffectAborted) => Ok(ExecResult::Continue),
+        // Multi-resume completed normally (all continuations ran).
+        Err(EvalError::MultiResumed) => Ok(ExecResult::Continue),
+        other => other,
+    }
 }

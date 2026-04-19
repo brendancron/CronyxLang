@@ -202,7 +202,7 @@ mod script_integration {
         }
 
         // Phase 2: fn effects
-        #[test] #[ignore] // enable after Phase 2
+        #[test]
         fn effect_log() {
             run_test(
                 &test_dir("tests/effects/log/log.cx"),
@@ -210,7 +210,7 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 2
+        #[test]
         fn effect_fn_shadow() {
             run_test(
                 &test_dir("tests/effects/fn_shadow/fn_shadow.cx"),
@@ -218,7 +218,7 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 2
+        #[test]
         fn effect_fn_scoped() {
             run_test(
                 &test_dir("tests/effects/fn_scoped/fn_scoped.cx"),
@@ -227,7 +227,7 @@ mod script_integration {
         }
 
         // Phase 3: ctl effects — single resume
-        #[test] #[ignore] // enable after Phase 3
+        #[test]
         fn effect_yield() {
             run_test(
                 &test_dir("tests/effects/yield/yield.cx"),
@@ -235,7 +235,7 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 3
+        #[test]
         fn effect_yield_nested_fn() {
             run_test(
                 &test_dir("tests/effects/yield_nested_fn/yield_nested_fn.cx"),
@@ -243,7 +243,7 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 3
+        #[test]
         fn effect_yield_in_while() {
             run_test(
                 &test_dir("tests/effects/yield_in_while/yield_in_while.cx"),
@@ -251,7 +251,7 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 3
+        #[test]
         fn effect_ctl_no_resume() {
             run_test(
                 &test_dir("tests/effects/ctl_no_resume/ctl_no_resume.cx"),
@@ -259,7 +259,7 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 3
+        #[test]
         fn effect_resume_with_value() {
             run_test(
                 &test_dir("tests/effects/resume_with_value/resume_with_value.cx"),
@@ -267,7 +267,7 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 3
+        #[test]
         fn effect_across_functions() {
             run_test(
                 &test_dir("tests/effects/effect_across_functions/effect_across_functions.cx"),
@@ -275,7 +275,7 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 3
+        #[test]
         fn effect_handler_override() {
             run_test(
                 &test_dir("tests/effects/handler_override/handler_override.cx"),
@@ -283,16 +283,8 @@ mod script_integration {
             );
         }
 
-        // Phase 4: ctl effects — multi resume
-        #[test] #[ignore] // enable after Phase 4
-        fn effect_flip() {
-            run_test(
-                &test_dir("tests/effects/flip/flip.cx"),
-                &test_dir("tests/effects/flip/flip.txt"),
-            );
-        }
-
-        #[test] #[ignore] // enable after Phase 4
+        // Phase 3: fn + ctl effects combined — single resume
+        #[test]
         fn effect_nested_effects() {
             run_test(
                 &test_dir("tests/effects/nested_effects/nested_effects.cx"),
@@ -300,11 +292,29 @@ mod script_integration {
             );
         }
 
-        #[test] #[ignore] // enable after Phase 4
+        // Phase 4: ctl effects — multi resume
+        #[test]
+        fn effect_flip() {
+            run_test(
+                &test_dir("tests/effects/flip/flip.cx"),
+                &test_dir("tests/effects/flip/flip.txt"),
+            );
+        }
+
+        #[test]
         fn effect_multi_resume_accumulate() {
             run_test(
                 &test_dir("tests/effects/multi_resume_accumulate/multi_resume_accumulate.cx"),
                 &test_dir("tests/effects/multi_resume_accumulate/multi_resume_accumulate.txt"),
+            );
+        }
+
+        // Phase 5: built-in choose + assert (non-determinism + pruning)
+        #[test]
+        fn effect_assert() {
+            run_test(
+                &test_dir("tests/effects/assert/assert.cx"),
+                &test_dir("tests/effects/assert/assert.txt"),
             );
         }
     }

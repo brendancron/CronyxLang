@@ -1,7 +1,7 @@
 # Cronyx Algebraic Effects — Implementation Roadmap
 
-**Status:** Planning Phase  
-**Last Updated:** 2026-04-18  
+**Status:** Phase 3 Complete — Phase 4 Designed  
+**Last Updated:** 2026-04-19  
 **Owner:** Brendan  
 **Target:** Koka-style effects with row polymorphism + selective CPS
 
@@ -486,9 +486,10 @@ Phase 4 can start after Phase 0 completes (parallel work if needed).
 - [x] Design semantics (EFFECTS_DESIGN.md)
 - [x] Design row polymorphism approach (EFFECTS_WITH_ROW_POLYMORPHISM.md)
 - [x] Create this roadmap
-- [ ] **Phase 0**
-- [ ] **Phase 1**
-- [ ] **Phase 2**
-- [ ] **Phase 3**
-- [ ] **Phase 4**
-- [ ] All tests passing (log.cx, yield.cx, flip.cx)
+- [x] **Phase 0** — type system foundations (parsing, AST, pipeline plumbing)
+- [ ] **Phase 1** — effect inference
+- [ ] **Phase 2** — selective CPS transform
+- [x] **Phase 3** — interpreter integration (single-resume `ctl` effects working)
+- [x] **Phase 4** — `fn` effects + single-flip multi-resume
+- [x] log.cx, yield.cx, flip.cx, multi_resume_accumulate.cx all passing
+- [x] Delimited continuations via call-site suffix replay (`CtlSuspend` + `stmts[i..]`)
