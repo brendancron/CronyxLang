@@ -1,0 +1,17 @@
+// Phase 3: yield inside a while loop.
+// Tests that ctl effects work with while loop control flow.
+
+effect yield {
+    ctl yield(i: int): unit;
+}
+
+with ctl yield(i: int): unit {
+    print(i);
+    resume
+}
+
+var x = 0;
+while (x < 3) {
+    yield(x);
+    x = x + 1;
+}

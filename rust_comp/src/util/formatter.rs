@@ -150,8 +150,13 @@ impl<'a> Formatter<'a> {
                 format!("{}match {} {{\n{}\n{}}}", outer, scrutinee_str, arms_str, outer)
             }
 
-            // Meta-pipeline artifacts — not part of runtime source output
-            RuntimeStmt::Import(_) | RuntimeStmt::Gen(_) => String::new(),
+            // Meta-pipeline artifacts and effect stmts — not yet formatted
+            RuntimeStmt::Import(_)
+            | RuntimeStmt::Gen(_)
+            | RuntimeStmt::EffectDecl { .. }
+            | RuntimeStmt::WithFn { .. }
+            | RuntimeStmt::WithCtl { .. }
+            | RuntimeStmt::Resume(_) => String::new(),
         }
     }
 

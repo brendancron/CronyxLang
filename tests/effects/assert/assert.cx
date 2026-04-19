@@ -1,0 +1,23 @@
+effect ndet {
+    ctl choose(options): int;
+    ctl assert(cond): unit;
+}
+
+with ctl choose(options): int {
+    for (x in options) {
+        resume x;
+    }
+}
+
+with ctl assert(cond): unit {
+    if (cond) {
+        resume;
+    }
+}
+
+var choice1 = choose([1, 2, 3, 4, 5, 6]);
+var choice2 = choose([18, 9, 47]);
+var square = choice1 * choice1;
+assert(square == choice2);
+print(choice1);
+print(choice2);

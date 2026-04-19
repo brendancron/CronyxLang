@@ -142,6 +142,14 @@ pub fn convert_to_runtime(
             }
             StagedStmt::EnumDecl { name, variants } => RuntimeStmt::EnumDecl { name, variants },
             StagedStmt::Match { scrutinee, arms } => RuntimeStmt::Match { scrutinee, arms },
+            StagedStmt::EffectDecl { name, ops } => RuntimeStmt::EffectDecl { name, ops },
+            StagedStmt::WithFn { op_name, params, ret_ty, body } => {
+                RuntimeStmt::WithFn { op_name, params, ret_ty, body }
+            }
+            StagedStmt::WithCtl { op_name, params, ret_ty, body } => {
+                RuntimeStmt::WithCtl { op_name, params, ret_ty, body }
+            }
+            StagedStmt::Resume(opt_expr) => RuntimeStmt::Resume(opt_expr),
         };
         runtime.insert_stmt(*id, runtime_stmt);
     }

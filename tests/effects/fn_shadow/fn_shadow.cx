@@ -1,0 +1,18 @@
+// Phase 2: Second with fn handler shadows the first.
+// Tests that handler replacement works correctly.
+
+effect log {
+    fn log(msg: string): unit;
+}
+
+with fn log(msg: string): unit {
+    print("v1: " + msg);
+}
+
+log("hello");
+
+with fn log(msg: string): unit {
+    print("v2: " + msg);
+}
+
+log("hello");

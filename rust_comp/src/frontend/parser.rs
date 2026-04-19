@@ -2,6 +2,121 @@ use crate::util::id_provider::*;
 use super::meta_ast::*;
 use super::token::*;
 
+// ---------------------------------------------------------------------------
+// Effect helpers
+// ---------------------------------------------------------------------------
+
+/// Parse `effect name { (fn|ctl) op(params): ret; ... }`
+fn parse_effect_decl(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    consume(tokens, pos, TokenType::Effect)?;
+    let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+    consume(tokens, pos, TokenType::LeftBrace)?;
+
+    let mut ops = Vec::new();
+    while !check(tokens, *pos, TokenType::RightBrace) {
+        let kind = match tokens.get(*pos).map(|t| t.token_type) {
+            Some(TokenType::Func) => { *pos += 1; EffectOpKind::Fn }
+            Some(TokenType::Ctl) => { *pos += 1; EffectOpKind::Ctl }
+            _ => { *pos += 1; EffectOpKind::Fn } // graceful fallback
+        };
+        let op_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+        consume(tokens, pos, TokenType::LeftParen)?;
+        let params = parse_separated(
+            tokens, pos, ctx,
+            TokenType::Comma, TokenType::RightParen,
+            |tokens, pos, _ctx| {
+                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                let ty = parse_type_annot(tokens, pos);
+                Ok(Param { name, ty })
+            },
+        )?;
+        consume(tokens, pos, TokenType::RightParen)?;
+        let ret_ty = if check(tokens, *pos, TokenType::Colon) {
+            *pos += 1;
+            Some(consume(tokens, pos, TokenType::Identifier)?.expect_str())
+        } else {
+            None
+        };
+        consume(tokens, pos, TokenType::Semicolon)?;
+        ops.push(EffectOp { kind, name: op_name, params, ret_ty });
+    }
+    consume(tokens, pos, TokenType::RightBrace)?;
+
+    let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::EffectDecl { name, ops });
+    Ok(id)
+}
+
+/// Parse `with fn op(params): ret { body }` or `with ctl op(params): ret { body }`
+fn parse_with_handler(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    consume(tokens, pos, TokenType::With)?;
+
+    let is_ctl = match tokens.get(*pos).map(|t| t.token_type) {
+        Some(TokenType::Ctl) => { *pos += 1; true }
+        Some(TokenType::Func) => { *pos += 1; false }
+        _ => false,
+    };
+
+    let op_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+    consume(tokens, pos, TokenType::LeftParen)?;
+    let params = parse_separated(
+        tokens, pos, ctx,
+        TokenType::Comma, TokenType::RightParen,
+        |tokens, pos, _ctx| {
+            let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+            let ty = parse_type_annot(tokens, pos);
+            Ok(Param { name, ty })
+        },
+    )?;
+    consume(tokens, pos, TokenType::RightParen)?;
+    let ret_ty = if check(tokens, *pos, TokenType::Colon) {
+        *pos += 1;
+        Some(consume(tokens, pos, TokenType::Identifier)?.expect_str())
+    } else {
+        None
+    };
+    consume(tokens, pos, TokenType::LeftBrace)?;
+    let body = parse_block(tokens, pos, ctx)?;
+    consume(tokens, pos, TokenType::RightBrace)?;
+
+    let stmt = if is_ctl {
+        MetaStmt::WithCtl { op_name, params, ret_ty, body }
+    } else {
+        MetaStmt::WithFn { op_name, params, ret_ty, body }
+    };
+    let id = ctx.ast.insert_stmt(&mut ctx.id_provider, stmt);
+    Ok(id)
+}
+
+/// Parse `resume` or `resume expr`
+fn parse_resume(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    consume(tokens, pos, TokenType::Resume)?;
+    // bare resume (no expression) when followed by ; or }
+    let opt_expr = if check(tokens, *pos, TokenType::Semicolon)
+        || check(tokens, *pos, TokenType::RightBrace)
+    {
+        None
+    } else {
+        Some(parse_expr(tokens, pos, ctx)?)
+    };
+    if check(tokens, *pos, TokenType::Semicolon) {
+        *pos += 1;
+    }
+    let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Resume(opt_expr));
+    Ok(id)
+}
+
 pub struct ParseCtx {
     pub ast: MetaAst,
     pub id_provider: IdProvider,
@@ -964,6 +1079,12 @@ fn parse_stmt<'a>(
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Match { scrutinee, arms });
                 Ok(id)
             }
+
+            TokenType::Effect => parse_effect_decl(tokens, pos, ctx),
+
+            TokenType::With => parse_with_handler(tokens, pos, ctx),
+
+            TokenType::Resume => parse_resume(tokens, pos, ctx),
 
             TokenType::Meta => parse_meta_stmt(tokens, pos, ctx),
 

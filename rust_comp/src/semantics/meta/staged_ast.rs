@@ -1,5 +1,5 @@
 use crate::frontend::meta_ast::{
-    ConstructorPayload, EnumVariant, ImportDecl, MatchArm,
+    ConstructorPayload, EffectOp, EnumVariant, ImportDecl, MatchArm, Param,
 };
 use crate::util::formatters::tree_formatter::*;
 use std::collections::HashMap;
@@ -196,6 +196,28 @@ pub enum StagedStmt {
     Gen(Vec<usize>),
     MetaStmt(MetaRef),
 
+    // EFFECTS
+    EffectDecl {
+        name: String,
+        ops: Vec<EffectOp>,
+    },
+
+    WithFn {
+        op_name: String,
+        params: Vec<Param>,
+        ret_ty: Option<String>,
+        body: usize,
+    },
+
+    WithCtl {
+        op_name: String,
+        params: Vec<Param>,
+        ret_ty: Option<String>,
+        body: usize,
+    },
+
+    Resume(Option<usize>),
+
     // TEMPORARY
     Print(usize),
 }
@@ -353,6 +375,28 @@ impl StagedAst {
             ),
 
             StagedStmt::Print(e) => ("PrintStmt".into(), vec![self.convert_expr(*e)]),
+
+            StagedStmt::EffectDecl { name, ops } => (
+                "EffectDecl".into(),
+                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                    .chain(ops.iter().map(|op| TreeNode::leaf(op.name.clone())))
+                    .collect(),
+            ),
+
+            StagedStmt::WithFn { op_name, body, .. } => (
+                "WithFn".into(),
+                vec![TreeNode::leaf(format!("Op({op_name})")), self.convert_stmt(*body)],
+            ),
+
+            StagedStmt::WithCtl { op_name, body, .. } => (
+                "WithCtl".into(),
+                vec![TreeNode::leaf(format!("Op({op_name})")), self.convert_stmt(*body)],
+            ),
+
+            StagedStmt::Resume(opt_expr) => (
+                "Resume".into(),
+                opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

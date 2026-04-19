@@ -111,6 +111,10 @@ fn collect_stmt_symbols(
         }
         StagedStmt::MetaStmt(_) | StagedStmt::Import(_) => {}
         StagedStmt::EnumDecl { name, .. } => { declares.insert(name.clone()); }
+        StagedStmt::EffectDecl { .. } | StagedStmt::Resume(_) => {}
+        StagedStmt::WithFn { body, .. } | StagedStmt::WithCtl { body, .. } => {
+            collect_stmt_symbols(ast, *body, declares, uses, in_gen);
+        }
         StagedStmt::Match { scrutinee, arms } => {
             collect_expr_symbols(ast, *scrutinee, declares, uses, in_gen);
             for arm in arms {

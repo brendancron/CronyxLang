@@ -43,6 +43,8 @@ pub enum TokenType {
     // Keywords
     And,
     As,
+    Ctl,
+    Effect,
     Else,
     Embed,
     Enum,
@@ -59,6 +61,7 @@ pub enum TokenType {
     Meta,
     Or,
     Print,
+    Resume,
     Return,
     Struct,
     Trait,
@@ -66,6 +69,7 @@ pub enum TokenType {
     Typeof,
     Var,
     While,
+    With,
 
     // End of file
     EOF,

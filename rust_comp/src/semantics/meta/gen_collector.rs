@@ -177,7 +177,23 @@ impl<'a> SubstCtx<'a> {
             },
             RuntimeStmt::StructDecl { .. }
             | RuntimeStmt::Import(_)
-            | RuntimeStmt::EnumDecl { .. } => stmt.clone(),
+            | RuntimeStmt::EnumDecl { .. }
+            | RuntimeStmt::EffectDecl { .. } => stmt.clone(),
+            RuntimeStmt::WithFn { op_name, params, ret_ty, body } => RuntimeStmt::WithFn {
+                op_name: op_name.clone(),
+                params: params.clone(),
+                ret_ty: ret_ty.clone(),
+                body: self.remap_stmt(*body),
+            },
+            RuntimeStmt::WithCtl { op_name, params, ret_ty, body } => RuntimeStmt::WithCtl {
+                op_name: op_name.clone(),
+                params: params.clone(),
+                ret_ty: ret_ty.clone(),
+                body: self.remap_stmt(*body),
+            },
+            RuntimeStmt::Resume(opt_expr) => {
+                RuntimeStmt::Resume(opt_expr.map(|e| self.remap_expr(e)))
+            },
             RuntimeStmt::Match { scrutinee, arms } => RuntimeStmt::Match {
                 scrutinee: self.remap_expr(*scrutinee),
                 arms: arms.iter().map(|arm| MatchArm {

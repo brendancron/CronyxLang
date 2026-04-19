@@ -424,6 +424,58 @@ fn infer_stmt(
                 env.pop_scope();
             }
         }
+
+        RuntimeStmt::WithFn { op_name, params, body, .. } => {
+            // Register the handler as a callable function so subsequent calls
+            // to the same name (e.g. `log("hello")`) type-check correctly.
+            let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
+            let ret_tv = Type::Var(env.fresh());
+            let fn_type = Type::Func {
+                params: param_types.clone(),
+                ret: Box::new(ret_tv),
+            };
+            let scheme = generalize(env, fn_type);
+            env.bind(&op_name, scheme);
+            // Check the handler body with params in scope.
+            env.push_scope();
+            for (param, ty) in params.iter().zip(&param_types) {
+                env.bind_mono(&param.name, ty.clone());
+            }
+            infer_stmt(ast, body, env, subst, ctx, type_map)?;
+            env.pop_scope();
+        }
+
+        // Register each declared operation so call sites type-check.
+        RuntimeStmt::EffectDecl { ops, .. } => {
+            for op in ops {
+                let param_types: Vec<Type> = op.params.iter().map(|_| Type::Var(env.fresh())).collect();
+                let ret_tv = Type::Var(env.fresh());
+                let fn_type = Type::Func {
+                    params: param_types,
+                    ret: Box::new(ret_tv),
+                };
+                env.bind(&op.name, generalize(env, fn_type));
+            }
+        }
+
+        // Register the ctl op as callable + type-check handler body.
+        RuntimeStmt::WithCtl { op_name, params, body, .. } => {
+            let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
+            let ret_tv = Type::Var(env.fresh());
+            let fn_type = Type::Func {
+                params: param_types.clone(),
+                ret: Box::new(ret_tv),
+            };
+            env.bind(&op_name, generalize(env, fn_type));
+            env.push_scope();
+            for (param, ty) in params.iter().zip(&param_types) {
+                env.bind_mono(&param.name, ty.clone());
+            }
+            infer_stmt(ast, body, env, subst, ctx, type_map)?;
+            env.pop_scope();
+        }
+
+        RuntimeStmt::Resume(_) => {}
     }
     Ok(())
 }

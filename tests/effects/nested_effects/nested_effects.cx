@@ -1,0 +1,23 @@
+// Phase 4: Multiple different effects active simultaneously.
+// Tests that handler stack correctly dispatches to the right handler.
+
+effect log {
+    fn log(msg: string): unit;
+}
+
+effect yield {
+    ctl yield(i: int): unit;
+}
+
+with fn log(msg: string): unit {
+    print("LOG: " + msg);
+}
+
+with ctl yield(i: int): unit {
+    log(to_string(i));
+    resume
+}
+
+yield(1);
+yield(2);
+yield(3);
