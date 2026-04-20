@@ -176,6 +176,13 @@ mod script_integration {
         cx_test!(types_typeof_fn,         "tests/types", "typeof_fn");
         cx_test!(types_typeof_enum,       "tests/types", "typeof_enum");
 
+        // Effect typing — TDD: these fail until effect inference is implemented.
+        // Expected output uses postfix effect row notation: (int) -> unit <yield>
+        cx_test!(types_typeof_effect_ctl,        "tests/types", "typeof_effect_ctl");
+        cx_test!(types_typeof_effect_multi,      "tests/types", "typeof_effect_multi");
+        cx_test!(types_typeof_effect_transitive, "tests/types", "typeof_effect_transitive");
+        cx_test!(types_typeof_effect_fn_vs_ctl,  "tests/types", "typeof_effect_fn_vs_ctl");
+
         // Required features for 0.1.4
         cx_test!(traits_basic_impl,      "tests/core/traits/basic_impl",      "main");
         cx_test!(traits_multiple_impls,  "tests/core/traits/multiple_impls",  "main");

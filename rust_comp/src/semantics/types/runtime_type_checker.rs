@@ -36,12 +36,12 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap
 
     // Pre-bind built-in runtime functions
     let alpha = env.fresh();
-    env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()) });
+    env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()), effects: EffectRow::empty() });
     env.bind("to_string", TypeScheme::PolyType {
         vars: vec![alpha],
-        ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()) },
+        ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
     });
-    env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type())    });
+    env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
 
     hoist_fn_types(ast, &ast.sem_root_stmts, env, &mut subst);
     for &stmt_id in &ast.sem_root_stmts.clone() {
@@ -69,6 +69,7 @@ fn hoist_fn_types(
             let fn_type = Type::Func {
                 params: param_types,
                 ret: Box::new(ret_tv),
+                effects: EffectRow::empty(),
             };
             let scheme = generalize(env, fn_type.apply(subst));
             env.bind(name, scheme);
@@ -173,6 +174,7 @@ fn infer_expr(
             let expected_fn = Type::Func {
                 params: arg_types,
                 ret: Box::new(ret_tv.clone()),
+                effects: EffectRow::empty(),
             };
             unify(&callee_ty, &expected_fn, subst)?;
             ret_tv.apply(subst)
@@ -288,6 +290,7 @@ fn infer_stmt(
             let fn_type = Type::Func {
                 params: param_types.clone(),
                 ret: Box::new(ret_tv.clone()),
+                effects: EffectRow::empty(),
             };
             env.push_scope();
             env.bind_mono(&name, fn_type.clone());
@@ -433,6 +436,7 @@ fn infer_stmt(
             let fn_type = Type::Func {
                 params: param_types.clone(),
                 ret: Box::new(ret_tv),
+                effects: EffectRow::empty(),
             };
             let scheme = generalize(env, fn_type);
             env.bind(&op_name, scheme);
@@ -453,6 +457,7 @@ fn infer_stmt(
                 let fn_type = Type::Func {
                     params: param_types,
                     ret: Box::new(ret_tv),
+                    effects: EffectRow::empty(),
                 };
                 env.bind(&op.name, generalize(env, fn_type));
             }
@@ -465,6 +470,7 @@ fn infer_stmt(
             let fn_type = Type::Func {
                 params: param_types.clone(),
                 ret: Box::new(ret_tv),
+                effects: EffectRow::empty(),
             };
             env.bind(&op_name, generalize(env, fn_type));
             env.push_scope();

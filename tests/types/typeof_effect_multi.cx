@@ -1,0 +1,14 @@
+// Expected: effect row lists all effects, sorted alphabetically.
+
+effect io {
+    ctl emit(val: int): unit;
+    ctl request(): int;
+}
+
+fn ping_pong(n: int) {
+    emit(n);
+    var r = request();
+    emit(r);
+}
+
+print(typeof(ping_pong));

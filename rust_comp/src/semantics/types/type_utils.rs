@@ -11,7 +11,7 @@ impl FreeTypeVars for Type {
     fn free_type_vars(&self) -> HashSet<TypeVar> {
         match self {
             Type::Var(tv) => [tv.clone()].into(),
-            Type::Func { params, ret } => {
+            Type::Func { params, ret, .. } => {
                 let mut set = HashSet::new();
                 for p in params {
                     set.extend(p.free_type_vars());
