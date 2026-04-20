@@ -2,6 +2,8 @@ use std::fs::read_to_string;
 use std::io::{Cursor};
 use std::path::PathBuf;
 
+use cronyx::semantics::cps::cps_transform::transform as cps_transform;
+use cronyx::semantics::cps::effect_marker::mark_cps;
 use cronyx::util::id_provider::IdProvider;
 use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use cronyx::runtime::environment::*;
@@ -50,6 +52,10 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
         };
         process(staged_forest, &mut evaluator).unwrap()
     };
+
+    let cps_info = mark_cps(&runtime_ast);
+    let mut runtime_ast = runtime_ast;
+    cps_transform(&mut runtime_ast, &cps_info);
 
     // Hoist all functions and create module namespace values before eval.
     let mut setup_env = EnvHandler::from(meta_env.clone());
@@ -325,11 +331,7 @@ mod script_integration {
             );
         }
 
-        // Requires true delimited continuations (CPS transform) — replay-stack can't handle
-        // multiple ctl ops of the same name called sequentially inside a function. Tracked in
-        // docs/roadmap/DELIMITED_CONTINUATIONS.md.
         #[test]
-        #[ignore]
         fn effect_assert_fn() {
             run_test(
                 &test_dir("tests/effects/assert/assert_fn.cx"),

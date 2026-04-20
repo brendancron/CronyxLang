@@ -91,7 +91,7 @@ fn infer_expr(
         RuntimeExpr::String(_) => string_type(),
 
         RuntimeExpr::Variable(ref name) => {
-            env.lookup(name).ok_or_else(|| TypeError::unbound_var(name.clone()))?
+            env.lookup(name).ok_or_else(|| TypeError::unbound_var(name.clone()).at(expr_id))?
         }
 
         RuntimeExpr::Add(a, b) => {
@@ -165,7 +165,7 @@ fn infer_expr(
         RuntimeExpr::Call { ref callee, ref args } => {
             let callee_ty = env
                 .lookup(callee)
-                .ok_or_else(|| TypeError::unbound_var(callee.clone()))?;
+                .ok_or_else(|| TypeError::unbound_var(callee.clone()).at(expr_id))?;
             let mut arg_types = Vec::new();
             for &arg_id in args {
                 arg_types.push(infer_expr(ast, arg_id, env, subst, type_map)?);
@@ -223,6 +223,19 @@ fn infer_expr(
             }
         }
 
+        RuntimeExpr::Unit => unit_type(),
+
+        RuntimeExpr::Lambda { ref params, .. } => {
+            // Lambdas are injected by the CPS pass after type checking; return a fresh fn type.
+            let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
+            let ret_tv = Type::Var(env.fresh());
+            Type::Func {
+                params: param_types,
+                ret: Box::new(ret_tv),
+                effects: EffectRow::empty(),
+            }
+        }
+
         RuntimeExpr::EnumConstructor { ref enum_name, ref payload, .. } => {
             match payload {
                 ConstructorPayload::Tuple(ids) => {
@@ -273,7 +286,7 @@ fn infer_stmt(
             if let Some(existing) = env.lookup(&name) {
                 unify(&ty, &existing, subst)?;
             } else {
-                return Err(TypeError::unbound_var(name.clone()));
+                return Err(TypeError::unbound_var(name.clone()).at(stmt_id));
             }
         }
 

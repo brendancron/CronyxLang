@@ -8,6 +8,7 @@ pub struct CliArgs {
     pub dump_staged: bool,
     pub dump_runtime_ast: bool,
     pub dump_runtime_code: bool,
+    pub dump_cps: bool,
 }
 
 impl CliArgs {
@@ -21,6 +22,7 @@ impl CliArgs {
         let mut dump_staged = false;
         let mut dump_runtime_ast = false;
         let mut dump_runtime_code = false;
+        let mut dump_cps = false;
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -29,12 +31,14 @@ impl CliArgs {
                 "--dump-staged"       => dump_staged = true,
                 "--dump-runtime-ast"  => dump_runtime_ast = true,
                 "--dump-runtime-code" => dump_runtime_code = true,
+                "--dump-cps" => dump_cps = true,
                 "--dump-all" => {
                     dump_ast = true;
                     dump_typed_ast = true;
                     dump_staged = true;
                     dump_runtime_ast = true;
                     dump_runtime_code = true;
+                    dump_cps = true;
                 }
                 "--out-dir" => {
                     out_dir = PathBuf::from(
@@ -75,6 +79,7 @@ impl CliArgs {
             dump_staged,
             dump_runtime_ast,
             dump_runtime_code,
+            dump_cps,
         }
     }
 
@@ -91,6 +96,7 @@ impl CliArgs {
             "    --dump-staged         Write staged_forest.txt + staged_forest_graph.txt\n",
             "    --dump-runtime-ast    Write runtime_ast.txt + runtime_ast_graph.txt\n",
             "    --dump-runtime-code   Write runtime_code.cx (pretty-printed source)\n",
+            "    --dump-cps            Write cps_info.txt + cps_code.cx (after CPS transform)\n",
             "    --dump-all            Enable all --dump-* flags\n",
             "    --out-dir <path>      Output directory for debug files (default: ./out)\n",
             "    -V, --version         Print version and exit\n",
@@ -104,5 +110,6 @@ impl CliArgs {
             || self.dump_staged
             || self.dump_runtime_ast
             || self.dump_runtime_code
+            || self.dump_cps
     }
 }

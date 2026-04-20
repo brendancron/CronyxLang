@@ -76,6 +76,10 @@ pub struct EvalCtx<'a, W> {
     /// Each entry is (op_name, value). When a matching ctl op is called,
     /// the value is consumed and returned directly without dispatching to the handler.
     pub replay_stack: Vec<(String, Value)>,
+    /// Stack of active CPS-mode continuations. When a ctl op is called with an extra
+    /// continuation argument (CPS style), the continuation is pushed here so that
+    /// `Resume` inside the handler body calls it instead of collecting.
+    pub cps_continuations: Vec<Value>,
 }
 
 pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
@@ -402,6 +406,17 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             })
         }
 
+        RuntimeExpr::Unit => Ok(Value::Unit),
+
+        RuntimeExpr::Lambda { params, body } => {
+            let func = std::rc::Rc::new(Function {
+                params: params.clone(),
+                body: *body,
+                env: ctx.env.env_ref(),
+            });
+            Ok(Value::Function(func))
+        }
+
         RuntimeExpr::Call { callee, args } => {
             // Replay check must come first: a pre-decided value overrides everything,
             // including built-ins (so `choose` returns the replayed value on re-runs).
@@ -459,6 +474,27 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 let arg_vals: Vec<Value> = args.iter()
                     .map(|a| eval_expr(*a, ctx))
                     .collect::<Result<_, _>>()?;
+
+                // CPS mode: called with one extra argument (the continuation lambda).
+                // The caller (a CPS-transformed function) passes the continuation explicitly,
+                // so Resume inside the handler calls it directly instead of collecting.
+                if arg_vals.len() == params.len() + 1 {
+                    let continuation = arg_vals.last().unwrap().clone();
+                    let handler_args = &arg_vals[..params.len()];
+                    ctx.env.push_scope();
+                    for (param, val) in params.iter().zip(handler_args) {
+                        ctx.env.define(param.clone(), val.clone());
+                    }
+                    ctx.cps_continuations.push(continuation);
+                    let handler_result = eval_stmt(body, ctx);
+                    ctx.cps_continuations.pop();
+                    ctx.env.pop_scope();
+                    return match handler_result {
+                        Ok(_) | Err(EvalError::EffectAborted) => Ok(Value::Unit),
+                        Err(e) => Err(e),
+                    };
+                }
+
                 if params.len() != arg_vals.len() {
                     return Err(EvalError::ArgumentMismatch);
                 }
@@ -733,8 +769,12 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
                 Some(expr_id) => eval_expr(*expr_id, ctx)?,
             };
             if ctx.collecting_resumes {
-                // Collection mode: gather the value and let the handler body continue.
+                // Old path: collection mode — gather the value and let the handler body continue.
                 ctx.collected_resumes.push(val);
+                Ok(ExecResult::Continue)
+            } else if let Some(cont) = ctx.cps_continuations.last().cloned() {
+                // CPS path: call the continuation with the resumed value.
+                call_value(cont, vec![val], ctx)?;
                 Ok(ExecResult::Continue)
             } else {
                 Ok(ExecResult::Resumed(val))
@@ -818,6 +858,30 @@ fn hoist_fndecls<W: Write>(stmts: &[usize], ctx: &mut EvalCtx<W>) {
             ctx.env.define(name.clone(), Value::Function(func));
         }
     }
+}
+
+/// Call a `Value::Function` (or any callable value) with the given arguments.
+/// Used by CPS mode to invoke continuation lambdas from `Resume`.
+pub fn call_value<W: Write>(func: Value, args: Vec<Value>, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
+    let f = match func {
+        Value::Function(f) => f,
+        _ => return Err(EvalError::NonFunctionCall),
+    };
+    if f.params.len() != args.len() {
+        return Err(EvalError::ArgumentMismatch);
+    }
+    ctx.env.push_scope();
+    for (param, val) in f.params.iter().zip(args) {
+        ctx.env.define(param.clone(), val);
+    }
+    let result = match eval_stmt(f.body, ctx) {
+        Ok(ExecResult::Return(v)) => Ok(v),
+        Ok(ExecResult::Continue) => Ok(Value::Unit),
+        Ok(ExecResult::Resumed(v)) => Ok(v),
+        Err(e) => Err(e),
+    };
+    ctx.env.pop_scope();
+    result
 }
 
 pub fn eval_stmts<W: Write>(
@@ -933,6 +997,7 @@ pub fn eval<W: Write>(
         collecting_resumes: false,
         collected_resumes: Vec::new(),
         replay_stack: Vec::new(),
+        cps_continuations: Vec::new(),
     };
     match eval_stmts(&root_stmts, &mut ctx) {
         // Handler ran without resume — computation was intentionally discarded (e.g. abort).

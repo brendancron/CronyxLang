@@ -98,6 +98,11 @@ fn clone_expr(
             start: start.map(|s| ce!(s)),
             end: end.map(|e| ce!(e)),
         },
+        RuntimeExpr::Lambda { params, body } => RuntimeExpr::Lambda {
+            params,
+            body: clone_stmt(ast, body, next_id, new_stmts, new_exprs, stmt_map, expr_map),
+        },
+        RuntimeExpr::Unit => RuntimeExpr::Unit,
     };
 
     new_exprs.insert(new_id, new_expr);

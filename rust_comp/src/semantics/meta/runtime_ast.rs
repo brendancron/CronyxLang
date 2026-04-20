@@ -99,6 +99,11 @@ impl RuntimeAst {
                     start: start.map(|id| remap_expr(id)),
                     end: end.map(|id| remap_expr(id)),
                 },
+                RuntimeExpr::Lambda { params, body } => RuntimeExpr::Lambda {
+                    params: params.clone(),
+                    body: remap_stmt(*body),
+                },
+                RuntimeExpr::Unit => RuntimeExpr::Unit,
                 RuntimeExpr::StructLiteral { type_name, fields } => {
                     RuntimeExpr::StructLiteral {
                         type_name: type_name.clone(),
@@ -321,6 +326,16 @@ pub enum RuntimeExpr {
         start: Option<usize>,
         end: Option<usize>,
     },
+
+    // CPS TRANSFORM — injected by the selective CPS pass, not present in source AST.
+    /// An anonymous closure: `fn(params) { body }`.
+    Lambda {
+        params: Vec<String>,
+        body: usize,
+    },
+    /// The unit value literal, used as the argument to `__k` at the end of a CPS
+    /// function body that has no explicit return.
+    Unit,
 }
 
 #[derive(Debug, Clone)]
@@ -723,6 +738,13 @@ impl RuntimeAst {
                     .chain(end.map(|e| self.convert_expr(e)))
                     .collect(),
             ),
+
+            RuntimeExpr::Lambda { params, body } => (
+                format!("Lambda({})", params.join(", ")),
+                vec![self.convert_stmt(*body)],
+            ),
+
+            RuntimeExpr::Unit => ("Unit".into(), vec![]),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

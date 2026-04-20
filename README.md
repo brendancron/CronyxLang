@@ -6,6 +6,8 @@ See [docs/Cronyx.md](docs/Cronyx.md) for a language overview.
 
 # Installation
 
+It is recommended to install the cronyx compiler via the build manager
+
 ## Package Managers
 
 ### Windows
@@ -48,10 +50,16 @@ brew update
 brew upgrade cronyx
 ```
 
-# Usage
+# Installing the toolchain
 
 ```
-cronyx <source.cx> [flags]
+cronyx toolchain instal vX.X.X
+```
+
+# Running a program
+
+```
+cronyx run main.cx
 ```
 
 ## Flags
@@ -67,9 +75,3 @@ cronyx <source.cx> [flags]
 | `--out-dir <path>`    | Directory to write debug files into (default: `./out`)                |
 
 Debug files are only created when at least one `--dump-*` flag is passed. Without any flags the compiler runs and exits with no file I/O beyond the program itself.
-
-### Example
-
-```
-cronyx main.cx --dump-runtime-code --out-dir debug/
-```
