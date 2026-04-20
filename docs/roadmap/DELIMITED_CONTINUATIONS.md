@@ -1,6 +1,6 @@
 # Delimited Continuations — Implementation Roadmap
 
-**Status:** Not started  
+**Status:** Phase 2 complete — selective CPS transform implemented  
 **Last Updated:** 2026-04-20  
 **Owner:** Brendan  
 **Depends on:** EFFECTS_ROADMAP Phase 2 (Selective CPS Transform)
@@ -37,7 +37,7 @@ Expected output (correct delimited continuations): two surviving branches — `c
 
 Actual output: no output (all branches pruned due to wrong value routing).
 
-The test `effects::assert_fn` is `#[ignore]`-d until this is fixed.
+The test `effects::assert_fn` now passes after the selective CPS transform was implemented.
 
 ---
 
@@ -60,90 +60,60 @@ This is precisely what a **CPS transform** produces. After CPS, `choose(list1)` 
 
 ## Implementation Plan
 
-### Phase 1 — Mark ctl-performing functions
+### Phase 1 — Mark ctl-performing functions ✅
 
-Identify which functions call `ctl` ops (directly or transitively). This is the effect inference step already planned in EFFECTS_ROADMAP Phase 1.
+Identify which functions call `ctl` ops (directly or transitively). Implemented in `src/semantics/cps/effect_marker.rs`.
 
-- [ ] **`effect_set: HashSet<String>`** per function in `TypeEnv`
-- [ ] Walk call graph to propagate effects transitively
-- [ ] Functions with `ctl` effects in their effect set are **CPS candidates**
+- [x] Phase 1: collect ctl op names from `EffectDecl` nodes
+- [x] Phase 2: detect functions with sequential top-level ctl calls (excluding loops)
+- [x] Phase 3: transitive closure — functions that call CPS functions are also CPS
 
-### Phase 2 — CPS Transform
+### Phase 2 — CPS Transform ✅
 
-Transform every CPS-candidate function at the AST level before interpretation.
+Transform every CPS-candidate function at the AST level before interpretation. Implemented in `src/semantics/cps/cps_transform.rs`, wired in `main.rs` and `tests/script_integration.rs`.
 
-#### 2.1 — Continuation representation
+#### 2.1 — Continuation representation ✅
 
-A continuation is a `Value::Closure` that takes one argument (the resumed value) and runs the remaining computation.
+Continuations are `RuntimeExpr::Lambda` nodes (new AST variant) converted to `Value::Function` at runtime.
 
-```rust
-Value::Closure {
-    params: vec!["__resume_val".into()],
-    body: ...,  // stmt id of the remaining body
-    env: captured_env,
-}
+#### 2.2 — Transform function signatures ✅
+
+`__k` parameter appended to each CPS-candidate function. At call sites, a lambda wrapping the remaining statements is passed as the final argument.
+
+#### 2.3 — Transform ctl op calls ✅
+
+Each sequential ctl op call in a CPS function body is lifted into a nested lambda:
 ```
-
-#### 2.2 — Transform function signatures
-
-Add an implicit `__k: Continuation` parameter to each CPS-candidate function:
-
-```
-fn find_matching(list1, list2)
-// becomes:
-fn find_matching(list1, list2, __k)
-```
-
-`__k` is the continuation that receives the function's return value.
-
-#### 2.3 — Transform ctl op calls
-
-A call `var choice1 = choose(list1)` inside a CPS function becomes:
-
-```
-choose(list1, fn(__resume_val) {
-    var choice1 = __resume_val;
-    // ... rest of the function body ...
+choose(list1, fn(choice1) {
+    // ... rest of body ...
 })
 ```
 
-The second argument is a continuation closure. The handler receives it and calls it once per `resume` value.
+#### 2.4 — CPS handler dispatch ✅
 
-#### 2.4 — Transform `resume` in handlers
+Handlers detect CPS-mode by argument count (`args.len() == params.len() + 1`). When in CPS mode, the extra arg is pushed onto `cps_continuations`. `resume x` calls that continuation with `x`.
 
-Inside a `with ctl choose` handler, `resume x` becomes `__cont(x)` — calling the continuation with value `x`. Multi-resume = calling `__cont` multiple times.
+#### 2.5 — Transform call sites of CPS functions ✅
 
-#### 2.5 — Transform call sites of CPS functions
+Top-level calls to CPS functions also get a continuation lambda wrapping the remaining statements.
 
-When calling a transformed function, pass the current continuation:
+#### 2.6 — `return` rewriting ✅
 
-```
-var result = find_matching(list1, list2)
-// becomes:
-find_matching(list1, list2, fn(result) {
-    print(result)
-})
-```
+`return x` inside a CPS function body becomes `__k(x)`. Fall-through appends `__k(unit)`.
 
-#### 2.6 — Transform control flow within CPS functions
+### Phase 3 — Interpreter changes (hybrid complete)
 
-- **`if`/`else`** — both branches receive the same continuation
-- **`for` loops** — the loop body's continuation is the "next iteration" plus the post-loop code; simplest to convert loops to recursive functions
-- **`return`** — becomes a tail call to `__k`
-- **`block`** — thread continuation through each statement sequentially
+The interpreter uses a **hybrid approach**: CPS-transformed functions use the `cps_continuations` stack; top-level ctl calls and ctl calls inside loops still use the replay-stack. Both coexist.
 
-### Phase 3 — Interpreter changes
+- [x] `cps_continuations: Vec<Value>` stack in `EvalCtx`
+- [x] CPS handler dispatch (arg-count detection)
+- [x] `resume x` in CPS mode calls `call_value(cont, x)`
+- [x] `call_value` helper for invoking `Value::Function` closures
+- [ ] **Future**: remove replay-stack once all ctl paths go through CPS (Phase 4)
 
-The interpreter mostly stays the same. Handlers now receive an explicit continuation argument instead of using the implicit resume mechanism.
+### Phase 4 — Remove replay-stack code (future)
 
-- [ ] **Remove `collecting_resumes` / `CtlSuspend` / `replay_stack`** from `EvalCtx` — these are no longer needed
-- [ ] **`eval_stmt(Resume { value })` in handler** → call the `__cont` closure from the handler's env with `value`
-- [ ] **`eval_stmt(WithCtl)` setup** → install handler into env (same as `WithFn` today)
-- [ ] **Multi-resume** → handler body can call `__cont` multiple times naturally
-
-### Phase 4 — Remove replay-stack code
-
-After CPS is working:
+After all ctl uses are CPS-transformed (including loops):
 
 - [ ] Remove `CtlSuspend` error variant
 - [ ] Remove `MultiResumed` error variant  
@@ -165,7 +135,7 @@ After CPS is working:
 
 | Test | Description | Expected output |
 |---|---|---|
-| `assert_fn.cx` | Two `choose` ops inside a function, pruned by `assert` | `""` (two unit prints, both branches) |
+| `assert_fn.cx` ✅ | Two `choose` ops inside a function, pruned by `assert` | `3\n5` |
 | `yield_nested_fn.cx` | Already passes — regression test for CPS |  |
 | `flip.cx` | Multi-resume, already passes — regression test | `Heads!\nTails!` |
 | Future: deeply nested `ctl` calls | Effects across 3+ function levels | TBD |

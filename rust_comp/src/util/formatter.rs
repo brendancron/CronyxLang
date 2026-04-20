@@ -150,13 +150,24 @@ impl<'a> Formatter<'a> {
                 format!("{}match {} {{\n{}\n{}}}", outer, scrutinee_str, arms_str, outer)
             }
 
-            // Meta-pipeline artifacts and effect stmts — not yet formatted
-            RuntimeStmt::Import(_)
-            | RuntimeStmt::Gen(_)
-            | RuntimeStmt::EffectDecl { .. }
-            | RuntimeStmt::WithFn { .. }
-            | RuntimeStmt::WithCtl { .. }
-            | RuntimeStmt::Resume(_) => String::new(),
+            RuntimeStmt::Import(_) | RuntimeStmt::Gen(_) | RuntimeStmt::EffectDecl { .. } => String::new(),
+
+            RuntimeStmt::WithFn { op_name, params, body, .. } => {
+                let params_str = params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", ");
+                let body_str = self.fmt_block_body(body);
+                format!("{}with fn {}({}) {}", self.pad(), op_name, params_str, body_str)
+            }
+
+            RuntimeStmt::WithCtl { op_name, params, body, .. } => {
+                let params_str = params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", ");
+                let body_str = self.fmt_block_body(body);
+                format!("{}with ctl {}({}) {}", self.pad(), op_name, params_str, body_str)
+            }
+
+            RuntimeStmt::Resume(opt_e) => match opt_e {
+                None => format!("{}resume;", self.pad()),
+                Some(e) => format!("{}resume {};", self.pad(), self.fmt_expr(e)),
+            },
         }
     }
 
@@ -299,6 +310,14 @@ impl<'a> Formatter<'a> {
                 let end_str = end.map(|e| self.fmt_expr(e)).unwrap_or_default();
                 format!("{}[{}:{}]", obj_str, start_str, end_str)
             }
+
+            RuntimeExpr::Lambda { params, body } => {
+                let params_str = params.join(", ");
+                let body_str = self.fmt_block_body(body);
+                format!("fn({}) {}", params_str, body_str)
+            }
+
+            RuntimeExpr::Unit => "unit".to_string(),
         }
     }
 }

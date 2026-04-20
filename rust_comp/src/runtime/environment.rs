@@ -36,6 +36,10 @@ impl EnvHandler {
         }
     }
 
+    pub fn env_ref(&self) -> EnvRef {
+        self.env.clone()
+    }
+
     pub fn define(&mut self, name: String, value: Value) {
         self.env.borrow_mut().define(name, value);
     }

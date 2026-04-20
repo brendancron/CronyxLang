@@ -5,6 +5,8 @@ use args::CliArgs;
 use debug_sink::DebugSink;
 
 use cronyx::error::{CompilerError, enrich_diagnostic};
+use cronyx::semantics::cps::cps_transform::transform as cps_transform;
+use cronyx::semantics::cps::effect_marker::mark_cps;
 use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use std::collections::HashMap;
 use cronyx::runtime::environment::*;
@@ -87,6 +89,13 @@ fn run_pipeline(
     };
     sink.dump_runtime_ast(&runtime_ast);
     sink.dump_runtime_code(&runtime_ast);
+
+    // SELECTIVE CPS TRANSFORM — marks ctl-performing functions and rewrites their bodies
+    // to pass continuations explicitly. Must run after meta-processing and before eval.
+    let cps_info = mark_cps(&runtime_ast);
+    let mut runtime_ast = runtime_ast;
+    cps_transform(&mut runtime_ast, &cps_info);
+    sink.dump_cps(&cps_info, &runtime_ast);
 
     // EVALUATION — stop on first error
     let mut setup_env = EnvHandler::from(meta_env.clone());

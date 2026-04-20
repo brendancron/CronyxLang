@@ -223,6 +223,19 @@ fn infer_expr(
             }
         }
 
+        RuntimeExpr::Unit => unit_type(),
+
+        RuntimeExpr::Lambda { ref params, .. } => {
+            // Lambdas are injected by the CPS pass after type checking; return a fresh fn type.
+            let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
+            let ret_tv = Type::Var(env.fresh());
+            Type::Func {
+                params: param_types,
+                ret: Box::new(ret_tv),
+                effects: EffectRow::empty(),
+            }
+        }
+
         RuntimeExpr::EnumConstructor { ref enum_name, ref payload, .. } => {
             match payload {
                 ConstructorPayload::Tuple(ids) => {

@@ -1,4 +1,5 @@
 use crate::args::CliArgs;
+use cronyx::semantics::cps::effect_marker::CpsInfo;
 use cronyx::semantics::meta::runtime_ast::RuntimeAst;
 use cronyx::semantics::meta::staged_forest::StagedForest;
 use cronyx::semantics::types::type_annotated_view::TypeAnnotatedView;
@@ -17,6 +18,7 @@ pub struct DebugSink {
     dump_staged: bool,
     dump_runtime_ast: bool,
     dump_runtime_code: bool,
+    dump_cps: bool,
 }
 
 impl DebugSink {
@@ -36,6 +38,7 @@ impl DebugSink {
             dump_staged: args.dump_staged,
             dump_runtime_ast: args.dump_runtime_ast,
             dump_runtime_code: args.dump_runtime_code,
+            dump_cps: args.dump_cps,
         }
     }
 
@@ -88,6 +91,31 @@ impl DebugSink {
         let Some(ref dir) = self.out_dir else { return };
 
         write!(self.open(dir, "runtime_code.cx"), "{}", format_runtime_ast(ast)).unwrap();
+    }
+
+    /// Write `cps_info.txt` (marked ops/functions) and `cps_code.cx` (transformed source).
+    /// Called once before evaluation, after the CPS transform has been applied.
+    pub fn dump_cps(&self, info: &CpsInfo, ast: &RuntimeAst) {
+        if !self.dump_cps { return; }
+        let Some(ref dir) = self.out_dir else { return };
+
+        // cps_info.txt — what the marker found
+        let mut f = self.open(dir, "cps_info.txt");
+        writeln!(f, "ctl ops:").unwrap();
+        let mut ops: Vec<&String> = info.ctl_ops.iter().collect();
+        ops.sort();
+        for op in ops {
+            writeln!(f, "  {op}").unwrap();
+        }
+        writeln!(f, "\ncps functions:").unwrap();
+        let mut fns: Vec<&String> = info.cps_fns.iter().collect();
+        fns.sort();
+        for name in fns {
+            writeln!(f, "  {name}").unwrap();
+        }
+
+        // cps_code.cx — pretty-printed AST after transform
+        write!(self.open(dir, "cps_code.cx"), "{}", format_runtime_ast(ast)).unwrap();
     }
 
     fn open(&self, dir: &PathBuf, name: &str) -> File {
