@@ -162,11 +162,12 @@ fn collect_expr_effects(
     }
 }
 
-pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), TypeError> {
+pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), Vec<TypeError>> {
     let mut table = TypeTable::new();
     let mut env = TypeEnv::new();
     let mut subst = TypeSubst::new();
     let mut ctx = TypeCheckCtx::new();
+    let mut errors: Vec<TypeError> = Vec::new();
 
     // Pre-bind built-in runtime functions
     let alpha = env.fresh();
@@ -178,10 +179,12 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), TypeError> {
     env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
 
     for stmt_id in &ast.sem_root_stmts.clone() {
-        infer_stmt(ast, *stmt_id, &mut env, &mut subst, &mut ctx, &mut table)?;
+        if let Err(e) = infer_stmt(ast, *stmt_id, &mut env, &mut subst, &mut ctx, &mut table) {
+            errors.push(e);
+        }
     }
 
-    Ok((table, env))
+    if errors.is_empty() { Ok((table, env)) } else { Err(errors) }
 }
 
 fn infer_expr(
@@ -191,7 +194,18 @@ fn infer_expr(
     subst: &mut TypeSubst,
     table: &mut TypeTable,
 ) -> Result<Type, TypeError> {
-    let expr = ast.get_expr(expr_id).ok_or(TypeError::Unsupported)?.clone();
+    infer_expr_impl(ast, expr_id, env, subst, table)
+        .map_err(|e| e.at(expr_id))
+}
+
+fn infer_expr_impl(
+    ast: &MetaAst,
+    expr_id: usize,
+    env: &mut TypeEnv,
+    subst: &mut TypeSubst,
+    table: &mut TypeTable,
+) -> Result<Type, TypeError> {
+    let expr = ast.get_expr(expr_id).ok_or_else(|| TypeError::unsupported())?.clone();
 
     let ty = match expr {
         MetaExpr::Int(_) => int_type(),
@@ -369,7 +383,19 @@ fn infer_stmt(
     ctx: &mut TypeCheckCtx,
     table: &mut TypeTable,
 ) -> Result<Type, TypeError> {
-    let stmt = ast.get_stmt(stmt_id).ok_or(TypeError::Unsupported)?.clone();
+    infer_stmt_impl(ast, stmt_id, env, subst, ctx, table)
+        .map_err(|e| e.at(stmt_id))
+}
+
+fn infer_stmt_impl(
+    ast: &MetaAst,
+    stmt_id: usize,
+    env: &mut TypeEnv,
+    subst: &mut TypeSubst,
+    ctx: &mut TypeCheckCtx,
+    table: &mut TypeTable,
+) -> Result<Type, TypeError> {
+    let stmt = ast.get_stmt(stmt_id).ok_or_else(|| TypeError::unsupported())?.clone();
 
     let ty = match stmt {
         MetaStmt::ExprStmt(expr_id) => {
@@ -380,7 +406,7 @@ fn infer_stmt(
         MetaStmt::VarDecl { name, type_annotation, expr } => {
             let expr_ty = infer_expr(ast, expr, env, subst, table)?;
             if let Some(declared_ty) = type_annotation.as_deref().and_then(resolve_annotation) {
-                unify(&expr_ty, &declared_ty, subst)?;
+                unify(&expr_ty, &declared_ty, subst).map_err(|e| e.at(expr))?;
             }
             let scheme = generalize(env, expr_ty.apply(subst));
             env.bind(&name, scheme);
@@ -390,7 +416,7 @@ fn infer_stmt(
         MetaStmt::Assign { name, expr } => {
             let expr_ty = infer_expr(ast, expr, env, subst, table)?;
             if let Some(existing_ty) = env.lookup(name.as_str()) {
-                unify(&expr_ty, &existing_ty, subst)?;
+                unify(&expr_ty, &existing_ty, subst).map_err(|e| e.at(expr))?;
             }
             unit_type()
         }
@@ -465,9 +491,13 @@ fn infer_stmt(
                 Some(expr_id) => infer_expr(ast, expr_id, env, subst, table)?,
             };
 
-            let ret_ty = ctx.return_type.as_ref().ok_or(TypeError::InvalidReturn)?.clone();
+            let ret_ty = ctx.return_type.as_ref().ok_or_else(|| TypeError::invalid_return())?.clone();
             ctx.saw_return = true;
-            unify(&expr_ty, &ret_ty, subst)?;
+            if let Some(eid) = opt_expr {
+                unify(&expr_ty, &ret_ty, subst).map_err(|e| e.at(eid))?;
+            } else {
+                unify(&expr_ty, &ret_ty, subst)?;
+            }
             unit_type()
         }
 
@@ -482,7 +512,7 @@ fn infer_stmt(
 
         MetaStmt::If { cond, body, else_branch } => {
             let cond_ty = infer_expr(ast, cond, env, subst, table)?;
-            unify(&cond_ty, &bool_type(), subst)?;
+            unify(&cond_ty, &bool_type(), subst).map_err(|e| e.at(cond))?;
             infer_stmt(ast, body, env, subst, ctx, table)?;
             if let Some(else_id) = else_branch {
                 infer_stmt(ast, else_id, env, subst, ctx, table)?;
@@ -492,7 +522,7 @@ fn infer_stmt(
 
         MetaStmt::WhileLoop { cond, body } => {
             let cond_ty = infer_expr(ast, cond, env, subst, table)?;
-            unify(&cond_ty, &bool_type(), subst)?;
+            unify(&cond_ty, &bool_type(), subst).map_err(|e| e.at(cond))?;
             infer_stmt(ast, body, env, subst, ctx, table)?;
             unit_type()
         }

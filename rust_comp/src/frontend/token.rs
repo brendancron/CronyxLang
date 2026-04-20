@@ -103,5 +103,6 @@ impl Token {
 pub struct Token {
     pub token_type: TokenType,
     pub line_number: usize,
+    pub col: usize,
     pub metadata: Option<TokenMetadata>,
 }

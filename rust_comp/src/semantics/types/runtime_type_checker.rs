@@ -84,14 +84,14 @@ fn infer_expr(
     subst: &mut TypeSubst,
     type_map: &mut HashMap<usize, Type>,
 ) -> Result<Type, TypeError> {
-    let expr = ast.get_expr(expr_id).ok_or(TypeError::Unsupported)?.clone();
+    let expr = ast.get_expr(expr_id).ok_or(TypeError::unsupported())?.clone();
     let ty = match expr {
         RuntimeExpr::Int(_) => int_type(),
         RuntimeExpr::Bool(_) => bool_type(),
         RuntimeExpr::String(_) => string_type(),
 
         RuntimeExpr::Variable(ref name) => {
-            env.lookup(name).ok_or_else(|| TypeError::UnboundVar(name.clone()))?
+            env.lookup(name).ok_or_else(|| TypeError::unbound_var(name.clone()))?
         }
 
         RuntimeExpr::Add(a, b) => {
@@ -165,7 +165,7 @@ fn infer_expr(
         RuntimeExpr::Call { ref callee, ref args } => {
             let callee_ty = env
                 .lookup(callee)
-                .ok_or_else(|| TypeError::UnboundVar(callee.clone()))?;
+                .ok_or_else(|| TypeError::unbound_var(callee.clone()))?;
             let mut arg_types = Vec::new();
             for &arg_id in args {
                 arg_types.push(infer_expr(ast, arg_id, env, subst, type_map)?);
@@ -252,7 +252,7 @@ fn infer_stmt(
     ctx: &mut CheckCtx,
     type_map: &mut HashMap<usize, Type>,
 ) -> Result<(), TypeError> {
-    let stmt = ast.get_stmt(stmt_id).ok_or(TypeError::Unsupported)?.clone();
+    let stmt = ast.get_stmt(stmt_id).ok_or(TypeError::unsupported())?.clone();
     match stmt {
         RuntimeStmt::ExprStmt(expr_id) => {
             infer_expr(ast, expr_id, env, subst, type_map)?;
@@ -273,7 +273,7 @@ fn infer_stmt(
             if let Some(existing) = env.lookup(&name) {
                 unify(&ty, &existing, subst)?;
             } else {
-                return Err(TypeError::UnboundVar(name.clone()));
+                return Err(TypeError::unbound_var(name.clone()));
             }
         }
 
@@ -320,7 +320,7 @@ fn infer_stmt(
             if let Some(ret_ty) = ctx.return_type.as_ref() {
                 unify(&ty, ret_ty, subst)?;
             } else {
-                return Err(TypeError::InvalidReturn);
+                return Err(TypeError::invalid_return());
             }
             ctx.saw_return = true;
         }
