@@ -1,6 +1,7 @@
 use crate::util::id_provider::*;
 use super::meta_ast::*;
 use super::token::*;
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // Effect helpers
@@ -120,6 +121,8 @@ fn parse_resume(
 pub struct ParseCtx {
     pub ast: MetaAst,
     pub id_provider: IdProvider,
+    /// Maps AST node ID → (line, col) of the first token of that node.
+    pub span_table: HashMap<usize, (usize, usize)>,
 }
 
 impl ParseCtx {
@@ -127,6 +130,21 @@ impl ParseCtx {
         Self {
             ast: MetaAst::new(),
             id_provider: IdProvider::new(),
+            span_table: HashMap::new(),
+        }
+    }
+
+    /// Record the source location for a node, if a location is known.
+    pub fn record_span(&mut self, node_id: usize, loc: Option<(usize, usize)>) {
+        if let Some(l) = loc {
+            self.span_table.insert(node_id, l);
+        }
+    }
+
+    /// Copy the span of `src` to `dst` (for compound nodes that start at src).
+    pub fn copy_span(&mut self, src: usize, dst: usize) {
+        if let Some(loc) = self.span_table.get(&src).cloned() {
+            self.span_table.insert(dst, loc);
         }
     }
 }
@@ -137,12 +155,16 @@ pub enum ParseError {
     UnexpectedToken {
         found: TokenType,
         expected: TokenType,
-        pos: usize,
+        line: usize,
+        col: usize,
     },
     UnexpectedEOF {
         expected: TokenType,
-        pos: usize,
     },
+}
+
+fn tok_loc(tokens: &[Token], pos: usize) -> Option<(usize, usize)> {
+    tokens.get(pos).map(|t| (t.line_number, t.col))
 }
 
 fn peek(tokens: &[Token], pos: usize) -> Option<TokenType> {
@@ -169,12 +191,10 @@ fn consume<'a>(
         Some(t) => Err(ParseError::UnexpectedToken {
             found: t.token_type,
             expected,
-            pos: *pos,
+            line: t.line_number,
+            col: t.col,
         }),
-        None => Err(ParseError::UnexpectedEOF {
-            expected,
-            pos: *pos,
-        }),
+        None => Err(ParseError::UnexpectedEOF { expected }),
     }
 }
 
@@ -233,8 +253,13 @@ fn parse_type_params(tokens: &[Token], pos: &mut usize) -> Vec<String> {
     names
 }
 
-/// Consume and discard an optional `-> TypeName` return type annotation.
+/// Consume and discard an optional `-> TypeName` or `: TypeName` return type annotation.
 fn skip_return_type(tokens: &[Token], pos: &mut usize) {
+    if check(tokens, *pos, TokenType::Colon) {
+        *pos += 1; // consume :
+        if *pos < tokens.len() { *pos += 1; } // consume type identifier
+        return;
+    }
     if !check(tokens, *pos, TokenType::Arrow) {
         return;
     }
@@ -296,12 +321,14 @@ fn parse_factor<'a>(
     pos: &mut usize,
     ctx: &mut ParseCtx,
 ) -> Result<usize, ParseError> {
+    let start_loc = tok_loc(tokens, *pos);
     match tokens.get(*pos) {
         Some(tok) => match tok.token_type {
             TokenType::Bang => {
                 *pos += 1;
                 let operand = parse_postfix(tokens, pos, ctx)?;
                 let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Not(operand));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -310,6 +337,7 @@ fn parse_factor<'a>(
                 let operand = parse_postfix(tokens, pos, ctx)?;
                 let zero = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Int(0));
                 let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Sub(zero, operand));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -318,6 +346,7 @@ fn parse_factor<'a>(
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::Int(tok.expect_int()));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -326,6 +355,7 @@ fn parse_factor<'a>(
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::String(tok.expect_str()));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -334,6 +364,7 @@ fn parse_factor<'a>(
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::Bool(true));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -342,6 +373,7 @@ fn parse_factor<'a>(
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::Bool(false));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -357,6 +389,7 @@ fn parse_factor<'a>(
                     }
                     consume(tokens, pos, TokenType::RightParen)?;
                     let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Tuple(elems));
+                    ctx.record_span(id, start_loc);
                     Ok(id)
                 } else {
                     consume(tokens, pos, TokenType::RightParen)?;
@@ -372,6 +405,7 @@ fn parse_factor<'a>(
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::Typeof(ident));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -383,6 +417,7 @@ fn parse_factor<'a>(
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::Embed(file_path));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -427,6 +462,7 @@ fn parse_factor<'a>(
                         variant,
                         payload,
                     });
+                    ctx.record_span(id, start_loc);
                     return Ok(id);
                 }
 
@@ -445,6 +481,7 @@ fn parse_factor<'a>(
                     let id = ctx
                         .ast
                         .insert_expr(&mut ctx.id_provider, MetaExpr::Call { callee: name, args });
+                    ctx.record_span(id, start_loc);
                     Ok(id)
                 } else if check(tokens, *pos, TokenType::LeftBrace)
                     && check(tokens, *pos + 1, TokenType::Identifier)
@@ -474,11 +511,13 @@ fn parse_factor<'a>(
                         fields,
                     };
                     let id = ctx.ast.insert_expr(&mut ctx.id_provider, struct_literal);
+                    ctx.record_span(id, start_loc);
                     Ok(id)
                 } else {
                     let id = ctx
                         .ast
                         .insert_expr(&mut ctx.id_provider, MetaExpr::Variable(name));
+                    ctx.record_span(id, start_loc);
                     Ok(id)
                 }
             }
@@ -500,6 +539,7 @@ fn parse_factor<'a>(
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::List(elems));
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -550,10 +590,12 @@ fn parse_postfix<'a>(
             // Numeric dot access: tuple.0, tuple.1
             if check(tokens, *pos, TokenType::Number) {
                 let idx = consume_next(tokens, pos).expect_int() as usize;
+                let prev = base;
                 base = ctx.ast.insert_expr(
                     &mut ctx.id_provider,
                     MetaExpr::TupleIndex { object: base, index: idx },
                 );
+                ctx.copy_span(prev, base);
                 continue;
             }
             let field = consume(tokens, pos, TokenType::Identifier)?.expect_str();
@@ -564,15 +606,19 @@ fn parse_postfix<'a>(
                     TokenType::Comma, TokenType::RightParen, parse_expr,
                 )?;
                 consume(tokens, pos, TokenType::RightParen)?;
+                let prev = base;
                 base = ctx.ast.insert_expr(
                     &mut ctx.id_provider,
                     MetaExpr::DotCall { object: base, method: field, args },
                 );
+                ctx.copy_span(prev, base);
             } else {
+                let prev = base;
                 base = ctx.ast.insert_expr(
                     &mut ctx.id_provider,
                     MetaExpr::DotAccess { object: base, field },
                 );
+                ctx.copy_span(prev, base);
             }
         } else if check(tokens, *pos, TokenType::LeftBracket) {
             *pos += 1; // consume [
@@ -588,10 +634,12 @@ fn parse_postfix<'a>(
                     Some(parse_expr(tokens, pos, ctx)?)
                 };
                 consume(tokens, pos, TokenType::RightBracket)?;
+                let prev = base;
                 base = ctx.ast.insert_expr(
                     &mut ctx.id_provider,
                     MetaExpr::SliceRange { object: base, start: None, end },
                 );
+                ctx.copy_span(prev, base);
             } else {
                 let first = parse_expr(tokens, pos, ctx)?;
                 if check(tokens, *pos, TokenType::Colon) {
@@ -603,16 +651,20 @@ fn parse_postfix<'a>(
                         Some(parse_expr(tokens, pos, ctx)?)
                     };
                     consume(tokens, pos, TokenType::RightBracket)?;
+                    let prev = base;
                     base = ctx.ast.insert_expr(
                         &mut ctx.id_provider,
                         MetaExpr::SliceRange { object: base, start: Some(first), end },
                     );
+                    ctx.copy_span(prev, base);
                 } else {
                     consume(tokens, pos, TokenType::RightBracket)?;
+                    let prev = base;
                     base = ctx.ast.insert_expr(
                         &mut ctx.id_provider,
                         MetaExpr::Index { object: base, index: first },
                     );
+                    ctx.copy_span(prev, base);
                 }
             }
         } else {
@@ -635,12 +687,16 @@ fn parse_term<'a>(
             Some(TokenType::Star) => {
                 *pos += 1;
                 let right = parse_postfix(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Mult(left, right));
+                ctx.copy_span(prev, left);
             }
             Some(TokenType::Slash) => {
                 *pos += 1;
                 let right = parse_postfix(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Div(left, right));
+                ctx.copy_span(prev, left);
             }
             _ => return Ok(left),
         }
@@ -659,12 +715,16 @@ fn parse_addition<'a>(
             Some(TokenType::Plus) => {
                 *pos += 1;
                 let right = parse_term(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Add(left, right));
+                ctx.copy_span(prev, left);
             }
             Some(TokenType::Minus) => {
                 *pos += 1;
                 let right = parse_term(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Sub(left, right));
+                ctx.copy_span(prev, left);
             }
             _ => return Ok(left),
         }
@@ -683,22 +743,30 @@ fn parse_comparison<'a>(
             Some(TokenType::Less) => {
                 *pos += 1;
                 let right = parse_addition(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lt(left, right));
+                ctx.copy_span(prev, left);
             }
             Some(TokenType::Greater) => {
                 *pos += 1;
                 let right = parse_addition(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Gt(left, right));
+                ctx.copy_span(prev, left);
             }
             Some(TokenType::LessEqual) => {
                 *pos += 1;
                 let right = parse_addition(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lte(left, right));
+                ctx.copy_span(prev, left);
             }
             Some(TokenType::GreaterEqual) => {
                 *pos += 1;
                 let right = parse_addition(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Gte(left, right));
+                ctx.copy_span(prev, left);
             }
             _ => return Ok(left),
         }
@@ -717,12 +785,16 @@ fn parse_equality<'a>(
             Some(TokenType::EqualEqual) => {
                 *pos += 1;
                 let right = parse_comparison(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Equals(left, right));
+                ctx.copy_span(prev, left);
             }
             Some(TokenType::BangEqual) => {
                 *pos += 1;
                 let right = parse_comparison(tokens, pos, ctx)?;
+                let prev = left;
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::NotEquals(left, right));
+                ctx.copy_span(prev, left);
             }
             _ => return Ok(left),
         }
@@ -740,7 +812,9 @@ fn parse_and<'a>(
         if tokens.get(*pos).map(|t| t.token_type) == Some(TokenType::AmpAmp) {
             *pos += 1;
             let right = parse_equality(tokens, pos, ctx)?;
+            let prev = left;
             left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::And(left, right));
+            ctx.copy_span(prev, left);
         } else {
             return Ok(left);
         }
@@ -758,7 +832,9 @@ fn parse_or<'a>(
         if tokens.get(*pos).map(|t| t.token_type) == Some(TokenType::PipePipe) {
             *pos += 1;
             let right = parse_and(tokens, pos, ctx)?;
+            let prev = left;
             left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Or(left, right));
+            ctx.copy_span(prev, left);
         } else {
             return Ok(left);
         }
@@ -779,11 +855,13 @@ fn parse_expr_stmt<'a>(
     pos: &mut usize,
     ctx: &mut ParseCtx,
 ) -> Result<usize, ParseError> {
+    let start_loc = tok_loc(tokens, *pos);
     let expr = parse_expr(tokens, pos, ctx)?;
     consume(tokens, pos, TokenType::Semicolon)?;
     let id = ctx
         .ast
         .insert_stmt(&mut ctx.id_provider, MetaStmt::ExprStmt(expr));
+    ctx.record_span(id, start_loc);
     Ok(id)
 }
 
@@ -792,6 +870,7 @@ fn parse_stmt<'a>(
     pos: &mut usize,
     ctx: &mut ParseCtx,
 ) -> Result<usize, ParseError> {
+    let start_loc = tok_loc(tokens, *pos);
     match tokens.get(*pos) {
         Some(tok) => match tok.token_type {
             TokenType::Print => {
@@ -919,6 +998,7 @@ fn parse_stmt<'a>(
                 };
 
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, var_decl);
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 
@@ -949,6 +1029,7 @@ fn parse_stmt<'a>(
 
                 let fn_decl = MetaStmt::FnDecl { name, params, type_params, body };
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, fn_decl);
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
             //parse_fn_decl(tokens, pos, ctx, BlueprintFuncType::Normal),
@@ -991,6 +1072,7 @@ fn parse_stmt<'a>(
 
                 let return_stmt = MetaStmt::Return(opt_expr);
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, return_stmt);
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 

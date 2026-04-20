@@ -58,7 +58,7 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
             }
 
             if contains(*v, t) {
-                return Err(TypeError::Unsupported);
+                return Err(TypeError::unsupported());
             }
 
             subst.map.insert(*v, t.clone());
@@ -74,10 +74,7 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
             Type::Func { params: p2, ret: r2, .. },
         ) => {
             if p1.len() != p2.len() {
-                return Err(TypeError::TypeMismatch {
-                    expected: a,
-                    found: b,
-                });
+                return Err(TypeError::type_mismatch(a, b));
             }
 
             for (x, y) in p1.iter().zip(p2.iter()) {
@@ -89,10 +86,7 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
 
         (Type::Record(fa), Type::Record(fb)) => {
             if fa.keys().collect::<Vec<_>>() != fb.keys().collect::<Vec<_>>() {
-                return Err(TypeError::TypeMismatch {
-                    expected: a,
-                    found: b,
-                });
+                return Err(TypeError::type_mismatch(a, b));
             }
             for (k, ta) in fa.iter() {
                 let tb = fb.get(k).unwrap();
@@ -105,7 +99,7 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
 
         (Type::Tuple(ta), Type::Tuple(tb)) => {
             if ta.len() != tb.len() {
-                return Err(TypeError::TypeMismatch { expected: a, found: b });
+                return Err(TypeError::type_mismatch(a, b));
             }
             for (x, y) in ta.iter().zip(tb.iter()) {
                 unify(x, y, subst)?;
@@ -115,9 +109,6 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
 
         (Type::Enum(na), Type::Enum(nb)) if na == nb => Ok(()),
 
-        _ => Err(TypeError::TypeMismatch {
-            expected: a,
-            found: b,
-        }),
+        _ => Err(TypeError::type_mismatch(a, b)),
     }
 }

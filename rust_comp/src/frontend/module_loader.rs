@@ -1,7 +1,7 @@
 use super::lexer::tokenize;
 use super::meta_ast::{ImportDecl, MetaAst, MetaStmt};
-use super::parser::{parse, ParseCtx};
-use std::collections::{HashSet, VecDeque};
+use super::parser::{parse, ParseCtx, ParseError};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -17,14 +17,17 @@ pub enum FileRole {
 #[derive(Debug)]
 pub struct LoadedFile {
     pub path: PathBuf,
+    pub source: String,
     pub ast: MetaAst,
     pub role: FileRole,
+    /// Maps AST node ID → (line, col) of the node's first token.
+    pub span_table: HashMap<usize, (usize, usize)>,
 }
 
 #[derive(Debug)]
 pub enum LoadError {
     Io { path: PathBuf, error: io::Error },
-    Parse { path: PathBuf, error: String },
+    Parse { path: PathBuf, error: String, line: Option<usize>, col: Option<usize> },
 }
 
 /// Load all files reachable from `entry` via explicit imports (including `import "dir/*"`).
@@ -38,7 +41,7 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
     let mut result: Vec<LoadedFile> = Vec::new();
 
     // Parse and expand wildcards in the entry file
-    let mut entry_ast = parse_file(&entry_canonical)?;
+    let (mut entry_ast, entry_source, entry_spans) = parse_file(&entry_canonical)?;
     expand_wildcard_imports(&mut entry_ast, &entry_dir)
         .map_err(|e| LoadError::Io { path: entry_dir.clone(), error: e })?;
     let explicit_imports = collect_imports(&entry_ast);
@@ -46,8 +49,10 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
 
     result.push(LoadedFile {
         path: entry_canonical.clone(),
+        source: entry_source,
         ast: entry_ast,
         role: FileRole::Entry,
+        span_table: entry_spans,
     });
 
     // BFS over explicit imports with cycle detection
@@ -66,7 +71,7 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
         }
         visited.insert(canonical.clone());
 
-        let mut ast = parse_file(&canonical)?;
+        let (mut ast, source, span_table) = parse_file(&canonical)?;
         let file_dir = canonical.parent().unwrap().to_path_buf();
         expand_wildcard_imports(&mut ast, &file_dir)
             .map_err(|e| LoadError::Io { path: file_dir.clone(), error: e })?;
@@ -77,21 +82,31 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
             queue.push_back((tdecl, tpath));
         }
 
-        result.push(LoadedFile { path: canonical, ast, role: FileRole::Explicit(decl) });
+        result.push(LoadedFile { path: canonical, source, ast, role: FileRole::Explicit(decl), span_table });
     }
 
     Ok(result)
 }
 
-fn parse_file(path: &Path) -> Result<MetaAst, LoadError> {
+fn parse_file(path: &Path) -> Result<(MetaAst, String, HashMap<usize, (usize, usize)>), LoadError> {
     let source = fs::read_to_string(path)
         .map_err(|e| LoadError::Io { path: path.to_path_buf(), error: e })?;
     let tokens = tokenize(&source)
-        .map_err(|e| LoadError::Parse { path: path.to_path_buf(), error: format!("{e:?}") })?;
+        .map_err(|e| LoadError::Parse { path: path.to_path_buf(), error: format!("{e:?}"), line: None, col: None })?;
     let mut ctx = ParseCtx::new();
     parse(&tokens, &mut ctx)
-        .map_err(|e| LoadError::Parse { path: path.to_path_buf(), error: format!("{e:?}") })?;
-    Ok(ctx.ast)
+        .map_err(|e| {
+            let (line, col) = parse_error_location(&e);
+            LoadError::Parse { path: path.to_path_buf(), error: format!("{e:?}"), line, col }
+        })?;
+    Ok((ctx.ast, source, ctx.span_table))
+}
+
+fn parse_error_location(e: &ParseError) -> (Option<usize>, Option<usize>) {
+    match e {
+        ParseError::UnexpectedToken { line, col, .. } => (Some(*line), Some(*col)),
+        ParseError::UnexpectedEOF { .. } | ParseError::UnterminatedString => (None, None),
+    }
 }
 
 /// Replace every `Import(Wildcard { path: dir })` node in `ast.sem_root_stmts` with

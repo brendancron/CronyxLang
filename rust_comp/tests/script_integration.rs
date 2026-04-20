@@ -324,6 +324,18 @@ mod script_integration {
                 &test_dir("tests/effects/assert/assert.txt"),
             );
         }
+
+        // Requires true delimited continuations (CPS transform) — replay-stack can't handle
+        // multiple ctl ops of the same name called sequentially inside a function. Tracked in
+        // docs/roadmap/DELIMITED_CONTINUATIONS.md.
+        #[test]
+        #[ignore]
+        fn effect_assert_fn() {
+            run_test(
+                &test_dir("tests/effects/assert/assert_fn.cx"),
+                &test_dir("tests/effects/assert/assert_fn.txt"),
+            );
+        }
     }
 
     #[cfg(test)]

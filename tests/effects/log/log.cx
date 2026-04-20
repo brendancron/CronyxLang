@@ -1,5 +1,3 @@
-// Phase 2: Basic fn handler — installs a log function and calls it.
-
 effect Log {
     fn log(msg: string): unit;
 }
