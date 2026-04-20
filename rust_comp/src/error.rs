@@ -295,6 +295,16 @@ pub fn enrich_diagnostic(
     source: &str,
     spans: &HashMap<usize, (usize, usize)>,
 ) -> Diagnostic {
+    // Phase-2 (runtime) type errors carry staged-AST node IDs that don't match
+    // the parser's span table.  For UnboundVar we can still locate the token
+    // with a source-text search; other Phase-2 errors fall back to file-only.
+    if let CompilerError::Eval(EvalError::TypeCheckFailed(te)) = error {
+        if let TypeErrorKind::UnboundVar(name) = &te.kind {
+            return locate_name_in_source(diag, name, source);
+        }
+        return diag;
+    }
+
     let te = match error {
         CompilerError::TypeCheck(te) => te,
         _ => return diag,
@@ -313,6 +323,33 @@ pub fn enrich_diagnostic(
 
     diag.with_location(line, col)
         .with_source(src_line, col, len, label)
+}
+
+/// Search `source` for the first whole-word occurrence of `name` and attach
+/// location + snippet to `diag`.  Used when we have no span-table entry.
+fn locate_name_in_source(diag: Diagnostic, name: &str, source: &str) -> Diagnostic {
+    for (line_idx, line_text) in source.lines().enumerate() {
+        let mut search_from = 0;
+        while let Some(col_0) = line_text[search_from..].find(name) {
+            let abs_col = search_from + col_0;
+            let before_ok = abs_col == 0
+                || !line_text.as_bytes()[abs_col - 1].is_ascii_alphanumeric()
+                    && line_text.as_bytes()[abs_col - 1] != b'_';
+            let after = abs_col + name.len();
+            let after_ok = after >= line_text.len()
+                || !line_text.as_bytes()[after].is_ascii_alphanumeric()
+                    && line_text.as_bytes()[after] != b'_';
+            if before_ok && after_ok {
+                let line = line_idx + 1;
+                let col = abs_col + 1;
+                return diag
+                    .with_location(line, col)
+                    .with_source(line_text.to_string(), col, name.len(), "not found in this scope");
+            }
+            search_from = abs_col + 1;
+        }
+    }
+    diag
 }
 
 /// Extract the text of line `line` (1-indexed) from `source`.
