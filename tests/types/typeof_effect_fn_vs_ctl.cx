@@ -1,0 +1,18 @@
+// A function calling both should only show the ctl effect in its row.
+
+effect mixed {
+    fn log(msg: string): unit;
+    ctl yield(i: int): unit;
+}
+
+with fn log(msg: string): unit {
+    print(msg);
+}
+
+fn produce(n: int) {
+    log("start");
+    yield(n);
+    log("end");
+}
+
+print(typeof(produce));

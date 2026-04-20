@@ -1,10 +1,11 @@
-use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings, *};
+use crate::frontend::meta_ast::{ConstructorPayload, EffectOpKind, Pattern, VariantBindings, *};
 use super::typed_ast::TypeTable;
 use super::type_env::TypeEnv;
 use super::type_error::TypeError;
 use super::type_subst::{unify, ApplySubst, TypeSubst};
 use super::type_utils::generalize;
 use super::types::*;
+use std::collections::BTreeSet;
 
 fn resolve_annotation(s: &str) -> Option<Type> {
     match s {
@@ -19,6 +20,8 @@ fn resolve_annotation(s: &str) -> Option<Type> {
 struct TypeCheckCtx {
     return_type: Option<Type>,
     saw_return: bool,
+    /// Names of ops declared as `ctl` — used during effect inference.
+    ctl_ops: BTreeSet<String>,
 }
 
 impl TypeCheckCtx {
@@ -26,7 +29,136 @@ impl TypeCheckCtx {
         TypeCheckCtx {
             return_type: None,
             saw_return: false,
+            ctl_ops: BTreeSet::new(),
         }
+    }
+}
+
+/// Walk a statement body and collect every ctl effect it performs, either
+/// directly (callee ∈ ctl_ops) or transitively (callee's resolved type has
+/// a non-empty effect row). Does NOT recurse into nested FnDecl bodies —
+/// their effects are their own, already reflected in their bound type.
+fn collect_body_effects(
+    ast: &MetaAst,
+    stmt_id: usize,
+    ctl_ops: &BTreeSet<String>,
+    env: &TypeEnv,
+    out: &mut BTreeSet<String>,
+) {
+    let Some(stmt) = ast.get_stmt(stmt_id) else { return };
+    match stmt.clone() {
+        MetaStmt::ExprStmt(e) => collect_expr_effects(ast, e, ctl_ops, env, out),
+        MetaStmt::VarDecl { expr, .. } => collect_expr_effects(ast, expr, ctl_ops, env, out),
+        MetaStmt::Assign { expr, .. } => collect_expr_effects(ast, expr, ctl_ops, env, out),
+        MetaStmt::IndexAssign { indices, expr, .. } => {
+            for i in indices { collect_expr_effects(ast, i, ctl_ops, env, out); }
+            collect_expr_effects(ast, expr, ctl_ops, env, out);
+        }
+        MetaStmt::Return(Some(e)) => collect_expr_effects(ast, e, ctl_ops, env, out),
+        MetaStmt::Print(e) => collect_expr_effects(ast, e, ctl_ops, env, out),
+        MetaStmt::Block(stmts) => {
+            for s in stmts { collect_body_effects(ast, s, ctl_ops, env, out); }
+        }
+        MetaStmt::If { cond, body, else_branch } => {
+            collect_expr_effects(ast, cond, ctl_ops, env, out);
+            collect_body_effects(ast, body, ctl_ops, env, out);
+            if let Some(e) = else_branch { collect_body_effects(ast, e, ctl_ops, env, out); }
+        }
+        MetaStmt::WhileLoop { cond, body } => {
+            collect_expr_effects(ast, cond, ctl_ops, env, out);
+            collect_body_effects(ast, body, ctl_ops, env, out);
+        }
+        MetaStmt::ForEach { iterable, body, .. } => {
+            collect_expr_effects(ast, iterable, ctl_ops, env, out);
+            collect_body_effects(ast, body, ctl_ops, env, out);
+        }
+        MetaStmt::Match { scrutinee, arms } => {
+            collect_expr_effects(ast, scrutinee, ctl_ops, env, out);
+            for arm in arms { collect_body_effects(ast, arm.body, ctl_ops, env, out); }
+        }
+        // Nested fn / handler declarations — do not recurse into their bodies.
+        MetaStmt::FnDecl { .. }
+        | MetaStmt::WithFn { .. }
+        | MetaStmt::WithCtl { .. } => {}
+        _ => {}
+    }
+}
+
+fn collect_expr_effects(
+    ast: &MetaAst,
+    expr_id: usize,
+    ctl_ops: &BTreeSet<String>,
+    env: &TypeEnv,
+    out: &mut BTreeSet<String>,
+) {
+    let Some(expr) = ast.get_expr(expr_id) else { return };
+    match expr.clone() {
+        MetaExpr::Call { callee, args } => {
+            // Direct ctl op call.
+            if ctl_ops.contains(&callee) {
+                out.insert(callee.clone());
+            }
+            // Transitive: pick up effects from the callee's bound type.
+            if let Some(scheme) = env.get_type(&callee) {
+                let ty = match scheme {
+                    TypeScheme::MonoType(t) => t,
+                    TypeScheme::PolyType { ty, .. } => ty,
+                };
+                if let Type::Func { effects, .. } = ty {
+                    out.extend(effects.effects.iter().cloned());
+                }
+            }
+            for a in args { collect_expr_effects(ast, a, ctl_ops, env, out); }
+        }
+        MetaExpr::Add(a, b)
+        | MetaExpr::Sub(a, b)
+        | MetaExpr::Mult(a, b)
+        | MetaExpr::Div(a, b)
+        | MetaExpr::Equals(a, b)
+        | MetaExpr::NotEquals(a, b)
+        | MetaExpr::Lt(a, b)
+        | MetaExpr::Gt(a, b)
+        | MetaExpr::Lte(a, b)
+        | MetaExpr::Gte(a, b)
+        | MetaExpr::And(a, b)
+        | MetaExpr::Or(a, b) => {
+            collect_expr_effects(ast, a, ctl_ops, env, out);
+            collect_expr_effects(ast, b, ctl_ops, env, out);
+        }
+        MetaExpr::Not(a) => collect_expr_effects(ast, a, ctl_ops, env, out),
+        MetaExpr::List(items) | MetaExpr::Tuple(items) => {
+            for i in items { collect_expr_effects(ast, i, ctl_ops, env, out); }
+        }
+        MetaExpr::SliceRange { object, start, end } => {
+            collect_expr_effects(ast, object, ctl_ops, env, out);
+            if let Some(s) = start { collect_expr_effects(ast, s, ctl_ops, env, out); }
+            if let Some(e) = end { collect_expr_effects(ast, e, ctl_ops, env, out); }
+        }
+        MetaExpr::Index { object, index } => {
+            collect_expr_effects(ast, object, ctl_ops, env, out);
+            collect_expr_effects(ast, index, ctl_ops, env, out);
+        }
+        MetaExpr::TupleIndex { object, .. } => collect_expr_effects(ast, object, ctl_ops, env, out),
+        MetaExpr::DotAccess { object, .. } => collect_expr_effects(ast, object, ctl_ops, env, out),
+        MetaExpr::DotCall { object, args, .. } => {
+            collect_expr_effects(ast, object, ctl_ops, env, out);
+            for a in args { collect_expr_effects(ast, a, ctl_ops, env, out); }
+        }
+        MetaExpr::StructLiteral { fields, .. } => {
+            for (_, e) in fields { collect_expr_effects(ast, e, ctl_ops, env, out); }
+        }
+        MetaExpr::EnumConstructor { payload, .. } => {
+            match payload {
+                ConstructorPayload::Tuple(ids) => {
+                    for i in ids { collect_expr_effects(ast, i, ctl_ops, env, out); }
+                }
+                ConstructorPayload::Struct(fields) => {
+                    for (_, i) in fields { collect_expr_effects(ast, i, ctl_ops, env, out); }
+                }
+                ConstructorPayload::Unit => {}
+            }
+        }
+        _ => {}
     }
 }
 
@@ -38,12 +170,12 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), TypeError> {
 
     // Pre-bind built-in runtime functions
     let alpha = env.fresh();
-    env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()) });
+    env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()), effects: EffectRow::empty() });
     env.bind("to_string", TypeScheme::PolyType {
         vars: vec![alpha],
-        ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()) },
+        ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
     });
-    env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type())    });
+    env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
 
     for stmt_id in &ast.sem_root_stmts.clone() {
         infer_stmt(ast, *stmt_id, &mut env, &mut subst, &mut ctx, &mut table)?;
@@ -152,6 +284,7 @@ fn infer_expr(
             let expected_fn = Type::Func {
                 params: arg_types,
                 ret: Box::new(ret_tv.clone()),
+                effects: EffectRow::empty(),
             };
 
             unify(&callee_ty, &expected_fn, subst)?;
@@ -283,6 +416,7 @@ fn infer_stmt(
             let fn_type = Type::Func {
                 params: param_types.clone(),
                 ret: Box::new(ret_tv.clone()),
+                effects: EffectRow::empty(),
             };
 
             env.push_scope();
@@ -308,7 +442,17 @@ fn infer_stmt(
 
             env.pop_scope();
 
-            let final_fn_type = fn_type.apply(subst);
+            // Collect the effect row: direct ctl op calls + transitive effects
+            // from called functions whose types are now resolved in the env.
+            let mut raw_effects = BTreeSet::new();
+            collect_body_effects(ast, body, &ctx.ctl_ops, env, &mut raw_effects);
+            let effect_row = EffectRow { effects: raw_effects };
+
+            let base = fn_type.apply(subst);
+            let final_fn_type = match base {
+                Type::Func { params, ret, .. } => Type::Func { params, ret, effects: effect_row },
+                other => other,
+            };
             let scheme = generalize(env, final_fn_type.clone());
             env.bind(&name, scheme);
 
@@ -382,6 +526,7 @@ fn infer_stmt(
             let fn_type = Type::Func {
                 params: param_types.clone(),
                 ret: Box::new(ret_tv.clone()),
+                effects: EffectRow::empty(),
             };
             env.push_scope();
             env.bind_mono(name.as_str(), fn_type.clone());
@@ -444,6 +589,28 @@ fn infer_stmt(
             unit_type()
         }
 
+        MetaStmt::EffectDecl { ops, .. } => {
+            for op in &ops {
+                // Track ctl ops for effect inference.
+                if matches!(op.kind, EffectOpKind::Ctl) {
+                    ctx.ctl_ops.insert(op.name.clone());
+                }
+                // Register the op as callable so call sites type-check.
+                let param_types: Vec<Type> = op.params.iter()
+                    .map(|p| p.ty.as_deref().and_then(resolve_annotation).unwrap_or_else(|| Type::Var(env.fresh())))
+                    .collect();
+                let ret_ty = op.ret_ty.as_deref()
+                    .and_then(resolve_annotation)
+                    .unwrap_or_else(|| Type::Var(env.fresh()));
+                env.bind_mono(&op.name, Type::Func {
+                    params: param_types,
+                    ret: Box::new(ret_ty),
+                    effects: EffectRow::empty(),
+                });
+            }
+            unit_type()
+        }
+
         // These don't produce a meaningful type for the table
         MetaStmt::StructDecl { .. }
         | MetaStmt::Import(_)
@@ -451,7 +618,6 @@ fn infer_stmt(
         | MetaStmt::Gen(_)
         | MetaStmt::TraitDecl { .. }
         | MetaStmt::ImplDecl { .. }
-        | MetaStmt::EffectDecl { .. }
         | MetaStmt::WithFn { .. }
         | MetaStmt::WithCtl { .. }
         | MetaStmt::Resume(_) => unit_type(),

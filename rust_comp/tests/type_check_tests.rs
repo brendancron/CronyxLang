@@ -134,6 +134,7 @@ mod type_check_tests {
             Some(Type::Func {
                 params: vec![],
                 ret: Box::new(unit_type()),
+                effects: EffectRow::empty(),
             })
         );
     }
@@ -147,6 +148,7 @@ mod type_check_tests {
             Some(Type::Func {
                 params: vec![],
                 ret: Box::new(int_type()),
+                effects: EffectRow::empty(),
             })
         );
     }
@@ -165,6 +167,7 @@ mod type_check_tests {
             Some(Type::Func {
                 params: vec![],
                 ret: Box::new(int_type()),
+                effects: EffectRow::empty(),
             })
         );
     }

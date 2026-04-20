@@ -1,0 +1,21 @@
+// Expected: ctl effects propagate transitively up the call chain.
+
+effect stream {
+    ctl yield(i: int): unit;
+}
+
+fn range(low: int, high: int) {
+    var i = low;
+    while (i < high) {
+        yield(i);
+        i += 1;
+    }
+}
+
+fn double_range(n: int) {
+    range(0, n);
+    range(n, n * 2);
+}
+
+print(typeof(range));
+print(typeof(double_range));

@@ -1,5 +1,34 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+
+/// The set of `ctl` effects a function may perform.
+/// Displayed postfix on the return type: `(int) -> unit <yield>`.
+/// Empty row = pure function (nothing printed).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EffectRow {
+    pub effects: BTreeSet<String>,
+}
+
+impl EffectRow {
+    pub fn empty() -> Self { Self::default() }
+    pub fn is_empty(&self) -> bool { self.effects.is_empty() }
+    pub fn singleton(name: impl Into<String>) -> Self {
+        let mut effects = BTreeSet::new();
+        effects.insert(name.into());
+        EffectRow { effects }
+    }
+    pub fn union(mut self, other: Self) -> Self {
+        self.effects.extend(other.effects);
+        self
+    }
+}
+
+impl fmt::Display for EffectRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let items: Vec<&str> = self.effects.iter().map(|s| s.as_str()).collect();
+        write!(f, "<{}>", items.join(", "))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeVar {
@@ -16,7 +45,7 @@ pub enum TypeScheme {
 pub enum Type {
     Primitive(PrimitiveType),
     Var(TypeVar),
-    Func { params: Vec<Type>, ret: Box<Type> },
+    Func { params: Vec<Type>, ret: Box<Type>, effects: EffectRow },
     Record(BTreeMap<String, Type>),
     Tuple(Vec<Type>),
     Slice(Box<Type>),
@@ -63,9 +92,13 @@ impl fmt::Display for Type {
             Type::Primitive(PrimitiveType::Bool) => write!(f, "bool"),
             Type::Primitive(PrimitiveType::String) => write!(f, "string"),
             Type::Var(tv) => write!(f, "'{}", tv.id),
-            Type::Func { params, ret } => {
+            Type::Func { params, ret, effects } => {
                 let ps: Vec<String> = params.iter().map(|p| p.to_string()).collect();
-                write!(f, "({}) -> {}", ps.join(", "), ret)
+                if effects.is_empty() {
+                    write!(f, "({}) -> {}", ps.join(", "), ret)
+                } else {
+                    write!(f, "({}) -> {} {}", ps.join(", "), ret, effects)
+                }
             }
             Type::Record(fields) => {
                 let fs: Vec<String> = fields.iter().map(|(k, v)| format!("{k}: {v}")).collect();

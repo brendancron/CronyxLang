@@ -1,0 +1,2 @@
+(int, int) -> unit <yield>
+(int) -> unit <yield>
