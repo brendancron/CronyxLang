@@ -194,7 +194,6 @@ impl<'a> SubstCtx<'a> {
             RuntimeStmt::Resume(opt_expr) => {
                 RuntimeStmt::Resume(opt_expr.map(|e| self.remap_expr(e)))
             },
-            RuntimeStmt::Defer(inner) => RuntimeStmt::Defer(self.remap_stmt(*inner)),
             RuntimeStmt::Match { scrutinee, arms } => RuntimeStmt::Match {
                 scrutinee: self.remap_expr(*scrutinee),
                 arms: arms.iter().map(|arm| MatchArm {

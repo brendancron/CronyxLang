@@ -174,7 +174,6 @@ fn clone_stmt(
                 body: cs!(arm.body),
             }).collect(),
         },
-        RuntimeStmt::Defer(inner) => RuntimeStmt::Defer(cs!(inner)),
         other => other,
     };
 

@@ -168,10 +168,6 @@ impl<'a> Formatter<'a> {
                 None => format!("{}resume;", self.pad()),
                 Some(e) => format!("{}resume {};", self.pad(), self.fmt_expr(e)),
             },
-
-            RuntimeStmt::Defer(inner) => {
-                format!("{}defer {}", self.pad(), self.fmt_stmt(inner))
-            }
         }
     }
 

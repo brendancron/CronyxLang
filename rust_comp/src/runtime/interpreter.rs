@@ -844,9 +844,6 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             Ok(ExecResult::Continue)
         }
 
-        // Defer nodes are collected and run by eval_stmts; if eval_stmt is called
-        // directly on a Defer node it is a no-op (the stmt was already registered).
-        RuntimeStmt::Defer(_) => Ok(ExecResult::Continue),
     }
 }
 
@@ -966,18 +963,9 @@ pub fn eval_stmts<W: Write>(
     ctx: &mut EvalCtx<W>,
 ) -> Result<ExecResult, EvalError> {
     hoist_fndecls(stmts, ctx);
-    // Deferred statements run in LIFO order when this block exits (normally or via return).
-    let mut defer_stack: Vec<usize> = Vec::new();
     let mut i = 0;
     while i < stmts.len() {
         let stmt_id = stmts[i];
-
-        // Collect Defer nodes — don't execute now, run them when the block exits.
-        if let Some(RuntimeStmt::Defer(deferred)) = ctx.ast.get_stmt(stmt_id) {
-            defer_stack.push(*deferred);
-            i += 1;
-            continue;
-        }
 
         // Special handling for WithCtl: capture the remaining stmts as the continuation
         // so multi-resume can re-run them for each `resume` call.
@@ -992,7 +980,6 @@ pub fn eval_stmts<W: Write>(
             ctx.ctl_handlers.push(CtlHandlerEntry { op_name, params: param_names, body });
             let result = eval_stmts(&continuation, ctx);
             ctx.ctl_handlers.pop();
-            run_defers(&defer_stack, ctx);
             return match result {
                 Err(EvalError::MultiResumed) => Ok(ExecResult::Continue),
                 other => other,
@@ -1001,14 +988,8 @@ pub fn eval_stmts<W: Write>(
 
         match eval_stmt(stmt_id, ctx) {
             Ok(ExecResult::Continue) => {}
-            Ok(ExecResult::Return(v)) => {
-                run_defers(&defer_stack, ctx);
-                return Ok(ExecResult::Return(v));
-            }
-            Ok(ExecResult::Resumed(v)) => {
-                run_defers(&defer_stack, ctx);
-                return Ok(ExecResult::Resumed(v));
-            }
+            Ok(ExecResult::Return(v)) => return Ok(ExecResult::Return(v)),
+            Ok(ExecResult::Resumed(v)) => return Ok(ExecResult::Resumed(v)),
             // Multi-resume already completed all branches — propagate the abort signal.
             Err(EvalError::MultiResumed) => return Err(EvalError::MultiResumed),
             // A ctl op fired with multiple resume values. Replay stmts[i..] once per value:
@@ -1034,16 +1015,7 @@ pub fn eval_stmts<W: Write>(
         }
         i += 1;
     }
-    run_defers(&defer_stack, ctx);
     Ok(ExecResult::Continue)
-}
-
-/// Run all deferred statements in LIFO order. Errors in deferred statements are ignored
-/// (matching Zig semantics where defer always runs regardless of outcome).
-fn run_defers<W: Write>(defers: &[usize], ctx: &mut EvalCtx<W>) {
-    for &stmt_id in defers.iter().rev() {
-        let _ = eval_stmt(stmt_id, ctx);
-    }
 }
 
 /// Pre-hoist all FnDecls in the entire RuntimeAst into the env, then create Module namespace

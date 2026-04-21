@@ -341,11 +341,25 @@ pub fn process_stmt(
         }
 
         MetaStmt::Block(stmts) => {
-            let mut children = Vec::with_capacity(stmts.len());
-            for meta_stmt in stmts {
-                children.push(process_stmt(meta_ast, *meta_stmt, staged_ast, id_provider, dependency_set, staged_forest, type_env)?);
+            let mut deferred: Vec<usize> = Vec::new();
+            let mut regular: Vec<usize> = Vec::new();
+            for &meta_stmt_id in stmts {
+                if let Some(MetaStmt::Defer(inner)) = meta_ast.get_stmt(meta_stmt_id) {
+                    let inner_id = process_stmt(meta_ast, *inner, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+                    deferred.push(inner_id);
+                } else {
+                    let staged_id = process_stmt(meta_ast, meta_stmt_id, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+                    regular.push(staged_id);
+                }
             }
-            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(children));
+            if deferred.is_empty() {
+                staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(regular));
+            } else {
+                // LIFO: last defer declared runs first.
+                let defers_lifo: Vec<usize> = deferred.into_iter().rev().collect();
+                let transformed = transform_block_with_defers(regular, &defers_lifo, staged_ast, id_provider);
+                staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(transformed));
+            }
         }
 
         MetaStmt::FnDecl { name, params, type_params, body } => {
@@ -501,11 +515,114 @@ pub fn process_stmt(
         }
 
         MetaStmt::Defer(inner_stmt) => {
+            // Defer outside any block (e.g. top-level) — execute inner stmt immediately.
             let inner_id = process_stmt(meta_ast, *inner_stmt, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
-            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Defer(inner_id));
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(vec![inner_id]));
         }
     };
     Ok(staged_stmt_id)
+}
+
+/// Lower a block's deferred statements into explicit code at every exit point.
+///
+/// The deferred stmts (already in LIFO order) are:
+///   1. Injected before every `return` found anywhere inside `stmts` (recursing into
+///      nested blocks/if/while/for, but stopping at fn boundaries).
+///   2. Appended at the natural end of `stmts` (fall-through exit).
+///
+/// The second copy at the natural end is dead code on any all-return path, which is
+/// harmless — the LLVM backend will DCE it.
+fn transform_block_with_defers(
+    stmts: Vec<usize>,
+    defers_lifo: &[usize],
+    staged_ast: &mut StagedAst,
+    id_provider: &mut IdProvider,
+) -> Vec<usize> {
+    let mut result: Vec<usize> = stmts
+        .into_iter()
+        .map(|s| inject_before_returns(s, defers_lifo, staged_ast, id_provider))
+        .collect();
+    result.extend_from_slice(defers_lifo);
+    result
+}
+
+/// Recursively rewrite `stmt_id` so that every `return` inside it is preceded by
+/// the deferred statements. Stops recursion at `FnDecl` boundaries (a `return` inside
+/// a nested function exits that function, not the one that owns the defers).
+fn inject_before_returns(
+    stmt_id: usize,
+    defers: &[usize],
+    staged_ast: &mut StagedAst,
+    id_provider: &mut IdProvider,
+) -> usize {
+    let stmt = match staged_ast.get_stmt(stmt_id) {
+        Some(s) => s.clone(),
+        None => return stmt_id,
+    };
+
+    match stmt {
+        StagedStmt::Return(_) => {
+            // Wrap: { defer1; defer2; ...; return <expr>; }
+            let mut block_stmts = defers.to_vec();
+            block_stmts.push(stmt_id);
+            let new_id = id_provider.next();
+            staged_ast.insert_stmt(new_id, StagedStmt::Block(block_stmts));
+            new_id
+        }
+
+        StagedStmt::Block(children) => {
+            let new_children: Vec<usize> = children
+                .into_iter()
+                .map(|c| inject_before_returns(c, defers, staged_ast, id_provider))
+                .collect();
+            let new_id = id_provider.next();
+            staged_ast.insert_stmt(new_id, StagedStmt::Block(new_children));
+            new_id
+        }
+
+        StagedStmt::If { cond, body, else_branch } => {
+            let new_body = inject_before_returns(body, defers, staged_ast, id_provider);
+            let new_else = else_branch
+                .map(|e| inject_before_returns(e, defers, staged_ast, id_provider));
+            let new_id = id_provider.next();
+            staged_ast.insert_stmt(new_id, StagedStmt::If { cond, body: new_body, else_branch: new_else });
+            new_id
+        }
+
+        StagedStmt::WhileLoop { cond, body } => {
+            let new_body = inject_before_returns(body, defers, staged_ast, id_provider);
+            let new_id = id_provider.next();
+            staged_ast.insert_stmt(new_id, StagedStmt::WhileLoop { cond, body: new_body });
+            new_id
+        }
+
+        StagedStmt::ForEach { var, iterable, body } => {
+            let new_body = inject_before_returns(body, defers, staged_ast, id_provider);
+            let new_id = id_provider.next();
+            staged_ast.insert_stmt(new_id, StagedStmt::ForEach { var, iterable, body: new_body });
+            new_id
+        }
+
+        StagedStmt::Match { scrutinee, arms } => {
+            let new_arms: Vec<MatchArm> = arms
+                .into_iter()
+                .map(|arm| MatchArm {
+                    pattern: arm.pattern,
+                    body: inject_before_returns(arm.body, defers, staged_ast, id_provider),
+                })
+                .collect();
+            let new_id = id_provider.next();
+            staged_ast.insert_stmt(new_id, StagedStmt::Match { scrutinee, arms: new_arms });
+            new_id
+        }
+
+        // FnDecl: a `return` inside a nested function exits that function, not the
+        // enclosing one that owns the defers — do not recurse.
+        StagedStmt::FnDecl { .. } => stmt_id,
+
+        // All other statements cannot contain a return — leave unchanged.
+        _ => stmt_id,
+    }
 }
 
 /// Stage all files from a multi-file compilation unit into a single StagedForest.

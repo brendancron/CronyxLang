@@ -511,10 +511,6 @@ fn infer_stmt(
         }
 
         RuntimeStmt::Resume(_) => {}
-
-        RuntimeStmt::Defer(inner) => {
-            infer_stmt(ast, inner, env, subst, ctx, type_map)?;
-        }
     }
     Ok(())
 }

@@ -220,8 +220,6 @@ pub enum StagedStmt {
 
     // TEMPORARY
     Print(usize),
-
-    Defer(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -398,11 +396,6 @@ impl StagedAst {
             StagedStmt::Resume(opt_expr) => (
                 "Resume".into(),
                 opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
-            ),
-
-            StagedStmt::Defer(stmt) => (
-                "Defer".into(),
-                vec![self.convert_stmt(*stmt)],
             ),
         };
 
