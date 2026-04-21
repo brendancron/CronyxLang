@@ -499,6 +499,11 @@ pub fn process_stmt(
                 .transpose()?;
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Resume(opt_id));
         }
+
+        MetaStmt::Defer(inner_stmt) => {
+            let inner_id = process_stmt(meta_ast, *inner_stmt, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Defer(inner_id));
+        }
     };
     Ok(staged_stmt_id)
 }

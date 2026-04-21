@@ -44,6 +44,7 @@ pub enum TokenType {
     And,
     As,
     Ctl,
+    Defer,
     Effect,
     Else,
     Embed,

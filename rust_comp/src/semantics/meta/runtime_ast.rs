@@ -244,6 +244,7 @@ impl RuntimeAst {
                 RuntimeStmt::Resume(opt_expr) => {
                     RuntimeStmt::Resume(opt_expr.map(|id| remap_expr(id)))
                 },
+                RuntimeStmt::Defer(inner) => RuntimeStmt::Defer(remap_stmt(*inner)),
             };
             out.insert_stmt(remap_stmt(*old_id), new_stmt);
         }
@@ -441,6 +442,9 @@ pub enum RuntimeStmt {
 
     // TEMPORARY
     Print(usize),
+
+    /// `defer <stmt>` — the deferred stmt runs in LIFO order when the enclosing block exits.
+    Defer(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -612,6 +616,11 @@ impl RuntimeAst {
             RuntimeStmt::Resume(opt_expr) => (
                 "Resume".into(),
                 opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
+            ),
+
+            RuntimeStmt::Defer(inner) => (
+                "Defer".into(),
+                vec![self.convert_stmt(*inner)],
             ),
         };
 

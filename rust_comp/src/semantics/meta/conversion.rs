@@ -150,6 +150,7 @@ pub fn convert_to_runtime(
                 RuntimeStmt::WithCtl { op_name, params, ret_ty, body }
             }
             StagedStmt::Resume(opt_expr) => RuntimeStmt::Resume(opt_expr),
+            StagedStmt::Defer(inner) => RuntimeStmt::Defer(inner),
         };
         runtime.insert_stmt(*id, runtime_stmt);
     }

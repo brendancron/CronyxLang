@@ -250,6 +250,9 @@ pub enum MetaStmt {
         type_name: String,
         methods: Vec<ImplMethodDecl>,
     },
+
+    /// `defer <stmt>` — executes deferred stmt in LIFO order when the enclosing block exits.
+    Defer(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -582,6 +585,11 @@ impl MetaAst {
             MetaStmt::Resume(opt_expr) => (
                 "Resume".into(),
                 opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
+            ),
+
+            MetaStmt::Defer(stmt) => (
+                "Defer".into(),
+                vec![self.convert_stmt(*stmt)],
             ),
         };
 

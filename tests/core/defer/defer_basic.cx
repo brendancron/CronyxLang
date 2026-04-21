@@ -1,0 +1,6 @@
+fn main(): unit {
+    defer print("world");
+    print("hello");
+}
+
+main();

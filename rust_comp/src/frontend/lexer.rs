@@ -351,6 +351,7 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                 let tok_type = match name.as_str() {
                     "as" => TokenType::As,
                     "ctl" => TokenType::Ctl,
+                    "defer" => TokenType::Defer,
                     "effect" => TokenType::Effect,
                     "else" => TokenType::Else,
                     "embed" => TokenType::Embed,

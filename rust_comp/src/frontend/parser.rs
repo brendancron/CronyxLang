@@ -1076,6 +1076,14 @@ fn parse_stmt<'a>(
                 Ok(id)
             }
 
+            TokenType::Defer => {
+                consume(tokens, pos, TokenType::Defer)?;
+                let deferred = parse_stmt(tokens, pos, ctx)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Defer(deferred));
+                ctx.record_span(id, start_loc);
+                Ok(id)
+            }
+
             TokenType::Gen => {
                 consume(tokens, pos, TokenType::Gen)?;
                 let stmt = parse_stmt(tokens, pos, ctx)?;

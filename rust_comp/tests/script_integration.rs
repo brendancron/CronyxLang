@@ -238,6 +238,11 @@ mod script_integration {
             "tests/core/generics/monomorphize",
             "main"
         );
+
+        // Defer
+        cx_test!(defer_basic, "tests/core/defer", "defer_basic");
+        cx_test!(defer_lifo, "tests/core/defer", "defer_lifo");
+        cx_test!(defer_return, "tests/core/defer", "defer_return");
     }
 
     /// Algebraic effects tests — organized by implementation phase.

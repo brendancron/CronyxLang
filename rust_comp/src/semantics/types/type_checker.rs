@@ -642,6 +642,11 @@ fn infer_stmt_impl(
         }
 
         // These don't produce a meaningful type for the table
+        MetaStmt::Defer(inner) => {
+            infer_stmt(ast, inner, env, subst, ctx, table)?;
+            unit_type()
+        }
+
         MetaStmt::StructDecl { .. }
         | MetaStmt::Import(_)
         | MetaStmt::MetaBlock(_)

@@ -188,6 +188,11 @@ impl<'a> TypeAnnotatedView<'a> {
                 "Resume".into(),
                 opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
             ),
+
+            MetaStmt::Defer(inner) => (
+                "Defer".into(),
+                vec![self.convert_stmt(*inner)],
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

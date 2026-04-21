@@ -1,0 +1,8 @@
+fn greet(name: string): unit {
+    defer print("goodbye");
+    print(name);
+    return;
+    print("unreachable");
+}
+
+greet("hello");
