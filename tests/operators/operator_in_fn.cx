@@ -1,0 +1,20 @@
+struct Vec2 {
+    x: int;
+    y: int
+}
+
+impl Add for Vec2 {
+    fn add(a: Vec2, b: Vec2): Vec2 {
+        return Vec2 { x: a.x + b.x, y: a.y + b.y };
+    }
+}
+
+fn translate(v: Vec2, dx: int, dy: int): Vec2 {
+    var offset = Vec2 { x: dx, y: dy };
+    return v + offset;
+}
+
+var start = Vec2 { x: 1, y: 2 };
+var moved = translate(start, 5, 7);
+print(moved.x);
+print(moved.y);

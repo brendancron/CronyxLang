@@ -12,6 +12,11 @@ pub struct RuntimeAst {
     /// Maps (type_name, method_name) → mangled FnDecl name in this AST.
     /// Used by the interpreter to dispatch trait method calls on struct values.
     pub impl_registry: HashMap<(String, String), String>,
+
+    /// Maps (op_trait, type_name) → mangled FnDecl name.
+    /// Used by the interpreter to dispatch binary operators (+, -, *, /, ==) on user-defined types.
+    /// Populated from operator trait impls (impl Add for T, impl Eq for T, etc.).
+    pub op_dispatch: HashMap<(String, String), String>,
 }
 
 impl RuntimeAst {
@@ -21,6 +26,7 @@ impl RuntimeAst {
             exprs: HashMap::new(),
             stmts: HashMap::new(),
             impl_registry: HashMap::new(),
+            op_dispatch: HashMap::new(),
         }
     }
 
@@ -242,8 +248,9 @@ impl RuntimeAst {
             out.insert_stmt(remap_stmt(*old_id), new_stmt);
         }
 
-        // impl_registry stores string names — IDs are not embedded, so copy as-is.
+        // impl_registry and op_dispatch store string names — IDs are not embedded, so copy as-is.
         out.impl_registry = self.impl_registry.clone();
+        out.op_dispatch = self.op_dispatch.clone();
 
         out
     }

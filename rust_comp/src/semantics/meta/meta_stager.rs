@@ -383,7 +383,8 @@ pub fn process_stmt(
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(vec![]));
         }
 
-        MetaStmt::ImplDecl { type_name, methods, .. } => {
+        MetaStmt::ImplDecl { trait_name, type_name, methods } => {
+            let trait_name = trait_name.clone();
             let type_name = type_name.clone();
             let methods = methods.clone();
             let mut fn_ids = Vec::new();
@@ -401,7 +402,13 @@ pub fn process_stmt(
                     body: body_id,
                 });
                 fn_ids.push(fn_id);
-                staged_forest.impl_registry.push((type_name.clone(), method.name.clone(), mangled));
+                staged_forest.impl_registry.push((type_name.clone(), method.name.clone(), mangled.clone()));
+
+                // Register operator trait impls in the op_dispatch table.
+                const OP_TRAITS: &[&str] = &["Add", "Sub", "Mul", "Div", "Eq"];
+                if OP_TRAITS.contains(&trait_name.as_str()) {
+                    staged_forest.op_registry.push((trait_name.clone(), type_name.clone(), mangled));
+                }
             }
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(fn_ids));
         }

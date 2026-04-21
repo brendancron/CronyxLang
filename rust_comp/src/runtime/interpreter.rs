@@ -119,39 +119,64 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             Ok(Value::List(Rc::new(RefCell::new(values))))
         }
 
-        RuntimeExpr::Add(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
-            (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x + y)),
-            (Value::String(x), Value::String(y)) => Ok(Value::String(x + &y)),
-            _ => Err(EvalError::TypeError(types::int_type())),
-        },
+        RuntimeExpr::Add(a, b) => {
+            let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
+            match (&lhs, &rhs) {
+                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x + y)),
+                (Value::String(x), Value::String(y)) => Ok(Value::String(x.clone() + y)),
+                _ => dispatch_binop("Add", lhs, rhs, ctx),
+            }
+        }
 
-        RuntimeExpr::Sub(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
-            (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x - y)),
-            _ => Err(EvalError::TypeError(types::int_type())),
-        },
+        RuntimeExpr::Sub(a, b) => {
+            let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
+            match (&lhs, &rhs) {
+                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x - y)),
+                _ => dispatch_binop("Sub", lhs, rhs, ctx),
+            }
+        }
 
-        RuntimeExpr::Mult(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
-            (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x * y)),
-            _ => Err(EvalError::TypeError(types::int_type())),
-        },
+        RuntimeExpr::Mult(a, b) => {
+            let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
+            match (&lhs, &rhs) {
+                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x * y)),
+                _ => dispatch_binop("Mul", lhs, rhs, ctx),
+            }
+        }
 
-        RuntimeExpr::Div(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
-            (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x / y)),
-            _ => Err(EvalError::TypeError(types::int_type())),
-        },
+        RuntimeExpr::Div(a, b) => {
+            let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
+            match (&lhs, &rhs) {
+                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x / y)),
+                _ => dispatch_binop("Div", lhs, rhs, ctx),
+            }
+        }
 
-        RuntimeExpr::Equals(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
-            (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x == y)),
-            (Value::String(x), Value::String(y)) => Ok(Value::Bool(x == y)),
-            (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(x == y)),
-            _ => Err(EvalError::TypeError(types::unit_type())),
-        },
-        RuntimeExpr::NotEquals(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
-            (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x != y)),
-            (Value::String(x), Value::String(y)) => Ok(Value::Bool(x != y)),
-            (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(x != y)),
-            _ => Err(EvalError::TypeError(types::unit_type())),
-        },
+        RuntimeExpr::Equals(a, b) => {
+            let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
+            match (&lhs, &rhs) {
+                (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x == y)),
+                (Value::String(x), Value::String(y)) => Ok(Value::Bool(x == y)),
+                (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(x == y)),
+                _ => dispatch_binop("Eq", lhs, rhs, ctx),
+            }
+        }
+
+        RuntimeExpr::NotEquals(a, b) => {
+            let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
+            match (&lhs, &rhs) {
+                (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x != y)),
+                (Value::String(x), Value::String(y)) => Ok(Value::Bool(x != y)),
+                (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(x != y)),
+                _ => {
+                    let result = dispatch_binop("Eq", lhs, rhs, ctx)?;
+                    match result {
+                        Value::Bool(b) => Ok(Value::Bool(!b)),
+                        _ => Err(EvalError::TypeError(types::bool_type())),
+                    }
+                }
+            }
+        }
         RuntimeExpr::Lt(a, b) => match (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?) {
             (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(x < y)),
             _ => Err(EvalError::TypeError(types::int_type())),
@@ -858,6 +883,31 @@ fn hoist_fndecls<W: Write>(stmts: &[usize], ctx: &mut EvalCtx<W>) {
             ctx.env.define(name.clone(), Value::Function(func));
         }
     }
+}
+
+/// Dispatch a binary operator to a user-defined impl.
+/// Looks up (op_trait, lhs_type_name) in the op_dispatch table and calls the function.
+/// Returns an error if no impl is found — callers should try primitive matching first.
+fn dispatch_binop<W: Write>(
+    op_trait: &str,
+    lhs: Value,
+    rhs: Value,
+    ctx: &mut EvalCtx<W>,
+) -> Result<Value, EvalError> {
+    let type_name = match &lhs {
+        Value::Struct { type_name, .. } => type_name.clone(),
+        _ => return Err(EvalError::UndefinedVariable(
+            format!("no impl `{}` for this type", op_trait)
+        )),
+    };
+    let fn_name = ctx.ast.op_dispatch
+        .get(&(op_trait.to_string(), type_name.clone()))
+        .cloned()
+        .ok_or_else(|| EvalError::UndefinedVariable(
+            format!("no impl `{}` for `{}`", op_trait, type_name)
+        ))?;
+    let func = ctx.env.get(&fn_name).map_err(EvalError::UndefinedVariable)?;
+    call_value(func, vec![lhs, rhs], ctx)
 }
 
 /// Call a `Value::Function` (or any callable value) with the given arguments.

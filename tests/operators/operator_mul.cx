@@ -1,0 +1,16 @@
+struct Vec2 {
+    x: int;
+    y: int
+}
+
+// Scalar multiplication: Vec2 * int
+impl Mul for Vec2 {
+    fn mul(a: Vec2, b: int): Vec2 {
+        return Vec2 { x: a.x * b, y: a.y * b };
+    }
+}
+
+var v = Vec2 { x: 2, y: 4 };
+var scaled = v * 3;
+print(scaled.x);
+print(scaled.y);
