@@ -54,9 +54,39 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap
     }
 
     // Apply the final substitution so callers see concrete types, not raw type vars.
-    let resolved = type_map.into_iter()
+    let mut resolved: HashMap<usize, Type> = type_map.into_iter()
         .map(|(id, ty)| (id, ty.apply(&subst)))
         .collect();
+
+    // Populate FnDecl entries: store the first fully-concrete call-site signature
+    // under each FnDecl's stmt_id so codegen can read resolved param kinds without
+    // scanning the AST itself.  For genuinely polymorphic functions called with
+    // multiple types, the first call site wins; proper monomorphization would
+    // produce separate FnDecl nodes eliminating this ambiguity.
+    let mut fn_call_types: HashMap<String, Vec<Type>> = HashMap::new();
+    for expr in ast.exprs.values() {
+        if let RuntimeExpr::Call { callee, args } = expr {
+            if fn_call_types.contains_key(callee.as_str()) { continue; }
+            let arg_types: Vec<Type> = args.iter()
+                .map(|&id| resolved.get(&id).cloned().unwrap_or_else(|| Type::Var(env.fresh())))
+                .collect();
+            if arg_types.iter().all(|t| !matches!(t, Type::Var(_))) {
+                fn_call_types.insert(callee.clone(), arg_types);
+            }
+        }
+    }
+    for &stmt_id in &ast.sem_root_stmts {
+        if let Some(RuntimeStmt::FnDecl { name, .. }) = ast.get_stmt(stmt_id) {
+            if let Some(arg_types) = fn_call_types.remove(name) {
+                resolved.insert(stmt_id, Type::Func {
+                    params: arg_types,
+                    ret: Box::new(unit_type()),
+                    effects: EffectRow::empty(),
+                });
+            }
+        }
+    }
+
     Ok(resolved)
 }
 
@@ -202,10 +232,20 @@ fn infer_expr(
             Type::Struct { name: type_name.clone(), fields: field_types }
         }
 
-        // Module dot-access — we don't track module member types yet.
-        RuntimeExpr::DotAccess { object, .. } => {
-            infer_expr(ast, object, env, subst, type_map)?;
-            Type::Var(env.fresh())
+        RuntimeExpr::DotAccess { object, field } => {
+            let obj_ty = infer_expr(ast, object, env, subst, type_map)?;
+            match obj_ty.apply(subst) {
+                Type::Struct { fields, .. } => {
+                    // Object type is known — return the field's concrete type.
+                    fields.get(field.as_str()).cloned().unwrap_or_else(|| Type::Var(env.fresh()))
+                }
+                _ => {
+                    // Object type is still a variable (e.g. a function param whose
+                    // concrete type is only known at call sites).  Return a fresh
+                    // variable; the caller does not need this type for codegen.
+                    Type::Var(env.fresh())
+                }
+            }
         }
 
         RuntimeExpr::DotCall { object, ref args, .. } => {

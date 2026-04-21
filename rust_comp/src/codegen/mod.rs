@@ -7,14 +7,12 @@
 //!   - `free(x)` → `call void @free(ptr x)`
 //!   - Struct params passed by pointer; type-aware locals (Int vs StructPtr)
 //!
-//! ### Why call-site arg scanning for param kinds
+//! ### Param kind resolution
 //!
-//! The runtime type checker assigns fresh type variables to function params
-//! (e.g. `Var(3)`) that are only unified with concrete types at call sites.
-//! After the final substitution the body's Variable nodes still carry the
-//! quantified var, not the concrete struct type.  We therefore scan *call
-//! expressions* across the AST to learn what concrete type each argument has,
-//! and use that to determine whether a param should be `i64` or `ptr`.
+//! The runtime type checker stores `Type::Func { params, .. }` in `type_map`
+//! under each `FnDecl`'s stmt id.  After the final substitution these param
+//! types are fully resolved (e.g. `Struct { name: "Point", .. }` for a struct
+//! param), so codegen reads them directly without scanning call sites.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -170,23 +168,25 @@ pub fn compile(
     }
 
     // ── Pass 1: forward-declare all user functions ────────────────────────────
-    // Param kinds are determined by scanning call-site argument types, because
-    // the type checker leaves param types as unresolved vars inside the body.
-    let fn_decls: Vec<(String, Vec<String>, usize)> = ast.sem_root_stmts.iter()
+    // Param types come from type_map[stmt_id] which the type checker stores as
+    // Type::Func { params, .. } after full substitution for each FnDecl.
+    let fn_decls: Vec<(usize, String, Vec<String>, usize)> = ast.sem_root_stmts.iter()
         .filter_map(|&id| match ast.get_stmt(id) {
             Some(RuntimeStmt::FnDecl { name, params, body, .. }) =>
-                Some((name.clone(), params.clone(), *body)),
+                Some((id, name.clone(), params.clone(), *body)),
             _ => None,
         })
         .collect();
 
     let mut user_fns: HashMap<String, FunctionValue<'_>> = HashMap::new();
-    // Also record per-function arg types for use in emit_fn_body.
     let mut fn_arg_types: HashMap<String, Vec<Option<Type>>> = HashMap::new();
 
-    for (fname, params, _body_id) in &fn_decls {
-        let arg_types = call_site_arg_types(fname, params.len(), ast, type_map);
-        let param_meta: Vec<BasicMetadataTypeEnum<'_>> = arg_types.iter()
+    for (stmt_id, fname, params, _body_id) in &fn_decls {
+        let resolved_param_types: Vec<Option<Type>> = match type_map.get(stmt_id) {
+            Some(Type::Func { params: pt, .. }) => pt.iter().map(|t| Some(t.clone())).collect(),
+            _ => vec![None; params.len()],
+        };
+        let param_meta: Vec<BasicMetadataTypeEnum<'_>> = resolved_param_types.iter()
             .map(|opt_ty| match opt_ty {
                 Some(Type::Struct { .. }) => BasicMetadataTypeEnum::PointerType(ptr_ty),
                 _ => BasicMetadataTypeEnum::IntType(i64_ty),
@@ -195,7 +195,7 @@ pub fn compile(
         let fn_ty  = i64_ty.fn_type(&param_meta, false);
         let fn_val = module.add_function(fname, fn_ty, None);
         user_fns.insert(fname.clone(), fn_val);
-        fn_arg_types.insert(fname.clone(), arg_types);
+        fn_arg_types.insert(fname.clone(), resolved_param_types);
     }
 
     let cg = Cg {
@@ -208,8 +208,8 @@ pub fn compile(
     };
 
     // ── Pass 2: emit function bodies ──────────────────────────────────────────
-    for (fname, params, body_id) in &fn_decls {
-        let fn_val   = cg.user_fns[fname.as_str()];
+    for (_stmt_id, fname, params, body_id) in &fn_decls {
+        let fn_val    = cg.user_fns[fname.as_str()];
         let arg_types = &fn_arg_types[fname.as_str()];
         cg.emit_fn_body(fn_val, params, arg_types, *body_id)?;
     }
@@ -537,18 +537,19 @@ impl<'ctx> Cg<'ctx> {
 
             // ── Dot access → getelementptr + load ─────────────────────────────
             RuntimeExpr::DotAccess { object, field } => {
-                // Get struct name from locals if object is a Variable (handles params
-                // whose type_map entry is still an unresolved type var).
-                let struct_name = if let Some(RuntimeExpr::Variable(vname)) = self.ast.get_expr(*object) {
-                    match locals.get(vname.as_str()) {
-                        Some(Local { kind: LocalKind::StructPtr(sname), .. }) => sname.clone(),
-                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
-                    }
-                } else {
-                    // Fallback for non-variable objects (e.g. returned struct).
-                    match self.type_map.get(object) {
-                        Some(Type::Struct { name, .. }) => name.clone(),
-                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                // Resolve the struct name: prefer type_map (now reliable after the
+                // type-checker fix), fall back to locals for Variable objects.
+                let struct_name = match self.type_map.get(object) {
+                    Some(Type::Struct { name, .. }) => name.clone(),
+                    _ => {
+                        if let Some(RuntimeExpr::Variable(vname)) = self.ast.get_expr(*object) {
+                            match locals.get(vname.as_str()) {
+                                Some(Local { kind: LocalKind::StructPtr(sname), .. }) => sname.clone(),
+                                _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                            }
+                        } else {
+                            return Err(CodegenError::UnsupportedExpr(expr_id));
+                        }
                     }
                 };
 
@@ -641,29 +642,6 @@ impl<'ctx> Cg<'ctx> {
 }
 
 // ── Free-standing helpers ─────────────────────────────────────────────────────
-
-/// Scan all Call expressions across the AST, returning the argument types for
-/// the first call to `fn_name` that has `param_count` arguments.
-fn call_site_arg_types(
-    fn_name: &str,
-    param_count: usize,
-    ast: &RuntimeAst,
-    type_map: &HashMap<usize, Type>,
-) -> Vec<Option<Type>> {
-    let mut result: Vec<Option<Type>> = vec![None; param_count];
-    for (_, expr) in &ast.exprs {
-        if let RuntimeExpr::Call { callee, args } = expr {
-            if callee == fn_name && args.len() == param_count {
-                for (i, &arg_id) in args.iter().enumerate() {
-                    if result[i].is_none() {
-                        result[i] = type_map.get(&arg_id).cloned();
-                    }
-                }
-            }
-        }
-    }
-    result
-}
 
 /// Map a Cronyx field type_name to the LLVM `BasicTypeEnum`.
 fn llvm_field_type<'ctx>(type_name: &str, i64_ty: IntType<'ctx>, ptr_ty: PointerType<'ctx>) -> BasicTypeEnum<'ctx> {
