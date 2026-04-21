@@ -1,6 +1,11 @@
-//! LLVM codegen — Milestone 2
+//! LLVM codegen — Milestone 3
 //!
-//! Adds over M1:
+//! Adds over M2:
+//!   - `List(items)` → malloc data array + malloc `%__slice = { i64, i64, ptr }` struct
+//!   - `ForEach { var, iterable, body }` → induction-variable loop with GEP element access
+//!   - `[T]` params passed by pointer (same as struct params)
+//!
+//! Adds over M1 (M2):
 //!   - `StructDecl` → named LLVM struct types (`%Name = type { i64, ... }`)
 //!   - `StructLiteral` → `malloc` + field `store`s
 //!   - `DotAccess` → `getelementptr` + `load`
@@ -20,6 +25,7 @@ use std::process::Command;
 
 use inkwell::AddressSpace;
 use inkwell::IntPredicate;
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::BuilderError;
 use inkwell::context::Context;
 use inkwell::module::Linkage;
@@ -27,8 +33,10 @@ use inkwell::targets::{InitializationConfig, Target};
 use inkwell::types::{ArrayType, BasicType, BasicTypeEnum, BasicMetadataTypeEnum, IntType, PointerType, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PointerValue};
 
+use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings};
 use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
-use crate::semantics::types::types::Type;
+use crate::semantics::types::enum_registry::EnumRegistry;
+use crate::semantics::types::types::{PrimitiveType, Type};
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
@@ -76,6 +84,10 @@ struct StructMeta<'ctx> {
 enum LocalKind {
     Int,
     StructPtr(String), // Cronyx struct type name
+    Str,               // string pointer (ptr to [N x i8] global)
+    Slice,             // ptr to %__slice = { i64 len, i64 cap, ptr data }
+    Closure,           // ptr to %__closure = { ptr fn_ptr, ptr env_ptr }
+    EnumPtr,           // ptr to %__enum_cell = { i64 tag, i64 payload }
 }
 
 struct Local<'ctx> {
@@ -121,7 +133,7 @@ pub fn compile(
     let printf_ty = i32_ty.fn_type(&[BasicMetadataTypeEnum::PointerType(ptr_ty)], true);
     let printf_fn = module.add_function("printf", printf_ty, Some(Linkage::External));
 
-    // ── Format string global ──────────────────────────────────────────────────
+    // ── Format string globals ─────────────────────────────────────────────────
     let fmt_bytes  = b"%lld\n";
     let fmt_array  = context.const_string(fmt_bytes, true);
     let fmt_ty     = context.i8_type().array_type((fmt_bytes.len() + 1) as u32);
@@ -130,20 +142,78 @@ pub fn compile(
     fmt_global.set_constant(true);
     fmt_global.set_linkage(Linkage::Private);
 
-    // ── Pass 0a: check for struct usage (gate malloc/free declarations) ───────
-    let has_structs = ast.sem_root_stmts.iter()
-        .any(|&id| matches!(ast.get_stmt(id), Some(RuntimeStmt::StructDecl { .. })));
+    // fmt_str is only emitted when the program uses string values (keeps IR
+    // for int-only milestones identical to their regression baselines).
+    let has_strings = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::String(_)));
+    let fmt_str = if has_strings {
+        let bytes = b"%s\n";
+        let arr   = context.const_string(bytes, true);
+        let ty    = context.i8_type().array_type((bytes.len() + 1) as u32);
+        let g = module.add_global(ty, Some(AddressSpace::default()), "fmt_str");
+        g.set_initializer(&arr);
+        g.set_constant(true);
+        g.set_linkage(Linkage::Private);
+        Some((g, ty))
+    } else {
+        None
+    };
 
-    let malloc_fn = if has_structs {
+    // ── Pass 0a: check for struct/slice/closure/enum usage (gate malloc/free) ──
+    let has_structs   = ast.sem_root_stmts.iter()
+        .any(|&id| matches!(ast.get_stmt(id), Some(RuntimeStmt::StructDecl { .. })));
+    let has_slices    = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::List(_)));
+    let has_closures  = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::Lambda { .. }));
+    let has_enums     = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::EnumConstructor { .. }));
+    let needs_heap    = has_structs || has_slices || has_closures || has_enums;
+
+    let malloc_fn = if needs_heap {
         let malloc_fn_ty = ptr_ty.fn_type(&[BasicMetadataTypeEnum::IntType(i64_ty)], false);
         Some(module.add_function("malloc", malloc_fn_ty, Some(Linkage::External)))
     } else { None };
 
-    let free_fn = if has_structs {
+    let free_fn = if needs_heap {
         let void_ty    = context.void_type();
         let free_fn_ty = void_ty.fn_type(&[BasicMetadataTypeEnum::PointerType(ptr_ty)], false);
         Some(module.add_function("free", free_fn_ty, Some(Linkage::External)))
     } else { None };
+
+    // ── Pass 0a2: create %__slice named type if needed ────────────────────────
+    // Layout: { i64 len, i64 cap, ptr data }
+    let slice_ty: Option<StructType<'_>> = if has_slices {
+        let st = context.opaque_struct_type("__slice");
+        st.set_body(&[
+            BasicTypeEnum::IntType(i64_ty),
+            BasicTypeEnum::IntType(i64_ty),
+            BasicTypeEnum::PointerType(ptr_ty),
+        ], false);
+        Some(st)
+    } else { None };
+
+    // ── Pass 0a3: create %__closure named type if needed ──────────────────────
+    // Layout: { ptr fn_ptr, ptr env_ptr }
+    let closure_ty: Option<StructType<'_>> = if has_closures {
+        let st = context.opaque_struct_type("__closure");
+        st.set_body(&[
+            BasicTypeEnum::PointerType(ptr_ty),
+            BasicTypeEnum::PointerType(ptr_ty),
+        ], false);
+        Some(st)
+    } else { None };
+
+    // ── Pass 0a4: create %__enum_cell named type if needed ────────────────────
+    // Layout: { i64 tag, i64 payload } — uniform for all enum variants.
+    // The tag is the variant's ordinal; the payload holds at most one i64.
+    let enum_cell_ty: Option<StructType<'_>> = if has_enums {
+        let st = context.opaque_struct_type("__enum_cell");
+        st.set_body(&[
+            BasicTypeEnum::IntType(i64_ty), // tag
+            BasicTypeEnum::IntType(i64_ty), // payload (0 for unit variants)
+        ], false);
+        Some(st)
+    } else { None };
+
+    // ── Pass 0a5: build enum registry ─────────────────────────────────────────
+    let enum_registry = EnumRegistry::build(ast);
 
     // ── Pass 0b: build struct type registry ───────────────────────────────────
     let struct_decls: Vec<(String, Vec<(String, String)>)> = ast.sem_root_stmts.iter()
@@ -167,6 +237,66 @@ pub fn compile(
         });
     }
 
+    // ── Pass 0c: create LLVM globals for all string literals ─────────────────
+    let mut string_globals: HashMap<String, GlobalValue<'_>> = HashMap::new();
+    let mut str_counter = 0usize;
+    for expr in ast.exprs.values() {
+        if let RuntimeExpr::String(s) = expr {
+            if !string_globals.contains_key(s.as_str()) {
+                let bytes = s.as_bytes();
+                let const_str = context.const_string(bytes, true);
+                let str_ty = context.i8_type().array_type((bytes.len() + 1) as u32);
+                let global = module.add_global(
+                    str_ty, Some(AddressSpace::default()), &format!(".str.{str_counter}"),
+                );
+                global.set_initializer(&const_str);
+                global.set_constant(true);
+                global.set_linkage(Linkage::Private);
+                string_globals.insert(s.clone(), global);
+                str_counter += 1;
+            }
+        }
+    }
+
+    // ── Pass 0d: forward-declare lambda functions ─────────────────────────────
+    // Each lambda becomes `define i64 @__lambda_N(ptr %env, [params...])`.
+    // Bodies are emitted in Pass 2d after user functions.
+    let lambda_exprs: Vec<(usize, Vec<String>)> = ast.exprs.iter()
+        .filter_map(|(&id, expr)| match expr {
+            RuntimeExpr::Lambda { params, .. } => Some((id, params.clone())),
+            _ => None,
+        })
+        .collect();
+
+    let mut lambda_fns: HashMap<usize, FunctionValue<'_>> = HashMap::new();
+    for (lambda_id, params) in &lambda_exprs {
+        // Param types: env ptr first, then int for each lambda param.
+        // Type::Func in type_map could refine this, but i64 is safe for M4.
+        let resolved_lam_params: Vec<Option<Type>> = match type_map.get(lambda_id) {
+            Some(Type::Func { params: pt, .. }) => pt.iter().map(|t| Some(t.clone())).collect(),
+            _ => vec![None; params.len()],
+        };
+        let mut lam_meta: Vec<BasicMetadataTypeEnum<'_>> = vec![
+            BasicMetadataTypeEnum::PointerType(ptr_ty), // env
+        ];
+        for opt_ty in &resolved_lam_params {
+            lam_meta.push(match opt_ty {
+                Some(Type::Struct { .. })
+                | Some(Type::Primitive(PrimitiveType::String))
+                | Some(Type::Slice(_))
+                | Some(Type::Func { .. }) =>
+                    BasicMetadataTypeEnum::PointerType(ptr_ty),
+                _ => BasicMetadataTypeEnum::IntType(i64_ty),
+            });
+        }
+        let lam_ty  = i64_ty.fn_type(&lam_meta, false);
+        let lam_val = module.add_function(
+            &format!("__lambda_{lambda_id}"),
+            lam_ty, None,
+        );
+        lambda_fns.insert(*lambda_id, lam_val);
+    }
+
     // ── Pass 1: forward-declare all user functions ────────────────────────────
     // Param types come from type_map[stmt_id] which the type checker stores as
     // Type::Func { params, .. } after full substitution for each FnDecl.
@@ -180,38 +310,71 @@ pub fn compile(
 
     let mut user_fns: HashMap<String, FunctionValue<'_>> = HashMap::new();
     let mut fn_arg_types: HashMap<String, Vec<Option<Type>>> = HashMap::new();
+    let mut fn_is_ptr_return: HashMap<String, bool> = HashMap::new();
 
     for (stmt_id, fname, params, _body_id) in &fn_decls {
-        let resolved_param_types: Vec<Option<Type>> = match type_map.get(stmt_id) {
-            Some(Type::Func { params: pt, .. }) => pt.iter().map(|t| Some(t.clone())).collect(),
-            _ => vec![None; params.len()],
+        let (resolved_param_types, is_ptr_ret) = match type_map.get(stmt_id) {
+            Some(Type::Func { params: pt, ret, .. }) => {
+                let pts = pt.iter().map(|t| Some(t.clone())).collect();
+                let ptr_ret = matches!(ret.as_ref(), Type::Enum(_) | Type::Struct { .. });
+                (pts, ptr_ret)
+            }
+            _ => (vec![None; params.len()], false),
         };
         let param_meta: Vec<BasicMetadataTypeEnum<'_>> = resolved_param_types.iter()
             .map(|opt_ty| match opt_ty {
-                Some(Type::Struct { .. }) => BasicMetadataTypeEnum::PointerType(ptr_ty),
+                Some(Type::Struct { .. })
+                | Some(Type::Primitive(PrimitiveType::String))
+                | Some(Type::Slice(_))
+                | Some(Type::Func { .. })
+                | Some(Type::Enum(_)) =>
+                    BasicMetadataTypeEnum::PointerType(ptr_ty),
                 _ => BasicMetadataTypeEnum::IntType(i64_ty),
             })
             .collect();
-        let fn_ty  = i64_ty.fn_type(&param_meta, false);
+        let fn_ty = if is_ptr_ret {
+            ptr_ty.fn_type(&param_meta, false)
+        } else {
+            i64_ty.fn_type(&param_meta, false)
+        };
         let fn_val = module.add_function(fname, fn_ty, None);
         user_fns.insert(fname.clone(), fn_val);
         fn_arg_types.insert(fname.clone(), resolved_param_types);
+        fn_is_ptr_return.insert(fname.clone(), is_ptr_ret);
     }
 
     let cg = Cg {
         ast, context: &context, builder: &builder,
-        printf_fn, fmt_global, fmt_ty,
-        malloc_fn, free_fn,
+        printf_fn, fmt_global, fmt_ty, fmt_str,
+        malloc_fn, free_fn, slice_ty, closure_ty, enum_cell_ty,
         i64_ty, ptr_ty,
-        user_fns, structs,
+        user_fns, structs, string_globals,
+        lambda_fns, enum_registry,
         type_map,
     };
 
     // ── Pass 2: emit function bodies ──────────────────────────────────────────
     for (_stmt_id, fname, params, body_id) in &fn_decls {
-        let fn_val    = cg.user_fns[fname.as_str()];
-        let arg_types = &fn_arg_types[fname.as_str()];
-        cg.emit_fn_body(fn_val, params, arg_types, *body_id)?;
+        let fn_val      = cg.user_fns[fname.as_str()];
+        let arg_types   = &fn_arg_types[fname.as_str()];
+        let is_ptr_ret  = fn_is_ptr_return.get(fname.as_str()).copied().unwrap_or(false);
+        cg.emit_fn_body(fn_val, params, arg_types, *body_id, is_ptr_ret)?;
+    }
+
+    // ── Pass 2d: emit lambda function bodies ──────────────────────────────────
+    // env ptr is the first LLVM arg (index 0); lambda params start at index 1.
+    for (lambda_id, params) in &lambda_exprs {
+        let lam_val = cg.lambda_fns[lambda_id];
+        let body_id = match ast.get_expr(*lambda_id) {
+            Some(RuntimeExpr::Lambda { body, .. }) => *body,
+            _ => continue,
+        };
+        let resolved_lam_params: Vec<Option<Type>> = match type_map.get(lambda_id) {
+            Some(Type::Func { params: pt, .. }) => pt.iter().map(|t| Some(t.clone())).collect(),
+            _ => vec![None; params.len()],
+        };
+        // emit_fn_body handles param index 0..n; we offset by 1 (skip env arg)
+        cg.emit_lambda_body(lam_val, params, &resolved_lam_params, body_id)?;
     }
 
     // ── Pass 3: emit main() ───────────────────────────────────────────────────
@@ -255,22 +418,42 @@ pub fn compile(
 // ── Codegen context ───────────────────────────────────────────────────────────
 
 struct Cg<'ctx> {
-    ast:        &'ctx RuntimeAst,
-    context:    &'ctx Context,
-    builder:    &'ctx inkwell::builder::Builder<'ctx>,
-    printf_fn:  FunctionValue<'ctx>,
-    fmt_global: GlobalValue<'ctx>,
-    fmt_ty:     ArrayType<'ctx>,
-    malloc_fn:  Option<FunctionValue<'ctx>>,
-    free_fn:    Option<FunctionValue<'ctx>>,
-    i64_ty:     IntType<'ctx>,
-    ptr_ty:     PointerType<'ctx>,
-    user_fns:   HashMap<String, FunctionValue<'ctx>>,
-    structs:    HashMap<String, StructMeta<'ctx>>,
-    type_map:   &'ctx HashMap<usize, Type>,
+    ast:            &'ctx RuntimeAst,
+    context:        &'ctx Context,
+    builder:        &'ctx inkwell::builder::Builder<'ctx>,
+    printf_fn:      FunctionValue<'ctx>,
+    fmt_global:     GlobalValue<'ctx>,
+    fmt_ty:         ArrayType<'ctx>,
+    fmt_str:        Option<(GlobalValue<'ctx>, ArrayType<'ctx>)>,
+    malloc_fn:      Option<FunctionValue<'ctx>>,
+    free_fn:        Option<FunctionValue<'ctx>>,
+    slice_ty:       Option<StructType<'ctx>>,
+    closure_ty:     Option<StructType<'ctx>>,
+    enum_cell_ty:   Option<StructType<'ctx>>,
+    i64_ty:         IntType<'ctx>,
+    ptr_ty:         PointerType<'ctx>,
+    user_fns:       HashMap<String, FunctionValue<'ctx>>,
+    structs:        HashMap<String, StructMeta<'ctx>>,
+    string_globals: HashMap<String, GlobalValue<'ctx>>,
+    /// Maps lambda expr_id → emitted LLVM function (for closure creation)
+    lambda_fns:     HashMap<usize, FunctionValue<'ctx>>,
+    enum_registry:  EnumRegistry,
+    type_map:       &'ctx HashMap<usize, Type>,
 }
 
 impl<'ctx> Cg<'ctx> {
+    fn fmt_int_ptr(&self) -> Result<PointerValue<'ctx>, BuilderError> {
+        let zero = self.context.i32_type().const_int(0, false);
+        unsafe { self.builder.build_gep(self.fmt_ty, self.fmt_global.as_pointer_value(), &[zero, zero], "fmt_int_ptr") }
+    }
+
+    fn fmt_str_ptr(&self) -> Result<PointerValue<'ctx>, CodegenError> {
+        let (g, ty) = self.fmt_str.as_ref().ok_or(CodegenError::UnsupportedStmt(0))?;
+        let zero = self.context.i32_type().const_int(0, false);
+        unsafe { self.builder.build_gep(*ty, g.as_pointer_value(), &[zero, zero], "fmt_str_ptr") }
+            .map_err(CodegenError::Builder)
+    }
+
     fn cur_block_terminated(&self) -> bool {
         self.builder
             .get_insert_block()
@@ -286,6 +469,7 @@ impl<'ctx> Cg<'ctx> {
         param_names: &[String],
         arg_types: &[Option<Type>],
         body_id: usize,
+        is_ptr_return: bool,
     ) -> Result<(), CodegenError> {
         let entry = self.context.append_basic_block(fn_val, "entry");
         self.builder.position_at_end(entry);
@@ -301,13 +485,20 @@ impl<'ctx> Cg<'ctx> {
                     Local { slot, kind: LocalKind::Int }
                 }
                 BasicValueEnum::PointerValue(pv) => {
-                    let struct_name = match arg_types.get(i) {
-                        Some(Some(Type::Struct { name: sname, .. })) => sname.clone(),
-                        _ => String::new(), // shouldn't happen
+                    let kind = match arg_types.get(i) {
+                        Some(Some(Type::Struct { name: sname, .. })) =>
+                            LocalKind::StructPtr(sname.clone()),
+                        Some(Some(Type::Primitive(PrimitiveType::String))) =>
+                            LocalKind::Str,
+                        Some(Some(Type::Slice(_))) =>
+                            LocalKind::Slice,
+                        Some(Some(Type::Func { .. })) =>
+                            LocalKind::Closure,
+                        _ => LocalKind::Str,
                     };
                     let slot = self.builder.build_alloca(self.ptr_ty, name)?;
                     self.builder.build_store(slot, pv)?;
-                    Local { slot, kind: LocalKind::StructPtr(struct_name) }
+                    Local { slot, kind }
                 }
                 _ => continue,
             };
@@ -317,9 +508,138 @@ impl<'ctx> Cg<'ctx> {
         self.emit_stmt(body_id, &mut locals)?;
 
         if !self.cur_block_terminated() {
-            self.builder.build_unreachable()?;
+            // Unit-returning functions have no explicit `return`. Emit a typed
+            // null/zero fallback so LLVM IR is valid.
+            if is_ptr_return {
+                self.builder.build_return(Some(&self.ptr_ty.const_null()))?;
+            } else {
+                self.builder.build_return(Some(&self.i64_ty.const_int(0, false)))?;
+            }
         }
         Ok(())
+    }
+
+    // ── Lambda body emission ──────────────────────────────────────────────────
+    // Lambda LLVM signature: `i64 (ptr env, [param types...])`
+    // LLVM param index 0 = env (unused for non-capturing lambdas).
+    // LLVM param index 1..n = lambda params.
+
+    fn emit_lambda_body(
+        &self,
+        fn_val: FunctionValue<'ctx>,
+        param_names: &[String],
+        arg_types: &[Option<Type>],
+        body_id: usize,
+    ) -> Result<(), CodegenError> {
+        let entry = self.context.append_basic_block(fn_val, "entry");
+        self.builder.position_at_end(entry);
+
+        let mut locals: Locals<'ctx> = HashMap::new();
+
+        // LLVM param 0 = env ptr (skip it; store in "_env" in case body needs it)
+        // LLVM params 1..n = lambda params
+        for (i, name) in param_names.iter().enumerate() {
+            let llvm_idx = (i + 1) as u32; // skip env at index 0
+            let param_val = match fn_val.get_nth_param(llvm_idx) {
+                Some(v) => v,
+                None => continue,
+            };
+            let local = match param_val {
+                BasicValueEnum::IntValue(iv) => {
+                    let slot = self.builder.build_alloca(self.i64_ty, name)?;
+                    self.builder.build_store(slot, iv)?;
+                    Local { slot, kind: LocalKind::Int }
+                }
+                BasicValueEnum::PointerValue(pv) => {
+                    let kind = match arg_types.get(i) {
+                        Some(Some(Type::Struct { name: sname, .. })) => LocalKind::StructPtr(sname.clone()),
+                        Some(Some(Type::Primitive(PrimitiveType::String))) => LocalKind::Str,
+                        Some(Some(Type::Slice(_))) => LocalKind::Slice,
+                        Some(Some(Type::Func { .. })) => LocalKind::Closure,
+                        _ => LocalKind::Str,
+                    };
+                    let slot = self.builder.build_alloca(self.ptr_ty, name)?;
+                    self.builder.build_store(slot, pv)?;
+                    Local { slot, kind }
+                }
+                _ => continue,
+            };
+            locals.insert(name.clone(), local);
+        }
+
+        self.emit_stmt(body_id, &mut locals)?;
+
+        if !self.cur_block_terminated() {
+            self.builder.build_return(Some(&self.i64_ty.const_int(0, false)))?;
+        }
+        Ok(())
+    }
+
+    // ── Indirect closure call ─────────────────────────────────────────────────
+    // Extracts fn_ptr and env_ptr from the closure struct and calls indirectly.
+    // The function type is built from the arg values: i64(ptr env, [arg types]).
+
+    fn emit_closure_call(
+        &self,
+        closure_slot: PointerValue<'ctx>,
+        args: &[usize],
+        locals: &Locals<'ctx>,
+        expr_id: usize,
+    ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        let closure_ty = self.closure_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+
+        // Load the closure pointer from its alloca slot
+        let closure_ptr = self.builder
+            .build_load(self.ptr_ty, closure_slot, "closure")?
+            .into_pointer_value();
+
+        let i32_zero = self.context.i32_type().const_int(0, false);
+
+        // Extract fn_ptr (field 0)
+        let fn_ptr_field = unsafe {
+            self.builder.build_gep(closure_ty, closure_ptr,
+                &[i32_zero, self.context.i32_type().const_int(0, false)], "fn_ptr_field")?
+        };
+        let fn_ptr = self.builder.build_load(self.ptr_ty, fn_ptr_field, "fn_ptr")?
+            .into_pointer_value();
+
+        // Extract env_ptr (field 1)
+        let env_ptr_field = unsafe {
+            self.builder.build_gep(closure_ty, closure_ptr,
+                &[i32_zero, self.context.i32_type().const_int(1, false)], "env_ptr_field")?
+        };
+        let env_ptr = self.builder.build_load(self.ptr_ty, env_ptr_field, "env_ptr")?
+            .into_pointer_value();
+
+        // Emit args
+        let arg_vals: Vec<BasicValueEnum<'ctx>> = args.iter()
+            .map(|&a| self.emit_expr(a, locals))
+            .collect::<Result<_, _>>()?;
+
+        // Build call arg list: env_ptr first, then the actual args
+        let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> = vec![
+            BasicMetadataValueEnum::PointerValue(env_ptr),
+        ];
+        for v in &arg_vals {
+            call_args.push(basic_to_meta(*v));
+        }
+
+        // Build the indirect function type: i64(ptr, [arg_types...])
+        let mut param_types: Vec<BasicMetadataTypeEnum<'ctx>> = vec![
+            BasicMetadataTypeEnum::PointerType(self.ptr_ty), // env
+        ];
+        for v in &arg_vals {
+            param_types.push(match v {
+                BasicValueEnum::PointerValue(_) => BasicMetadataTypeEnum::PointerType(self.ptr_ty),
+                _ => BasicMetadataTypeEnum::IntType(self.i64_ty),
+            });
+        }
+        let indirect_fn_ty = self.i64_ty.fn_type(&param_types, false);
+
+        let call_site = self.builder
+            .build_indirect_call(indirect_fn_ty, fn_ptr, &call_args, "closure_call")?;
+        call_site.try_as_basic_value().basic()
+            .ok_or(CodegenError::UnsupportedExpr(expr_id))
     }
 
     // ── Statement emission ────────────────────────────────────────────────────
@@ -330,24 +650,23 @@ impl<'ctx> Cg<'ctx> {
             // ── Print ─────────────────────────────────────────────────────────
             RuntimeStmt::Print(expr_id) => {
                 let inner_id = unwrap_to_string(self.ast, *expr_id)?;
-                let val      = self.emit_int_expr(inner_id, locals)?;
-                let zero     = self.context.i32_type().const_int(0, false);
-                let fmt_ptr  = unsafe {
-                    self.builder.build_gep(
-                        self.fmt_ty,
-                        self.fmt_global.as_pointer_value(),
-                        &[zero, zero],
-                        "fmt_ptr",
-                    )?
-                };
-                self.builder.build_call(
-                    self.printf_fn,
-                    &[
-                        BasicMetadataValueEnum::PointerValue(fmt_ptr),
-                        BasicMetadataValueEnum::IntValue(val),
-                    ],
-                    "printf_ret",
-                )?;
+                match self.emit_expr(inner_id, locals)? {
+                    BasicValueEnum::IntValue(iv) => {
+                        let fmt_ptr = self.fmt_int_ptr()?;
+                        self.builder.build_call(self.printf_fn, &[
+                            BasicMetadataValueEnum::PointerValue(fmt_ptr),
+                            BasicMetadataValueEnum::IntValue(iv),
+                        ], "printf_ret")?;
+                    }
+                    BasicValueEnum::PointerValue(pv) => {
+                        let fmt_ptr = self.fmt_str_ptr()?;
+                        self.builder.build_call(self.printf_fn, &[
+                            BasicMetadataValueEnum::PointerValue(fmt_ptr),
+                            BasicMetadataValueEnum::PointerValue(pv),
+                        ], "printf_ret")?;
+                    }
+                    _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
+                }
             }
 
             // ── Variables ─────────────────────────────────────────────────────
@@ -360,19 +679,34 @@ impl<'ctx> Cg<'ctx> {
                         Local { slot, kind: LocalKind::Int }
                     }
                     BasicValueEnum::PointerValue(pv) => {
-                        // Get struct name: try AST node first (StructLiteral has it),
-                        // then fall back to type_map (works for call-return struct vars).
-                        let struct_name = match self.ast.get_expr(*expr) {
+                        let kind = match self.ast.get_expr(*expr) {
                             Some(RuntimeExpr::StructLiteral { type_name, .. }) =>
-                                type_name.clone(),
+                                LocalKind::StructPtr(type_name.clone()),
+                            Some(RuntimeExpr::String(_)) =>
+                                LocalKind::Str,
+                            Some(RuntimeExpr::List(_)) =>
+                                LocalKind::Slice,
+                            Some(RuntimeExpr::Lambda { .. }) =>
+                                LocalKind::Closure,
+                            Some(RuntimeExpr::EnumConstructor { .. }) =>
+                                LocalKind::EnumPtr,
                             _ => match self.type_map.get(expr) {
-                                Some(Type::Struct { name: sname, .. }) => sname.clone(),
+                                Some(Type::Struct { name: sname, .. }) =>
+                                    LocalKind::StructPtr(sname.clone()),
+                                Some(Type::Primitive(PrimitiveType::String)) =>
+                                    LocalKind::Str,
+                                Some(Type::Slice(_)) =>
+                                    LocalKind::Slice,
+                                Some(Type::Func { .. }) =>
+                                    LocalKind::Closure,
+                                Some(Type::Enum(_)) =>
+                                    LocalKind::EnumPtr,
                                 _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
                             }
                         };
                         let slot = self.builder.build_alloca(self.ptr_ty, name)?;
                         self.builder.build_store(slot, pv)?;
-                        Local { slot, kind: LocalKind::StructPtr(struct_name) }
+                        Local { slot, kind }
                     }
                     _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
                 };
@@ -388,7 +722,7 @@ impl<'ctx> Cg<'ctx> {
                     (LocalKind::Int, BasicValueEnum::IntValue(iv)) => {
                         self.builder.build_store(slot, iv)?;
                     }
-                    (LocalKind::StructPtr(_), BasicValueEnum::PointerValue(pv)) => {
+                    (LocalKind::StructPtr(_) | LocalKind::Str | LocalKind::Slice | LocalKind::Closure | LocalKind::EnumPtr, BasicValueEnum::PointerValue(pv)) => {
                         self.builder.build_store(slot, pv)?;
                     }
                     _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
@@ -398,8 +732,15 @@ impl<'ctx> Cg<'ctx> {
             // ── Control flow ──────────────────────────────────────────────────
             RuntimeStmt::Return(opt_expr) => {
                 if let Some(expr_id) = opt_expr {
-                    let val = self.emit_int_expr(*expr_id, locals)?;
-                    self.builder.build_return(Some(&val))?;
+                    match self.emit_expr(*expr_id, locals)? {
+                        BasicValueEnum::IntValue(iv) => {
+                            self.builder.build_return(Some(&iv))?;
+                        }
+                        BasicValueEnum::PointerValue(pv) => {
+                            self.builder.build_return(Some(&pv))?;
+                        }
+                        _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
+                    }
                 } else {
                     self.builder.build_return(None)?;
                 }
@@ -462,6 +803,160 @@ impl<'ctx> Cg<'ctx> {
                 self.builder.position_at_end(exit_bb);
             }
 
+            // ── ForEach loop ──────────────────────────────────────────────────
+            RuntimeStmt::ForEach { var, iterable, body } => {
+                let slice_ty = self.slice_ty.ok_or(CodegenError::UnsupportedStmt(stmt_id))?;
+
+                // Load the slice pointer (it may be a local or a function arg)
+                let slice_ptr = match self.emit_expr(*iterable, locals)? {
+                    BasicValueEnum::PointerValue(p) => p,
+                    _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
+                };
+
+                let i32_zero = self.context.i32_type().const_int(0, false);
+
+                // Load len from slice.field[0]
+                let len_ptr = unsafe {
+                    self.builder.build_gep(slice_ty, slice_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(0, false)], "len_ptr")?
+                };
+                let len = self.builder.build_load(self.i64_ty, len_ptr, "len")?.into_int_value();
+
+                // Load data ptr from slice.field[2]
+                let data_field_ptr = unsafe {
+                    self.builder.build_gep(slice_ty, slice_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(2, false)], "data_field_ptr")?
+                };
+                let data_ptr = self.builder.build_load(self.ptr_ty, data_field_ptr, "data")?.into_pointer_value();
+
+                // Induction variable
+                let i_slot = self.builder.build_alloca(self.i64_ty, "__i")?;
+                self.builder.build_store(i_slot, self.i64_ty.const_int(0, false))?;
+
+                // Loop variable slot (always int for now)
+                let var_slot = self.builder.build_alloca(self.i64_ty, var)?;
+                locals.insert(var.clone(), Local { slot: var_slot, kind: LocalKind::Int });
+
+                let cur_fn = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let cond_bb = self.context.append_basic_block(cur_fn, "foreach_cond");
+                let body_bb = self.context.append_basic_block(cur_fn, "foreach_body");
+                let exit_bb = self.context.append_basic_block(cur_fn, "foreach_exit");
+
+                self.builder.build_unconditional_branch(cond_bb)?;
+
+                // Condition: i < len
+                self.builder.position_at_end(cond_bb);
+                let i_val = self.builder.build_load(self.i64_ty, i_slot, "i")?.into_int_value();
+                let cond_val = self.builder.build_int_compare(IntPredicate::SLT, i_val, len, "lt")?;
+                self.builder.build_conditional_branch(cond_val, body_bb, exit_bb)?;
+
+                // Body: GEP element, store to var slot, run body, increment i
+                self.builder.position_at_end(body_bb);
+                let i_val2 = self.builder.build_load(self.i64_ty, i_slot, "i")?.into_int_value();
+                let elem_ptr = unsafe {
+                    self.builder.build_gep(self.i64_ty, data_ptr, &[i_val2], "elem_ptr")?
+                };
+                let elem_val = self.builder.build_load(self.i64_ty, elem_ptr, var)?.into_int_value();
+                self.builder.build_store(var_slot, elem_val)?;
+
+                self.emit_stmt(*body, locals)?;
+
+                if !self.cur_block_terminated() {
+                    let i_val3 = self.builder.build_load(self.i64_ty, i_slot, "i")?.into_int_value();
+                    let i_next = self.builder.build_int_add(i_val3, self.i64_ty.const_int(1, false), "i_next")?;
+                    self.builder.build_store(i_slot, i_next)?;
+                    self.builder.build_unconditional_branch(cond_bb)?;
+                }
+
+                self.builder.position_at_end(exit_bb);
+                locals.remove(var.as_str());
+            }
+
+            // ── Match statement ───────────────────────────────────────────────
+            RuntimeStmt::Match { scrutinee, arms } => {
+                let enum_cell_ty = self.enum_cell_ty.ok_or(CodegenError::UnsupportedStmt(stmt_id))?;
+
+                // Emit scrutinee — must be a pointer to %__enum_cell
+                let enum_ptr = match self.emit_expr(*scrutinee, locals)? {
+                    BasicValueEnum::PointerValue(p) => p,
+                    _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
+                };
+
+                let i32_zero = self.context.i32_type().const_int(0, false);
+
+                // Load tag from field 0
+                let tag_field_ptr = unsafe {
+                    self.builder.build_gep(enum_cell_ty, enum_ptr,
+                        &[i32_zero, i32_zero], "tag_ptr")?
+                };
+                let tag_val = self.builder.build_load(self.i64_ty, tag_field_ptr, "tag")?.into_int_value();
+
+                let cur_fn = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let merge_bb = self.context.append_basic_block(cur_fn, "match_merge");
+
+                // Collect arm data: (body_id, arm_bb, optional_binding)
+                // and switch cases: (tag_const, arm_bb)
+                let mut cases: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> = Vec::new();
+                let mut arm_emit: Vec<(usize, BasicBlock<'ctx>, Option<String>)> = Vec::new();
+                let mut wildcard_body: Option<usize> = None;
+
+                for arm in arms.iter() {
+                    match &arm.pattern {
+                        Pattern::Wildcard => {
+                            wildcard_body = Some(arm.body);
+                        }
+                        Pattern::Enum { enum_name, variant, bindings } => {
+                            let tag = self.enum_registry.get(enum_name)
+                                .and_then(|vs| vs.iter().find(|v| &v.name == variant))
+                                .map(|v| v.tag as u64)
+                                .unwrap_or(0);
+                            let arm_bb = self.context.append_basic_block(cur_fn, &format!("arm_{variant}"));
+                            let tag_const = self.i64_ty.const_int(tag, false);
+                            let binding = match bindings {
+                                VariantBindings::Tuple(names) if !names.is_empty() => Some(names[0].clone()),
+                                _ => None,
+                            };
+                            cases.push((tag_const, arm_bb));
+                            arm_emit.push((arm.body, arm_bb, binding));
+                        }
+                    }
+                }
+
+                let default_bb = self.context.append_basic_block(cur_fn, "arm_default");
+                self.builder.build_switch(tag_val, default_bb, &cases)?;
+
+                // Emit specific arm blocks
+                for (body_id, arm_bb, binding) in arm_emit {
+                    self.builder.position_at_end(arm_bb);
+                    if let Some(var_name) = binding {
+                        // Load payload from field 1
+                        let payload_ptr = unsafe {
+                            self.builder.build_gep(enum_cell_ty, enum_ptr,
+                                &[i32_zero, self.context.i32_type().const_int(1, false)], "payload_ptr")?
+                        };
+                        let payload_val = self.builder.build_load(self.i64_ty, payload_ptr, &var_name)?.into_int_value();
+                        let var_slot = self.builder.build_alloca(self.i64_ty, &var_name)?;
+                        self.builder.build_store(var_slot, payload_val)?;
+                        locals.insert(var_name.clone(), Local { slot: var_slot, kind: LocalKind::Int });
+                    }
+                    self.emit_stmt(body_id, locals)?;
+                    if !self.cur_block_terminated() {
+                        self.builder.build_unconditional_branch(merge_bb)?;
+                    }
+                }
+
+                // Default / wildcard block
+                self.builder.position_at_end(default_bb);
+                if let Some(wildcard_id) = wildcard_body {
+                    self.emit_stmt(wildcard_id, locals)?;
+                }
+                if !self.cur_block_terminated() {
+                    self.builder.build_unconditional_branch(merge_bb)?;
+                }
+
+                self.builder.position_at_end(merge_bb);
+            }
+
             // ── Expression statements ─────────────────────────────────────────
             RuntimeStmt::ExprStmt(expr_id) => {
                 self.emit_expr(*expr_id, locals)?;
@@ -495,9 +990,113 @@ impl<'ctx> Cg<'ctx> {
                 match &local.kind {
                     LocalKind::Int =>
                         Ok(self.builder.build_load(self.i64_ty, local.slot, name)?),
-                    LocalKind::StructPtr(_) =>
+                    LocalKind::StructPtr(_) | LocalKind::Str | LocalKind::Slice | LocalKind::Closure | LocalKind::EnumPtr =>
                         Ok(self.builder.build_load(self.ptr_ty, local.slot, name)?),
                 }
+            }
+
+            // ── String literal ────────────────────────────────────────────────
+            RuntimeExpr::String(s) => {
+                let global = self.string_globals.get(s.as_str())
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                Ok(global.as_pointer_value().as_basic_value_enum())
+            }
+
+            // ── List literal → malloc data array + malloc slice struct ────────
+            RuntimeExpr::List(items) => {
+                let malloc_fn  = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let slice_ty   = self.slice_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let n          = items.len() as u64;
+                let i32_zero   = self.context.i32_type().const_int(0, false);
+
+                // Allocate data array: malloc(n * 8)
+                let data_size = self.i64_ty.const_int(n * 8, false);
+                let data_ptr = self.builder
+                    .build_call(malloc_fn, &[BasicMetadataValueEnum::IntValue(data_size)], "data_malloc")?
+                    .try_as_basic_value().basic()
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                    .into_pointer_value();
+
+                // Store each element
+                for (idx, &item_id) in items.iter().enumerate() {
+                    let elem_val = self.emit_int_expr(item_id, locals)?;
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            self.i64_ty, data_ptr,
+                            &[self.i64_ty.const_int(idx as u64, false)],
+                            &format!("elem{idx}_ptr"),
+                        )?
+                    };
+                    self.builder.build_store(elem_ptr, elem_val)?;
+                }
+
+                // Allocate slice struct: malloc(sizeof %__slice)
+                let slice_size = slice_ty.size_of()
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let slice_ptr = self.builder
+                    .build_call(malloc_fn, &[BasicMetadataValueEnum::IntValue(slice_size)], "slice_malloc")?
+                    .try_as_basic_value().basic()
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                    .into_pointer_value();
+
+                // Store len (field 0)
+                let len_ptr = unsafe {
+                    self.builder.build_gep(slice_ty, slice_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(0, false)], "len_ptr")?
+                };
+                self.builder.build_store(len_ptr, self.i64_ty.const_int(n, false))?;
+
+                // Store cap (field 1)
+                let cap_ptr = unsafe {
+                    self.builder.build_gep(slice_ty, slice_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(1, false)], "cap_ptr")?
+                };
+                self.builder.build_store(cap_ptr, self.i64_ty.const_int(n, false))?;
+
+                // Store data ptr (field 2)
+                let data_field_ptr = unsafe {
+                    self.builder.build_gep(slice_ty, slice_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(2, false)], "data_field_ptr")?
+                };
+                self.builder.build_store(data_field_ptr, data_ptr)?;
+
+                Ok(slice_ptr.as_basic_value_enum())
+            }
+
+            // ── Lambda → closure struct { fn_ptr, null env_ptr } ─────────────
+            RuntimeExpr::Lambda { .. } => {
+                let malloc_fn  = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let closure_ty = self.closure_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let lam_val    = *self.lambda_fns.get(&expr_id)
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+
+                let closure_size = closure_ty.size_of()
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let closure_ptr = self.builder
+                    .build_call(malloc_fn, &[BasicMetadataValueEnum::IntValue(closure_size)], "closure_malloc")?
+                    .try_as_basic_value().basic()
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                    .into_pointer_value();
+
+                let i32_zero = self.context.i32_type().const_int(0, false);
+
+                // Store fn_ptr (field 0)
+                let fn_ptr_field = unsafe {
+                    self.builder.build_gep(closure_ty, closure_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(0, false)], "fn_ptr_field")?
+                };
+                // Cast the function value to ptr for storage
+                let fn_as_ptr = lam_val.as_global_value().as_pointer_value();
+                self.builder.build_store(fn_ptr_field, fn_as_ptr)?;
+
+                // Store null env_ptr (field 1) — no captured vars for now
+                let env_ptr_field = unsafe {
+                    self.builder.build_gep(closure_ty, closure_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(1, false)], "env_ptr_field")?
+                };
+                self.builder.build_store(env_ptr_field, self.ptr_ty.const_null())?;
+
+                Ok(closure_ptr.as_basic_value_enum())
             }
 
             // ── Arithmetic ────────────────────────────────────────────────────
@@ -597,6 +1196,47 @@ impl<'ctx> Cg<'ctx> {
                 Ok(self.builder.build_load(self.i64_ty, fptr, field)?)
             }
 
+            // ── Enum constructor → malloc %__enum_cell { tag, payload } ──────
+            RuntimeExpr::EnumConstructor { enum_name, variant, payload } => {
+                let malloc_fn    = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let enum_cell_ty = self.enum_cell_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+
+                let tag = self.enum_registry.get(enum_name)
+                    .and_then(|vs| vs.iter().find(|v| &v.name == variant))
+                    .map(|v| v.tag as u64)
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+
+                let cell_size = enum_cell_ty.size_of().ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let cell_ptr = self.builder
+                    .build_call(malloc_fn, &[BasicMetadataValueEnum::IntValue(cell_size)], "enum_malloc")?
+                    .try_as_basic_value().basic()
+                    .ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                    .into_pointer_value();
+
+                let i32_zero = self.context.i32_type().const_int(0, false);
+
+                // Store tag at field 0
+                let tag_ptr = unsafe {
+                    self.builder.build_gep(enum_cell_ty, cell_ptr,
+                        &[i32_zero, i32_zero], "tag_ptr")?
+                };
+                self.builder.build_store(tag_ptr, self.i64_ty.const_int(tag, false))?;
+
+                // Store payload at field 1 (i64; 0 for unit)
+                let payload_val = match payload {
+                    ConstructorPayload::Tuple(exprs) if !exprs.is_empty() =>
+                        self.emit_int_expr(exprs[0], locals)?,
+                    _ => self.i64_ty.const_int(0, false),
+                };
+                let payload_ptr = unsafe {
+                    self.builder.build_gep(enum_cell_ty, cell_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(1, false)], "payload_ptr")?
+                };
+                self.builder.build_store(payload_ptr, payload_val)?;
+
+                Ok(cell_ptr.as_basic_value_enum())
+            }
+
             // ── Calls ─────────────────────────────────────────────────────────
             RuntimeExpr::Call { callee, args } => {
                 // to_string(x) → pass through
@@ -627,6 +1267,12 @@ impl<'ctx> Cg<'ctx> {
                     return call_site.try_as_basic_value()
                         .basic()
                         .ok_or(CodegenError::UnsupportedExpr(expr_id));
+                }
+                // closure call: callee is a local of kind Closure
+                if let Some(local) = locals.get(callee.as_str()) {
+                    if matches!(local.kind, LocalKind::Closure) {
+                        return self.emit_closure_call(local.slot, args, locals, expr_id);
+                    }
                 }
                 Err(CodegenError::UnsupportedExpr(expr_id))
             }

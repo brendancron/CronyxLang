@@ -120,6 +120,11 @@ pub enum StagedExpr {
         end: Option<usize>,
     },
 
+    Lambda {
+        params: Vec<String>,
+        body: usize,
+    },
+
     MetaExpr(MetaRef),
 }
 
@@ -526,6 +531,10 @@ impl StagedAst {
                     .chain(start.map(|s| self.convert_expr(s)))
                     .chain(end.map(|e| self.convert_expr(e)))
                     .collect(),
+            ),
+            StagedExpr::Lambda { params, .. } => (
+                format!("Lambda({})", params.join(", ")),
+                vec![],
             ),
             StagedExpr::MetaExpr(meta_ref) => (
                 "MetaRef".into(),

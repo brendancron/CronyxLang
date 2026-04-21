@@ -1,0 +1,6 @@
+fn apply(f: fn(int): int, x: int): int {
+    return f(x);
+}
+
+var double = fn(x: int): int { return x * 2; };
+print(to_string(apply(double, 21)));

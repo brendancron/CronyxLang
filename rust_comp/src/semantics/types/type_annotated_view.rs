@@ -330,6 +330,11 @@ impl<'a> TypeAnnotatedView<'a> {
                     .chain(end.map(|e| self.convert_expr(e)))
                     .collect(),
             ),
+
+            MetaExpr::Lambda { params, body } => (
+                format!("Lambda({})", params.join(", ")),
+                vec![self.convert_stmt(*body)],
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

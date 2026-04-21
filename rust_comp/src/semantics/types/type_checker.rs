@@ -374,6 +374,12 @@ fn infer_expr_impl(
                 _ => Type::Var(env.fresh()),
             }
         }
+
+        MetaExpr::Lambda { params, .. } => {
+            let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
+            let ret_tv = Type::Var(env.fresh());
+            Type::Func { params: param_types, ret: Box::new(ret_tv), effects: EffectRow::empty() }
+        }
     };
 
     let ty = ty.apply(subst);

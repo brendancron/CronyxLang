@@ -78,9 +78,14 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap
     for &stmt_id in &ast.sem_root_stmts {
         if let Some(RuntimeStmt::FnDecl { name, .. }) = ast.get_stmt(stmt_id) {
             if let Some(arg_types) = fn_call_types.remove(name) {
+                // Preserve the return type inferred during type-checking;
+                // only the param types are refined from call-site evidence.
+                let ret = resolved.get(&stmt_id)
+                    .and_then(|t| if let Type::Func { ret, .. } = t { Some(*ret.clone()) } else { None })
+                    .unwrap_or_else(unit_type);
                 resolved.insert(stmt_id, Type::Func {
                     params: arg_types,
-                    ret: Box::new(unit_type()),
+                    ret: Box::new(ret),
                     effects: EffectRow::empty(),
                 });
             }
@@ -280,13 +285,21 @@ fn infer_expr(
 
         RuntimeExpr::Unit => unit_type(),
 
-        RuntimeExpr::Lambda { ref params, .. } => {
-            // Lambdas are injected by the CPS pass after type checking; return a fresh fn type.
+        RuntimeExpr::Lambda { params, body } => {
+            env.push_scope();
             let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
-            let ret_tv = Type::Var(env.fresh());
+            for (name, ty) in params.iter().zip(&param_types) {
+                env.bind_mono(name, ty.clone());
+            }
+            // Infer body to constrain param types via usage (e.g. `x * 2` → x is int)
+            let mut lambda_ctx = CheckCtx::new();
+            let _ = infer_stmt(ast, body, env, subst, &mut lambda_ctx, type_map);
+            env.pop_scope();
+            let resolved_params: Vec<Type> = param_types.iter().map(|t| t.apply(subst)).collect();
+            let ret_tv = env.fresh();
             Type::Func {
-                params: param_types,
-                ret: Box::new(ret_tv),
+                params: resolved_params,
+                ret: Box::new(Type::Var(ret_tv)),
                 effects: EffectRow::empty(),
             }
         }
@@ -376,7 +389,9 @@ fn infer_stmt(
             ctx.return_type = saved_ret;
             ctx.saw_return = saved_saw;
             env.pop_scope();
-            let scheme = generalize(env, fn_type.apply(subst));
+            let resolved_fn_type = fn_type.apply(subst);
+            type_map.insert(stmt_id, resolved_fn_type.clone());
+            let scheme = generalize(env, resolved_fn_type);
             env.bind(&name, scheme);
         }
 

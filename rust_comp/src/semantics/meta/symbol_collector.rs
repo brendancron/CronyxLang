@@ -190,6 +190,7 @@ fn collect_expr_symbols(
             if let Some(s) = start { collect_expr_symbols(ast, *s, declares, uses, in_gen); }
             if let Some(e) = end { collect_expr_symbols(ast, *e, declares, uses, in_gen); }
         }
+        StagedExpr::Lambda { .. } => {}
         StagedExpr::Int(_) | StagedExpr::String(_) | StagedExpr::Bool(_)
         | StagedExpr::MetaExpr(_) => {}
         StagedExpr::EnumConstructor { payload, .. } => {

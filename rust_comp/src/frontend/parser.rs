@@ -209,6 +209,37 @@ fn consume_next<'a>(tokens: &'a [Token], pos: &mut usize) -> &'a Token {
 fn parse_type_annot(tokens: &[Token], pos: &mut usize) -> Option<String> {
     if check(tokens, *pos, TokenType::Colon) {
         *pos += 1;
+        // Slice type: `[T]`
+        if check(tokens, *pos, TokenType::LeftBracket) {
+            *pos += 1; // consume `[`
+            let elem = tokens.get(*pos)?.expect_str();
+            *pos += 1; // consume element type
+            if check(tokens, *pos, TokenType::RightBracket) {
+                *pos += 1; // consume `]`
+            }
+            return Some(format!("[{elem}]"));
+        }
+        // Function type: `fn(T, ...): R`
+        if check(tokens, *pos, TokenType::Func) {
+            *pos += 1; // consume `fn`
+            if check(tokens, *pos, TokenType::LeftParen) {
+                let mut depth = 1usize;
+                *pos += 1; // consume `(`
+                while *pos < tokens.len() && depth > 0 {
+                    match tokens[*pos].token_type {
+                        TokenType::LeftParen => { depth += 1; *pos += 1; }
+                        TokenType::RightParen => { depth -= 1; *pos += 1; }
+                        _ => { *pos += 1; }
+                    }
+                }
+            }
+            // Skip `: ReturnType`
+            if check(tokens, *pos, TokenType::Colon) {
+                *pos += 1; // consume `:`
+                if *pos < tokens.len() { *pos += 1; } // consume type name
+            }
+            return Some("fn".to_string());
+        }
         if let Some(tok) = tokens.get(*pos) {
             *pos += 1;
             return Some(tok.expect_str());
@@ -566,6 +597,29 @@ fn parse_factor<'a>(
                     &mut ctx.id_provider,
                     MetaExpr::StructLiteral { type_name: String::new(), fields },
                 );
+                Ok(id)
+            }
+
+            // Lambda expression: `fn(params): ReturnType { body }`
+            TokenType::Func => {
+                consume_next(tokens, pos); // consume `fn`
+                consume(tokens, pos, TokenType::LeftParen)?;
+                let params = parse_separated(
+                    tokens, pos, ctx,
+                    TokenType::Comma, TokenType::RightParen,
+                    |tokens, pos, _ctx| {
+                        let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                        let _ = parse_type_annot(tokens, pos); // consume annotation, discard
+                        Ok(name)
+                    },
+                )?;
+                consume(tokens, pos, TokenType::RightParen)?;
+                skip_return_type(tokens, pos); // skip `: ReturnType`
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let body = parse_block(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lambda { params, body });
+                ctx.record_span(id, start_loc);
                 Ok(id)
             }
 

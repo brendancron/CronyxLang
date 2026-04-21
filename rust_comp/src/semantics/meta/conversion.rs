@@ -85,6 +85,7 @@ pub fn convert_to_runtime(
             StagedExpr::Tuple(items) => RuntimeExpr::Tuple(items),
             StagedExpr::TupleIndex { object, index } => RuntimeExpr::TupleIndex { object, index },
             StagedExpr::SliceRange { object, start, end } => RuntimeExpr::SliceRange { object, start, end },
+            StagedExpr::Lambda { params, body } => RuntimeExpr::Lambda { params, body },
             StagedExpr::MetaExpr(_) => return Err(AstConversionError::UnresolvedMeta(*id)),
         };
         runtime.insert_expr(*id, runtime_expr);

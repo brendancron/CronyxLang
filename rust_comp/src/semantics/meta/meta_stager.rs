@@ -250,6 +250,14 @@ pub fn process_expr(
                 .map_err(|e| MetaProcessError::EmbedFailed { path: file_path.clone(), error: e.to_string() })?;
             staged_ast.insert_expr(staged_expr_id, StagedExpr::String(contents));
         }
+
+        MetaExpr::Lambda { params, body } => {
+            let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Lambda {
+                params: params.clone(),
+                body: body_id,
+            });
+        }
     };
     Ok(staged_expr_id)
 }

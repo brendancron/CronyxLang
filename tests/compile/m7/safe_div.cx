@@ -1,0 +1,17 @@
+enum Option {
+  Some(int),
+  None
+}
+
+fn safe_div(a: int, b: int): Option {
+  if (b == 0) {
+    return Option::None;
+  }
+  return Option::Some(a / b);
+}
+
+var r = safe_div(10, 2);
+match r {
+  Option::Some(x) => { print(to_string(x)); }
+  Option::None => { print(to_string(-1)); }
+}

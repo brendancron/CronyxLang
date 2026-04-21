@@ -118,6 +118,11 @@ pub enum MetaExpr {
         start: Option<usize>,
         end: Option<usize>,
     },
+
+    Lambda {
+        params: Vec<String>,
+        body: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -729,6 +734,10 @@ impl MetaAst {
                     .chain(start.map(|s| self.convert_expr(s)))
                     .chain(end.map(|e| self.convert_expr(e)))
                     .collect(),
+            ),
+            MetaExpr::Lambda { params, body } => (
+                format!("Lambda({})", params.join(", ")),
+                vec![self.convert_stmt(*body)],
             ),
         };
 

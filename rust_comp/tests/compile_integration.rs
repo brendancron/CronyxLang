@@ -155,4 +155,8 @@ mod compile {
     cx_compile_test!(m1_fibonacci,  "tests/compile/m1", "fib");
     cx_compile_test!(m2_struct,     "tests/compile/m2", "struct");
     cx_compile_test!(m3_factorial,  "tests/compile/m3", "fact");
+    cx_compile_test!(m4_countdown,  "tests/compile/m4", "countdown");
+    cx_compile_test!(m5_sum,        "tests/compile/m5", "sum");
+    cx_compile_test!(m6_apply,      "tests/compile/m6", "apply");
+    cx_compile_test!(m7_safe_div,   "tests/compile/m7", "safe_div");
 }
