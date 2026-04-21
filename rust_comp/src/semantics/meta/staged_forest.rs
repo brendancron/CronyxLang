@@ -39,6 +39,10 @@ pub struct StagedForest {
     /// Impl method registry: (type_name, method_name) → mangled_fn_name.
     /// Populated by the stager when processing ImplDecl statements.
     pub impl_registry: Vec<(String, String, String)>,
+
+    /// Operator dispatch registry: (op_trait, type_name) → mangled_fn_name.
+    /// Populated when an ImplDecl uses a known operator trait (Add, Sub, Mul, Div, Eq).
+    pub op_registry: Vec<(String, String, String)>,
 }
 
 impl StagedForest {
@@ -52,6 +56,7 @@ impl StagedForest {
             symbol_uses: HashMap::new(),
             module_bindings: Vec::new(),
             impl_registry: Vec::new(),
+            op_registry: Vec::new(),
         }
     }
 

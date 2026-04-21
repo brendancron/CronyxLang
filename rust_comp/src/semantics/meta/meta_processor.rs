@@ -47,6 +47,12 @@ where
         .map(|(t, m, f)| ((t.clone(), m.clone()), f.clone()))
         .collect();
 
+    let op_dispatch: HashMap<(String, String), String> = staged_forest
+        .op_registry
+        .iter()
+        .map(|(op, ty, f)| ((op.clone(), ty.clone()), f.clone()))
+        .collect();
+
     let mut degree_map: HashMap<usize, usize> = HashMap::new();
     let mut tree_queue: VecDeque<usize> = VecDeque::new();
     let mut reverse_deps: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -112,6 +118,7 @@ where
     root_ast
         .map(|(mut ast, type_map)| {
             ast.impl_registry = impl_registry;
+            ast.op_dispatch = op_dispatch;
             monomorphize(&mut ast, &type_map);
             ast.compact()
         })

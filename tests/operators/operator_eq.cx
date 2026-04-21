@@ -1,0 +1,16 @@
+struct Point {
+    x: int;
+    y: int
+}
+
+impl Eq for Point {
+    fn eq(a: Point, b: Point): bool {
+        return a.x == b.x && a.y == b.y;
+    }
+}
+
+var p1 = Point { x: 1, y: 2 };
+var p2 = Point { x: 1, y: 2 };
+var p3 = Point { x: 3, y: 4 };
+print(p1 == p2);
+print(p1 == p3);
