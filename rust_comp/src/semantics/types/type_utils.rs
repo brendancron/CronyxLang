@@ -19,7 +19,7 @@ impl FreeTypeVars for Type {
                 set.extend(ret.free_type_vars());
                 set
             }
-            Type::Record(fields) => {
+            Type::Record(fields) | Type::Struct { fields, .. } => {
                 let mut set = HashSet::new();
                 for v in fields.values() {
                     set.extend(v.free_type_vars());

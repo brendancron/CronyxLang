@@ -269,6 +269,29 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                     let slice: Vec<Value> = borrowed[s.min(borrowed.len())..e.min(borrowed.len())].to_vec();
                     Ok(Value::List(std::rc::Rc::new(std::cell::RefCell::new(slice))))
                 }
+                Value::String(s) => {
+                    let chars: Vec<char> = s.chars().collect();
+                    let len = chars.len() as i64;
+                    let resolve = |n: i64| -> usize {
+                        if n < 0 { (len + n).max(0) as usize } else { n.min(len) as usize }
+                    };
+                    let start_i = match start {
+                        Some(id) => match eval_expr(*id, ctx)? {
+                            Value::Int(n) => resolve(n),
+                            _ => return Err(EvalError::TypeError(types::int_type())),
+                        },
+                        None => 0,
+                    };
+                    let end_i = match end {
+                        Some(id) => match eval_expr(*id, ctx)? {
+                            Value::Int(n) => resolve(n),
+                            _ => return Err(EvalError::TypeError(types::int_type())),
+                        },
+                        None => chars.len(),
+                    };
+                    let slice: String = chars[start_i.min(chars.len())..end_i.min(chars.len())].iter().collect();
+                    Ok(Value::String(slice))
+                }
                 _ => Err(EvalError::TypeError(types::unit_type())),
             }
         }

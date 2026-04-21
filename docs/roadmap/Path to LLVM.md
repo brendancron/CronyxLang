@@ -18,7 +18,7 @@ The interpreter continues to use the runtime AST directly, unchanged. The LLVM p
 
 ---
 
-## Phase 1 — Complete the Type Representation ✓
+## Phase 1 — Complete the Type Representation ✅
 
 **Status: Done.**
 
@@ -40,7 +40,7 @@ pub enum Type {
 
 ## Phase 2 — Solidify Before Codegen
 
-These are the remaining gaps between the current type system and what LLVM codegen actually needs. None of them require designing the codegen — they are type-layer prerequisites.
+These are the remaining gaps between the current type system and what LLVM codegen actually needs. None of them require designing the codegen — they are type-layer prerequisites. All are independent and can be done in any order. Estimated total: ~1 day.
 
 ### 2a. TypeVar Verification Pass
 
@@ -50,17 +50,19 @@ These are the remaining gaps between the current type system and what LLVM codeg
 
 **Where:** A short post-pass in `runtime_type_checker.rs` or as a standalone verification step in the pipeline entry point.
 
+**Effort:** ~30 min.
+
 ---
 
 ### 2b. Enum Variant Registry
 
 **What:** `Type::Enum(String)` only carries the enum name. The LLVM backend needs to know, for each enum name, the ordered list of variants, their tag integers, and the type of each payload field.
 
-**Why:** To lower a `Shape::Circle(r)` to LLVM IR, codegen needs to know `Circle` is tag `0`, its payload is a single `i64`, and the total struct is `{ i32, i64 }`. None of that is in `Type::Enum("Shape")`.
+**Why:** To lower `Shape::Circle(r)` to LLVM IR, codegen needs to know `Circle` is tag `0`, its payload is a single `i64`, and the total struct is `{ i32, i64 }`. None of that is in `Type::Enum("Shape")`.
 
-**What to build:** A `EnumRegistry` (a `HashMap<String, Vec<EnumVariant>>`) built during Phase 2 from `RuntimeStmt::EnumDecl` nodes. `EnumVariant` already carries `VariantPayload` — the registry just makes this accessible to the codegen pass without re-scanning the AST.
+**What to build:** An `EnumRegistry` (`HashMap<String, Vec<EnumVariant>>`) built during Phase 2 from `RuntimeStmt::EnumDecl` nodes. `EnumVariant` already carries `VariantPayload` — the registry just makes this accessible to the codegen pass without re-scanning the AST. Variant payload field types are currently stored as strings (raw source type names); they need to be resolved to `Type` values during registry construction.
 
-`VariantPayload` currently stores field types as strings (the raw source type names). Before codegen those need to be resolved to `Type` values, either during registry construction or as a separate resolve step.
+**Effort:** ~2 hrs.
 
 ---
 
@@ -72,9 +74,11 @@ These are the remaining gaps between the current type system and what LLVM codeg
 
 **Options:**
 - Add `Type::Struct { name: String, fields: BTreeMap<String, Type> }` as a distinct variant
-- Or keep `Record` anonymous and add a separate `StructRegistry` mapping names to layouts, with the TypeTable for struct-literal expressions pointing at the named type rather than an anonymous record
+- Or keep `Record` anonymous and maintain a separate `StructRegistry` mapping names to layouts, with the TypeTable entry for struct-literal expressions pointing at the named type rather than an anonymous record
 
 The second option is less invasive. Either way, the TypeTable entry for a `StructLiteral` expression must carry the struct name through to codegen.
+
+**Effort:** ~2 hrs.
 
 ---
 
@@ -82,9 +86,11 @@ The second option is less invasive. Either way, the TypeTable entry for a `Struc
 
 **What:** `SliceRange` currently only works on `Slice` types in both the type checker and the interpreter. String range-slicing (`s[1:]`, `s[-1]`) is handled for single-index access but not for range syntax.
 
-**Why:** This is a minor language completeness gap. If strings support negative indexing, they should support range slicing for consistency. And once LLVM codegen needs to lower `SliceRange`, it needs to know the result type — for a `String` object that's `String`, for a `Slice(T)` it's `Slice(T)`.
+**Why:** Minor language completeness gap. If strings support negative indexing they should support range slicing for consistency. Once LLVM codegen lowers `SliceRange`, it needs to know the result type — for `String` that's `String`, for `Slice(T)` it's `Slice(T)`.
 
-**Where:** Add a `String` arm to `SliceRange` evaluation in both type checkers and the interpreter. The result type is `Primitive(String)`.
+**Where:** Add a `String` arm to `SliceRange` evaluation in both type checkers and the interpreter. Result type is `Primitive(String)`.
+
+**Effort:** ~1 hr.
 
 ---
 
@@ -92,17 +98,72 @@ The second option is less invasive. Either way, the TypeTable entry for a `Struc
 
 **What:** The `ForEach` loop variable (e.g., `x` in `for (x in nums)`) needs its type recorded in the TypeTable. The iterable's type is `Slice(T)` — the loop variable's type is `T`.
 
-**Why:** In the interpreter, `x` gets its type dynamically from the `Value` it's bound to. In LLVM, the alloca for `x` needs a concrete type upfront. The loop variable binding is currently not an expression node and has no TypeTable entry.
+**Why:** In the interpreter, `x` gets its type dynamically from the `Value` it's bound to. In LLVM, the `alloca` for `x` needs a concrete type upfront. The loop variable binding is currently not an expression node and has no TypeTable entry.
 
 **Where:** During Phase 2 type checking of `RuntimeStmt::ForEach`, after inferring the iterable type as `Slice(T)`, record `T` in the TypeTable keyed by a stable ID associated with the `ForEach` node. One approach: add a synthetic expression ID for the loop variable in the runtime AST.
 
+**Effort:** ~1 hr.
+
 ---
 
-## Phase 3 — LLVM Codegen
+## Phase 3 — Harder Challenges (Not Yet in Detail)
 
-**Goal:** Walk the runtime AST, guided by the fully-resolved `TypeTable` and supporting registries, and emit LLVM IR.
+These are the architectural decisions that will take real time. They are not blockers for starting Phase 2 but must be resolved before Phase 3 codegen is complete.
 
-**Type lowering — Cronyx types to LLVM types:**
+### Memory Model
+
+Currently every struct, list, and closure uses `Rc<RefCell<...>>`. For LLVM, a replacement strategy must be chosen before writing codegen.
+
+**Options:**
+
+| Strategy | Description | Tradeoff |
+|---|---|---|
+| **malloc + ref-count stubs** | Emit increment/decrement calls to a thin runtime library | Simplest to get working; leaks on cycles |
+| **Boehm GC** | Link against a conservative GC; no explicit free needed | Good intermediate choice; no cycles problem |
+| **Arena/region** | Implicit `__allocator` parameter injection (see roadmap below) | Right long-term answer; significant work |
+
+**Recommendation:** Start with malloc + ref-counting stubs. It is the least surprising and easiest to reason about for a first working backend. Replace with arena allocation later.
+
+---
+
+### Closure / Free Variable Analysis
+
+Lambdas and CPS continuations currently capture the entire `Environment` (a `HashMap<String, Value>`). LLVM needs a struct with only the variables actually used inside the closure body.
+
+**Required pass:** A free-variable analysis that, for each `Lambda` node, computes the set of variables referenced in the body that are not bound by the lambda's own parameters. The result drives closure struct layout at codegen time.
+
+**Complications:**
+- Variables captured transitively (a lambda referencing a variable from an outer lambda)
+- CPS-generated `__k` continuations reference variables from their enclosing scope
+- The analysis must run after the CPS transform, not before
+
+This is non-trivial but well-understood. Solving it solves effects/continuations at the same time since CPS produces ordinary lambda nodes.
+
+---
+
+### `RuntimeStmt::Print` Removal
+
+`Print` is still a special AST statement node rather than a function call. Before LLVM codegen it should become `Call("__builtin_print", [arg])`. The Builtin module design from the operator overloading roadmap covers this — `Print` is the most straightforward builtin to migrate first.
+
+---
+
+### Dynamic Dispatch Resolution
+
+`impl_registry` and `op_dispatch` are runtime `HashMap`s looked up by string. After monomorphization and with concrete struct names (Phase 2c), every dispatch site can be resolved to a direct call at codegen time. The codegen pass needs to perform this resolution rather than emitting a runtime hash lookup.
+
+---
+
+### Pattern Matching on Enums
+
+Enum match requires lowering to a switch on the tag field (an `i32`). Each arm extracts payload fields at fixed offsets. The Enum Registry (Phase 2b) provides the tag-to-offset mapping. This is conceptually straightforward once the registry exists.
+
+---
+
+## Phase 4 — LLVM Codegen
+
+**Goal:** Walk the runtime AST, guided by the fully-resolved TypeTable and supporting registries, and emit LLVM IR.
+
+### Type Lowering
 
 | Cronyx type | LLVM type |
 |---|---|
@@ -113,28 +174,32 @@ The second option is less invasive. Either way, the TypeTable entry for a `Struc
 | `[int]` | `{ ptr, i64, i64 }` (data, length, capacity) |
 | `(int, string)` | `{ i64, { ptr, i64 } }` (flattened tuple fields) |
 | `Point { x: int, y: int }` | `%Point = type { i64, i64 }` |
-| `Shape::Circle(int)` | `{ i32, i64 }` (tag + payload union) |
+| `Shape::Circle(int)` | `{ i32, i64 }` (tag + largest payload) |
 
-**Codegen pass:**
+### Codegen Pass
 
-A `CodegenVisitor` walks the runtime AST. For each node it looks up the expression ID in the `TypeTable`, lowers the `Type` to an LLVM type, and emits IR.
+A `CodegenVisitor` walks the runtime AST. For each node it looks up the expression ID in the TypeTable, lowers the `Type` to an LLVM type, and emits IR:
 
-- `VarDecl` → `alloca` + `store`
-- `Assign` → `store` into existing alloca
-- `Call` → `call` with typed arguments; monomorphization ensures no generic call sites remain
-- `If` / `While` / `ForEach` → basic block structure with branches
-- `Match` → switch on enum tag field, one basic block per arm
-- `FnDecl` → LLVM function definition with typed parameters
-- `Return` → `ret` of the appropriate type
-- `SliceRange` → call into runtime support (slice + bounds calculation)
+| AST node | LLVM emission |
+|---|---|
+| `VarDecl` | `alloca` + `store` |
+| `Assign` | `store` into existing alloca |
+| `FnDecl` | LLVM function definition with typed parameters |
+| `Return` | `ret` of the appropriate type |
+| `Call` | `call` with typed arguments; monomorphization ensures no generic call sites |
+| `If` / `WhileLoop` / `ForEach` | basic block structure with branches |
+| `Match` | switch on enum tag field, one basic block per arm |
+| `Print` | `call __builtin_print` (after Print node removal) |
+| `Lambda` | emit as a named function + closure struct allocation |
+| `SliceRange` | call into runtime support library |
 
-**Runtime support library:**
+### Runtime Support Library
 
 A thin Rust or C static library provides:
 
-- String: allocation, concatenation, split, trim, contains, indexing, slice range
-- Slice: allocation, push, pop, contains, indexing, slice range, bounds checking
-- `to_string`, `to_int`, `readfile`, `print`
+- **String:** allocation, concatenation, split, trim, contains, indexing, slice range
+- **Slice:** allocation, push, pop, contains, indexing, slice range, bounds checking
+- **Builtins:** `to_string`, `to_int`, `readfile`, `__builtin_print`
 
 The codegen emits `call` instructions to these. They are linked at compile time.
 
@@ -142,19 +207,34 @@ The codegen emits `call` instructions to these. They are linked at compile time.
 
 ---
 
-## Sequencing Summary
+## Recommended Sequence
 
-| Phase | Status | Output |
-|---|---|---|
-| 1. Complete type representation | Done | `Tuple` and `Slice` in `Type`; `TypeTable` produced by Phase 2 |
-| 2a. TypeVar verification pass | Pending | Hard guarantee that no `Type::Var` reaches codegen |
-| 2b. Enum variant registry | Pending | Tag integers + payload types accessible to codegen |
-| 2c. Named struct types | Pending | Struct name preserved in `TypeTable` |
-| 2d. String slice syntax | Pending | `SliceRange` on `String` typed and evaluated |
-| 2e. ForEach variable type | Pending | Loop variable has a `TypeTable` entry |
-| 3. LLVM codegen | Pending | Native binary via LLVM IR + runtime support library |
+```
+Phase 2a–2e      (all independent, ~1 day total)
+     ↓
+Decide memory model (malloc + ref-count stubs to start)
+     ↓
+Free variable analysis pass
+     ↓
+Remove RuntimeStmt::Print (migrate to Call("__builtin_print", ...))
+     ↓
+inkwell setup + basic codegen:
+  int literals, arithmetic, VarDecl, FnDecl, Call, Return, If, While
+     ↓
+Runtime library: print, to_string, to_int
+     ↓
+Add strings, lists, structs (heap-allocated, ref-count runtime)
+     ↓
+Closures (Lambda → function + closure struct)
+     ↓
+CPS effects (already lambdas after CPS transform — same as closures)
+     ↓
+Pattern matching (switch on enum tag)
+     ↓
+ForEach, SliceRange, index assign
+```
 
-Phases 2a–2e are independent and can be done in any order. Phase 3 depends on all of them.
+The first milestone — a Cronyx program with only `int` arithmetic and `print` compiling to a native binary — is achievable in a focused session once Phase 2 is done.
 
 ---
 
@@ -167,3 +247,18 @@ Once the compiled backend is working, the malloc approach can be replaced with i
 - **Programmer experience** — the entry point binds `__allocator` to `SystemAllocator` by default; callers can pass an `ArenaAllocator` or custom implementation at any call site
 
 This design is fully compatible with the current pipeline — effect inference slots between Phase 2 type checking and codegen, and the injection runs as a meta pass. It is deferred because it is a significant undertaking in its own right.
+
+---
+
+## Phase Summary
+
+| Phase | Status | Output |
+|---|---|---|
+| 1. Complete type representation | ✅ Done | `Tuple` and `Slice` in `Type`; TypeTable produced by Phase 2 |
+| 2a. TypeVar verification pass | Pending | Hard guarantee that no `Type::Var` reaches codegen |
+| 2b. Enum variant registry | Pending | Tag integers + payload types accessible to codegen |
+| 2c. Named struct types | Pending | Struct name preserved in TypeTable |
+| 2d. String slice syntax | Pending | `SliceRange` on `String` typed and evaluated |
+| 2e. ForEach variable type | Pending | Loop variable has a TypeTable entry |
+| 3. Architecture decisions | Pending | Memory model chosen; free variable analysis; Print removed |
+| 4. LLVM codegen | Pending | Native binary via LLVM IR + runtime support library |

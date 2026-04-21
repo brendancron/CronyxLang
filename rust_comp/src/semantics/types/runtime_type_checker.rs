@@ -106,9 +106,13 @@ fn infer_expr(
         RuntimeExpr::Sub(a, b) | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b) => {
             let ta = infer_expr(ast, a, env, subst, type_map)?;
             let tb = infer_expr(ast, b, env, subst, type_map)?;
-            unify(&ta, &int_type(), subst)?;
-            unify(&tb, &int_type(), subst)?;
-            int_type()
+            // If both operands are int, return int. Otherwise the operator is
+            // dispatched to a user-defined impl at runtime — leave the result
+            // as a fresh type variable so codegen can refine it.
+            match (ta.apply(subst), tb.apply(subst)) {
+                (Type::Primitive(PrimitiveType::Int), Type::Primitive(PrimitiveType::Int)) => int_type(),
+                _ => Type::Var(env.fresh()),
+            }
         }
 
         RuntimeExpr::Equals(a, b) | RuntimeExpr::NotEquals(a, b) => {
@@ -159,7 +163,11 @@ fn infer_expr(
                 let t = infer_expr(ast, end_id, env, subst, type_map)?;
                 unify(&t, &int_type(), subst)?;
             }
-            obj_ty.apply(subst)
+            // SliceRange on a string yields a string; on a slice yields the same slice type.
+            match obj_ty.apply(subst) {
+                t @ Type::Primitive(crate::semantics::types::types::PrimitiveType::String) => t,
+                t => t,
+            }
         }
 
         RuntimeExpr::Call { ref callee, ref args } => {
@@ -180,11 +188,13 @@ fn infer_expr(
             ret_tv.apply(subst)
         }
 
-        RuntimeExpr::StructLiteral { ref fields, .. } => {
-            for (_, expr_id) in fields {
-                infer_expr(ast, *expr_id, env, subst, type_map)?;
+        RuntimeExpr::StructLiteral { ref type_name, ref fields } => {
+            let mut field_types = std::collections::BTreeMap::new();
+            for (name, field_expr_id) in fields {
+                let ty = infer_expr(ast, *field_expr_id, env, subst, type_map)?;
+                field_types.insert(name.clone(), ty);
             }
-            Type::Var(env.fresh())
+            Type::Struct { name: type_name.clone(), fields: field_types }
         }
 
         // Module dot-access — we don't track module member types yet.
@@ -363,10 +373,16 @@ fn infer_stmt(
         }
 
         RuntimeStmt::ForEach { var, iterable, body } => {
-            infer_expr(ast, iterable, env, subst, type_map)?;
+            let iter_ty = infer_expr(ast, iterable, env, subst, type_map)?;
+            let elem_ty = match iter_ty.apply(subst) {
+                Type::Slice(elem) => *elem,
+                _ => Type::Var(env.fresh()),
+            };
+            // Record element type under the ForEach stmt_id so codegen knows
+            // the alloca type for the loop variable without re-scanning the AST.
+            type_map.insert(stmt_id, elem_ty.clone());
             env.push_scope();
-            let var_ty = Type::Var(env.fresh());
-            env.bind_mono(&var, var_ty);
+            env.bind_mono(&var, elem_ty);
             infer_stmt(ast, body, env, subst, ctx, type_map)?;
             env.pop_scope();
         }

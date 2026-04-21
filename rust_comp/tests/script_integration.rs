@@ -164,6 +164,7 @@ mod script_integration {
         cx_test!(list_index_assign, "tests/core/lists", "index_assign");
         cx_test!(list_methods, "tests/core/lists", "list_methods");
         cx_test!(string_methods, "tests/core/strings", "string_methods");
+        cx_test!(string_slice,   "tests/core/strings", "string_slice");   // Phase 2d
         cx_test!(builtins_readfile, "tests/core/builtins", "readfile");
         cx_test!(builtins_conversions, "tests/core/builtins", "conversions");
 

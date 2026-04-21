@@ -16,6 +16,7 @@ fn mangle_type(ty: &Type) -> String {
             let keys = fields.keys().cloned().collect::<Vec<_>>().join("_");
             format!("rec_{keys}")
         }
+        Type::Struct { name, .. } => name.clone(),
         Type::Tuple(items) => {
             let inner = items.iter().map(mangle_type).collect::<Vec<_>>().join("_");
             format!("tuple_{inner}")
