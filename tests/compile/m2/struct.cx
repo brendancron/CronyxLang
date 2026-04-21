@@ -1,0 +1,12 @@
+struct Point {
+    x: int;
+    y: int
+}
+
+fn distance_sq(p: Point): int {
+    return p.x * p.x + p.y * p.y;
+}
+
+var p = Point { x: 3, y: 4 };
+print(to_string(distance_sq(p)));
+free(p);

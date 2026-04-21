@@ -153,4 +153,5 @@ mod compile {
 
     cx_compile_test!(m0_arithmetic, "tests/compile/m0", "m0");
     cx_compile_test!(m1_fibonacci,  "tests/compile/m1", "fib");
+    cx_compile_test!(m2_struct,     "tests/compile/m2", "struct");
 }
