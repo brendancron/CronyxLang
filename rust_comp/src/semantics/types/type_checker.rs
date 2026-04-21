@@ -171,12 +171,18 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), Vec<TypeError>>
 
     // Pre-bind built-in runtime functions
     let alpha = env.fresh();
+    let beta = env.fresh();
     env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()), effects: EffectRow::empty() });
     env.bind("to_string", TypeScheme::PolyType {
         vars: vec![alpha],
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
     });
     env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
+    // free(obj): unit — manually release any value; no-op until LLVM backend + GC exist
+    env.bind("free", TypeScheme::PolyType {
+        vars: vec![beta],
+        ty: Type::Func { params: vec![Type::Var(beta)], ret: Box::new(unit_type()), effects: EffectRow::empty() },
+    });
 
     for stmt_id in &ast.sem_root_stmts.clone() {
         if let Err(e) = infer_stmt(ast, *stmt_id, &mut env, &mut subst, &mut ctx, &mut table) {

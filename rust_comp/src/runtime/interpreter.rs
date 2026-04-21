@@ -510,6 +510,12 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                     };
                     return Ok(Value::Int(n));
                 }
+                // free(obj): unit — no-op at interpreter level; Rust's Rc handles cleanup.
+                // At LLVM time this will dispatch to the active allocator's dealloc.
+                "free" => {
+                    let _ = eval_expr(*args.first().ok_or(EvalError::ArgumentMismatch)?, ctx)?;
+                    return Ok(Value::Unit);
+                }
                 _ => {}
             }
 

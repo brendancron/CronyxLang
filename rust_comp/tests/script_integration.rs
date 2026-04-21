@@ -167,6 +167,7 @@ mod script_integration {
         cx_test!(string_slice,   "tests/core/strings", "string_slice");   // Phase 2d
         cx_test!(builtins_readfile, "tests/core/builtins", "readfile");
         cx_test!(builtins_conversions, "tests/core/builtins", "conversions");
+        cx_test!(builtins_free, "tests/core/builtins", "free");
 
         // Required features for 0.1.1
         cx_test!(control_for_c, "tests/core/control", "for_c");
