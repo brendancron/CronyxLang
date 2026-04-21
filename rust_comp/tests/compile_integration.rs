@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::path::PathBuf;
 use std::process::Command;
@@ -153,4 +152,5 @@ mod compile {
     use super::*;
 
     cx_compile_test!(m0_arithmetic, "tests/compile/m0", "m0");
+    cx_compile_test!(m1_fibonacci,  "tests/compile/m1", "fib");
 }
