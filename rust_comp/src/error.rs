@@ -152,6 +152,7 @@ pub enum CompilerError {
     TypeCheck(TypeError),
     Meta(MetaProcessError),
     Eval(EvalError),
+    Codegen(String),
 }
 
 impl CompilerError {
@@ -169,6 +170,7 @@ impl CompilerError {
             CompilerError::TypeCheck(e) => type_diagnostic(e),
             CompilerError::Meta(e) => meta_diagnostic(e),
             CompilerError::Eval(e) => eval_diagnostic(e),
+            CompilerError::Codegen(msg) => Diagnostic::new(format!("codegen error: {msg}")),
         }
     }
 }

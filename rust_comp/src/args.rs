@@ -9,6 +9,10 @@ pub struct CliArgs {
     pub dump_runtime_ast: bool,
     pub dump_runtime_code: bool,
     pub dump_cps: bool,
+    /// Compile to native binary via LLVM instead of interpreting.
+    pub compile: bool,
+    /// Output binary path when --compile is set (default: a.out).
+    pub out_path: Option<PathBuf>,
 }
 
 impl CliArgs {
@@ -23,6 +27,8 @@ impl CliArgs {
         let mut dump_runtime_ast = false;
         let mut dump_runtime_code = false;
         let mut dump_cps = false;
+        let mut compile = false;
+        let mut out_path: Option<PathBuf> = None;
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -32,6 +38,12 @@ impl CliArgs {
                 "--dump-runtime-ast"  => dump_runtime_ast = true,
                 "--dump-runtime-code" => dump_runtime_code = true,
                 "--dump-cps" => dump_cps = true,
+                "--compile" => compile = true,
+                "--out" => {
+                    out_path = Some(PathBuf::from(
+                        args.next().expect("--out requires a path argument"),
+                    ));
+                }
                 "--dump-all" => {
                     dump_ast = true;
                     dump_typed_ast = true;
@@ -80,6 +92,8 @@ impl CliArgs {
             dump_runtime_ast,
             dump_runtime_code,
             dump_cps,
+            compile,
+            out_path,
         }
     }
 
@@ -99,6 +113,8 @@ impl CliArgs {
             "    --dump-cps            Write cps_info.txt + cps_code.cx (after CPS transform)\n",
             "    --dump-all            Enable all --dump-* flags\n",
             "    --out-dir <path>      Output directory for debug files (default: ./out)\n",
+            "    --compile             Compile to a native binary via LLVM\n",
+            "    --out <path>          Output binary path when --compile is set (default: a.out)\n",
             "    -V, --version         Print version and exit\n",
             "    -h, --help            Print this help and exit\n",
         )
