@@ -440,6 +440,28 @@ impl<'ctx> Cg<'ctx> {
                 self.builder.position_at_end(merge_bb);
             }
 
+            // ── While loop ────────────────────────────────────────────────────
+            RuntimeStmt::WhileLoop { cond, body } => {
+                let cur_fn = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let cond_bb = self.context.append_basic_block(cur_fn, "loop_cond");
+                let body_bb = self.context.append_basic_block(cur_fn, "loop_body");
+                let exit_bb = self.context.append_basic_block(cur_fn, "loop_exit");
+
+                self.builder.build_unconditional_branch(cond_bb)?;
+
+                self.builder.position_at_end(cond_bb);
+                let cond_val = self.emit_cond(*cond, locals)?;
+                self.builder.build_conditional_branch(cond_val, body_bb, exit_bb)?;
+
+                self.builder.position_at_end(body_bb);
+                self.emit_stmt(*body, locals)?;
+                if !self.cur_block_terminated() {
+                    self.builder.build_unconditional_branch(cond_bb)?;
+                }
+
+                self.builder.position_at_end(exit_bb);
+            }
+
             // ── Expression statements ─────────────────────────────────────────
             RuntimeStmt::ExprStmt(expr_id) => {
                 self.emit_expr(*expr_id, locals)?;
