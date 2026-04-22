@@ -18,7 +18,9 @@ use crate::util::id_provider::IdProvider;
 /// Ctl calls inside loops and at the top level of non-function scopes remain on
 /// the existing replay-stack path.
 pub fn transform(ast: &mut RuntimeAst, info: &CpsInfo) {
-    if info.cps_fns.is_empty() {
+    // Run whenever there are ctl ops (even if no function is CPS-marked),
+    // so that top-level ctl calls get wrapped with continuation lambdas.
+    if info.cps_fns.is_empty() && info.ctl_ops.is_empty() {
         return;
     }
 

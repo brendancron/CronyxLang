@@ -71,7 +71,7 @@ pub fn run_compile_test(root_path: &PathBuf, out_path: &PathBuf, expected_path: 
     };
 
     // ── Compile ───────────────────────────────────────────────────────────────
-    codegen_compile(&runtime_ast, &type_map, out_path)
+    codegen_compile(&runtime_ast, &type_map, &cps_info, out_path)
         .expect("codegen failed");
 
     // ── IR regression check ───────────────────────────────────────────────────
@@ -159,4 +159,7 @@ mod compile {
     cx_compile_test!(m5_sum,        "tests/compile/m5", "sum");
     cx_compile_test!(m6_apply,      "tests/compile/m6", "apply");
     cx_compile_test!(m7_safe_div,   "tests/compile/m7", "safe_div");
+    cx_compile_test!(m8_log,        "tests/compile/m8", "log");
+    cx_compile_test!(m9_say,        "tests/compile/m9", "say");
+    cx_compile_test!(m10_emit_pair, "tests/compile/m10", "emit_pair");
 }

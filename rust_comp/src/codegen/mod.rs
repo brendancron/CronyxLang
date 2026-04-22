@@ -19,7 +19,8 @@
 //! types are fully resolved (e.g. `Struct { name: "Point", .. }` for a struct
 //! param), so codegen reads them directly without scanning call sites.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::process::Command;
 
@@ -33,7 +34,8 @@ use inkwell::targets::{InitializationConfig, Target};
 use inkwell::types::{ArrayType, BasicType, BasicTypeEnum, BasicMetadataTypeEnum, IntType, PointerType, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PointerValue};
 
-use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings};
+use crate::frontend::meta_ast::{ConstructorPayload, Param, Pattern, VariantBindings};
+use crate::semantics::cps::effect_marker::CpsInfo;
 use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
 use crate::semantics::types::enum_registry::EnumRegistry;
 use crate::semantics::types::types::{PrimitiveType, Type};
@@ -102,6 +104,7 @@ type Locals<'ctx> = HashMap<String, Local<'ctx>>;
 pub fn compile(
     ast: &RuntimeAst,
     type_map: &HashMap<usize, Type>,
+    cps_info: &CpsInfo,
     out_path: &Path,
 ) -> Result<(), CodegenError> {
     let ll_path = out_path.with_extension("ll");
@@ -261,11 +264,21 @@ pub fn compile(
     // ── Pass 0d: forward-declare lambda functions ─────────────────────────────
     // Each lambda becomes `define i64 @__lambda_N(ptr %env, [params...])`.
     // Bodies are emitted in Pass 2d after user functions.
-    let lambda_exprs: Vec<(usize, Vec<String>)> = ast.exprs.iter()
+    // Sort by DESCENDING ID: the CPS transform creates inner continuations first
+    // (lower IDs) and outer ones later (higher IDs). We must emit outer lambda
+    // bodies first so that inner lambdas' capture sets are populated before their
+    // own bodies are emitted.
+    let mut lambda_exprs: Vec<(usize, Vec<String>)> = ast.exprs.iter()
         .filter_map(|(&id, expr)| match expr {
             RuntimeExpr::Lambda { params, .. } => Some((id, params.clone())),
             _ => None,
         })
+        .collect();
+    lambda_exprs.sort_by(|a, b| b.0.cmp(&a.0));
+
+    // Precompute which names each lambda references (for closure capture).
+    let lambda_ref_names: HashMap<usize, Vec<String>> = lambda_exprs.iter()
+        .map(|(id, _)| (*id, collect_lambda_refs(ast, *id)))
         .collect();
 
     let mut lambda_fns: HashMap<usize, FunctionValue<'_>> = HashMap::new();
@@ -308,6 +321,24 @@ pub fn compile(
         })
         .collect();
 
+    // Collect `with fn` handlers — treated as named functions in codegen.
+    let with_fn_decls: Vec<(String, Vec<Param>, usize)> = ast.sem_root_stmts.iter()
+        .filter_map(|&id| match ast.get_stmt(id) {
+            Some(RuntimeStmt::WithFn { op_name, params, body, .. }) =>
+                Some((op_name.clone(), params.clone(), *body)),
+            _ => None,
+        })
+        .collect();
+
+    // Collect `with ctl` handlers — like `with fn` but with an implicit `ptr __k` continuation param.
+    let with_ctl_decls: Vec<(String, Vec<Param>, usize)> = ast.sem_root_stmts.iter()
+        .filter_map(|&id| match ast.get_stmt(id) {
+            Some(RuntimeStmt::WithCtl { op_name, params, body, .. }) =>
+                Some((op_name.clone(), params.clone(), *body)),
+            _ => None,
+        })
+        .collect();
+
     let mut user_fns: HashMap<String, FunctionValue<'_>> = HashMap::new();
     let mut fn_arg_types: HashMap<String, Vec<Option<Type>>> = HashMap::new();
     let mut fn_is_ptr_return: HashMap<String, bool> = HashMap::new();
@@ -343,6 +374,43 @@ pub fn compile(
         fn_is_ptr_return.insert(fname.clone(), is_ptr_ret);
     }
 
+    // Forward-declare `with fn` handlers using param type annotations.
+    for (op_name, params, _body_id) in &with_fn_decls {
+        let param_meta: Vec<BasicMetadataTypeEnum<'_>> = params.iter()
+            .map(|p| param_llvm_type(p.ty.as_deref(), i64_ty, ptr_ty))
+            .collect();
+        let fn_ty = i64_ty.fn_type(&param_meta, false);
+        let fn_val = module.add_function(op_name, fn_ty, None);
+        let arg_types: Vec<Option<Type>> = params.iter()
+            .map(|p| param_type_from_annot(p.ty.as_deref()))
+            .collect();
+        user_fns.insert(op_name.clone(), fn_val);
+        fn_arg_types.insert(op_name.clone(), arg_types);
+        fn_is_ptr_return.insert(op_name.clone(), false);
+    }
+
+    // Forward-declare `with ctl` handlers: same as `with fn` but append an implicit `ptr __k` param.
+    for (op_name, params, _body_id) in &with_ctl_decls {
+        let mut param_meta: Vec<BasicMetadataTypeEnum<'_>> = params.iter()
+            .map(|p| param_llvm_type(p.ty.as_deref(), i64_ty, ptr_ty))
+            .collect();
+        param_meta.push(BasicMetadataTypeEnum::PointerType(ptr_ty)); // __k closure ptr
+        let fn_ty = i64_ty.fn_type(&param_meta, false);
+        let fn_val = module.add_function(op_name, fn_ty, None);
+        let mut arg_types: Vec<Option<Type>> = params.iter()
+            .map(|p| param_type_from_annot(p.ty.as_deref()))
+            .collect();
+        // __k is a closure (Func type → LocalKind::Closure in emit_fn_body)
+        arg_types.push(Some(Type::Func {
+            params: vec![],
+            ret: Box::new(Type::Primitive(PrimitiveType::Int)),
+            effects: crate::semantics::types::types::EffectRow::empty(),
+        }));
+        user_fns.insert(op_name.clone(), fn_val);
+        fn_arg_types.insert(op_name.clone(), arg_types);
+        fn_is_ptr_return.insert(op_name.clone(), false);
+    }
+
     let cg = Cg {
         ast, context: &context, builder: &builder,
         printf_fn, fmt_global, fmt_ty, fmt_str,
@@ -351,14 +419,34 @@ pub fn compile(
         user_fns, structs, string_globals,
         lambda_fns, enum_registry,
         type_map,
+        lambda_ref_names,
+        lambda_actual_captures: RefCell::new(HashMap::new()),
     };
 
     // ── Pass 2: emit function bodies ──────────────────────────────────────────
+    // `params` already includes `__k` for CPS functions (added by cps_transform).
     for (_stmt_id, fname, params, body_id) in &fn_decls {
-        let fn_val      = cg.user_fns[fname.as_str()];
-        let arg_types   = &fn_arg_types[fname.as_str()];
-        let is_ptr_ret  = fn_is_ptr_return.get(fname.as_str()).copied().unwrap_or(false);
+        let fn_val     = cg.user_fns[fname.as_str()];
+        let arg_types  = &fn_arg_types[fname.as_str()];
+        let is_ptr_ret = fn_is_ptr_return.get(fname.as_str()).copied().unwrap_or(false);
         cg.emit_fn_body(fn_val, params, arg_types, *body_id, is_ptr_ret)?;
+    }
+
+    // ── Pass 2e: emit `with fn` handler bodies ───────────────────────────────
+    for (op_name, params, body_id) in &with_fn_decls {
+        let fn_val    = cg.user_fns[op_name.as_str()];
+        let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        let arg_types = &fn_arg_types[op_name.as_str()];
+        cg.emit_fn_body(fn_val, &param_names, arg_types, *body_id, false)?;
+    }
+
+    // ── Pass 2f: emit `with ctl` handler bodies ───────────────────────────────
+    for (op_name, params, body_id) in &with_ctl_decls {
+        let fn_val = cg.user_fns[op_name.as_str()];
+        let mut param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        param_names.push("__k".to_string());
+        let arg_types = &fn_arg_types[op_name.as_str()];
+        cg.emit_fn_body(fn_val, &param_names, arg_types, *body_id, false)?;
     }
 
     // ── Pass 2d: emit lambda function bodies ──────────────────────────────────
@@ -374,7 +462,7 @@ pub fn compile(
             _ => vec![None; params.len()],
         };
         // emit_fn_body handles param index 0..n; we offset by 1 (skip env arg)
-        cg.emit_lambda_body(lam_val, params, &resolved_lam_params, body_id)?;
+        cg.emit_lambda_body(lam_val, *lambda_id, params, &resolved_lam_params, body_id)?;
     }
 
     // ── Pass 3: emit main() ───────────────────────────────────────────────────
@@ -386,7 +474,8 @@ pub fn compile(
     let mut main_locals: Locals<'_> = HashMap::new();
     for &stmt_id in &ast.sem_root_stmts {
         if matches!(ast.get_stmt(stmt_id),
-            Some(RuntimeStmt::FnDecl { .. } | RuntimeStmt::StructDecl { .. }))
+            Some(RuntimeStmt::FnDecl { .. } | RuntimeStmt::StructDecl { .. }
+                | RuntimeStmt::WithFn { .. } | RuntimeStmt::WithCtl { .. }))
         {
             continue;
         }
@@ -439,6 +528,10 @@ struct Cg<'ctx> {
     lambda_fns:     HashMap<usize, FunctionValue<'ctx>>,
     enum_registry:  EnumRegistry,
     type_map:       &'ctx HashMap<usize, Type>,
+    /// Pre-computed: all names referenced in each lambda's body (not its own params).
+    lambda_ref_names: HashMap<usize, Vec<String>>,
+    /// Populated at emit time: actual captures per lambda (names + kinds from locals).
+    lambda_actual_captures: RefCell<HashMap<usize, Vec<(String, LocalKind)>>>,
 }
 
 impl<'ctx> Cg<'ctx> {
@@ -527,6 +620,7 @@ impl<'ctx> Cg<'ctx> {
     fn emit_lambda_body(
         &self,
         fn_val: FunctionValue<'ctx>,
+        lambda_id: usize,
         param_names: &[String],
         arg_types: &[Option<Type>],
         body_id: usize,
@@ -536,7 +630,40 @@ impl<'ctx> Cg<'ctx> {
 
         let mut locals: Locals<'ctx> = HashMap::new();
 
-        // LLVM param 0 = env ptr (skip it; store in "_env" in case body needs it)
+        // LLVM param 0 = env ptr — load captured vars from it.
+        let env_ptr = fn_val.get_nth_param(0)
+            .map(|v| v.into_pointer_value())
+            .unwrap_or_else(|| self.ptr_ty.const_null());
+
+        let captures = self.lambda_actual_captures.borrow()
+            .get(&lambda_id).cloned().unwrap_or_default();
+
+        for (slot_idx, (cap_name, cap_kind)) in captures.iter().enumerate() {
+            let slot_ptr = unsafe {
+                self.builder.build_gep(
+                    self.i64_ty, env_ptr,
+                    &[self.i64_ty.const_int(slot_idx as u64, false)],
+                    &format!("cap_slot{slot_idx}"),
+                )?
+            };
+            let local = match cap_kind {
+                LocalKind::Int => {
+                    let val = self.builder.build_load(self.i64_ty, slot_ptr, cap_name)?.into_int_value();
+                    let alloca = self.builder.build_alloca(self.i64_ty, cap_name)?;
+                    self.builder.build_store(alloca, val)?;
+                    Local { slot: alloca, kind: LocalKind::Int }
+                }
+                kind => {
+                    let as_int = self.builder.build_load(self.i64_ty, slot_ptr, &format!("{cap_name}_int"))?.into_int_value();
+                    let ptr_val = self.builder.build_int_to_ptr(as_int, self.ptr_ty, cap_name)?;
+                    let alloca = self.builder.build_alloca(self.ptr_ty, cap_name)?;
+                    self.builder.build_store(alloca, ptr_val)?;
+                    Local { slot: alloca, kind: kind.clone() }
+                }
+            };
+            locals.insert(cap_name.clone(), local);
+        }
+
         // LLVM params 1..n = lambda params
         for (i, name) in param_names.iter().enumerate() {
             let llvm_idx = (i + 1) as u32; // skip env at index 0
@@ -962,10 +1089,55 @@ impl<'ctx> Cg<'ctx> {
                 self.emit_expr(*expr_id, locals)?;
             }
 
+            // ── Resume: call __k continuation closure with resumed value ──────
+            RuntimeStmt::Resume(opt_expr) => {
+                let closure_ty = self.closure_ty.ok_or(CodegenError::UnsupportedStmt(stmt_id))?;
+                let k_slot = locals.get("__k")
+                    .ok_or_else(|| CodegenError::UnboundVar("__k".to_string()))?.slot;
+
+                let resume_val = if let Some(expr_id) = opt_expr {
+                    self.emit_int_expr(*expr_id, locals)?
+                } else {
+                    self.i64_ty.const_int(0, false)
+                };
+
+                let closure_ptr = self.builder
+                    .build_load(self.ptr_ty, k_slot, "k_closure")?.into_pointer_value();
+                let i32_zero = self.context.i32_type().const_int(0, false);
+                let fn_ptr_field = unsafe {
+                    self.builder.build_gep(closure_ty, closure_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(0, false)], "fn_ptr_field")?
+                };
+                let fn_ptr = self.builder.build_load(self.ptr_ty, fn_ptr_field, "fn_ptr")?
+                    .into_pointer_value();
+                let env_ptr_field = unsafe {
+                    self.builder.build_gep(closure_ty, closure_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(1, false)], "env_ptr_field")?
+                };
+                let env_ptr = self.builder.build_load(self.ptr_ty, env_ptr_field, "env_ptr")?
+                    .into_pointer_value();
+
+                let indirect_fn_ty = self.i64_ty.fn_type(&[
+                    BasicMetadataTypeEnum::PointerType(self.ptr_ty),
+                    BasicMetadataTypeEnum::IntType(self.i64_ty),
+                ], false);
+                self.builder.build_indirect_call(
+                    indirect_fn_ty, fn_ptr,
+                    &[
+                        BasicMetadataValueEnum::PointerValue(env_ptr),
+                        BasicMetadataValueEnum::IntValue(resume_val),
+                    ],
+                    "resume_call",
+                )?;
+            }
+
             // ── Declarations (handled in other passes) ────────────────────────
             RuntimeStmt::FnDecl { .. }
             | RuntimeStmt::StructDecl { .. }
             | RuntimeStmt::EnumDecl { .. }
+            | RuntimeStmt::WithFn { .. }
+            | RuntimeStmt::EffectDecl { .. }
+            | RuntimeStmt::WithCtl { .. }
             | RuntimeStmt::Import(_)
             | RuntimeStmt::Gen(_) => {}
 
@@ -980,6 +1152,9 @@ impl<'ctx> Cg<'ctx> {
         let expr = self.ast.get_expr(expr_id).ok_or(CodegenError::MissingNode(expr_id))?;
         match expr {
             // ── Literals ──────────────────────────────────────────────────────
+            RuntimeExpr::Unit =>
+                Ok(self.i64_ty.const_int(0, false).as_basic_value_enum()),
+
             RuntimeExpr::Int(n) =>
                 Ok(self.i64_ty.const_int(*n as u64, true).as_basic_value_enum()),
 
@@ -1063,13 +1238,66 @@ impl<'ctx> Cg<'ctx> {
                 Ok(slice_ptr.as_basic_value_enum())
             }
 
-            // ── Lambda → closure struct { fn_ptr, null env_ptr } ─────────────
-            RuntimeExpr::Lambda { .. } => {
+            // ── Lambda → closure struct { fn_ptr, env_ptr } ──────────────────
+            RuntimeExpr::Lambda { params, .. } => {
                 let malloc_fn  = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                 let closure_ty = self.closure_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                 let lam_val    = *self.lambda_fns.get(&expr_id)
                     .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
 
+                // ── Closure capture ───────────────────────────────────────────
+                // Find free variables: names referenced in the body that are
+                // in `locals` but not in the lambda's own param list.
+                let param_set: BTreeSet<&str> = params.iter().map(|s| s.as_str()).collect();
+                let captures: Vec<(String, LocalKind)> = self.lambda_ref_names
+                    .get(&expr_id)
+                    .map(|refs| {
+                        refs.iter()
+                            .filter(|name| !param_set.contains(name.as_str()))
+                            .filter_map(|name| locals.get(name).map(|l| (name.clone(), l.kind.clone())))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // ── Allocate env if there are captures ────────────────────────
+                let env_ptr = if captures.is_empty() {
+                    self.ptr_ty.const_null()
+                } else {
+                    // Env layout: flat array of 8-byte slots (i64 for ints, ptrtoint for ptrs).
+                    let env_size = self.i64_ty.const_int((captures.len() as u64) * 8, false);
+                    let env_raw = self.builder
+                        .build_call(malloc_fn, &[BasicMetadataValueEnum::IntValue(env_size)], "env_malloc")?
+                        .try_as_basic_value().basic()
+                        .ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                        .into_pointer_value();
+                    for (slot_idx, (cap_name, cap_kind)) in captures.iter().enumerate() {
+                        let local = locals.get(cap_name).ok_or_else(|| CodegenError::UnboundVar(cap_name.clone()))?;
+                        let slot_ptr = unsafe {
+                            self.builder.build_gep(
+                                self.i64_ty, env_raw,
+                                &[self.i64_ty.const_int(slot_idx as u64, false)],
+                                &format!("env_slot{slot_idx}"),
+                            )?
+                        };
+                        match cap_kind {
+                            LocalKind::Int => {
+                                let val = self.builder.build_load(self.i64_ty, local.slot, cap_name)?.into_int_value();
+                                self.builder.build_store(slot_ptr, val)?;
+                            }
+                            _ => {
+                                let ptr_val = self.builder.build_load(self.ptr_ty, local.slot, cap_name)?.into_pointer_value();
+                                let as_int = self.builder.build_ptr_to_int(ptr_val, self.i64_ty, &format!("{cap_name}_as_int"))?;
+                                self.builder.build_store(slot_ptr, as_int)?;
+                            }
+                        }
+                    }
+                    env_raw
+                };
+
+                // Record captures so emit_lambda_body can load them from env_ptr.
+                self.lambda_actual_captures.borrow_mut().insert(expr_id, captures);
+
+                // ── Allocate closure struct ───────────────────────────────────
                 let closure_size = closure_ty.size_of()
                     .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                 let closure_ptr = self.builder
@@ -1080,21 +1308,18 @@ impl<'ctx> Cg<'ctx> {
 
                 let i32_zero = self.context.i32_type().const_int(0, false);
 
-                // Store fn_ptr (field 0)
                 let fn_ptr_field = unsafe {
                     self.builder.build_gep(closure_ty, closure_ptr,
                         &[i32_zero, self.context.i32_type().const_int(0, false)], "fn_ptr_field")?
                 };
-                // Cast the function value to ptr for storage
                 let fn_as_ptr = lam_val.as_global_value().as_pointer_value();
                 self.builder.build_store(fn_ptr_field, fn_as_ptr)?;
 
-                // Store null env_ptr (field 1) — no captured vars for now
                 let env_ptr_field = unsafe {
                     self.builder.build_gep(closure_ty, closure_ptr,
                         &[i32_zero, self.context.i32_type().const_int(1, false)], "env_ptr_field")?
                 };
-                self.builder.build_store(env_ptr_field, self.ptr_ty.const_null())?;
+                self.builder.build_store(env_ptr_field, env_ptr)?;
 
                 Ok(closure_ptr.as_basic_value_enum())
             }
@@ -1310,6 +1535,123 @@ impl<'ctx> Cg<'ctx> {
 }
 
 // ── Free-standing helpers ─────────────────────────────────────────────────────
+
+// ── Free-variable analysis ────────────────────────────────────────────────────
+//
+// For each lambda, we collect all names that appear as:
+//   - RuntimeExpr::Variable(name)
+//   - RuntimeExpr::Call { callee, .. } where callee might be a local closure
+// that are NOT bound by the lambda's own param list (inner lambdas' params also
+// shadow names for their sub-bodies).
+//
+// At lambda-creation time we intersect with `locals` to get the actual captures.
+
+fn collect_lambda_refs(ast: &RuntimeAst, lambda_id: usize) -> Vec<String> {
+    let (params, body) = match ast.get_expr(lambda_id) {
+        Some(RuntimeExpr::Lambda { params, body }) => (params.clone(), *body),
+        _ => return vec![],
+    };
+    let bound: BTreeSet<String> = params.into_iter().collect();
+    let mut refs: BTreeSet<String> = BTreeSet::new();
+    collect_refs_stmt(ast, body, &bound, &mut refs);
+    refs.into_iter().collect()
+}
+
+fn collect_refs_stmt(
+    ast: &RuntimeAst,
+    stmt_id: usize,
+    bound: &BTreeSet<String>,
+    refs: &mut BTreeSet<String>,
+) {
+    match ast.get_stmt(stmt_id) {
+        Some(RuntimeStmt::Block(stmts)) => {
+            let stmts = stmts.clone();
+            for id in stmts { collect_refs_stmt(ast, id, bound, refs); }
+        }
+        Some(RuntimeStmt::VarDecl { expr, .. }) | Some(RuntimeStmt::ExprStmt(expr)) => {
+            collect_refs_expr(ast, *expr, bound, refs);
+        }
+        Some(RuntimeStmt::Print(expr)) => collect_refs_expr(ast, *expr, bound, refs),
+        Some(RuntimeStmt::Return(Some(expr))) => collect_refs_expr(ast, *expr, bound, refs),
+        Some(RuntimeStmt::If { cond, body, else_branch }) => {
+            collect_refs_expr(ast, *cond, bound, refs);
+            collect_refs_stmt(ast, *body, bound, refs);
+            if let Some(e) = *else_branch { collect_refs_stmt(ast, e, bound, refs); }
+        }
+        Some(RuntimeStmt::WhileLoop { cond, body }) => {
+            collect_refs_expr(ast, *cond, bound, refs);
+            collect_refs_stmt(ast, *body, bound, refs);
+        }
+        _ => {}
+    }
+}
+
+fn collect_refs_expr(
+    ast: &RuntimeAst,
+    expr_id: usize,
+    bound: &BTreeSet<String>,
+    refs: &mut BTreeSet<String>,
+) {
+    match ast.get_expr(expr_id) {
+        Some(RuntimeExpr::Variable(name)) => {
+            if !bound.contains(name) { refs.insert(name.clone()); }
+        }
+        Some(RuntimeExpr::Call { callee, args }) => {
+            // Include callee — may be a local closure (e.g. `__k`)
+            if !bound.contains(callee) { refs.insert(callee.clone()); }
+            let args = args.clone();
+            for arg in args { collect_refs_expr(ast, arg, bound, refs); }
+        }
+        Some(RuntimeExpr::Lambda { params, body }) => {
+            // Inner lambda: its own params are bound inside its body.
+            let mut inner_bound = bound.clone();
+            inner_bound.extend(params.iter().cloned());
+            collect_refs_stmt(ast, *body, &inner_bound, refs);
+        }
+        Some(
+            RuntimeExpr::Add(a, b) | RuntimeExpr::Sub(a, b)
+            | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b)
+            | RuntimeExpr::Equals(a, b) | RuntimeExpr::NotEquals(a, b)
+            | RuntimeExpr::Lt(a, b) | RuntimeExpr::Gt(a, b)
+            | RuntimeExpr::Lte(a, b) | RuntimeExpr::Gte(a, b)
+            | RuntimeExpr::And(a, b) | RuntimeExpr::Or(a, b),
+        ) => {
+            collect_refs_expr(ast, *a, bound, refs);
+            collect_refs_expr(ast, *b, bound, refs);
+        }
+        Some(RuntimeExpr::Not(a)) => collect_refs_expr(ast, *a, bound, refs),
+        _ => {}
+    }
+}
+
+/// Map a `with fn` param type annotation string to an LLVM metadata type.
+fn param_llvm_type<'ctx>(
+    ty_str: Option<&str>,
+    i64_ty: IntType<'ctx>,
+    ptr_ty: PointerType<'ctx>,
+) -> BasicMetadataTypeEnum<'ctx> {
+    match ty_str {
+        Some("string") | Some("fn") => BasicMetadataTypeEnum::PointerType(ptr_ty),
+        Some(s) if s.starts_with('[') => BasicMetadataTypeEnum::PointerType(ptr_ty),
+        _ => BasicMetadataTypeEnum::IntType(i64_ty),
+    }
+}
+
+/// Map a `with fn` param type annotation string to a `Type` for LocalKind resolution.
+fn param_type_from_annot(ty_str: Option<&str>) -> Option<Type> {
+    match ty_str {
+        Some("string") => Some(Type::Primitive(PrimitiveType::String)),
+        Some("int") | Some("bool") => Some(Type::Primitive(PrimitiveType::Int)),
+        Some(s) if s.starts_with('[') =>
+            Some(Type::Slice(Box::new(Type::Primitive(PrimitiveType::Int)))),
+        Some("fn") => Some(Type::Func {
+            params: vec![],
+            ret: Box::new(Type::Primitive(PrimitiveType::Int)),
+            effects: crate::semantics::types::types::EffectRow::empty(),
+        }),
+        _ => None,
+    }
+}
 
 /// Map a Cronyx field type_name to the LLVM `BasicTypeEnum`.
 fn llvm_field_type<'ctx>(type_name: &str, i64_ty: IntType<'ctx>, ptr_ty: PointerType<'ctx>) -> BasicTypeEnum<'ctx> {

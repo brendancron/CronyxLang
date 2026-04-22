@@ -1,0 +1,11 @@
+effect Speech {
+    ctl say(msg: string): unit;
+}
+
+with ctl say(msg: string): unit {
+    print(msg);
+    resume;
+}
+
+say("Hello!");
+say("World!");

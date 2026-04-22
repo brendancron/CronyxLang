@@ -1,0 +1,15 @@
+effect Yield {
+    ctl yield(i: int): unit;
+}
+
+fn emit_pair(a: int, b: int) {
+    yield(a);
+    yield(b);
+}
+
+with ctl yield(i: int): unit {
+    print(i);
+    resume;
+}
+
+emit_pair(10, 20);

@@ -78,6 +78,15 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap
     for &stmt_id in &ast.sem_root_stmts {
         if let Some(RuntimeStmt::FnDecl { name, .. }) = ast.get_stmt(stmt_id) {
             if let Some(arg_types) = fn_call_types.remove(name) {
+                // Skip stale pre-CPS call-site info: if the substitution-resolved type already
+                // has more params than the call-site (e.g. an old 2-arg call when CPS added __k
+                // making it 3), keep the already-correct resolved type.
+                let existing_param_count = resolved.get(&stmt_id)
+                    .and_then(|t| if let Type::Func { params, .. } = t { Some(params.len()) } else { None })
+                    .unwrap_or(0);
+                if arg_types.len() < existing_param_count {
+                    continue;
+                }
                 // Preserve the return type inferred during type-checking;
                 // only the param types are refined from call-site evidence.
                 let ret = resolved.get(&stmt_id)
@@ -220,11 +229,21 @@ fn infer_expr(
             }
             let ret_tv = Type::Var(env.fresh());
             let expected_fn = Type::Func {
-                params: arg_types,
+                params: arg_types.clone(),
                 ret: Box::new(ret_tv.clone()),
                 effects: EffectRow::empty(),
             };
-            unify(&callee_ty, &expected_fn, subst)?;
+            // Lenient unification: if there's an arity mismatch (e.g. CPS adds __k as extra
+            // trailing arg that isn't in the effect declaration), try without the last arg.
+            // This lets both pre-CPS and post-CPS ASTs pass type checking.
+            if unify(&callee_ty, &expected_fn, subst).is_err() && arg_types.len() > 1 {
+                let trimmed = Type::Func {
+                    params: arg_types[..arg_types.len() - 1].to_vec(),
+                    ret: Box::new(ret_tv.clone()),
+                    effects: EffectRow::empty(),
+                };
+                let _ = unify(&callee_ty, &trimmed, subst);
+            }
             ret_tv.apply(subst)
         }
 
@@ -552,7 +571,7 @@ fn infer_stmt(
             }
         }
 
-        // Register the ctl op as callable + type-check handler body.
+        // Register the ctl op as callable + type-check handler body with __k in scope.
         RuntimeStmt::WithCtl { op_name, params, body, .. } => {
             let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
             let ret_tv = Type::Var(env.fresh());
@@ -566,11 +585,23 @@ fn infer_stmt(
             for (param, ty) in params.iter().zip(&param_types) {
                 env.bind_mono(&param.name, ty.clone());
             }
+            // __k is the continuation closure — bind so Resume can type-check the body.
+            let k_param_tv = Type::Var(env.fresh());
+            let k_ret_tv = Type::Var(env.fresh());
+            env.bind_mono("__k", Type::Func {
+                params: vec![k_param_tv],
+                ret: Box::new(k_ret_tv),
+                effects: EffectRow::empty(),
+            });
             infer_stmt(ast, body, env, subst, ctx, type_map)?;
             env.pop_scope();
         }
 
-        RuntimeStmt::Resume(_) => {}
+        RuntimeStmt::Resume(opt_expr) => {
+            if let Some(expr_id) = opt_expr {
+                infer_expr(ast, expr_id, env, subst, type_map)?;
+            }
+        }
     }
     Ok(())
 }

@@ -110,7 +110,7 @@ fn run_pipeline(
     // COMPILE — emit native binary via LLVM when --compile is set.
     if args.compile {
         let out_path = args.out_path.clone().unwrap_or_else(|| PathBuf::from("a.out"));
-        codegen_compile(&runtime_ast, &type_map, &out_path)
+        codegen_compile(&runtime_ast, &type_map, &cps_info, &out_path)
             .map_err(|e| vec![CompilerError::Codegen(e.to_string())])?;
         return Ok(());
     }
