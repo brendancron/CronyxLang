@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
-use cronyx::semantics::cps::cps_transform::transform as cps_transform;
+use cronyx::semantics::cps::cps_transform::transform_interpreter as cps_transform;
 use cronyx::semantics::cps::effect_marker::mark_cps;
 use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
 use cronyx::semantics::meta::meta_processor::*;

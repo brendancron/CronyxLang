@@ -162,4 +162,5 @@ mod compile {
     cx_compile_test!(m8_log,        "tests/compile/m8", "log");
     cx_compile_test!(m9_say,        "tests/compile/m9", "say");
     cx_compile_test!(m10_emit_pair, "tests/compile/m10", "emit_pair");
+    cx_compile_test!(m11_yield,     "tests/compile/m11", "yield");
 }

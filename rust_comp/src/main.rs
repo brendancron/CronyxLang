@@ -6,7 +6,7 @@ use debug_sink::DebugSink;
 
 use cronyx::codegen::compile as codegen_compile;
 use cronyx::error::{CompilerError, enrich_diagnostic};
-use cronyx::semantics::cps::cps_transform::transform as cps_transform;
+use cronyx::semantics::cps::cps_transform::{transform as cps_transform, transform_interpreter};
 use cronyx::semantics::cps::effect_marker::mark_cps;
 use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use std::collections::HashMap;
@@ -97,7 +97,11 @@ fn run_pipeline(
     // to pass continuations explicitly. Must run after meta-processing and before eval.
     let cps_info = mark_cps(&runtime_ast);
     let mut runtime_ast = runtime_ast;
-    cps_transform(&mut runtime_ast, &cps_info);
+    if args.compile {
+        cps_transform(&mut runtime_ast, &cps_info);
+    } else {
+        transform_interpreter(&mut runtime_ast, &cps_info);
+    }
     sink.dump_cps(&cps_info, &runtime_ast);
 
     // RUNTIME TYPE CHECK — needed by codegen; also validates the post-CPS AST.
