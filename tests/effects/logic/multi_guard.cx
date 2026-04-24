@@ -1,0 +1,57 @@
+effect logic {
+    ctl choose(options): int;
+    ctl guard(cond): unit;
+}
+
+handler logic_handler: logic {
+    ctl choose(options): int {
+        for (x in options) {
+            resume x;
+        }
+    }
+
+    ctl guard(cond: bool): unit {
+        if (cond) {
+            resume;
+        }
+    }
+}
+
+fn find_matching(list1, list2): int {
+    var num1 = choose(list1);
+    var num2 = choose(list2);
+    guard(num1 == num2);
+    return num1;
+}
+
+fn collect_all(f) {
+    var arr = [];
+    run {
+        var matching = f();
+        arr.append(matching);
+    } with logic_handler;
+    return arr;
+}
+
+fn find_first(f) {
+    run {
+        return f();
+    } with logic_handler;
+    return -1; //returns are not guarenteed within a run block
+}
+
+var all_matching = collect_all {
+    find_matching([1,2,3,4,5], [3,5,7])
+}
+
+print("Collect All Result");
+for (x in all_matching) {
+    print(x);
+}
+
+var first = find_first {
+    find_matching([1,2,3,4,5], [3,5,7])
+}
+
+print("Find First Result");
+print(first);

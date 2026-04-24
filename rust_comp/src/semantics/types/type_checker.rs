@@ -235,9 +235,16 @@ fn infer_expr_impl(
         MetaExpr::Sub(a, b) | MetaExpr::Mult(a, b) | MetaExpr::Div(a, b) => {
             let ta = infer_expr(ast, a, env, subst, table)?;
             let tb = infer_expr(ast, b, env, subst, table)?;
-            unify(&ta, &int_type(), subst)?;
-            unify(&tb, &int_type(), subst)?;
-            int_type()
+            // If LHS is a struct, the op may be dispatched to a user impl — don't
+            // constrain operands to int; return a fresh var for the result.
+            // Otherwise require both to be int for standard arithmetic.
+            if matches!(ta.apply(subst), Type::Struct { .. }) {
+                Type::Var(env.fresh())
+            } else {
+                unify(&ta, &int_type(), subst)?;
+                unify(&tb, &int_type(), subst)?;
+                int_type()
+            }
         }
 
         MetaExpr::Equals(a, b) | MetaExpr::NotEquals(a, b) => {
@@ -379,6 +386,50 @@ fn infer_expr_impl(
             let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
             let ret_tv = Type::Var(env.fresh());
             Type::Func { params: param_types, ret: Box::new(ret_tv), effects: EffectRow::empty() }
+        }
+
+        MetaExpr::ResumeExpr(opt_expr) => {
+            if let Some(e) = opt_expr {
+                infer_expr(ast, e, env, subst, table)?;
+            }
+            Type::Var(env.fresh())
+        }
+
+        MetaExpr::RunHandle { body, effects } => {
+            let ret_tv = Type::Var(env.fresh());
+            let mut body_ctx = TypeCheckCtx::new();
+            body_ctx.return_type = Some(ret_tv.clone());
+            infer_stmt(ast, body, env, subst, &mut body_ctx, table)?;
+            for (_, ops) in effects {
+                for h in ops {
+                    let mut h_ctx = TypeCheckCtx::new();
+                    h_ctx.return_type = Some(ret_tv.clone());
+                    infer_stmt(ast, h, env, subst, &mut h_ctx, table)?;
+                }
+            }
+            ret_tv
+        }
+
+        MetaExpr::RunWith { body, handler_name } => {
+            let ret_tv = Type::Var(env.fresh());
+            let mut body_ctx = TypeCheckCtx::new();
+            body_ctx.return_type = Some(ret_tv.clone());
+            infer_stmt(ast, body, env, subst, &mut body_ctx, table)?;
+            // Find and type-check the handler's ops
+            let handler_ops: Vec<usize> = ast.sem_root_stmts.iter()
+                .filter_map(|&id| {
+                    if let Some(MetaStmt::HandlerDef { name, ops, .. }) = ast.get_stmt(id) {
+                        if name == &handler_name { Some(ops.clone()) } else { None }
+                    } else { None }
+                })
+                .flatten()
+                .collect();
+            for h in handler_ops {
+                let mut h_ctx = TypeCheckCtx::new();
+                h_ctx.return_type = Some(ret_tv.clone());
+                infer_stmt(ast, h, env, subst, &mut h_ctx, table)?;
+            }
+            ret_tv
         }
     };
 
@@ -667,6 +718,7 @@ fn infer_stmt_impl(
         | MetaStmt::ImplDecl { .. }
         | MetaStmt::WithFn { .. }
         | MetaStmt::WithCtl { .. }
+        | MetaStmt::HandlerDef { .. }
         | MetaStmt::Resume(_) => unit_type(),
     };
 

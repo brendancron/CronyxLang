@@ -1,0 +1,5 @@
+fn map_val(x: int, f: fn(int): int): int {
+    return f(x);
+}
+print(map_val(3) { x -> x * x });
+print(map_val(5) { it + 1 });

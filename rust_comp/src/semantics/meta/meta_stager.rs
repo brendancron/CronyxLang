@@ -258,6 +258,37 @@ pub fn process_expr(
                 body: body_id,
             });
         }
+
+        MetaExpr::ResumeExpr(opt_expr) => {
+            let opt_id = opt_expr
+                .map(|e| process_expr(meta_ast, e, staged_ast, id_provider, dependency_set, staged_forest, type_env))
+                .transpose()?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::ResumeExpr(opt_id));
+        }
+
+        MetaExpr::RunHandle { body, effects } => {
+            let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let mut staged_effects: Vec<(String, Vec<usize>)> = Vec::new();
+            for (eff_name, ops) in effects {
+                let op_ids: Result<Vec<usize>, _> = ops
+                    .iter()
+                    .map(|&s| process_stmt(meta_ast, s, staged_ast, id_provider, dependency_set, staged_forest, type_env))
+                    .collect();
+                staged_effects.push((eff_name.clone(), op_ids?));
+            }
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::RunHandle {
+                body: body_id,
+                effects: staged_effects,
+            });
+        }
+
+        MetaExpr::RunWith { body, handler_name } => {
+            let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::RunWith {
+                body: body_id,
+                handler_name: handler_name.clone(),
+            });
+        }
     };
     Ok(staged_expr_id)
 }
@@ -512,6 +543,18 @@ pub fn process_stmt(
                 params: params.clone(),
                 ret_ty: ret_ty.clone(),
                 body: body_id,
+            });
+        }
+
+        MetaStmt::HandlerDef { name, effect_name, ops } => {
+            let op_ids: Result<Vec<usize>, _> = ops
+                .iter()
+                .map(|&s| process_stmt(meta_ast, s, staged_ast, id_provider, dependency_set, staged_forest, type_env))
+                .collect();
+            staged_ast.insert_stmt(staged_stmt_id, StagedStmt::HandlerDef {
+                name: name.clone(),
+                effect_name: effect_name.clone(),
+                ops: op_ids?,
             });
         }
 

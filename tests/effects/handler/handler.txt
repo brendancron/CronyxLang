@@ -1,0 +1,2 @@
+From inline handler: Hello, Brendan
+From handler definition: Hello, Brendan

@@ -262,7 +262,8 @@ impl<'a> SubstCtx<'a> {
                 object: self.remap_expr(*object),
                 index: *index,
             },
-            _ => expr.clone(), // Int, String, Bool
+            RuntimeExpr::ResumeExpr(opt) => RuntimeExpr::ResumeExpr(opt.map(|id| self.remap_expr(id))),
+            _ => expr.clone(), // Int, String, Bool, Unit, Lambda
         }
     }
 

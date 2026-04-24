@@ -1,0 +1,5 @@
+fn combine(a: int, b: int, f: fn(int, int): int): int {
+    return f(a, b);
+}
+print(combine(3, 4) { x, y -> x + y });
+print(combine(10, 3) { x, y -> x - y });

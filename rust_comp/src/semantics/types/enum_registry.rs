@@ -41,7 +41,17 @@ impl EnumRegistry {
                         payload: resolve_payload(&v.payload),
                     })
                     .collect();
-                registry.enums.insert(name.clone(), resolved);
+                if let Some(existing) = registry.enums.get(name.as_str()) {
+                    // Duplicate EnumDecl (e.g. from module re-imports). Identical
+                    // definitions are fine; conflicting ones indicate a compiler bug.
+                    debug_assert_eq!(
+                        existing.iter().map(|v| &v.name).collect::<Vec<_>>(),
+                        resolved.iter().map(|v| &v.name).collect::<Vec<_>>(),
+                        "EnumRegistry: conflicting EnumDecl for `{name}`"
+                    );
+                } else {
+                    registry.enums.insert(name.clone(), resolved);
+                }
             }
         }
         registry

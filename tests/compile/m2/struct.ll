@@ -11,6 +11,8 @@ declare ptr @malloc(i64)
 
 declare void @free(ptr)
 
+declare void @abort()
+
 define i64 @distance_sq(ptr %0) {
 entry:
   %p = alloca ptr, align 8

@@ -3,9 +3,32 @@ source_filename = "cronyx"
 
 @fmt_int = private constant [6 x i8] c"%lld\0A\00"
 @fmt_str = private constant [4 x i8] c"%s\0A\00"
+@fmt_int_bare = private constant [5 x i8] c"%lld\00"
 @.str.0 = private constant [10 x i8] c"Blastoff!\00"
 
 declare i32 @printf(ptr, ...)
+
+declare ptr @malloc(i64)
+
+declare void @free(ptr)
+
+declare i64 @strlen(ptr)
+
+declare ptr @strcpy(ptr, ptr)
+
+declare ptr @strcat(ptr, ptr)
+
+declare i32 @strcmp(ptr, ptr)
+
+declare ptr @strstr(ptr, ptr)
+
+declare i32 @sprintf(ptr, ptr, ...)
+
+declare ptr @memcpy(ptr, ptr, i64)
+
+declare i64 @atoll(ptr)
+
+declare void @abort()
 
 define i64 @count_down(i64 %0) {
 entry:

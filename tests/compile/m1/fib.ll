@@ -5,6 +5,8 @@ source_filename = "cronyx"
 
 declare i32 @printf(ptr, ...)
 
+declare void @abort()
+
 define i64 @fib(i64 %0) {
 entry:
   %n = alloca i64, align 8

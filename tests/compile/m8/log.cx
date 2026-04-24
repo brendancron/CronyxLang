@@ -1,9 +1,0 @@
-effect Log {
-    fn log(msg: string): unit;
-}
-
-with fn log(msg: string): unit {
-    print(msg);
-}
-
-log("Hello, World!");

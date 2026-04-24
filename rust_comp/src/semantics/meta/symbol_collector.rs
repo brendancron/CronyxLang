@@ -111,7 +111,7 @@ fn collect_stmt_symbols(
         }
         StagedStmt::MetaStmt(_) | StagedStmt::Import(_) => {}
         StagedStmt::EnumDecl { name, .. } => { declares.insert(name.clone()); }
-        StagedStmt::EffectDecl { .. } | StagedStmt::Resume(_) => {}
+        StagedStmt::EffectDecl { .. } | StagedStmt::Resume(_) | StagedStmt::HandlerDef { .. } => {}
         StagedStmt::WithFn { body, .. } | StagedStmt::WithCtl { body, .. } => {
             collect_stmt_symbols(ast, *body, declares, uses, in_gen);
         }
@@ -191,6 +191,18 @@ fn collect_expr_symbols(
             if let Some(e) = end { collect_expr_symbols(ast, *e, declares, uses, in_gen); }
         }
         StagedExpr::Lambda { .. } => {}
+        StagedExpr::ResumeExpr(opt_id) => {
+            if let Some(id) = opt_id { collect_expr_symbols(ast, *id, declares, uses, in_gen); }
+        }
+        StagedExpr::RunHandle { body, effects } => {
+            collect_stmt_symbols(ast, *body, declares, uses, in_gen);
+            for (_, ops) in effects {
+                for &h in ops { collect_stmt_symbols(ast, h, declares, uses, in_gen); }
+            }
+        }
+        StagedExpr::RunWith { body, .. } => {
+            collect_stmt_symbols(ast, *body, declares, uses, in_gen);
+        }
         StagedExpr::Int(_) | StagedExpr::String(_) | StagedExpr::Bool(_)
         | StagedExpr::MetaExpr(_) => {}
         StagedExpr::EnumConstructor { payload, .. } => {

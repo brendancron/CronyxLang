@@ -1,0 +1,8 @@
+fn foreach(xs: [int], f: fn(int): unit) {
+    var i = 0;
+    while (i < xs.len()) {
+        f(xs[i]);
+        i += 1;
+    }
+}
+foreach([1, 2, 3]) { print(it); };

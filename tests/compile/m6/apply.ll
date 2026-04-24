@@ -11,6 +11,8 @@ declare ptr @malloc(i64)
 
 declare void @free(ptr)
 
+declare void @abort()
+
 define i64 @__lambda_9(ptr %0, i64 %1) {
 entry:
   %x = alloca i64, align 8

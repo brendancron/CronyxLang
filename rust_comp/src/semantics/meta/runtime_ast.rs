@@ -17,6 +17,11 @@ pub struct RuntimeAst {
     /// Used by the interpreter to dispatch binary operators (+, -, *, /, ==) on user-defined types.
     /// Populated from operator trait impls (impl Add for T, impl Eq for T, etc.).
     pub op_dispatch: HashMap<(String, String), String>,
+
+    /// Lines printed by meta-block `print` statements during compile-time evaluation.
+    /// Codegen emits these as printf calls at the very start of main(), before all
+    /// runtime statements, replicating the interpreter's "meta first" execution order.
+    pub meta_prints: Vec<String>,
 }
 
 impl RuntimeAst {
@@ -27,6 +32,7 @@ impl RuntimeAst {
             stmts: HashMap::new(),
             impl_registry: HashMap::new(),
             op_dispatch: HashMap::new(),
+            meta_prints: vec![],
         }
     }
 
@@ -110,6 +116,7 @@ impl RuntimeAst {
                     body: remap_stmt(*body),
                 },
                 RuntimeExpr::Unit => RuntimeExpr::Unit,
+                RuntimeExpr::ResumeExpr(opt) => RuntimeExpr::ResumeExpr(opt.map(|id| remap_expr(id))),
                 RuntimeExpr::StructLiteral { type_name, fields } => {
                     RuntimeExpr::StructLiteral {
                         type_name: type_name.clone(),
@@ -248,9 +255,10 @@ impl RuntimeAst {
             out.insert_stmt(remap_stmt(*old_id), new_stmt);
         }
 
-        // impl_registry and op_dispatch store string names — IDs are not embedded, so copy as-is.
+        // impl_registry, op_dispatch, and meta_prints store string names — IDs are not embedded, so copy as-is.
         out.impl_registry = self.impl_registry.clone();
         out.op_dispatch = self.op_dispatch.clone();
+        out.meta_prints = self.meta_prints.clone();
 
         out
     }
@@ -343,6 +351,10 @@ pub enum RuntimeExpr {
     /// The unit value literal, used as the argument to `__k` at the end of a CPS
     /// function body that has no explicit return.
     Unit,
+
+    /// `resume` or `resume(expr)` used as an expression.
+    /// In CPS mode: calls the active continuation and returns its result.
+    ResumeExpr(Option<usize>),
 }
 
 #[derive(Debug, Clone)]
@@ -752,6 +764,10 @@ impl RuntimeAst {
             ),
 
             RuntimeExpr::Unit => ("Unit".into(), vec![]),
+            RuntimeExpr::ResumeExpr(opt) => (
+                "ResumeExpr".into(),
+                opt.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
+            ),
         };
 
         children.insert(0, TreeNode::leaf(format!("id: {id}")));

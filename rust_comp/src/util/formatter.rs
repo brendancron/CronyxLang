@@ -130,7 +130,9 @@ impl<'a> Formatter<'a> {
                 format!("{}for ({} in {}) {}", self.pad(), var, iter_str, body_str)
             }
 
-            RuntimeStmt::Block(stmts) => self.fmt_block_stmts(&stmts),
+            RuntimeStmt::Block(stmts) => {
+                format!("{}{}", self.pad(), self.fmt_block_stmts(&stmts))
+            }
 
             RuntimeStmt::Match { scrutinee, arms } => {
                 let scrutinee_str = self.fmt_expr(scrutinee);
@@ -210,7 +212,14 @@ impl<'a> Formatter<'a> {
             RuntimeExpr::Variable(name) => name,
 
             RuntimeExpr::Add(a, b) => format!("{} + {}", self.fmt_expr(a), self.fmt_expr(b)),
-            RuntimeExpr::Sub(a, b) => format!("{} - {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Sub(a, b) => {
+                // Unary minus is stored as Sub(Int(0), operand) — render as -operand
+                if matches!(self.ast.get_expr(a), Some(RuntimeExpr::Int(0))) {
+                    format!("-{}", self.fmt_expr(b))
+                } else {
+                    format!("{} - {}", self.fmt_expr(a), self.fmt_expr(b))
+                }
+            }
             RuntimeExpr::Mult(a, b) => format!("{} * {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Div(a, b) => format!("{} / {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Equals(a, b) => format!("{} == {}", self.fmt_expr(a), self.fmt_expr(b)),
@@ -318,6 +327,11 @@ impl<'a> Formatter<'a> {
             }
 
             RuntimeExpr::Unit => "unit".to_string(),
+
+            RuntimeExpr::ResumeExpr(opt) => match opt {
+                None => "resume".to_string(),
+                Some(e) => format!("resume({})", self.fmt_expr(e)),
+            },
         }
     }
 }

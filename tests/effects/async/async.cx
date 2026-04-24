@@ -1,0 +1,39 @@
+effect sched {
+    ctl spawn(task: fn(): unit): unit;
+    ctl tick(): unit;
+}
+
+var queue = [];
+
+fn dequeue() {
+    if (queue.len() > 0) {
+        var next = queue[0];
+        queue = queue[1:];
+        next();
+    }
+}
+
+fn counter(name: string) {
+    for (var i = 0; i < 10; i += 1) {
+        print(name + ": " + to_string(i));
+        tick();
+    }
+}
+
+run {
+    spawn(fn() { counter("A"); });
+    spawn(fn() { counter("B"); });
+    dequeue();
+} handle sched {
+    ctl spawn(task) {
+        queue.push {
+            task();
+            dequeue();
+        };
+        resume;
+    }
+    ctl tick() {
+        queue.push { resume; };
+        dequeue();
+    }
+}

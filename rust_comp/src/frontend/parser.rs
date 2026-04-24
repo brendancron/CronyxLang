@@ -42,7 +42,9 @@ fn parse_effect_decl(
         } else {
             None
         };
-        consume(tokens, pos, TokenType::Semicolon)?;
+        if check(tokens, *pos, TokenType::Semicolon) {
+            *pos += 1;
+        }
         ops.push(EffectOp { kind, name: op_name, params, ret_ty });
     }
     consume(tokens, pos, TokenType::RightBrace)?;
@@ -51,18 +53,22 @@ fn parse_effect_decl(
     Ok(id)
 }
 
-/// Parse `with fn op(params): ret { body }` or `with ctl op(params): ret { body }`
-fn parse_with_handler(
+/// Parse `ctl op(params): ret { body }` or `fn op(params): ret { body }` (no leading `with`).
+fn parse_single_handler(
     tokens: &[Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
 ) -> Result<usize, ParseError> {
-    consume(tokens, pos, TokenType::With)?;
-
     let is_ctl = match tokens.get(*pos).map(|t| t.token_type) {
         Some(TokenType::Ctl) => { *pos += 1; true }
         Some(TokenType::Func) => { *pos += 1; false }
-        _ => false,
+        _ => {
+            let (found, line, col) = match tokens.get(*pos) {
+                Some(t) => (t.token_type, t.line_number, t.col),
+                None => return Err(ParseError::UnexpectedEOF { expected: TokenType::Ctl }),
+            };
+            return Err(ParseError::UnexpectedToken { found, expected: TokenType::Ctl, line, col });
+        }
     };
 
     let op_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
@@ -96,6 +102,7 @@ fn parse_with_handler(
     Ok(id)
 }
 
+
 /// Parse `resume` or `resume expr`
 fn parse_resume(
     tokens: &[Token],
@@ -123,6 +130,9 @@ pub struct ParseCtx {
     pub id_provider: IdProvider,
     /// Maps AST node ID → (line, col) of the first token of that node.
     pub span_table: HashMap<usize, (usize, usize)>,
+    /// When false, `name { }` no-paren trailing lambda is suppressed.
+    /// Set to false for match scrutinees to avoid consuming the match body.
+    pub allow_trailing_brace: bool,
 }
 
 impl ParseCtx {
@@ -131,6 +141,7 @@ impl ParseCtx {
             ast: MetaAst::new(),
             id_provider: IdProvider::new(),
             span_table: HashMap::new(),
+            allow_trailing_brace: true,
         }
     }
 
@@ -165,6 +176,123 @@ pub enum ParseError {
 
 fn tok_loc(tokens: &[Token], pos: usize) -> Option<(usize, usize)> {
     tokens.get(pos).map(|t| (t.line_number, t.col))
+}
+
+// ---------------------------------------------------------------------------
+// Trailing lambda helpers
+// ---------------------------------------------------------------------------
+
+/// Peek from `brace_pos` (pointing at `{`) to detect explicit params before `->`.
+/// Returns `Some(params)` if pattern `{ (ident (,ident)*)? ->` is found.
+/// Returns `None` if no `->` found — caller should use implicit `it`.
+fn peek_trailing_lambda_params(tokens: &[Token], brace_pos: usize) -> Option<Vec<String>> {
+    let mut i = brace_pos + 1; // skip `{`
+    let mut params: Vec<String> = Vec::new();
+
+    match tokens.get(i).map(|t| t.token_type) {
+        Some(TokenType::Arrow) => return Some(vec![]), // `{ -> body }`
+        Some(TokenType::Identifier) => {
+            params.push(tokens[i].expect_str());
+            i += 1;
+        }
+        _ => return None, // implicit `it`
+    }
+
+    loop {
+        match tokens.get(i).map(|t| t.token_type) {
+            Some(TokenType::Arrow) => return Some(params),
+            Some(TokenType::Comma) => {
+                i += 1;
+                if matches!(tokens.get(i).map(|t| t.token_type), Some(TokenType::Identifier)) {
+                    params.push(tokens[i].expect_str());
+                    i += 1;
+                } else {
+                    return None;
+                }
+            }
+            _ => return None, // not a valid param list → implicit `it`
+        }
+    }
+}
+
+/// Parse the body of a trailing lambda: statements with `;`, but a bare final expression
+/// (no `;` before `}`) is wrapped as an implicit `Return` so the value propagates.
+fn parse_lambda_body<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    let mut stmts = Vec::new();
+
+    while *pos < tokens.len() && tokens[*pos].token_type != TokenType::RightBrace {
+        let is_stmt_kw = matches!(
+            tokens.get(*pos).map(|t| t.token_type),
+            Some(
+                TokenType::Var  | TokenType::If    | TokenType::While  | TokenType::Return |
+                TokenType::Func | TokenType::For   | TokenType::Defer  | TokenType::Effect |
+                TokenType::Impl | TokenType::Trait | TokenType::Enum   | TokenType::Struct |
+                TokenType::Print| TokenType::Match | TokenType::Handle |
+                TokenType::Run  | TokenType::Handler
+            )
+        );
+
+        if is_stmt_kw {
+            stmts.push(parse_stmt(tokens, pos, ctx)?);
+        } else {
+            let start_loc = tok_loc(tokens, *pos);
+            let expr = parse_expr(tokens, pos, ctx)?;
+            if check(tokens, *pos, TokenType::RightBrace) {
+                // Bare final expression → implicit return
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Return(Some(expr)));
+                ctx.record_span(id, start_loc);
+                stmts.push(id);
+            } else {
+                consume(tokens, pos, TokenType::Semicolon)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::ExprStmt(expr));
+                ctx.record_span(id, start_loc);
+                stmts.push(id);
+            }
+        }
+    }
+
+    let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Block(stmts));
+    Ok(id)
+}
+
+/// Parse `{ (params ->)? body }` as a `Lambda` expression (trailing lambda desugaring).
+/// If no `params ->` is found, inserts implicit `it` as the single parameter.
+fn parse_trailing_lambda_block<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<usize, ParseError> {
+    let start_loc = tok_loc(tokens, *pos);
+    let explicit_params = peek_trailing_lambda_params(tokens, *pos);
+
+    consume(tokens, pos, TokenType::LeftBrace)?;
+
+    let params = if let Some(explicit) = explicit_params {
+        let mut result = Vec::new();
+        let mut first = true;
+        for _ in 0..explicit.len() {
+            if !first {
+                consume(tokens, pos, TokenType::Comma)?;
+            }
+            first = false;
+            result.push(consume(tokens, pos, TokenType::Identifier)?.expect_str());
+        }
+        consume(tokens, pos, TokenType::Arrow)?;
+        result
+    } else {
+        vec!["it".to_string()]
+    };
+
+    let body = parse_lambda_body(tokens, pos, ctx)?;
+    consume(tokens, pos, TokenType::RightBrace)?;
+
+    let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lambda { params, body });
+    ctx.record_span(id, start_loc);
+    Ok(id)
 }
 
 fn peek(tokens: &[Token], pos: usize) -> Option<TokenType> {
@@ -204,6 +332,30 @@ fn consume_next<'a>(tokens: &'a [Token], pos: &mut usize) -> &'a Token {
         .expect("internal error: consume_next out of bounds");
     *pos += 1;
     tok
+}
+
+/// Consume the next token as a field/method name in dot-access position.
+/// Allows keywords (like `run`) to be used as method names: `obj.run()`.
+fn consume_field_name(tokens: &[Token], pos: &mut usize) -> Result<String, ParseError> {
+    match tokens.get(*pos) {
+        Some(t) => {
+            let name = match t.token_type {
+                TokenType::Identifier => t.expect_str(),
+                TokenType::Run => "run".to_string(),
+                _ => {
+                    return Err(ParseError::UnexpectedToken {
+                        found: t.token_type,
+                        expected: TokenType::Identifier,
+                        line: t.line_number,
+                        col: t.col,
+                    });
+                }
+            };
+            *pos += 1;
+            Ok(name)
+        }
+        None => Err(ParseError::UnexpectedEOF { expected: TokenType::Identifier }),
+    }
 }
 
 fn parse_type_annot(tokens: &[Token], pos: &mut usize) -> Option<String> {
@@ -499,7 +651,7 @@ fn parse_factor<'a>(
 
                 if check(tokens, *pos, TokenType::LeftParen) {
                     consume(tokens, pos, TokenType::LeftParen)?;
-                    let args = parse_separated(
+                    let mut args = parse_separated(
                         tokens,
                         pos,
                         ctx,
@@ -508,6 +660,12 @@ fn parse_factor<'a>(
                         parse_expr,
                     )?;
                     consume(tokens, pos, TokenType::RightParen)?;
+
+                    // Trailing lambda: foo(args) { params -> body }
+                    if check(tokens, *pos, TokenType::LeftBrace) {
+                        let lambda = parse_trailing_lambda_block(tokens, pos, ctx)?;
+                        args.push(lambda);
+                    }
 
                     let id = ctx
                         .ast
@@ -542,6 +700,15 @@ fn parse_factor<'a>(
                         fields,
                     };
                     let id = ctx.ast.insert_expr(&mut ctx.id_provider, struct_literal);
+                    ctx.record_span(id, start_loc);
+                    Ok(id)
+                } else if ctx.allow_trailing_brace && check(tokens, *pos, TokenType::LeftBrace) {
+                    // Trailing lambda, no parens: foo { params -> body }
+                    let lambda = parse_trailing_lambda_block(tokens, pos, ctx)?;
+                    let id = ctx.ast.insert_expr(
+                        &mut ctx.id_provider,
+                        MetaExpr::Call { callee: name, args: vec![lambda] },
+                    );
                     ctx.record_span(id, start_loc);
                     Ok(id)
                 } else {
@@ -600,6 +767,66 @@ fn parse_factor<'a>(
                 Ok(id)
             }
 
+            // `resume` or `resume(expr)` used as an expression
+            TokenType::Resume => {
+                consume(tokens, pos, TokenType::Resume)?;
+                let opt_expr = if check(tokens, *pos, TokenType::LeftParen) {
+                    consume(tokens, pos, TokenType::LeftParen)?;
+                    if check(tokens, *pos, TokenType::RightParen) {
+                        consume(tokens, pos, TokenType::RightParen)?;
+                        None
+                    } else {
+                        let e = parse_expr(tokens, pos, ctx)?;
+                        consume(tokens, pos, TokenType::RightParen)?;
+                        Some(e)
+                    }
+                } else {
+                    None
+                };
+                let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::ResumeExpr(opt_expr));
+                ctx.record_span(id, start_loc);
+                Ok(id)
+            }
+
+            // `run { body } handle eff_name { ops } ...`
+            TokenType::Run => {
+                consume(tokens, pos, TokenType::Run)?;
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let body_block = parse_block(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let mut effects: Vec<(String, Vec<usize>)> = Vec::new();
+                while check(tokens, *pos, TokenType::Handle) {
+                    *pos += 1; // consume `handle`
+                    let eff_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    consume(tokens, pos, TokenType::LeftBrace)?;
+                    let mut ops = Vec::new();
+                    while !check(tokens, *pos, TokenType::RightBrace) && !check(tokens, *pos, TokenType::EOF) {
+                        ops.push(parse_single_handler(tokens, pos, ctx)?);
+                    }
+                    consume(tokens, pos, TokenType::RightBrace)?;
+                    effects.push((eff_name, ops));
+                }
+                // `run { body } with handler_name` — named handler
+                if check(tokens, *pos, TokenType::With)
+                    && tokens.get(*pos + 1).map(|t| t.token_type) == Some(TokenType::Identifier)
+                {
+                    *pos += 1; // consume `with`
+                    let handler_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::RunWith {
+                        body: body_block,
+                        handler_name,
+                    });
+                    ctx.record_span(id, start_loc);
+                    return Ok(id);
+                }
+                let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::RunHandle {
+                    body: body_block,
+                    effects,
+                });
+                ctx.record_span(id, start_loc);
+                Ok(id)
+            }
+
             // Lambda expression: `fn(params): ReturnType { body }`
             TokenType::Func => {
                 consume_next(tokens, pos); // consume `fn`
@@ -652,18 +879,43 @@ fn parse_postfix<'a>(
                 ctx.copy_span(prev, base);
                 continue;
             }
-            let field = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+            let field = consume_field_name(tokens, pos)?;
             if check(tokens, *pos, TokenType::LeftParen) {
                 consume(tokens, pos, TokenType::LeftParen)?;
-                let args = parse_separated(
+                let mut args = parse_separated(
                     tokens, pos, ctx,
                     TokenType::Comma, TokenType::RightParen, parse_expr,
                 )?;
                 consume(tokens, pos, TokenType::RightParen)?;
+
+                // Trailing lambda: obj.method(args) { params -> body }
+                if check(tokens, *pos, TokenType::LeftBrace) {
+                    let lambda = parse_trailing_lambda_block(tokens, pos, ctx)?;
+                    args.push(lambda);
+                }
+
                 let prev = base;
                 base = ctx.ast.insert_expr(
                     &mut ctx.id_provider,
                     MetaExpr::DotCall { object: base, method: field, args },
+                );
+                ctx.copy_span(prev, base);
+            } else if check(tokens, *pos, TokenType::LeftBrace) {
+                // No-parens trailing block: obj.method { block } → DotCall([fn() { block }])
+                // Uses zero params (thunk) rather than the implicit `it` param from trailing_lambda.
+                let lam_start = tok_loc(tokens, *pos);
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let lam_body = parse_lambda_body(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let lambda = ctx.ast.insert_expr(
+                    &mut ctx.id_provider,
+                    MetaExpr::Lambda { params: vec![], body: lam_body },
+                );
+                ctx.record_span(lambda, lam_start);
+                let prev = base;
+                base = ctx.ast.insert_expr(
+                    &mut ctx.id_provider,
+                    MetaExpr::DotCall { object: base, method: field, args: vec![lambda] },
                 );
                 ctx.copy_span(prev, base);
             } else {
@@ -1058,7 +1310,7 @@ fn parse_stmt<'a>(
 
             TokenType::Func => {
                 consume(tokens, pos, TokenType::Func)?;
-                let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                let name = consume_field_name(tokens, pos)?;
                 let type_params = parse_type_params(tokens, pos);
 
                 consume(tokens, pos, TokenType::LeftParen)?;
@@ -1208,7 +1460,9 @@ fn parse_stmt<'a>(
 
             TokenType::Match => {
                 consume(tokens, pos, TokenType::Match)?;
+                ctx.allow_trailing_brace = false;
                 let scrutinee = parse_expr(tokens, pos, ctx)?;
+                ctx.allow_trailing_brace = true;
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let mut arms = Vec::new();
                 while !check(tokens, *pos, TokenType::RightBrace) {
@@ -1226,7 +1480,56 @@ fn parse_stmt<'a>(
 
             TokenType::Effect => parse_effect_decl(tokens, pos, ctx),
 
-            TokenType::With => parse_with_handler(tokens, pos, ctx),
+            // `run { body } handle ... {}` used as a statement — semicolon optional.
+            TokenType::Run => {
+                let expr = parse_expr(tokens, pos, ctx)?;
+                if check(tokens, *pos, TokenType::Semicolon) {
+                    *pos += 1;
+                }
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::ExprStmt(expr));
+                ctx.record_span(id, start_loc);
+                Ok(id)
+            }
+
+            // `handler name : effect_name { ops }` — named handler definition
+            TokenType::Handler => {
+                consume(tokens, pos, TokenType::Handler)?;
+                let name = consume_field_name(tokens, pos)?;
+                consume(tokens, pos, TokenType::Colon)?;
+                let effect_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let mut ops = Vec::new();
+                while !check(tokens, *pos, TokenType::RightBrace) && !check(tokens, *pos, TokenType::EOF) {
+                    ops.push(parse_single_handler(tokens, pos, ctx)?);
+                }
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::HandlerDef {
+                    name,
+                    effect_name: Some(effect_name),
+                    ops,
+                });
+                ctx.record_span(id, start_loc);
+                Ok(id)
+            }
+
+            // `handle name { ops }` — HandlerDef statement
+            TokenType::Handle => {
+                consume(tokens, pos, TokenType::Handle)?;
+                let name = consume_field_name(tokens, pos)?;
+                consume(tokens, pos, TokenType::LeftBrace)?;
+                let mut ops = Vec::new();
+                while !check(tokens, *pos, TokenType::RightBrace) && !check(tokens, *pos, TokenType::EOF) {
+                    ops.push(parse_single_handler(tokens, pos, ctx)?);
+                }
+                consume(tokens, pos, TokenType::RightBrace)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::HandlerDef {
+                    name,
+                    effect_name: None,
+                    ops,
+                });
+                ctx.record_span(id, start_loc);
+                Ok(id)
+            }
 
             TokenType::Resume => parse_resume(tokens, pos, ctx),
 

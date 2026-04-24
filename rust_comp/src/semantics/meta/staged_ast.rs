@@ -125,6 +125,21 @@ pub enum StagedExpr {
         body: usize,
     },
 
+    /// `resume` or `resume(expr)` as an expression.
+    ResumeExpr(Option<usize>),
+
+    /// `run { body } handle eff1 { ops } handle eff2 { ops } ...`
+    RunHandle {
+        body: usize,
+        effects: Vec<(String, Vec<usize>)>,
+    },
+
+    /// `run { body } with handler_name`
+    RunWith {
+        body: usize,
+        handler_name: String,
+    },
+
     MetaExpr(MetaRef),
 }
 
@@ -205,6 +220,12 @@ pub enum StagedStmt {
     EffectDecl {
         name: String,
         ops: Vec<EffectOp>,
+    },
+
+    HandlerDef {
+        name: String,
+        effect_name: Option<String>,
+        ops: Vec<usize>,
     },
 
     WithFn {
@@ -398,6 +419,11 @@ impl StagedAst {
                 vec![TreeNode::leaf(format!("Op({op_name})")), self.convert_stmt(*body)],
             ),
 
+            StagedStmt::HandlerDef { name, effect_name, ops } => (
+                format!("HandlerDef({}{})", name, effect_name.as_deref().map(|e| format!(":{e}")).unwrap_or_default()),
+                ops.iter().map(|&s| self.convert_stmt(s)).collect(),
+            ),
+
             StagedStmt::Resume(opt_expr) => (
                 "Resume".into(),
                 opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
@@ -539,6 +565,20 @@ impl StagedAst {
             StagedExpr::MetaExpr(meta_ref) => (
                 "MetaRef".into(),
                 vec![TreeNode::leaf(meta_ref.ast_ref.to_string())],
+            ),
+            StagedExpr::ResumeExpr(opt) => (
+                "ResumeExpr".into(),
+                opt.map(|e| vec![self.convert_expr(e)]).unwrap_or_default(),
+            ),
+            StagedExpr::RunHandle { body, effects } => (
+                "RunHandle".into(),
+                std::iter::once(self.convert_stmt(*body))
+                    .chain(effects.iter().flat_map(|(_, stmts)| stmts.iter().map(|&s| self.convert_stmt(s))))
+                    .collect(),
+            ),
+            StagedExpr::RunWith { body, handler_name } => (
+                format!("RunWith({})", handler_name),
+                vec![self.convert_stmt(*body)],
             ),
         };
 

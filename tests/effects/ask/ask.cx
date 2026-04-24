@@ -1,0 +1,15 @@
+effect ask {
+    fn ask(): int;
+}
+
+fn double() {
+    return ask() * 2;
+}
+
+run {
+    print(double());
+} handle ask {
+    fn ask() {
+        return 21;
+    }
+}

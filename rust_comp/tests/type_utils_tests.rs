@@ -1,4 +1,3 @@
-#![cfg(any())] // disabled: type modules temporarily removed
 use cronyx::semantics::types::type_env::*;
 use cronyx::semantics::types::type_utils::*;
 use cronyx::semantics::types::types::*;
@@ -26,7 +25,7 @@ mod type_utils_tests {
 
         #[test]
         fn free_vars_function() {
-            let t = Type::Func {
+            let t = Type::Func { effects: EffectRow::empty(),
                 params: vec![type_var(0), type_var(1)],
                 ret: Box::new(type_var(0)),
             };
@@ -37,7 +36,7 @@ mod type_utils_tests {
 
         #[test]
         fn free_vars_mono_scheme() {
-            let scheme = TypeScheme::MonoType(Type::Func {
+            let scheme = TypeScheme::MonoType(Type::Func { effects: EffectRow::empty(),
                 params: vec![type_var(0)],
                 ret: Box::new(type_var(1)),
             });
@@ -50,7 +49,7 @@ mod type_utils_tests {
         fn free_vars_poly_scheme_removes_quantified() {
             let scheme = TypeScheme::PolyType {
                 vars: vec![TypeVar { id: 0 }],
-                ty: Type::Func {
+                ty: Type::Func { effects: EffectRow::empty(),
                     params: vec![type_var(0)],
                     ret: Box::new(type_var(1)),
                 },
@@ -73,7 +72,7 @@ mod type_utils_tests {
 
             env.bind(
                 "x",
-                TypeScheme::MonoType(Type::Func {
+                TypeScheme::MonoType(Type::Func { effects: EffectRow::empty(),
                     params: vec![type_var(0)],
                     ret: Box::new(type_var(1)),
                 }),
@@ -91,7 +90,7 @@ mod type_utils_tests {
                 "id",
                 TypeScheme::PolyType {
                     vars: vec![TypeVar { id: 0 }],
-                    ty: Type::Func {
+                    ty: Type::Func { effects: EffectRow::empty(),
                         params: vec![type_var(0)],
                         ret: Box::new(type_var(0)),
                     },
@@ -110,7 +109,7 @@ mod type_utils_tests {
                 "id",
                 TypeScheme::PolyType {
                     vars: vec![TypeVar { id: 0 }],
-                    ty: Type::Func {
+                    ty: Type::Func { effects: EffectRow::empty(),
                         params: vec![type_var(0)],
                         ret: Box::new(type_var(0)),
                     },
@@ -119,7 +118,7 @@ mod type_utils_tests {
 
             env.bind(
                 "f",
-                TypeScheme::MonoType(Type::Func {
+                TypeScheme::MonoType(Type::Func { effects: EffectRow::empty(),
                     params: vec![type_var(1)],
                     ret: Box::new(int_type()),
                 }),
@@ -167,7 +166,7 @@ mod type_utils_tests {
         fn generalize_simple_identity() {
             let env = TypeEnv::new();
 
-            let ty = Type::Func {
+            let ty = Type::Func { effects: EffectRow::empty(),
                 params: vec![type_var(0)],
                 ret: Box::new(type_var(0)),
             };
@@ -189,7 +188,7 @@ mod type_utils_tests {
 
             env.bind("x", TypeScheme::MonoType(type_var(0)));
 
-            let ty = Type::Func {
+            let ty = Type::Func { effects: EffectRow::empty(),
                 params: vec![type_var(0)],
                 ret: Box::new(type_var(1)),
             };
@@ -224,10 +223,14 @@ mod type_utils_tests {
         #[test]
         fn instantiate_poly_freshens_vars() {
             let mut env = TypeEnv::new();
+            // Advance past id 0 so instantiate doesn't create a self-referential
+            // substitution (TypeVar { id: 0 } → TypeVar { id: 0 }).
+            // In production the env is always advanced past any quantified vars.
+            let _ = env.fresh();
 
             let scheme = TypeScheme::PolyType {
                 vars: vec![TypeVar { id: 0 }],
-                ty: Type::Func {
+                ty: Type::Func { effects: EffectRow::empty(),
                     params: vec![type_var(0)],
                     ret: Box::new(type_var(0)),
                 },
@@ -240,14 +243,8 @@ mod type_utils_tests {
 
             match (t1, t2) {
                 (
-                    Type::Func {
-                        params: p1,
-                        ret: r1,
-                    },
-                    Type::Func {
-                        params: p2,
-                        ret: r2,
-                    },
+                    Type::Func { params: p1, ret: r1, .. },
+                    Type::Func { params: p2, ret: r2, .. },
                 ) => {
                     assert_eq!(p1.len(), 1);
                     assert_eq!(p2.len(), 1);
@@ -262,8 +259,10 @@ mod type_utils_tests {
         #[test]
         fn generalize_then_instantiate_identity_twice() {
             let mut env = TypeEnv::new();
+            // Advance past id 0 — same reason as instantiate_poly_freshens_vars.
+            let _ = env.fresh();
 
-            let id_ty = Type::Func {
+            let id_ty = Type::Func { effects: EffectRow::empty(),
                 params: vec![type_var(0)],
                 ret: Box::new(type_var(0)),
             };

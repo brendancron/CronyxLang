@@ -1,0 +1,21 @@
+effect logic {
+    ctl choose(options): int;
+    ctl guard(cond): unit;
+}
+
+run {
+    var num = choose([1,2,3,4,5]);
+    guard(num == 3);
+    print(num);
+} handle logic {
+    ctl choose(options) {
+        for (x in options) {
+            resume x;
+        }
+    }
+    ctl guard(cond) {
+        if (cond) {
+            resume;
+        }
+    }
+}

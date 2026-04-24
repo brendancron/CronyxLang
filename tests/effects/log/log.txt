@@ -1,1 +1,2 @@
-Log: Hello, World!
+Hello, Brendan
+Log: Hello, Brendan

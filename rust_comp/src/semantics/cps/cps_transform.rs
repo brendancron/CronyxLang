@@ -48,6 +48,7 @@ fn transform_internal(ast: &mut RuntimeAst, info: &CpsInfo, convert_while_loops:
         ids: IdProvider::starting_from(max_id + 1),
         new_fndecls: Vec::new(),
         convert_while_loops,
+        current_k_name: "__k".to_string(), // overwritten per-function in transform_fn_decl
     };
 
     // Transform all CPS FnDecl bodies.
@@ -82,6 +83,14 @@ struct CpsTransform<'a> {
     /// helper functions. Set to false for the interpreter path, which handles
     /// ctl-in-loops via its existing replay-stack mechanism.
     convert_while_loops: bool,
+    /// The continuation parameter name for the CPS function currently being
+    /// transformed.  Set by `transform_fn_decl` to `"__k_<stmt_id>"` so that
+    /// every CPS function gets a *unique* k-name.  This prevents the closure
+    /// lambda `fn(r){ return __k_73(Maybe::Just(r)); }` from shadowing itself
+    /// when it is passed as the `__k_<other_id>` parameter of a callee CPS
+    /// function — which would cause infinite recursion at runtime because the
+    /// interpreter resolves free variables through the dynamic scope chain.
+    current_k_name: String,
 }
 
 struct CpsCall {
@@ -103,7 +112,11 @@ impl<'a> CpsTransform<'a> {
                 _ => return,
             };
 
-        params.push("__k".to_string());
+        // Use a unique k-name per function to prevent closures from shadowing
+        // each other when passed as __k arguments to other CPS functions.
+        let k_name = format!("__k_{}", stmt_id);
+        self.current_k_name = k_name.clone();
+        params.push(k_name);
 
         let stmts = match ast.get_stmt(body_id).unwrap().clone() {
             RuntimeStmt::Block(s) => s,
@@ -163,33 +176,80 @@ impl<'a> CpsTransform<'a> {
                 return result;
             }
 
+            // If statement whose condition IS a ctl op call → hoist condition into CPS.
+            // E.g. `if (flip()) { A } else { B }` becomes `flip(λ(__result) { if(__result) { A } else { B } })`.
+            if let Some(RuntimeStmt::If { cond, body, else_branch }) = ast.get_stmt(stmt_id) {
+                let (cond_id, body_id, else_id) = (*cond, *body, *else_branch);
+                if let Some(RuntimeExpr::Call { callee, args }) = ast.get_expr(cond_id) {
+                    if self.is_cps_callee(callee) {
+                        let callee = callee.clone();
+                        let ctl_args = args.clone();
+                        let suffix = stmts[i + 1..].to_vec();
+                        let replacement = self.transform_if_ctl_cond(
+                            ast, callee, ctl_args, body_id, else_id, suffix, is_cps_body,
+                        );
+                        result.extend(replacement);
+                        return result;
+                    }
+                }
+            }
+
             // Sequential CPS call → wrap rest as continuation lambda.
-            if let Some(call) = self.extract_cps_call(ast, stmt_id) {
-                let suffix = stmts[i + 1..].to_vec();
-                let suffix_transformed = self.transform_stmts(ast, suffix, is_cps_body);
+            //
+            // Two cases:
+            //   1. Inside a CPS body (is_cps_body = true): always wrap; emit as `return`.
+            //   2. At root level (is_cps_body = false): wrap only for non-handle-block
+            //      functions.  `__handle_N` wrappers generated for handle blocks need
+            //      identity injection (so the result is assigned to `var x = __handle_N()`
+            //      and the multi-shot flatmap can use resume's return value).  Direct
+            //      ctl-calling functions from old-style `with ctl` code (e.g. `find_matching`)
+            //      need wrapping so the suffix (like `print(result)`) becomes the terminal
+            //      continuation, triggering side-effects as the ctl ops resume.
+            let is_handle_callee = match ast.get_stmt(stmt_id) {
+                Some(RuntimeStmt::VarDecl { expr, .. }) | Some(RuntimeStmt::ExprStmt(expr)) => {
+                    matches!(ast.get_expr(*expr),
+                        Some(RuntimeExpr::Call { callee, .. }) if callee.starts_with("__handle_"))
+                }
+                _ => false,
+            };
+            let should_extract = is_cps_body || !is_handle_callee;
 
-                let body_stmts = if suffix_transformed.is_empty() && is_cps_body {
-                    // End of CPS function with no remaining statements: call __k(unit).
-                    vec![self.make_k_unit_call(ast)]
-                } else {
-                    suffix_transformed
-                };
+            if should_extract {
+                if let Some(call) = self.extract_cps_call(ast, stmt_id) {
+                    let suffix = stmts[i + 1..].to_vec();
+                    let suffix_transformed = self.transform_stmts(ast, suffix, is_cps_body);
 
-                let cont_param = call.binding.unwrap_or_else(|| "__".to_string());
-                let lambda_body = self.fresh_stmt(ast, RuntimeStmt::Block(body_stmts));
-                let lambda = self.fresh_expr(
-                    ast,
-                    RuntimeExpr::Lambda { params: vec![cont_param], body: lambda_body },
-                );
+                    let body_stmts = if is_cps_body && suffix_transformed.is_empty() {
+                        // End of CPS function with no remaining statements: call __k(unit).
+                        vec![self.make_k_unit_call(ast)]
+                    } else {
+                        suffix_transformed
+                    };
 
-                let mut new_args = call.args;
-                new_args.push(lambda);
-                let call_expr =
-                    self.fresh_expr(ast, RuntimeExpr::Call { callee: call.callee, args: new_args });
-                let call_stmt = self.fresh_stmt(ast, RuntimeStmt::ExprStmt(call_expr));
+                    let cont_param = call.binding.unwrap_or_else(|| "__".to_string());
+                    let lambda_body = self.fresh_stmt(ast, RuntimeStmt::Block(body_stmts));
+                    let lambda = self.fresh_expr(
+                        ast,
+                        RuntimeExpr::Lambda { params: vec![cont_param], body: lambda_body },
+                    );
 
-                result.push(call_stmt);
-                return result; // Everything after is inside the lambda.
+                    let mut new_args = call.args;
+                    new_args.push(lambda);
+                    let call_expr =
+                        self.fresh_expr(ast, RuntimeExpr::Call { callee: call.callee, args: new_args });
+                    // Inside CPS bodies, emit `return cps_call(...)` so the value propagates back
+                    // through `call_value` to any `resume(x)` expression in a handler.
+                    // At root level, emit as a plain ExprStmt — the continuation's side-effects
+                    // are what matter; the return value isn't assigned.
+                    let call_stmt = if is_cps_body {
+                        self.fresh_stmt(ast, RuntimeStmt::Return(Some(call_expr)))
+                    } else {
+                        self.fresh_stmt(ast, RuntimeStmt::ExprStmt(call_expr))
+                    };
+
+                    result.push(call_stmt);
+                    return result; // Everything after is inside the lambda.
+                }
             }
 
             result.push(stmt_id);
@@ -206,27 +266,29 @@ impl<'a> CpsTransform<'a> {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /// If `stmt_id` is a `Return`, rewrite it to `__k(value)` and return the new stmt ID.
+    /// If `stmt_id` is a `Return`, rewrite it to `return __k_N(value)` and return the new stmt ID.
+    /// Using `Return` (not `ExprStmt`) so the value propagates back through `call_value`.
     fn try_transform_return(&mut self, ast: &mut RuntimeAst, stmt_id: usize) -> Option<usize> {
         match ast.get_stmt(stmt_id)?.clone() {
             RuntimeStmt::Return(opt_expr) => {
                 let val = opt_expr.unwrap_or_else(|| self.fresh_expr(ast, RuntimeExpr::Unit));
+                let k = self.current_k_name.clone();
                 let call = self.fresh_expr(
                     ast,
-                    RuntimeExpr::Call { callee: "__k".to_string(), args: vec![val] },
+                    RuntimeExpr::Call { callee: k, args: vec![val] },
                 );
-                Some(self.fresh_stmt(ast, RuntimeStmt::ExprStmt(call)))
+                Some(self.fresh_stmt(ast, RuntimeStmt::Return(Some(call))))
             }
             _ => None,
         }
     }
 
-    /// Emit `__k(unit)`.
+    /// Emit `return __k_N(unit)`.
     fn make_k_unit_call(&mut self, ast: &mut RuntimeAst) -> usize {
         let unit = self.fresh_expr(ast, RuntimeExpr::Unit);
-        let call =
-            self.fresh_expr(ast, RuntimeExpr::Call { callee: "__k".to_string(), args: vec![unit] });
-        self.fresh_stmt(ast, RuntimeStmt::ExprStmt(call))
+        let k = self.current_k_name.clone();
+        let call = self.fresh_expr(ast, RuntimeExpr::Call { callee: k, args: vec![unit] });
+        self.fresh_stmt(ast, RuntimeStmt::Return(Some(call)))
     }
 
     /// If `stmt_id` is a VarDecl or ExprStmt whose expression is a call to a ctl op
@@ -317,14 +379,28 @@ impl<'a> CpsTransform<'a> {
         // the mutable (assigned) variables (which become explicit params).
         let assigned_names: BTreeSet<String> =
             assigns.iter().map(|(n, _)| n.clone()).collect();
+        // VarDecls inside the loop body are local — exclude them from captured_vars.
+        let locally_declared: BTreeSet<String> = flat_body.iter()
+            .filter_map(|&sid| {
+                if let Some(RuntimeStmt::VarDecl { name, .. }) = ast.get_stmt(sid) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
         let mut refs: BTreeSet<String> = BTreeSet::new();
         collect_stmt_refs(ast, body_id, &assigned_names, &mut refs);
         collect_expr_refs(ast, cond_id, &assigned_names, &mut refs);
-        // Remove ctl ops (they are global functions, not locals) and __k
-        // (it will be added explicitly as the last parameter).
+        // Remove ctl ops (global functions), the outer k-name, and loop-body-local VarDecls.
+        let outer_k = self.current_k_name.clone();
         let captured_vars: Vec<String> = refs
             .into_iter()
-            .filter(|r| !self.info.ctl_ops.contains(r.as_str()) && r != "__k")
+            .filter(|r| {
+                !self.info.ctl_ops.contains(r.as_str())
+                    && r.as_str() != outer_k.as_str()
+                    && !locally_declared.contains(r.as_str())
+            })
             .collect();
 
         // Helper function name is deterministic on the while stmt id.
@@ -390,10 +466,10 @@ impl<'a> CpsTransform<'a> {
         self.new_fndecls.push(helper_decl);
 
         // Determine the loop's continuation (__k for the helper):
-        //   - Empty suffix + CPS body: pass outer __k directly (most common case).
+        //   - Empty suffix + CPS body: pass outer k-param directly (most common case).
         //   - Otherwise: wrap suffix in a lambda that becomes the loop's __k.
         let loop_k = if suffix.is_empty() && is_cps_body {
-            self.fresh_expr(ast, RuntimeExpr::Variable("__k".to_string()))
+            self.fresh_expr(ast, RuntimeExpr::Variable(outer_k))
         } else {
             let suffix_transformed = self.transform_stmts(ast, suffix.to_vec(), is_cps_body);
             let suffix_body = self.fresh_stmt(ast, RuntimeStmt::Block(suffix_transformed));
@@ -420,6 +496,52 @@ impl<'a> CpsTransform<'a> {
         let init_stmt = self.fresh_stmt(ast, RuntimeStmt::ExprStmt(init_call));
 
         vec![init_stmt]
+    }
+
+    // ── If with ctl condition ─────────────────────────────────────────────────
+
+    /// Transform `if (ctl_op(args...)) { body } else { else_branch }` into
+    /// `ctl_op(args..., λ(__result) { if (__result) { body } else { else_branch } suffix... })`.
+    fn transform_if_ctl_cond(
+        &mut self,
+        ast: &mut RuntimeAst,
+        callee: String,
+        ctl_args: Vec<usize>,
+        body: usize,
+        else_branch: Option<usize>,
+        suffix: Vec<usize>,
+        is_cps_body: bool,
+    ) -> Vec<usize> {
+        // Variable that receives the ctl op's return value.
+        let result_var = "__result".to_string();
+        let result_var_expr = self.fresh_expr(ast, RuntimeExpr::Variable(result_var.clone()));
+
+        // Rewrite the If to use the fresh variable as its condition.
+        let new_if = self.fresh_stmt(ast, RuntimeStmt::If {
+            cond: result_var_expr,
+            body,
+            else_branch,
+        });
+
+        // Continuation body: [new_if, ...suffix].
+        let mut cont_body = vec![new_if];
+        cont_body.extend(suffix);
+        let cont_transformed = self.transform_stmts(ast, cont_body, is_cps_body);
+
+        // Wrap in lambda.
+        let lambda_body = self.fresh_stmt(ast, RuntimeStmt::Block(cont_transformed));
+        let lambda = self.fresh_expr(ast, RuntimeExpr::Lambda {
+            params: vec![result_var],
+            body: lambda_body,
+        });
+
+        // Build the ctl op call with the continuation appended.
+        let mut new_args = ctl_args;
+        new_args.push(lambda);
+        let call_expr = self.fresh_expr(ast, RuntimeExpr::Call { callee, args: new_args });
+        let call_stmt = self.fresh_stmt(ast, RuntimeStmt::ExprStmt(call_expr));
+
+        vec![call_stmt]
     }
 
     fn fresh_expr(&mut self, ast: &mut RuntimeAst, expr: RuntimeExpr) -> usize {
@@ -516,6 +638,38 @@ fn collect_stmt_refs(
             collect_stmt_refs(ast, *body, bound, refs);
             if let Some(e) = else_branch { collect_stmt_refs(ast, *e, bound, refs); }
         }
+        Some(RuntimeStmt::ForEach { var, iterable, body }) => {
+            collect_expr_refs(ast, *iterable, bound, refs);
+            let mut inner_bound = bound.clone();
+            inner_bound.insert(var.clone());
+            collect_stmt_refs(ast, *body, &inner_bound, refs);
+        }
+        Some(RuntimeStmt::Match { scrutinee, arms }) => {
+            collect_expr_refs(ast, *scrutinee, bound, refs);
+            let arms = arms.clone();
+            for arm in &arms {
+                let mut arm_bound = bound.clone();
+                match &arm.pattern {
+                    crate::frontend::meta_ast::Pattern::Enum { bindings, .. } => {
+                        match bindings {
+                            crate::frontend::meta_ast::VariantBindings::Tuple(names)
+                            | crate::frontend::meta_ast::VariantBindings::Struct(names) => {
+                                arm_bound.extend(names.iter().cloned());
+                            }
+                            crate::frontend::meta_ast::VariantBindings::Unit => {}
+                        }
+                    }
+                    crate::frontend::meta_ast::Pattern::Wildcard => {}
+                }
+                collect_stmt_refs(ast, arm.body, &arm_bound, refs);
+            }
+        }
+        Some(RuntimeStmt::Resume(Some(expr))) => {
+            collect_expr_refs(ast, *expr, bound, refs);
+        }
+        Some(RuntimeStmt::Print(expr)) => {
+            collect_expr_refs(ast, *expr, bound, refs);
+        }
         _ => {}
     }
 }
@@ -546,6 +700,7 @@ fn collect_expr_refs(
             collect_expr_refs(ast, b, bound, refs);
         }
         Some(RuntimeExpr::Not(e)) => collect_expr_refs(ast, *e, bound, refs),
+        Some(RuntimeExpr::ResumeExpr(Some(e))) => collect_expr_refs(ast, *e, bound, refs),
         _ => {}
     }
 }

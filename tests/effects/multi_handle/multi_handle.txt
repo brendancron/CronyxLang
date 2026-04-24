@@ -1,0 +1,6 @@
+[LOG] Hello, Alice
+[TICK]
+[LOG] Bye, Alice
+[LOG] Hello, Bob
+[TICK]
+[LOG] Bye, Bob

@@ -8,6 +8,7 @@ use cronyx::codegen::compile as codegen_compile;
 use cronyx::error::{CompilerError, enrich_diagnostic};
 use cronyx::semantics::cps::cps_transform::{transform as cps_transform, transform_interpreter};
 use cronyx::semantics::cps::effect_marker::mark_cps;
+use cronyx::semantics::types::effect_inference;
 use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use std::collections::HashMap;
 use cronyx::runtime::environment::*;
@@ -63,9 +64,13 @@ fn run_pipeline(
     sink.dump_ast(meta_ast);
 
     // TYPE CHECK — collect all errors before stopping
-    let (type_table, type_env) = type_check(meta_ast)
+    let (type_table, mut type_env) = type_check(meta_ast)
         .map_err(|errs| errs.into_iter().map(CompilerError::TypeCheck).collect::<Vec<_>>())?;
     sink.dump_typed_ast(TypeAnnotatedView::new(meta_ast, &type_table), &type_table);
+
+    // EFFECT INFERENCE (Pass A1) — update type_env with effect rows before staging so
+    // typeof() expressions resolve to types that include effect annotations.
+    effect_inference::infer_meta(meta_ast, &mut type_env);
 
     // METAPROCESSING — stop on first error
     let mut staged_forest = StagedForest::new();
@@ -86,6 +91,7 @@ fn run_pipeline(
             env: meta_env.clone(),
             type_env: TypeEnv::new(),
             out: &mut stdout,
+            meta_captures: Vec::new(),
         };
         process(staged_forest, &mut evaluator)
             .map_err(|e| vec![CompilerError::Eval(e)])?
@@ -97,11 +103,16 @@ fn run_pipeline(
     // to pass continuations explicitly. Must run after meta-processing and before eval.
     let cps_info = mark_cps(&runtime_ast);
     let mut runtime_ast = runtime_ast;
-    if args.compile {
-        cps_transform(&mut runtime_ast, &cps_info);
-    } else {
-        transform_interpreter(&mut runtime_ast, &cps_info);
-    }
+
+    // EFFECT INFERENCE (Pass A2 + B) — infer per-function effect rows and check that
+    // every top-level call site has all required effects handled.
+    effect_inference::infer_and_check(&runtime_ast, &cps_info)
+        .map_err(|e| vec![e])?;
+    // Both paths use full loop conversion now. The interpreter's old replay-stack
+    // mechanism handled ctl ops in while loops without loop-to-recursion conversion,
+    // but that approach cannot capture suspended continuations for async scheduling.
+    // The stack-depth concern for large loops is a known limitation of the interpreter.
+    cps_transform(&mut runtime_ast, &cps_info);
     sink.dump_cps(&cps_info, &runtime_ast);
 
     // RUNTIME TYPE CHECK — needed by codegen; also validates the post-CPS AST.

@@ -14,6 +14,8 @@ pub struct InterpreterMetaEvaluator<'a, W: Write> {
     pub env: EnvRef,
     pub type_env: TypeEnv,
     pub out: &'a mut W,
+    /// Accumulates lines printed by meta-block `print` stmts, in topo order.
+    pub meta_captures: Vec<String>,
 }
 
 impl<'a, W: Write> MetaEvaluator for InterpreterMetaEvaluator<'a, W> {
@@ -46,7 +48,21 @@ impl<'a, W: Write> MetaEvaluator for InterpreterMetaEvaluator<'a, W> {
         ast: &RuntimeAst,
         collector: &mut GeneratedCollector,
     ) -> Result<(), Self::Error> {
-        eval(ast, &ast.sem_root_stmts, self.env.clone(), self.out, Some(collector), None)?;
+        // Write to a local buffer so we can capture the printed lines.
+        let mut local_buf: Vec<u8> = Vec::new();
+        eval(ast, &ast.sem_root_stmts, self.env.clone(), &mut local_buf, Some(collector), None)?;
+        // Forward to the primary out (needed for interpreter mode where out = stdout).
+        self.out.write_all(&local_buf).unwrap();
+        // Capture lines for meta_prints injection in compile mode.
+        if let Ok(s) = String::from_utf8(local_buf) {
+            for line in s.lines() {
+                self.meta_captures.push(line.to_string());
+            }
+        }
         Ok(())
+    }
+
+    fn take_meta_captures(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.meta_captures)
     }
 }

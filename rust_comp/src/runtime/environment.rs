@@ -40,6 +40,13 @@ impl EnvHandler {
         self.env.clone()
     }
 
+    /// Swap the current env pointer, returning the old one.
+    /// Used to implement lexical scoping for closures: temporarily point at the
+    /// closure's captured env, push a scope, execute, pop, then swap back.
+    pub fn swap(&mut self, new_env: EnvRef) -> EnvRef {
+        std::mem::replace(&mut self.env, new_env)
+    }
+
     pub fn define(&mut self, name: String, value: Value) {
         self.env.borrow_mut().define(name, value);
     }

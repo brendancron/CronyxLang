@@ -21,7 +21,10 @@ pub trait ApplySubst {
 impl ApplySubst for Type {
     fn apply(&self, subst: &TypeSubst) -> Type {
         match self {
-            Type::Var(tv) => subst.map.get(tv).cloned().unwrap_or(self.clone()),
+            Type::Var(tv) => match subst.map.get(tv) {
+                Some(t) => t.apply(subst),  // follow substitution chains
+                None => self.clone(),
+            },
             Type::Func { params, ret, effects } => Type::Func {
                 params: params.iter().map(|t| t.apply(subst)).collect(),
                 ret: Box::new(ret.apply(subst)),

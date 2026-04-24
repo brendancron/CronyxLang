@@ -1,3 +1,4 @@
+pub mod effect_inference;
 pub mod enum_registry;
 pub mod runtime_type_checker;
 pub mod type_annotated_view;

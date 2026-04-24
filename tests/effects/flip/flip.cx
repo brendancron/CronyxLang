@@ -2,13 +2,20 @@ effect flip {
     ctl flip(): bool;
 }
 
-with ctl flip(): bool {
-    resume true;
-    resume false;
-}
-
-if(flip()) {
-    print("Heads!");
-} else {
-    print("Tails!");
+run {
+    print("I'm thirsty");
+    var wants_tea = flip();
+    var wants_coffee = flip();
+    if (wants_tea) {
+        print("I'm having oolong");
+    } else if (wants_coffee) {
+        print("I'm having espresso");
+    } else {
+        print("I'm having water");
+    }
+} handle flip {
+    ctl flip() {
+        resume false;
+        resume true;
+    }
 }

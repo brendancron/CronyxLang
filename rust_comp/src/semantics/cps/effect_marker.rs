@@ -90,6 +90,14 @@ fn stmt_is_direct_ctl_call(ast: &RuntimeAst, stmt_id: usize, ctl_ops: &HashSet<S
         Some(RuntimeStmt::WhileLoop { body, .. }) => {
             stmt_is_direct_ctl_call(ast, *body, ctl_ops)
         }
+        Some(RuntimeStmt::If { cond, body, else_branch }) => {
+            expr_calls_ctl_op(ast, *cond, ctl_ops)
+                || stmt_is_direct_ctl_call(ast, *body, ctl_ops)
+                || else_branch.map_or(false, |e| stmt_is_direct_ctl_call(ast, e, ctl_ops))
+        }
+        Some(RuntimeStmt::Return(Some(expr))) => {
+            expr_calls_ctl_op(ast, *expr, ctl_ops)
+        }
         _ => false,
     }
 }

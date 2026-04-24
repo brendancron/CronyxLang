@@ -11,6 +11,12 @@ declare ptr @malloc(i64)
 
 declare void @free(ptr)
 
+declare ptr @realloc(ptr, i64)
+
+declare ptr @memcpy(ptr, ptr, i64)
+
+declare void @abort()
+
 define i64 @sum(ptr %0) {
 entry:
   %xs = alloca ptr, align 8
@@ -35,20 +41,20 @@ foreach_cond:                                     ; preds = %foreach_body, %entr
 foreach_body:                                     ; preds = %foreach_cond
   %i2 = load i64, ptr %__i, align 4
   %elem_ptr = getelementptr i64, ptr %data, i64 %i2
-  %x3 = load i64, ptr %elem_ptr, align 4
-  store i64 %x3, ptr %x, align 4
-  %total4 = load i64, ptr %total, align 4
-  %x5 = load i64, ptr %x, align 4
-  %add = add i64 %total4, %x5
+  %elem_raw = load i64, ptr %elem_ptr, align 4
+  store i64 %elem_raw, ptr %x, align 4
+  %total3 = load i64, ptr %total, align 4
+  %x4 = load i64, ptr %x, align 4
+  %add = add i64 %total3, %x4
   store i64 %add, ptr %total, align 4
-  %i6 = load i64, ptr %__i, align 4
-  %i_next = add i64 %i6, 1
+  %i5 = load i64, ptr %__i, align 4
+  %i_next = add i64 %i5, 1
   store i64 %i_next, ptr %__i, align 4
   br label %foreach_cond
 
 foreach_exit:                                     ; preds = %foreach_cond
-  %total7 = load i64, ptr %total, align 4
-  ret i64 %total7
+  %total6 = load i64, ptr %total, align 4
+  ret i64 %total6
 }
 
 define i32 @main() {

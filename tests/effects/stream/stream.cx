@@ -1,0 +1,32 @@
+effect stream {
+    ctl yield(i : int): unit;
+}
+
+handler print_stream : stream {
+    ctl yield(value) {
+        print(value);
+        resume;
+    }
+}
+
+fn range(low, high, step) {
+    for (var i = low; i < high; i += step) {
+        yield(i);
+    }
+}
+
+fn fibonacci(n) {
+    var a = 0;
+    var b = 1;
+    for (var count = 0; count < n; count++) {
+        yield(a);
+        var temp = a + b;
+        a = b;
+        b = temp;
+    }
+}
+
+run {
+    range(5, 15, 2);
+    fibonacci(10);
+} with print_stream;
