@@ -16,6 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install LLVM 20
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "20"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -26,11 +31,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             rust_comp/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('rust_comp/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-llvm20-
 
       - name: Build
         run: cargo build
+        env:
+          LLVM_SYS_201_PREFIX: ${{ env.LLVM_PATH }}
 
       - name: Test
         run: RUSTFLAGS="-A warnings" cargo test
+        env:
+          LLVM_SYS_201_PREFIX: ${{ env.LLVM_PATH }}
