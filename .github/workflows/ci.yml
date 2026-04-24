@@ -21,8 +21,14 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update -q
-          sudo apt-get install -y llvm-20-dev
+          sudo apt-get install -y llvm-20-dev clang-20
+          sudo ln -sf /usr/bin/clang-20 /usr/bin/clang
           echo "LLVM_SYS_201_PREFIX=/usr/lib/llvm-20" >> $GITHUB_ENV
+          # Link against the shared libLLVM-20.so instead of all static component
+          # libs. Static linking pulls in Polly and other optional components that
+          # aren't installed separately, causing "could not find native static
+          # library" errors.
+          echo "LLVM_LINK_LLVM_DYLIB=1" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
