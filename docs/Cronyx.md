@@ -18,17 +18,22 @@ This means metaprogramming uses the same syntax, types, and semantics as regular
 
 1. **Lexer** — tokenizes source text
 2. **Parser** — builds the MetaAST from tokens
-3. **Type Checker** — infers and annotates types (Hindley-Milner)
+3. **Type Checker** — infers and annotates types (Hindley-Milner), phase 1
 4. **Metaprocessor** — evaluates `meta {}` blocks and emits the runtime AST
-5. **Interpreter** — evaluates the runtime AST
-
-See [Phase Architecture](Phase%20Architecture.md) for a diagram of the pipeline.
+5. **Effect Marker** — identifies functions that perform `ctl` effects
+6. **CPS Transform** — selectively rewrites effectful functions to pass continuations
+7. **Type Checker** — phase 2, strict check on the final runtime AST
+8. **Interpreter / Codegen** — evaluates the runtime AST or emits LLVM IR
 
 ## Type System
 
 Cronyx is strongly typed, statically typed, and uses type inference. Types are inferred using the Hindley-Milner algorithm, so most code requires no explicit type annotations.
 
 See [Type System](TypeSystem.md) for details.
+
+## Algebraic Effects
+
+Cronyx has first-class algebraic effects. Effects are declared with `effect`, handled with `run {} handle eff {}`, and support both transparent `fn` ops (function replacement) and suspending `ctl` ops (continuation passing). See [Cronyx Language Reference](Cronyx%20Language%20Reference.md) for syntax and [Effect Typing](Effect%20Typing.md) for the type system design.
 
 ## Memory Management
 

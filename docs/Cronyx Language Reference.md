@@ -721,6 +721,137 @@ match r {
 
 ---
 
+## Algebraic Effects
+
+Cronyx has first-class algebraic effects. An `effect` declaration defines a named set of operations — `fn` ops are transparent function replacements; `ctl` ops suspend the computation and pass a continuation to the handler.
+
+```cx
+effect stream {
+    ctl yield(i: int): unit;
+}
+```
+
+### Run-handle block
+
+```cx
+run {
+    range(0, 5, 1);
+} handle stream {
+    ctl yield(i) {
+        print(i);
+        resume;
+    }
+}
+```
+
+`resume` resumes the suspended computation after the handler body runs. `resume value` passes a value back to the call site.
+
+### fn effects
+
+`fn` ops are installed as regular functions for the duration of the block:
+
+```cx
+effect logger {
+    fn log(msg: string): unit;
+}
+
+run {
+    log("Hello");
+} handle logger {
+    fn log(msg) { print("[LOG] " + msg); }
+}
+```
+
+### Multiple simultaneous effects
+
+```cx
+run {
+    greet("Alice");
+} handle logger {
+    fn log(msg) { print("[LOG] " + msg); }
+} handle counter {
+    ctl tick() { print("[TICK]"); resume; }
+}
+```
+
+### Named handlers
+
+Define a reusable handler with `handle name { ops }` and apply it with `run {} with name`:
+
+```cx
+handle print_stream {
+    ctl yield(i) { print(i); resume; }
+}
+
+run {
+    range(0, 5, 1);
+} with print_stream
+```
+
+### Multi-resume (backtracking)
+
+A `ctl` handler can call `resume` multiple times. Each call replays the rest of the body with a different value:
+
+```cx
+effect flip {
+    ctl flip(): bool;
+}
+
+run {
+    if (flip()) { print("Heads"); } else { print("Tails"); }
+} handle flip {
+    ctl flip() {
+        resume true;
+        resume false;
+    }
+}
+// prints: Heads
+//         Tails
+```
+
+### Lambda-captured resume (cooperative scheduling)
+
+`resume` inside a lambda captures the continuation at creation time. This enables deferred execution and cooperative scheduling:
+
+```cx
+effect async_ops {
+    ctl spawn(task: fn(): unit): unit;
+    ctl tick(): unit;
+}
+
+var queue = [];
+
+run {
+    spawn(fn() { ... });
+} handle async_ops {
+    ctl spawn(task) {
+        queue.push { task(); dequeue(); };
+        resume;
+    }
+    ctl tick() {
+        queue.push { resume; };
+        dequeue();
+    }
+}
+```
+
+### Effect types
+
+Functions that call `ctl` ops have an effect row in their type:
+
+```cx
+fn range(low: int, high: int) {
+    var i = low;
+    while (i < high) { yield(i); i += 1; }
+}
+
+print(typeof(range));  // (int, int) -> unit <yield>
+```
+
+`fn` ops do not appear in the effect row. Effect rows propagate transitively through call chains.
+
+---
+
 ## What Is NOT Supported (as of 0.1.4)
 
 - `and` / `or` keywords — use `&&` / `||`
@@ -732,3 +863,5 @@ match r {
 - Trait bound enforcement — `<T: Trait>` is parsed but not checked at compile time
 - Dynamic dispatch (`dyn Trait`) — all trait resolution is static
 - Generic struct monomorphization in `--dump-all` output — generic structs work at runtime but their declarations are not specialized in the emitted code
+- Effect row unification and annotation enforcement — `typeof` shows effect rows but the type checker does not yet validate explicit effect row annotations against inferred rows
+- Row polymorphism — higher-order functions do not yet propagate effect rows through type variables (`<E>` row variables)

@@ -1,6 +1,6 @@
 # Effect Inference — Chunk 1 & 2 Design
 
-**Status:** Chunk 1 in progress  
+**Status:** Chunk 1 complete. Chunk 2 (row polymorphism) is future work.  
 **Date:** 2026-04-21
 
 ---
