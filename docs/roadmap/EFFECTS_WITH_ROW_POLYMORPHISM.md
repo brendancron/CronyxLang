@@ -1,5 +1,8 @@
 # Cronyx Effects with Row Polymorphism & Selective CPS
 
+**Status:** Design document — selective CPS and interpreter integration are complete; row polymorphism and effect row unification are the next milestones.  
+**Last Updated:** 2026-04-24
+
 ## High-Level Vision
 
 Instead of full CPS transform or threading hacks, use **row-polymorphic effect types** like Koka:

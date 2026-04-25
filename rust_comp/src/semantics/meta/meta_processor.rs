@@ -29,6 +29,13 @@ pub trait MetaEvaluator {
         ast: &RuntimeAst,
         collector: &mut GeneratedCollector,
     ) -> Result<(), Self::Error>;
+
+    /// Returns the lines printed by `print` statements during meta-block evaluation,
+    /// in topological execution order (innermost meta first). Called once after all
+    /// meta blocks are evaluated. Default returns nothing.
+    fn take_meta_captures(&mut self) -> Vec<String> {
+        vec![]
+    }
 }
 
 // Using Kahn's Algorithm for Topological Sort
@@ -115,8 +122,11 @@ where
         return Err(String::from("Circular dependency detected between trees").into());
     }
 
+    let meta_captures = evaluator.take_meta_captures();
+
     root_ast
         .map(|(mut ast, type_map)| {
+            ast.meta_prints = meta_captures;
             ast.impl_registry = impl_registry;
             ast.op_dispatch = op_dispatch;
             monomorphize(&mut ast, &type_map);

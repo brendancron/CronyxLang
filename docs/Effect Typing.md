@@ -1,7 +1,7 @@
 # Cronyx Effect Type System
 
-**Status:** Design / Planning  
-**Last Updated:** 2026-04-19  
+**Status:** Partially implemented — effect rows on `typeof`, unhandled-effect detection done; row unification and annotation enforcement are next.  
+**Last Updated:** 2026-04-24  
 **Depends on:** Cronyx Type System.md, EFFECTS_WITH_ROW_POLYMORPHISM.md
 
 ---
@@ -22,11 +22,41 @@ The row is a set of effect names. A function with an empty row (explicit `<>` or
 
 ## Surface Syntax
 
+### Effect declarations
+
+```cx
+effect stream {
+    ctl yield(i: int): unit;   // ctl — caller gains <yield>
+}
+
+effect io {
+    fn log(msg: string): unit;  // fn — no effect row entry
+    ctl emit(val: int): unit;   // ctl — caller gains <io>
+}
+```
+
+`ctl` ops suspend the computation and require a handler. `fn` ops are transparent function replacements — they do not appear in the effect row.
+
+### Run-handle blocks
+
+```cx
+run {
+    range(0, 5, 1);
+} handle stream {
+    ctl yield(i) {
+        print(i);
+        resume;
+    }
+}
+```
+
+The handler block discharges `<yield>` from the row of the enclosed body.
+
 ### Function type annotations
 
-Effect rows appear as a **postfix** on the return type in both source annotations and printed types:
+Effect rows appear as a **postfix** on the return type:
 
-```
+```cx
 fn range(low: int, high: int): unit <yield> {
     ...
 }
@@ -47,23 +77,6 @@ fn pure_fn(x: int): int {
 <yield>                // single effect
 <yield, log>           // multiple effects (order irrelevant)
 <yield | E>            // open row — "yield plus whatever E is"
-```
-
-### Handler scoping
-
-`with ctl` blocks discharge an effect from the row. Inside a handled scope, callers of the effect op no longer need to declare it:
-
-```
-// Outside: code with <yield> in its row is not callable (yield unhandled)
-
-with ctl yield(i: int): unit {
-    print(i);
-    resume;
-}
-
-// Inside: yield is handled — calling range() here is fine even though
-// range : (int, int) -> unit <yield>
-range(0, 10, 1);
 ```
 
 ---
@@ -111,13 +124,13 @@ Type::Func {
 
 ### Rule 1 — Direct operation call
 
-If a function body calls `op` where `op` belongs to effect `E`, then the function has `E` in its effect row:
+If a function body calls `op` where `op` is a `ctl` op of effect `E`, then the function has `E` in its effect row:
 
-```
-effect yield { ctl yield(i: int): unit; }
+```cx
+effect stream { ctl yield(i: int): unit; }
 
-fn range(...): unit {
-    yield(i);   // yield ∈ effect yield → range : (...) -> unit <yield>
+fn range(low: int, high: int): unit {
+    yield(i);   // yield ∈ effect stream → range : (...) -> unit <yield>
 }
 ```
 
@@ -125,8 +138,8 @@ fn range(...): unit {
 
 If `f` calls `g` and `g : (...) -> T <E>`, then `f` gains `E`:
 
-```
-fn outer(...): unit {
+```cx
+fn outer(): unit {
     range(0, 5, 1);  // range : (...) -> unit <yield>
                      // outer gains <yield> → outer : (...) -> unit <yield>
 }
@@ -134,27 +147,40 @@ fn outer(...): unit {
 
 ### Rule 3 — Handler discharge
 
-A `with ctl op` block removes `op` from the required row of the code that follows within its scope. The handler body itself is checked in the context where `op` is *not* active (it's being handled), but `resume` is available.
+A `run {} handle eff {}` block removes `eff`'s `ctl` ops from the required row of the enclosed body. The handler body itself is checked in the context where those ops are *not* active (they're being handled), but `resume` is available.
 
-```
-with ctl yield(i: int): unit {
-    print(i);
-    resume;
+```cx
+run {
+    range(0, 5, 1);   // yield is discharged — no <yield> required here
+} handle stream {
+    ctl yield(i) { print(i); resume; }
 }
-range(0, 5, 1);   // yield is discharged — no <yield> required here
 ```
 
-Formally: if the enclosing scope requires row `R` and a `with ctl yield` handler is active, calls to `range` only need to satisfy `R \ {yield}`.
+Formally: if the enclosing scope requires row `R` and a handler for `stream` is active, the body only needs to satisfy `R \ {yield}`.
 
 ### Rule 4 — Polymorphic effect propagation
 
 When a higher-order function takes a function argument, its effect row is parameterized over the argument's row:
 
-```
+```cx
 fn map(f: (a) -> b <E>, xs: [a]): [b] <E>
 ```
 
 `E` is a row variable. At each call site `E` is instantiated to the concrete row of the argument passed.
+
+### Rule 5 — `fn` ops are transparent
+
+`fn` ops in an effect declaration are not `ctl` — they don't suspend and don't require CPS. A function that only calls `fn` ops is pure from the effect row's perspective:
+
+```cx
+effect logger { fn log(msg: string): unit; }
+
+fn greet(name: string) {
+    log("Hello " + name);  // fn op — no effect row entry
+}
+// greet : (string) -> unit   (no <logger>)
+```
 
 ---
 
@@ -192,56 +218,51 @@ Handled via open row unification: the `<yield>` row unifies with `<yield | E>` w
 
 ## Handler Typing
 
-### `with fn` handlers
+### `fn` op handlers
 
-A `with fn` handler replaces the effect op with a plain function. It adds no effects to the surrounding context (it's just a function binding). Type-checked exactly like a function declaration.
+A `fn` handler replaces the effect op with a plain function. It adds no effects to the surrounding context. Type-checked exactly like a function declaration.
 
-```
-with fn log(msg: string): unit {
-    print(msg);   // print : (string) -> unit — no effects
+```cx
+run {
+    log("hello");   // log : (string) -> unit — pure after handler installed
+} handle logger {
+    fn log(msg) { print(msg); }
 }
-// After: log : (string) -> unit  (no effect row — it's pure now)
 ```
 
-### `with ctl` handlers
+### `ctl` op handlers
 
-A `with ctl op(params): ret` handler is checked against the declared signature of `op`. Inside the handler body:
+A `ctl op(params): ret` handler is checked against the declared signature of the op. Inside the handler body:
 
-- `op`'s effect is **not** in scope (you're handling it, not calling it)
+- The op's effect is **not** in scope (you're handling it, not calling it)
 - `resume` has type `(ret) -> unit` (or `() -> unit` if `op` returns `unit`)
 - The handler body may itself perform other effects, which propagate outward
 
-```
+```cx
 effect ndet {
     ctl choose(options: [int]): int;
     ctl assert(cond: bool): unit;
 }
 
-with ctl choose(options: [int]): int {
-    // resume : (int) -> unit
-    for (x in options) {
-        resume x;   // each call resumes with a different value
+run {
+    var x = choose([1, 2, 3]);
+    ...
+} handle ndet {
+    ctl choose(options) {
+        // resume : (int) -> unit
+        for (x in options) {
+            resume x;   // each call resumes with a different value
+        }
+    }
+    ctl assert(cond) {
+        if (cond) { resume; }
     }
 }
-// After: choose is handled — its effect is discharged in the scope below
 ```
 
 ### Handler scope and nesting
 
-Handlers nest. Inner handlers shadow outer ones. Effect discharge is scoped to the `with` block's lexical extent:
-
-```
-with ctl yield(i: int): unit {
-    print(i); resume;
-}
-// yield discharged here
-
-// Some block with yield re-introduced...
-fn needs_yield(): unit <yield> {
-    yield(42);
-}
-// Calling needs_yield() outside the with block → type error (yield unhandled)
-```
+Handlers nest. Inner handlers shadow outer ones. Effect discharge is scoped to the `run {}` block's lexical extent.
 
 ---
 
@@ -251,7 +272,7 @@ fn needs_yield(): unit <yield> {
 
 Effect rows on function types are **inferred**, not required. If a function body calls a `ctl` op, the type checker adds the effect to its inferred row automatically. Annotations serve as constraints:
 
-```
+```cx
 // Annotated — type checker verifies body matches
 fn range(low: int, high: int): unit <yield> { ... }
 
@@ -264,13 +285,13 @@ fn range(low: int, high: int): unit { ... }
 
 If an annotation declares a *smaller* row than the body requires, it's a type error:
 
-```
+```cx
 fn range(low: int, high: int): unit {   // annotated pure
     yield(i);                            // error: yield not in declared row
 }
 ```
 
-If an annotation declares a *larger* row than the body uses, it's allowed (conservatively over-approximating is valid, though a warning may be appropriate in future).
+If an annotation declares a *larger* row than the body uses, it's allowed (conservative over-approximation is valid, though a warning may be appropriate in future).
 
 ---
 
@@ -278,7 +299,7 @@ If an annotation declares a *larger* row than the body uses, it's allowed (conse
 
 Each op in an effect declaration has an implicit *effectful* type. `ctl` ops add the effect to the caller's row; `fn` ops do not (they're replaced, not suspended):
 
-```
+```cx
 effect io {
     fn read_line(): string;           // fn — no effect propagation
     ctl write_line(s: string): unit;  // ctl — caller gains <io>
@@ -289,45 +310,19 @@ Op types are registered in the type environment when the `effect` declaration is
 
 ---
 
-## Changes Required
+## Implementation Status
 
-### `rust_comp/src/semantics/types/types.rs`
-
-- Add `EffectRow` struct (`BTreeSet<String>` + optional `TypeVar`)
-- Add `effects: EffectRow` field to `Type::Func`
-- Update `Display` impl to print effect row postfix
-- Update unification (`type_subst.rs`, `type_utils.rs`) to handle row unification
-
-### `rust_comp/src/semantics/types/type_env.rs`
-
-- Track active handlers in a handler stack during inference
-- `push_handler(effect_name)` / `pop_handler()` for `with ctl` scope
-- `is_handled(name) -> bool` — for discharge rule
-
-### `rust_comp/src/semantics/types/type_checker.rs` and `runtime_type_checker.rs`
-
-- `infer_fn_body` accumulates effect set from calls and transitive calls
-- `EffectDecl` registers op types with their row contributions
-- `WithCtl` discharges effect from current scope, checks handler body with `resume` in env
-- `WithFn` registers op as a plain function binding (no effect row)
-- Validate explicit effect row annotations against inferred rows
-
-### `rust_comp/src/frontend/parser.rs` (or meta_ast)
-
-- Parse `): type <effect, ...>` in function declarations and lambda signatures
-- Parse effect rows in explicit type annotations (e.g. `var f: (int) -> int <yield>`)
-- The angle bracket postfix should parse as part of the return type, not a comparison
-
-### `rust_comp/src/semantics/types/type_subst.rs`
-
-- Extend substitution to include row variable substitutions alongside type variable substitutions
-- `apply_subst` on `EffectRow` resolves row variables
-
-### New: `rust_comp/src/semantics/types/effect_row.rs`
-
-- `EffectRow` definition and operations: `empty`, `singleton`, `union`, `remove`, `contains`
-- `unify_rows(r1, r2, subst) -> Result<Subst, TypeError>` — row unification
-- `RowVar` aliased to `TypeVar` (same structure, different semantic role)
+| Feature | Status |
+|---------|--------|
+| Effect declarations parsed | ✅ Done |
+| `run {} handle eff {}` syntax | ✅ Done |
+| `typeof(f)` shows effect rows | ✅ Done |
+| Unhandled ctl op → compile error | ✅ Done |
+| Transitive effect propagation in `typeof` | ✅ Done |
+| `fn` ops excluded from effect row | ✅ Done |
+| Effect row unification in type checker | Planned |
+| Annotation enforcement (`fn f(): T <yield>`) | Planned |
+| Row polymorphism (`<E>` variables) | Planned |
 
 ---
 
@@ -338,19 +333,17 @@ Op types are registered in the type environment when the `effect` declaration is
 | Calling an unhandled `ctl` op at top level | `UnhandledEffect { op: "yield" }` |
 | Function annotation declares pure but body performs effects | `EffectRowMismatch { declared: <>, inferred: <yield> }` |
 | Passing `f: (...) -> T <yield>` where `(...) -> T <>` expected | `EffectRowMismatch` |
-| `resume` used outside a `with ctl` handler body | `ResumeOutsideHandler` |
-| Handler body's effects escape the handler scope | propagated to enclosing row (this is correct, not an error) |
+| `resume` used outside a `ctl` handler body | `ResumeOutsideHandler` |
+| Handler body's effects escape the handler scope | propagated to enclosing row (correct, not an error) |
 
 ---
 
 ## Open Questions
 
-1. **Top-level effect requirement:** Should unhandled effects at the program entry point be a hard error, or a warning? (Koka requires handled; could start as warning.)
+1. **Effect aliases:** Should `effect ndet { ... }` create a named alias usable in rows as `<ndet>` rather than listing `<choose, assert>` individually? Probably yes — ergonomics matter.
 
-2. **`fn` ops and effect rows:** Do `fn` ops add anything to the caller's row? Current thinking: no — they're transparent replacements. But if the handler itself has effects, those propagate. Need to decide if that's tracked on the op type.
+2. **`resume` type when `ctl op` returns non-unit:** If `ctl choose(options): int`, then `resume x` passes `x: int` back as the value of the `choose(...)` call. `resume` inside the handler has type `(int) -> unit`. Need to track this cleanly in the handler env.
 
-3. **Effect aliases:** Should `effect ndet { ... }` create a named alias usable in rows as `<ndet>` rather than listing `<choose, assert>` individually? Probably yes — ergonomics matter.
+3. **Row polymorphism in user-written annotations:** How far to go? At minimum, infer row variables internally. Whether users can write `<E>` as a named row variable in source is a separate ergonomics decision.
 
-4. **`resume` type when `ctl op` returns non-unit:** If `ctl choose(options): int`, then `resume x` passes `x: int` back as the value of the `choose(...)` call. `resume` inside the handler has type `(int) -> unit`. Need to track this cleanly in the handler env.
-
-5. **Row polymorphism in user-written annotations:** How far to go? At minimum, infer row variables internally. Whether users can write `<E>` as a named row variable in source is a separate ergonomics decision.
+4. **Top-level effect requirement:** Should unhandled effects at the program entry point be a hard error, or a warning? (Koka requires handled; could start as warning.)

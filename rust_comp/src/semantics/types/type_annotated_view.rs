@@ -184,9 +184,16 @@ impl<'a> TypeAnnotatedView<'a> {
                 vec![TreeNode::leaf(format!("Op({op_name})")), self.convert_stmt(*body)],
             ),
 
+            MetaStmt::HandlerDef { name, .. } => (format!("HandlerDef({name})"), vec![]),
+
             MetaStmt::Resume(opt_expr) => (
                 "Resume".into(),
                 opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
+            ),
+
+            MetaStmt::Defer(inner) => (
+                "Defer".into(),
+                vec![self.convert_stmt(*inner)],
             ),
         };
 
@@ -324,6 +331,25 @@ impl<'a> TypeAnnotatedView<'a> {
                     .chain(start.map(|s| self.convert_expr(s)))
                     .chain(end.map(|e| self.convert_expr(e)))
                     .collect(),
+            ),
+
+            MetaExpr::Lambda { params, body } => (
+                format!("Lambda({})", params.join(", ")),
+                vec![self.convert_stmt(*body)],
+            ),
+            MetaExpr::ResumeExpr(opt) => (
+                "ResumeExpr".into(),
+                opt.map(|e| vec![self.convert_expr(e)]).unwrap_or_default(),
+            ),
+            MetaExpr::RunHandle { body, effects } => (
+                "RunHandle".into(),
+                std::iter::once(self.convert_stmt(*body))
+                    .chain(effects.iter().flat_map(|(_, stmts)| stmts.iter().map(|&s| self.convert_stmt(s))))
+                    .collect(),
+            ),
+            MetaExpr::RunWith { body, handler_name } => (
+                format!("RunWith({})", handler_name),
+                vec![self.convert_stmt(*body)],
             ),
         };
 

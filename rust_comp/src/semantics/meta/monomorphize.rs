@@ -16,6 +16,7 @@ fn mangle_type(ty: &Type) -> String {
             let keys = fields.keys().cloned().collect::<Vec<_>>().join("_");
             format!("rec_{keys}")
         }
+        Type::Struct { name, .. } => name.clone(),
         Type::Tuple(items) => {
             let inner = items.iter().map(mangle_type).collect::<Vec<_>>().join("_");
             format!("tuple_{inner}")
@@ -103,6 +104,9 @@ fn clone_expr(
             body: clone_stmt(ast, body, next_id, new_stmts, new_exprs, stmt_map, expr_map),
         },
         RuntimeExpr::Unit => RuntimeExpr::Unit,
+        RuntimeExpr::ResumeExpr(opt) => RuntimeExpr::ResumeExpr(
+            opt.map(|id| clone_expr(ast, id, next_id, new_stmts, new_exprs, stmt_map, expr_map)),
+        ),
     };
 
     new_exprs.insert(new_id, new_expr);

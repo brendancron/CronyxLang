@@ -1,0 +1,11 @@
+struct Point {
+    x: int;
+    y: int
+}
+
+var p = Point { x: 1, y: 2 };
+var xs = [10, 20, 30];
+
+free(p);
+free(xs);
+print("freed");

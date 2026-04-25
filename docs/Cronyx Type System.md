@@ -286,6 +286,7 @@ Imported module namespaces are given a fresh type variable. Member types within 
 ## Current Limitations
 
 - **No module member types**: Imported namespaces are opaque to the type checker.
-- **No lambda syntax**: Anonymous functions are not yet supported.
 - **Struct fields are unchecked**: Record literals are typed structurally by their fields; struct declarations exist in the AST but field access is not type-checked against a declared schema.
 - **Non-exhaustive match**: The compiler does not check that match arms cover all variants.
+- **Effect row unification**: Effect rows are inferred and displayed by `typeof`, but the type checker does not yet unify rows during constraint solving or enforce explicit effect row annotations.
+- **Row polymorphism**: Higher-order functions that take effectful callbacks do not yet propagate effect rows through type variables.

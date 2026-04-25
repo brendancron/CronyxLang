@@ -1,6 +1,6 @@
 use super::environment::{EnvHandler, EnvRef, Environment};
 use super::result::ExecResult;
-use super::value::{EnumValuePayload, Function, Value};
+use super::value::{EnumValuePayload, Function, NativeFunction, Value};
 use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings};
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
@@ -269,6 +269,29 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                     let slice: Vec<Value> = borrowed[s.min(borrowed.len())..e.min(borrowed.len())].to_vec();
                     Ok(Value::List(std::rc::Rc::new(std::cell::RefCell::new(slice))))
                 }
+                Value::String(s) => {
+                    let chars: Vec<char> = s.chars().collect();
+                    let len = chars.len() as i64;
+                    let resolve = |n: i64| -> usize {
+                        if n < 0 { (len + n).max(0) as usize } else { n.min(len) as usize }
+                    };
+                    let start_i = match start {
+                        Some(id) => match eval_expr(*id, ctx)? {
+                            Value::Int(n) => resolve(n),
+                            _ => return Err(EvalError::TypeError(types::int_type())),
+                        },
+                        None => 0,
+                    };
+                    let end_i = match end {
+                        Some(id) => match eval_expr(*id, ctx)? {
+                            Value::Int(n) => resolve(n),
+                            _ => return Err(EvalError::TypeError(types::int_type())),
+                        },
+                        None => chars.len(),
+                    };
+                    let slice: String = chars[start_i.min(chars.len())..end_i.min(chars.len())].iter().collect();
+                    Ok(Value::String(slice))
+                }
                 _ => Err(EvalError::TypeError(types::unit_type())),
             }
         }
@@ -433,11 +456,34 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
 
         RuntimeExpr::Unit => Ok(Value::Unit),
 
+        RuntimeExpr::ResumeExpr(opt_expr) => {
+            let val = match opt_expr {
+                None => Value::Unit,
+                Some(e) => eval_expr(*e, ctx)?,
+            };
+            if ctx.collecting_resumes {
+                ctx.collected_resumes.push(val.clone());
+                Ok(val)
+            } else if let Ok(resume_fn) = ctx.env.get("__resume__") {
+                // Prefer the lexically-captured __resume__ (set when a CPS handler runs).
+                // This is correct both for direct handler-body resume (where __resume__ ==
+                // cps_continuations.last()) and for closures that captured __resume__ at
+                // handler-entry time (where cps_continuations may have grown since).
+                call_value(resume_fn, vec![val], ctx)
+            } else if let Some(cont) = ctx.cps_continuations.last().cloned() {
+                let result = call_value(cont, vec![val], ctx)?;
+                Ok(result)
+            } else {
+                Ok(Value::Unit)
+            }
+        }
+
         RuntimeExpr::Lambda { params, body } => {
             let func = std::rc::Rc::new(Function {
                 params: params.clone(),
                 body: *body,
                 env: ctx.env.env_ref(),
+                is_closure: true,
             });
             Ok(Value::Function(func))
         }
@@ -487,6 +533,12 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                     };
                     return Ok(Value::Int(n));
                 }
+                // free(obj): unit — no-op at interpreter level; Rust's Rc handles cleanup.
+                // At LLVM time this will dispatch to the active allocator's dealloc.
+                "free" => {
+                    let _ = eval_expr(*args.first().ok_or(EvalError::ArgumentMismatch)?, ctx)?;
+                    return Ok(Value::Unit);
+                }
                 _ => {}
             }
 
@@ -510,12 +562,16 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                     for (param, val) in params.iter().zip(handler_args) {
                         ctx.env.define(param.clone(), val.clone());
                     }
-                    ctx.cps_continuations.push(continuation);
+                    ctx.cps_continuations.push(continuation.clone());
+                    // Inject __resume__ so lambdas created in the handler body can capture it.
+                    ctx.env.define("__resume__".to_string(), continuation);
                     let handler_result = eval_stmt(body, ctx);
                     ctx.cps_continuations.pop();
                     ctx.env.pop_scope();
                     return match handler_result {
-                        Ok(_) | Err(EvalError::EffectAborted) => Ok(Value::Unit),
+                        Ok(ExecResult::Return(v)) => Ok(v),
+                        Ok(_) => Ok(Value::Unit),
+                        Err(EvalError::EffectAborted) => Ok(Value::Unit),
                         Err(e) => Err(e),
                     };
                 }
@@ -552,22 +608,44 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 return Err(EvalError::CtlSuspend { op_name, resume_values });
             }
 
+            // NativeFunction (e.g., injected __k): evaluate args and call directly.
+            if let Ok(Value::NativeFunction(nf)) = ctx.env.get(callee) {
+                let arg_vals: Vec<Value> = args.iter()
+                    .map(|a| eval_expr(*a, ctx))
+                    .collect::<Result<_, _>>()?;
+                return Ok((nf.0)(arg_vals));
+            }
+
             let func = match ctx.env.get(callee)? {
                 Value::Function(f) => f,
                 _ => return Err(EvalError::NonFunctionCall),
             };
 
-            if func.params.len() != args.len() {
+            let mut arg_vals: Vec<Value> = args.iter()
+                .map(|a| eval_expr(*a, ctx))
+                .collect::<Result<_, _>>()?;
+
+            // HOF __k injection: CPS function called without its continuation from a
+            // non-CPS context (e.g., as a HOF argument). Provide identity continuation.
+            // Matches any "__k_*" suffix since each CPS fn gets a unique k-name.
+            if func.params.len() == arg_vals.len() + 1
+                && func.params.last().map(|p| p.starts_with("__k")).unwrap_or(false)
+            {
+                // Identity continuation: propagates the resumed value back to the caller.
+                let identity = Value::NativeFunction(NativeFunction(Rc::new(|args| {
+                    args.into_iter().next().unwrap_or(Value::Unit)
+                })));
+                arg_vals.push(identity);
+            } else if func.params.len() != arg_vals.len() {
                 return Err(EvalError::ArgumentMismatch);
             }
 
-            let arg_vals =
-                args.iter()
-                    .try_fold(Vec::new(), |mut v, a| -> Result<Vec<Value>, EvalError> {
-                        v.push(eval_expr(*a, ctx)?);
-                        Ok(v)
-                    })?;
-
+            // Lexical scoping for closures: temporarily switch to the captured env.
+            let saved_env = if func.is_closure {
+                Some(ctx.env.swap(func.env.clone()))
+            } else {
+                None
+            };
             ctx.env.push_scope();
             for (param, value) in func.params.iter().zip(arg_vals) {
                 ctx.env.define(param.clone(), value);
@@ -579,6 +657,7 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 ExecResult::Resumed(v) => v,
             };
             ctx.env.pop_scope();
+            if let Some(old) = saved_env { ctx.env.swap(old); }
 
             Ok(result)
         }
@@ -721,6 +800,7 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
                 params: params.clone(),
                 body: *body,
                 env: Environment::new(),
+                is_closure: false,
             });
             ctx.env.define(name.clone(), Value::Function(func));
             Ok(ExecResult::Continue)
@@ -772,6 +852,7 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
                 params: params.iter().map(|p| p.name.clone()).collect(),
                 body: *body,
                 env: Environment::new(),
+                is_closure: false,
             });
             ctx.env.define(op_name.clone(), Value::Function(func));
             Ok(ExecResult::Continue)
@@ -797,8 +878,12 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
                 // Old path: collection mode — gather the value and let the handler body continue.
                 ctx.collected_resumes.push(val);
                 Ok(ExecResult::Continue)
+            } else if let Ok(resume_fn) = ctx.env.get("__resume__") {
+                // Prefer lexically-captured __resume__ over the continuation stack.
+                // Correct for both direct handler-body resume and closures.
+                call_value(resume_fn, vec![val], ctx)?;
+                Ok(ExecResult::Continue)
             } else if let Some(cont) = ctx.cps_continuations.last().cloned() {
-                // CPS path: call the continuation with the resumed value.
                 call_value(cont, vec![val], ctx)?;
                 Ok(ExecResult::Continue)
             } else {
@@ -820,6 +905,7 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             }
             Ok(ExecResult::Continue)
         }
+
     }
 }
 
@@ -879,6 +965,7 @@ fn hoist_fndecls<W: Write>(stmts: &[usize], ctx: &mut EvalCtx<W>) {
                 params: params.clone(),
                 body: *body,
                 env: Environment::new(),
+                is_closure: false,
             });
             ctx.env.define(name.clone(), Value::Function(func));
         }
@@ -913,6 +1000,10 @@ fn dispatch_binop<W: Write>(
 /// Call a `Value::Function` (or any callable value) with the given arguments.
 /// Used by CPS mode to invoke continuation lambdas from `Resume`.
 pub fn call_value<W: Write>(func: Value, args: Vec<Value>, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
+    // Native functions (e.g., injected default __k continuations) — call directly.
+    if let Value::NativeFunction(nf) = &func {
+        return Ok((nf.0)(args));
+    }
     let f = match func {
         Value::Function(f) => f,
         _ => return Err(EvalError::NonFunctionCall),
@@ -920,6 +1011,12 @@ pub fn call_value<W: Write>(func: Value, args: Vec<Value>, ctx: &mut EvalCtx<W>)
     if f.params.len() != args.len() {
         return Err(EvalError::ArgumentMismatch);
     }
+    // Lexical scoping for closures: temporarily switch to the captured env.
+    let saved_env = if f.is_closure {
+        Some(ctx.env.swap(f.env.clone()))
+    } else {
+        None
+    };
     ctx.env.push_scope();
     for (param, val) in f.params.iter().zip(args) {
         ctx.env.define(param.clone(), val);
@@ -931,6 +1028,7 @@ pub fn call_value<W: Write>(func: Value, args: Vec<Value>, ctx: &mut EvalCtx<W>)
         Err(e) => Err(e),
     };
     ctx.env.pop_scope();
+    if let Some(old) = saved_env { ctx.env.swap(old); }
     result
 }
 
@@ -1006,6 +1104,7 @@ pub fn setup_modules(ast: &RuntimeAst, bindings: &[ModuleBinding], env: &mut Env
                 params: params.clone(),
                 body: *body,
                 env: Environment::new(),
+                is_closure: false,
             });
             env.define(name.clone(), Value::Function(func));
         }

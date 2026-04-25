@@ -1,9 +1,29 @@
-effect Log {
+effect log {
     fn log(msg: string): unit;
 }
 
-with fn log(msg: string): unit {
-    print("Log: " + msg);
+// greet implicitly has effect Log meaning it can either be run in a run-handle block or the effect "bleeds" into the caller fn
+
+fn greet(name: string): unit {
+    log("Hello, " + name);
 }
 
-log("Hello, World!");
+// first time runs greet with no extra information about logging
+
+run {
+    greet("Brendan");
+} handle log {
+    fn log(msg: string) {
+        print(msg);
+    }
+}
+
+// Second time prefixes the log with "Log: " 
+
+run {
+    greet("Brendan");
+} handle log {
+    fn log(msg: string) {
+        print("Log: " + msg);
+    }
+}

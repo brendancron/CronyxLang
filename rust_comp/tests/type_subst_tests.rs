@@ -1,4 +1,3 @@
-#![cfg(any())] // disabled: type modules temporarily removed
 use cronyx::semantics::types::type_subst::{unify, ApplySubst, TypeSubst};
 use cronyx::semantics::types::types::*;
 
@@ -32,8 +31,7 @@ mod type_subst_tests {
         let mut subst = TypeSubst::new();
         subst.map.insert(TypeVar { id: 0 }, int());
 
-        let t = Type::Func {
-            params: vec![tv(0)],
+        let t = Type::Func { effects: EffectRow::empty(), params: vec![tv(0)],
             ret: Box::new(tv(0)),
         };
 
@@ -41,8 +39,7 @@ mod type_subst_tests {
 
         assert_eq!(
             applied,
-            Type::Func {
-                params: vec![int()],
+            Type::Func { effects: EffectRow::empty(), params: vec![int()],
                 ret: Box::new(int()),
             }
         );
@@ -69,13 +66,11 @@ mod type_subst_tests {
     fn unify_function_types() {
         let mut subst = TypeSubst::new();
 
-        let f1 = Type::Func {
-            params: vec![tv(0)],
+        let f1 = Type::Func { effects: EffectRow::empty(), params: vec![tv(0)],
             ret: Box::new(tv(0)),
         };
 
-        let f2 = Type::Func {
-            params: vec![int()],
+        let f2 = Type::Func { effects: EffectRow::empty(), params: vec![int()],
             ret: Box::new(int()),
         };
 
@@ -97,8 +92,7 @@ mod type_subst_tests {
         let mut subst = TypeSubst::new();
 
         let t = tv(0);
-        let bad = Type::Func {
-            params: vec![tv(0)],
+        let bad = Type::Func { effects: EffectRow::empty(), params: vec![tv(0)],
             ret: Box::new(int()),
         };
 

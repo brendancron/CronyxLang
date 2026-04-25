@@ -76,8 +76,9 @@ fn body_has_sequential_ctl_call(ast: &RuntimeAst, body_id: usize, ctl_ops: &Hash
     }
 }
 
-/// Returns true if `stmt_id` is, or directly contains, a ctl op call — but does
-/// NOT recurse into ForEach/WhileLoop bodies.
+/// Returns true if `stmt_id` is, or recursively contains, a ctl op call.
+/// Recurses into WhileLoop bodies so that functions like `range` that only
+/// call ctl ops from inside a loop are still marked as CPS functions.
 fn stmt_is_direct_ctl_call(ast: &RuntimeAst, stmt_id: usize, ctl_ops: &HashSet<String>) -> bool {
     match ast.get_stmt(stmt_id) {
         Some(RuntimeStmt::VarDecl { expr, .. }) | Some(RuntimeStmt::ExprStmt(expr)) => {
@@ -86,7 +87,17 @@ fn stmt_is_direct_ctl_call(ast: &RuntimeAst, stmt_id: usize, ctl_ops: &HashSet<S
         Some(RuntimeStmt::Block(stmts)) => {
             stmts.iter().any(|&id| stmt_is_direct_ctl_call(ast, id, ctl_ops))
         }
-        // Don't recurse into loop or conditional bodies — those stay on the replay path.
+        Some(RuntimeStmt::WhileLoop { body, .. }) => {
+            stmt_is_direct_ctl_call(ast, *body, ctl_ops)
+        }
+        Some(RuntimeStmt::If { cond, body, else_branch }) => {
+            expr_calls_ctl_op(ast, *cond, ctl_ops)
+                || stmt_is_direct_ctl_call(ast, *body, ctl_ops)
+                || else_branch.map_or(false, |e| stmt_is_direct_ctl_call(ast, e, ctl_ops))
+        }
+        Some(RuntimeStmt::Return(Some(expr))) => {
+            expr_calls_ctl_op(ast, *expr, ctl_ops)
+        }
         _ => false,
     }
 }

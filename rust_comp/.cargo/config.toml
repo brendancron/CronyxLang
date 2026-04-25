@@ -1,0 +1,2 @@
+[env]
+LLVM_SYS_201_PREFIX = "/usr/local/opt/llvm@20"

@@ -1,0 +1,20 @@
+effect exception {
+    ctl throw(msg: string): unit;
+}
+
+fn divide(n, d) {
+    if (d == 0) {
+        throw("division by zero");
+    }
+    return n / d;
+}
+
+run {
+    print(divide(10, 2));
+    print(divide(5, 0));
+    print("unreachable");
+} handle exception {
+    ctl throw(msg) {
+        print(msg);
+    }
+}

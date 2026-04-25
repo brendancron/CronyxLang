@@ -1,0 +1,27 @@
+effect logger {
+    fn log(msg: string): unit;
+}
+
+effect counter {
+    ctl tick(): unit;
+}
+
+fn greet(name: string) {
+    log("Hello, " + name);
+    tick();
+    log("Bye, " + name);
+}
+
+run {
+    greet("Alice");
+    greet("Bob");
+} handle logger {
+    fn log(msg) {
+        print("[LOG] " + msg);
+    }
+} handle counter {
+    ctl tick() {
+        print("[TICK]");
+        resume;
+    }
+}

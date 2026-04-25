@@ -4,9 +4,11 @@ mod debug_sink;
 use args::CliArgs;
 use debug_sink::DebugSink;
 
+use cronyx::codegen::compile as codegen_compile;
 use cronyx::error::{CompilerError, enrich_diagnostic};
-use cronyx::semantics::cps::cps_transform::transform as cps_transform;
+use cronyx::semantics::cps::cps_transform::{transform as cps_transform, transform_interpreter};
 use cronyx::semantics::cps::effect_marker::mark_cps;
+use cronyx::semantics::types::effect_inference;
 use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use std::collections::HashMap;
 use cronyx::runtime::environment::*;
@@ -15,6 +17,7 @@ use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluato
 use cronyx::semantics::meta::meta_processor::process;
 use cronyx::semantics::meta::meta_stager::stage_all_files;
 use cronyx::semantics::meta::staged_forest::StagedForest;
+use cronyx::semantics::types::runtime_type_checker::type_check_runtime;
 use cronyx::semantics::types::type_annotated_view::TypeAnnotatedView;
 use cronyx::semantics::types::type_checker::type_check;
 use cronyx::semantics::types::type_env::TypeEnv;
@@ -26,7 +29,7 @@ fn main() {
     let args = CliArgs::parse();
     let sink = DebugSink::from_args(&args);
     let mut entry_ctx: Option<(String, HashMap<usize, (usize, usize)>)> = None;
-    if let Err(errors) = run_pipeline(&args.source_path, &sink, &mut entry_ctx) {
+    if let Err(errors) = run_pipeline(&args, &sink, &mut entry_ctx) {
         for e in &errors {
             let mut diag = e.to_diagnostic();
             if diag.file.is_none() {
@@ -45,10 +48,11 @@ fn main() {
 }
 
 fn run_pipeline(
-    root_path: &PathBuf,
+    args: &CliArgs,
     sink: &DebugSink,
     entry_ctx: &mut Option<(String, HashMap<usize, (usize, usize)>)>,
 ) -> Result<(), Vec<CompilerError>> {
+    let root_path = &args.source_path;
     // LOAD — stop immediately on parse/IO error
     let files = load_compilation_unit(root_path)
         .map_err(|e| vec![CompilerError::Load(e)])?;
@@ -60,9 +64,13 @@ fn run_pipeline(
     sink.dump_ast(meta_ast);
 
     // TYPE CHECK — collect all errors before stopping
-    let (type_table, type_env) = type_check(meta_ast)
+    let (type_table, mut type_env) = type_check(meta_ast)
         .map_err(|errs| errs.into_iter().map(CompilerError::TypeCheck).collect::<Vec<_>>())?;
     sink.dump_typed_ast(TypeAnnotatedView::new(meta_ast, &type_table), &type_table);
+
+    // EFFECT INFERENCE (Pass A1) — update type_env with effect rows before staging so
+    // typeof() expressions resolve to types that include effect annotations.
+    effect_inference::infer_meta(meta_ast, &mut type_env);
 
     // METAPROCESSING — stop on first error
     let mut staged_forest = StagedForest::new();
@@ -83,6 +91,7 @@ fn run_pipeline(
             env: meta_env.clone(),
             type_env: TypeEnv::new(),
             out: &mut stdout,
+            meta_captures: Vec::new(),
         };
         process(staged_forest, &mut evaluator)
             .map_err(|e| vec![CompilerError::Eval(e)])?
@@ -94,8 +103,32 @@ fn run_pipeline(
     // to pass continuations explicitly. Must run after meta-processing and before eval.
     let cps_info = mark_cps(&runtime_ast);
     let mut runtime_ast = runtime_ast;
+
+    // EFFECT INFERENCE (Pass A2 + B) — infer per-function effect rows and check that
+    // every top-level call site has all required effects handled.
+    effect_inference::infer_and_check(&runtime_ast, &cps_info)
+        .map_err(|e| vec![e])?;
+    // Both paths use full loop conversion now. The interpreter's old replay-stack
+    // mechanism handled ctl ops in while loops without loop-to-recursion conversion,
+    // but that approach cannot capture suspended continuations for async scheduling.
+    // The stack-depth concern for large loops is a known limitation of the interpreter.
     cps_transform(&mut runtime_ast, &cps_info);
     sink.dump_cps(&cps_info, &runtime_ast);
+
+    // RUNTIME TYPE CHECK — needed by codegen; also validates the post-CPS AST.
+    let type_map = {
+        let mut rt_env = TypeEnv::new();
+        type_check_runtime(&runtime_ast, &mut rt_env)
+            .map_err(|e| vec![CompilerError::TypeCheck(e)])?
+    };
+
+    // COMPILE — emit native binary via LLVM when --compile is set.
+    if args.compile {
+        let out_path = args.out_path.clone().unwrap_or_else(|| PathBuf::from("a.out"));
+        codegen_compile(&runtime_ast, &type_map, &cps_info, &out_path)
+            .map_err(|e| vec![CompilerError::Codegen(e.to_string())])?;
+        return Ok(());
+    }
 
     // EVALUATION — stop on first error
     let mut setup_env = EnvHandler::from(meta_env.clone());

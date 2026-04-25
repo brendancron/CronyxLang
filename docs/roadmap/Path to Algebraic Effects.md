@@ -1,5 +1,7 @@
 # Cronyx Algebraic Effects — Design, Analysis & Implementation Plan
 
+> **Historical document.** This was written before effects2 and uses effects1 handler syntax (`with fn`, `with ctl`). The current syntax is `run {} handle eff_name { ... }`. See `docs/Effect Typing.md` for current semantics.
+
 ## Overview
 
 Implementing Koka-style algebraic effects in Cronyx. Three test cases define the requirements:

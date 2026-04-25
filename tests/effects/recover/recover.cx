@@ -1,0 +1,22 @@
+effect parse_error {
+    ctl invalid(input: string): int;
+}
+
+// not really a real parser but fine for this example
+fn parse_int(str: string): int {
+    if (str == "10") {
+        return 10;
+    }
+    return invalid(str);
+}
+
+run {
+    print(parse_int("10"));
+    print(parse_int("apple"));
+    print("recovered");
+} handle parse_error {
+    ctl invalid(input) {
+        print("Parse error, invalid string: " + input);
+        resume -1;
+    }
+}

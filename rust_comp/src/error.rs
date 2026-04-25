@@ -152,6 +152,10 @@ pub enum CompilerError {
     TypeCheck(TypeError),
     Meta(MetaProcessError),
     Eval(EvalError),
+    Codegen(String),
+    /// A `ctl` op (or a function that transitively performs one) was called
+    /// at a point where no matching `with ctl` handler is active.
+    EffectNotHandled { op: String },
 }
 
 impl CompilerError {
@@ -169,6 +173,11 @@ impl CompilerError {
             CompilerError::TypeCheck(e) => type_diagnostic(e),
             CompilerError::Meta(e) => meta_diagnostic(e),
             CompilerError::Eval(e) => eval_diagnostic(e),
+            CompilerError::Codegen(msg) => Diagnostic::new(format!("codegen error: {msg}")),
+            CompilerError::EffectNotHandled { op } => {
+                Diagnostic::new(format!("unhandled effect: '{op}' is called but no handler is active"))
+                    .with_help(format!("add `with ctl {op}(...) {{ ... }}` before this call"))
+            }
         }
     }
 }

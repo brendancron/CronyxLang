@@ -1,0 +1,9 @@
+fn count_down(n: int) {
+    var i = n;
+    while (i > 0) {
+        print(to_string(i));
+        i = i - 1;
+    }
+    print("Blastoff!");
+}
+count_down(3);

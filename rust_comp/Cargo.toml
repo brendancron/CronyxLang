@@ -10,3 +10,5 @@ name = "cronyxc"
 path = "src/main.rs"
 
 [dependencies]
+inkwell = { version = "0.9", features = ["llvm20-1"] }
+llvm-sys = { version = "201", features = ["force-dynamic"] }

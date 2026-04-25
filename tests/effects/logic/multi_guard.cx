@@ -1,0 +1,35 @@
+effect logic {
+    ctl choose(options): int;
+    ctl guard(cond): unit;
+}
+
+handler logic_handler: logic {
+    ctl choose(options): int {
+        for (x in options) {
+            resume x;
+        }
+    }
+
+    ctl guard(cond: bool): unit {
+        if (cond) {
+            resume;
+        }
+    }
+}
+
+// Collect all values in list1 that also appear in list2
+var results = [];
+run {
+    var num1 = choose([1,2,3,4,5]);
+    var num2 = choose([3,5,7]);
+    guard(num1 == num2);
+    results.push(num1);
+} with logic_handler;
+
+print("Collect All Results:");
+for (x in results) {
+    print(x);
+}
+
+print("Find First Result:");
+print(results[0]);

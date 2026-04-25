@@ -21,7 +21,10 @@ pub trait ApplySubst {
 impl ApplySubst for Type {
     fn apply(&self, subst: &TypeSubst) -> Type {
         match self {
-            Type::Var(tv) => subst.map.get(tv).cloned().unwrap_or(self.clone()),
+            Type::Var(tv) => match subst.map.get(tv) {
+                Some(t) => t.apply(subst),  // follow substitution chains
+                None => self.clone(),
+            },
             Type::Func { params, ret, effects } => Type::Func {
                 params: params.iter().map(|t| t.apply(subst)).collect(),
                 ret: Box::new(ret.apply(subst)),
@@ -30,6 +33,10 @@ impl ApplySubst for Type {
             Type::Record(fields) => Type::Record(
                 fields.iter().map(|(k, v)| (k.clone(), v.apply(subst))).collect()
             ),
+            Type::Struct { name, fields } => Type::Struct {
+                name: name.clone(),
+                fields: fields.iter().map(|(k, v)| (k.clone(), v.apply(subst))).collect(),
+            },
             Type::Tuple(items) => Type::Tuple(items.iter().map(|t| t.apply(subst)).collect()),
             Type::Slice(elem) => Type::Slice(Box::new(elem.apply(subst))),
             _ => self.clone(),
@@ -85,6 +92,20 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
         }
 
         (Type::Record(fa), Type::Record(fb)) => {
+            if fa.keys().collect::<Vec<_>>() != fb.keys().collect::<Vec<_>>() {
+                return Err(TypeError::type_mismatch(a, b));
+            }
+            for (k, ta) in fa.iter() {
+                let tb = fb.get(k).unwrap();
+                unify(ta, tb, subst)?;
+            }
+            Ok(())
+        }
+
+        (Type::Struct { name: na, fields: fa }, Type::Struct { name: nb, fields: fb }) => {
+            if na != nb {
+                return Err(TypeError::type_mismatch(a, b));
+            }
             if fa.keys().collect::<Vec<_>>() != fb.keys().collect::<Vec<_>>() {
                 return Err(TypeError::type_mismatch(a, b));
             }

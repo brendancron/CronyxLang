@@ -16,6 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install LLVM 20
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update -q
+          sudo apt-get install -y llvm-20-dev clang-20
+          sudo ln -sf /usr/bin/clang-20 /usr/bin/clang
+          echo "LLVM_SYS_201_PREFIX=/usr/lib/llvm-20" >> $GITHUB_ENV
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -26,8 +35,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             rust_comp/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('rust_comp/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-llvm20-
 
       - name: Build
         run: cargo build

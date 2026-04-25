@@ -118,6 +118,27 @@ pub enum MetaExpr {
         start: Option<usize>,
         end: Option<usize>,
     },
+
+    Lambda {
+        params: Vec<String>,
+        body: usize,
+    },
+
+    /// `resume` or `resume(expr)` used as an expression (returns the continuation's value).
+    ResumeExpr(Option<usize>),
+
+    /// `run { body } handle eff1 { ops } handle eff2 { ops } ...`
+    RunHandle {
+        body: usize,
+        /// (effect_name, [WithFn/WithCtl stmt IDs])
+        effects: Vec<(String, Vec<usize>)>,
+    },
+
+    /// `run { body } with handler_name`
+    RunWith {
+        body: usize,
+        handler_name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -219,6 +240,13 @@ pub enum MetaStmt {
         ops: Vec<EffectOp>,
     },
 
+    /// `handler name : effect_name { ops }` or `handle name { ops }`
+    HandlerDef {
+        name: String,
+        effect_name: Option<String>,
+        ops: Vec<usize>,
+    },
+
     WithFn {
         op_name: String,
         params: Vec<Param>,
@@ -250,6 +278,9 @@ pub enum MetaStmt {
         type_name: String,
         methods: Vec<ImplMethodDecl>,
     },
+
+    /// `defer <stmt>` — executes deferred stmt in LIFO order when the enclosing block exits.
+    Defer(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -579,9 +610,19 @@ impl MetaAst {
                 ],
             ),
 
+            MetaStmt::HandlerDef { name, effect_name, ops } => (
+                format!("HandlerDef({}{})", name, effect_name.as_deref().map(|e| format!(":{e}")).unwrap_or_default()),
+                ops.iter().map(|&s| self.convert_stmt(s)).collect(),
+            ),
+
             MetaStmt::Resume(opt_expr) => (
                 "Resume".into(),
                 opt_expr.map(|id| vec![self.convert_expr(id)]).unwrap_or_default(),
+            ),
+
+            MetaStmt::Defer(stmt) => (
+                "Defer".into(),
+                vec![self.convert_stmt(*stmt)],
             ),
         };
 
@@ -721,6 +762,24 @@ impl MetaAst {
                     .chain(start.map(|s| self.convert_expr(s)))
                     .chain(end.map(|e| self.convert_expr(e)))
                     .collect(),
+            ),
+            MetaExpr::Lambda { params, body } => (
+                format!("Lambda({})", params.join(", ")),
+                vec![self.convert_stmt(*body)],
+            ),
+            MetaExpr::ResumeExpr(opt) => (
+                "ResumeExpr".into(),
+                opt.map(|e| vec![self.convert_expr(e)]).unwrap_or_default(),
+            ),
+            MetaExpr::RunHandle { body, effects } => (
+                "RunHandle".into(),
+                std::iter::once(self.convert_stmt(*body))
+                    .chain(effects.iter().flat_map(|(_, stmts)| stmts.iter().map(|&s| self.convert_stmt(s))))
+                    .collect(),
+            ),
+            MetaExpr::RunWith { body, handler_name } => (
+                format!("RunWith({})", handler_name),
+                vec![self.convert_stmt(*body)],
             ),
         };
 

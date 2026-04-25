@@ -11,11 +11,25 @@ use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluato
 use cronyx::semantics::meta::meta_processor::*;
 use cronyx::semantics::meta::meta_stager::stage_all_files;
 use cronyx::semantics::meta::staged_forest::StagedForest;
+use cronyx::semantics::types::effect_inference;
 use cronyx::semantics::types::type_checker::type_check;
 use cronyx::semantics::types::type_env::TypeEnv;
 use cronyx::util::id_provider::IdProvider;
 
 pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
+    // Run in a larger-stack thread so CPS-converted while loops (used in async scheduling)
+    // don't overflow the default 8 MB test-thread stack.
+    let root = root_path.clone();
+    let out = out_path.clone();
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(move || run_test_inner(&root, &out))
+        .expect("thread spawn failed")
+        .join()
+        .expect("test thread panicked");
+}
+
+fn run_test_inner(root_path: &PathBuf, out_path: &PathBuf) {
     eprintln!("input : {}", root_path.display());
     eprintln!("expect: {}", out_path.display());
     let expected_out = read_to_string(out_path).unwrap();
@@ -29,9 +43,12 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
         .find(|f| matches!(f.role, FileRole::Entry))
         .map(|f| &f.ast)
         .unwrap();
-    let type_env = type_check(entry_ast)
+    let mut type_env = type_check(entry_ast)
         .map(|(_, env)| env)
         .unwrap_or_else(|_| TypeEnv::new());
+
+    // Pass A1: update type_env with effect rows before staging (enables typeof() on effects).
+    effect_inference::infer_meta(entry_ast, &mut type_env);
 
     let mut staged_forest = StagedForest::new();
     staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
@@ -49,12 +66,17 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
             env: meta_env.clone(),
             type_env: TypeEnv::new(),
             out: &mut eval_buf,
+            meta_captures: Vec::new(),
         };
         process(staged_forest, &mut evaluator).unwrap()
     };
 
     let cps_info = mark_cps(&runtime_ast);
     let mut runtime_ast = runtime_ast;
+
+    // Pass A2 + B: infer effect rows and check for unhandled effects.
+    effect_inference::infer_and_check(&runtime_ast, &cps_info).unwrap();
+
     cps_transform(&mut runtime_ast, &cps_info);
 
     // Hoist all functions and create module namespace values before eval.
@@ -78,6 +100,59 @@ pub fn run_test(root_path: &PathBuf, out_path: &PathBuf) {
             "\n--- expected ---\n{}\n--- actual ---\n{}\n",
             expected_out, actual
         );
+    }
+}
+
+/// Run the pipeline up to and including effect checking; assert it fails.
+/// Panics if the program is accepted (no effect error detected).
+pub fn run_err_test(root_path: &PathBuf, expected_op: &str) {
+    eprintln!("input : {}", root_path.display());
+    eprintln!("expect error for op: {expected_op}");
+
+    let files = load_compilation_unit(root_path).expect("failed to load compilation unit");
+    let entry_ast = files
+        .iter()
+        .find(|f| matches!(f.role, FileRole::Entry))
+        .map(|f| &f.ast)
+        .unwrap();
+    let mut type_env = type_check(entry_ast)
+        .map(|(_, env)| env)
+        .unwrap_or_else(|_| TypeEnv::new());
+    effect_inference::infer_meta(entry_ast, &mut type_env);
+
+    let mut staged_forest = StagedForest::new();
+    staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
+    let mut id_provider = IdProvider::new();
+    stage_all_files(&files, &mut staged_forest, &mut id_provider, &type_env).unwrap();
+    staged_forest.resolve_symbol_deps().unwrap();
+
+    let mut eval_buf = Cursor::new(Vec::<u8>::new());
+    let meta_env = Environment::new();
+    let runtime_ast = {
+        let mut evaluator = InterpreterMetaEvaluator {
+            env: meta_env.clone(),
+            type_env: TypeEnv::new(),
+            out: &mut eval_buf,
+            meta_captures: Vec::new(),
+        };
+        process(staged_forest, &mut evaluator).unwrap()
+    };
+
+    let cps_info = mark_cps(&runtime_ast);
+    match effect_inference::infer_and_check(&runtime_ast, &cps_info) {
+        Ok(_) => panic!(
+            "expected effect error for op '{}' but program was accepted",
+            expected_op
+        ),
+        Err(e) => {
+            let msg = format!("{:?}", e);
+            assert!(
+                msg.contains(expected_op),
+                "expected error mentioning op '{}', got: {}",
+                expected_op,
+                msg
+            );
+        }
     }
 }
 
@@ -128,6 +203,11 @@ mod script_integration {
         cx_test!(func_return, "tests/core/functions", "return");
         cx_test!(func_fib, "tests/core/functions", "fib");
         cx_test!(func_closure, "tests/core/functions", "closure");
+        cx_test!(func_trailing_it, "tests/core/functions", "trailing_it");
+        cx_test!(func_trailing_explicit_param, "tests/core/functions", "trailing_explicit_param");
+        cx_test!(func_trailing_after_args, "tests/core/functions", "trailing_after_args");
+        cx_test!(func_trailing_multi_param, "tests/core/functions", "trailing_multi_param");
+        cx_test!(func_trailing_foreach, "tests/core/functions", "trailing_foreach");
         cx_test!(list_list, "tests/core/lists", "list");
         cx_test!(struct_struct, "tests/core/structs", "struct");
         cx_test!(modules_import, "tests/core/modules", "main");
@@ -164,8 +244,10 @@ mod script_integration {
         cx_test!(list_index_assign, "tests/core/lists", "index_assign");
         cx_test!(list_methods, "tests/core/lists", "list_methods");
         cx_test!(string_methods, "tests/core/strings", "string_methods");
+        cx_test!(string_slice,   "tests/core/strings", "string_slice");   // Phase 2d
         cx_test!(builtins_readfile, "tests/core/builtins", "readfile");
         cx_test!(builtins_conversions, "tests/core/builtins", "conversions");
+        cx_test!(builtins_free, "tests/core/builtins", "free");
 
         // Required features for 0.1.1
         cx_test!(control_for_c, "tests/core/control", "for_c");
@@ -214,7 +296,6 @@ mod script_integration {
             "tests/types",
             "typeof_effect_fn_vs_ctl"
         );
-
         // Required features for 0.1.4
         cx_test!(traits_basic_impl, "tests/core/traits/basic_impl", "main");
         cx_test!(
@@ -238,148 +319,28 @@ mod script_integration {
             "tests/core/generics/monomorphize",
             "main"
         );
+
+        // Defer
+        cx_test!(defer_basic, "tests/core/defer", "defer_basic");
+        cx_test!(defer_lifo, "tests/core/defer", "defer_lifo");
+        cx_test!(defer_return, "tests/core/defer", "defer_return");
     }
 
-    /// Algebraic effects tests — organized by implementation phase.
-    /// Tests are expected to fail until the corresponding phase is implemented.
-    /// As each phase lands, more tests will pass.
     #[cfg(test)]
     mod effects {
         use super::*;
 
-        // Phase 1: Parsing — effect declarations parse without crashing
-        #[test]
-        fn effect_decl_parse() {
-            run_test(
-                &test_dir("tests/effects/effect_decl_parse/effect_decl_parse.cx"),
-                &test_dir("tests/effects/effect_decl_parse/effect_decl_parse.txt"),
-            );
-        }
-
-        // Phase 2: fn effects
-        #[test]
-        fn effect_log() {
-            run_test(
-                &test_dir("tests/effects/log/log.cx"),
-                &test_dir("tests/effects/log/log.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_fn_shadow() {
-            run_test(
-                &test_dir("tests/effects/fn_shadow/fn_shadow.cx"),
-                &test_dir("tests/effects/fn_shadow/fn_shadow.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_fn_scoped() {
-            run_test(
-                &test_dir("tests/effects/fn_scoped/fn_scoped.cx"),
-                &test_dir("tests/effects/fn_scoped/fn_scoped.txt"),
-            );
-        }
-
-        // Phase 3: ctl effects — single resume
-        #[test]
-        fn effect_yield() {
-            run_test(
-                &test_dir("tests/effects/yield/yield.cx"),
-                &test_dir("tests/effects/yield/yield.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_yield_nested_fn() {
-            run_test(
-                &test_dir("tests/effects/yield_nested_fn/yield_nested_fn.cx"),
-                &test_dir("tests/effects/yield_nested_fn/yield_nested_fn.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_yield_in_while() {
-            run_test(
-                &test_dir("tests/effects/yield_in_while/yield_in_while.cx"),
-                &test_dir("tests/effects/yield_in_while/yield_in_while.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_ctl_no_resume() {
-            run_test(
-                &test_dir("tests/effects/ctl_no_resume/ctl_no_resume.cx"),
-                &test_dir("tests/effects/ctl_no_resume/ctl_no_resume.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_resume_with_value() {
-            run_test(
-                &test_dir("tests/effects/resume_with_value/resume_with_value.cx"),
-                &test_dir("tests/effects/resume_with_value/resume_with_value.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_across_functions() {
-            run_test(
-                &test_dir("tests/effects/effect_across_functions/effect_across_functions.cx"),
-                &test_dir("tests/effects/effect_across_functions/effect_across_functions.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_handler_override() {
-            run_test(
-                &test_dir("tests/effects/handler_override/handler_override.cx"),
-                &test_dir("tests/effects/handler_override/handler_override.txt"),
-            );
-        }
-
-        // Phase 3: fn + ctl effects combined — single resume
-        #[test]
-        fn effect_nested_effects() {
-            run_test(
-                &test_dir("tests/effects/nested_effects/nested_effects.cx"),
-                &test_dir("tests/effects/nested_effects/nested_effects.txt"),
-            );
-        }
-
-        // Phase 4: ctl effects — multi resume
-        #[test]
-        fn effect_flip() {
-            run_test(
-                &test_dir("tests/effects/flip/flip.cx"),
-                &test_dir("tests/effects/flip/flip.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_multi_resume_accumulate() {
-            run_test(
-                &test_dir("tests/effects/multi_resume_accumulate/multi_resume_accumulate.cx"),
-                &test_dir("tests/effects/multi_resume_accumulate/multi_resume_accumulate.txt"),
-            );
-        }
-
-        // Phase 5: built-in choose + assert (non-determinism + pruning)
-        #[test]
-        fn effect_assert() {
-            run_test(
-                &test_dir("tests/effects/assert/assert.cx"),
-                &test_dir("tests/effects/assert/assert.txt"),
-            );
-        }
-
-        #[test]
-        fn effect_assert_fn() {
-            run_test(
-                &test_dir("tests/effects/assert/assert_fn.cx"),
-                &test_dir("tests/effects/assert/assert_fn.txt"),
-            );
-        }
+        cx_test!(effect_log, "tests/effects/log", "log");
+        cx_test!(effect_ask, "tests/effects/ask", "ask");
+        cx_test!(effect_exception, "tests/effects/exception", "exception");
+        cx_test!(effect_recover, "tests/effects/recover", "recover");
+        cx_test!(effect_flip, "tests/effects/flip", "flip");
+        cx_test!(effect_simple_guard, "tests/effects/logic", "simple_guard");
+        cx_test!(effect_multi_guard, "tests/effects/logic", "multi_guard");
+        cx_test!(effect_handler, "tests/effects/handler", "handler");
+        cx_test!(effect_stream, "tests/effects/stream", "stream");
+        cx_test!(effect_async, "tests/effects/async", "async");
+        cx_test!(effect_multi_handle, "tests/effects/multi_handle", "multi_handle");
     }
 
     /// Operator overloading tests — TDD, fail until impl lands.

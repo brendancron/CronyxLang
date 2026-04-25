@@ -1,0 +1,29 @@
+effect log {
+    fn log(msg: string): unit;
+}
+
+fn greet(name: string): unit {
+    log("Hello, " + name);
+}
+
+// the most simple way to handle an effect is with a handle block.
+
+run {
+    greet("Brendan");
+} handle log {
+    fn log(msg: string) {
+        print("From inline handler: " + msg);
+    }
+}
+
+// a more reusable way is to define a handler and reuse it at runblocks
+
+handler basic_log_handler : log {
+    fn log(msg: string) {
+        print("From handler definition: " + msg);
+    }
+}
+
+run {
+    greet("Brendan");
+} with basic_log_handler;

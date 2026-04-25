@@ -1,0 +1,11 @@
+fn sum(xs: [int]): int {
+    var total = 0;
+    for (x in xs) {
+        total = total + x;
+    }
+    return total;
+}
+
+var nums = [1, 2, 3, 4, 5];
+print(to_string(sum(nums)));
+free(nums);
