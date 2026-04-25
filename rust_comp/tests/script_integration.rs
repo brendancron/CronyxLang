@@ -336,6 +336,7 @@ mod script_integration {
         cx_test!(effect_recover, "tests/effects/recover", "recover");
         cx_test!(effect_flip, "tests/effects/flip", "flip");
         cx_test!(effect_simple_guard, "tests/effects/logic", "simple_guard");
+        cx_test!(effect_multi_guard, "tests/effects/logic", "multi_guard");
         cx_test!(effect_handler, "tests/effects/handler", "handler");
         cx_test!(effect_stream, "tests/effects/stream", "stream");
         cx_test!(effect_async, "tests/effects/async", "async");

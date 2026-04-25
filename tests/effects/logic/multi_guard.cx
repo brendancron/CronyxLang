@@ -17,41 +17,19 @@ handler logic_handler: logic {
     }
 }
 
-fn find_matching(list1, list2): int {
-    var num1 = choose(list1);
-    var num2 = choose(list2);
+// Collect all values in list1 that also appear in list2
+var results = [];
+run {
+    var num1 = choose([1,2,3,4,5]);
+    var num2 = choose([3,5,7]);
     guard(num1 == num2);
-    return num1;
-}
+    results.push(num1);
+} with logic_handler;
 
-fn collect_all(f) {
-    var arr = [];
-    run {
-        var matching = f();
-        arr.append(matching);
-    } with logic_handler;
-    return arr;
-}
-
-fn find_first(f) {
-    run {
-        return f();
-    } with logic_handler;
-    return -1; //returns are not guarenteed within a run block
-}
-
-var all_matching = collect_all {
-    find_matching([1,2,3,4,5], [3,5,7])
-}
-
-print("Collect All Result");
-for (x in all_matching) {
+print("Collect All Results:");
+for (x in results) {
     print(x);
 }
 
-var first = find_first {
-    find_matching([1,2,3,4,5], [3,5,7])
-}
-
-print("Find First Result");
-print(first);
+print("Find First Result:");
+print(results[0]);
