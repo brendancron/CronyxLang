@@ -84,12 +84,12 @@ jobs:
           Write-Host "Found: $($rel.tag_name) — $($asset.name)"
           $installer = "$env:RUNNER_TEMP\llvm-installer.exe"
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing
-          # /D must be last and unquoted; install to C:\LLVM to avoid spaces in path
-          $proc = Start-Process -FilePath $installer -ArgumentList "/S", "/D=C:\LLVM" -PassThru -Wait
+          $proc = Start-Process -FilePath $installer -ArgumentList "/S" -PassThru -Wait
           if ($proc.ExitCode -ne 0) { throw "LLVM installer exited with code $($proc.ExitCode)" }
-          if (-not (Test-Path "C:\LLVM\bin\llvm-config.exe")) { throw "llvm-config.exe not found after install" }
-          Write-Host "LLVM installed at C:\LLVM"
-          "LLVM_SYS_201_PREFIX=C:\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $prefix = "C:\Program Files\LLVM"
+          if (-not (Test-Path "$prefix\bin\llvm-config.exe")) { throw "llvm-config.exe not found after install" }
+          Write-Host "LLVM installed at $prefix"
+          "LLVM_SYS_201_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
