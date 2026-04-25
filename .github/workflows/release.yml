@@ -86,23 +86,7 @@ jobs:
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          # Find the latest LLVM 20.x release that actually ships a win64.exe asset
-          # (not all patch releases include pre-built Windows binaries)
-          $releases = Invoke-RestMethod `
-            -Uri "https://api.github.com/repos/llvm/llvm-project/releases?per_page=50" `
-            -UseBasicParsing
-          $rel = $releases | Where-Object {
-            $_.tag_name -match '^llvmorg-20\.' -and
-            -not $_.prerelease -and
-            ($_.assets | Where-Object { $_.name -match '^LLVM-.*-win64\.exe$' })
-          } | Select-Object -First 1
-          if (-not $rel) { throw "No LLVM 20.x release with a win64.exe asset found" }
-          $asset = $rel.assets | Where-Object { $_.name -match '^LLVM-.*-win64\.exe$' } | Select-Object -First 1
-          Write-Host "Found: $($rel.tag_name) — $($asset.name)"
-          $installer = "$env:RUNNER_TEMP\llvm-installer.exe"
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing
-          $proc = Start-Process -FilePath $installer -ArgumentList "/quiet" -PassThru -Wait
-          if ($proc.ExitCode -ne 0) { throw "LLVM installer exited with code $($proc.ExitCode)" }
+          choco install llvm --version 20.1.8 -y --no-progress
           $prefix = "C:\Program Files\LLVM"
           if (-not (Test-Path "$prefix\bin\llvm-config.exe")) { throw "llvm-config.exe not found after install" }
           Write-Host "LLVM installed at $prefix"
