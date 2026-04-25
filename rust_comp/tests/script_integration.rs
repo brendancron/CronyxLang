@@ -341,6 +341,7 @@ mod script_integration {
         cx_test!(effect_stream, "tests/effects/stream", "stream");
         cx_test!(effect_async, "tests/effects/async", "async");
         cx_test!(effect_multi_handle, "tests/effects/multi_handle", "multi_handle");
+        cx_test!(effect_delim, "tests/effects/delim", "delim");
     }
 
     /// Operator overloading tests — TDD, fail until impl lands.
