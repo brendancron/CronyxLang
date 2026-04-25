@@ -18,6 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install LLVM 20
+        run: |
+          brew install llvm@20
+          echo "LLVM_SYS_201_PREFIX=$(brew --prefix llvm@20)" >> $GITHUB_ENV
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -30,8 +35,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             rust_comp/target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('rust_comp/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-
 
       - name: Build release binary
         working-directory: rust_comp
@@ -59,6 +64,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install LLVM 20
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "20"
+
+      - name: Set LLVM prefix
+        run: echo "LLVM_SYS_201_PREFIX=${{ env.LLVM_PATH }}" >> $GITHUB_ENV
+        shell: bash
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -71,8 +85,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             rust_comp/target
-          key: windows-x86_64-pc-windows-msvc-cargo-${{ hashFiles('rust_comp/Cargo.lock') }}
-          restore-keys: windows-x86_64-pc-windows-msvc-cargo-
+          key: windows-x86_64-pc-windows-msvc-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
+          restore-keys: windows-x86_64-pc-windows-msvc-cargo-llvm20-
 
       - name: Build release binary
         working-directory: rust_comp
