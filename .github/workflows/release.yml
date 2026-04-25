@@ -9,6 +9,7 @@ jobs:
   build-macos:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       matrix:
         include:
@@ -71,6 +72,7 @@ jobs:
   build-windows:
     name: Build (x86_64-pc-windows-msvc)
     runs-on: windows-latest
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -79,34 +81,32 @@ jobs:
         id: cache-llvm
         uses: actions/cache@v4
         with:
-          path: C:\Program Files\LLVM
-          key: llvm-20.1.8-x86_64-pc-windows-msvc
+          path: C:\LLVM
+          key: llvm-20.1.8-windows-7z-v1
 
       - name: Install LLVM 20 (Windows)
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          # Remove the runner's pre-installed (incomplete) LLVM so the installer
-          # does a clean install rather than a registry-triggered repair.
-          if (Test-Path "C:\Program Files\LLVM") {
-            Remove-Item "C:\Program Files\LLVM" -Recurse -Force
-          }
-          # Download the official installer directly — choco forces a repair via registry,
-          # which leaves llvm-config.exe missing.
           $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/LLVM-20.1.8-win64.exe"
           $installer = "$env:TEMP\LLVM-20.1.8-win64.exe"
+          Write-Host "Downloading LLVM 20.1.8..."
           Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
-          $proc = Start-Process -FilePath $installer -ArgumentList '/quiet' -Wait -PassThru
-          if ($proc.ExitCode -ne 0) { throw "LLVM installer exited with code $($proc.ExitCode)" }
-          if (-not (Test-Path "C:\Program Files\LLVM\bin\llvm-config.exe")) {
-            Write-Host "bin contents:"; Get-ChildItem "C:\Program Files\LLVM\bin" -ErrorAction SilentlyContinue | Select-Object Name
-            throw "llvm-config.exe not found after install"
+          Write-Host "Extracting with 7z to C:\LLVM..."
+          7z x $installer -o"C:\LLVM" -y
+          if (-not (Test-Path "C:\LLVM\bin\llvm-config.exe")) {
+            Write-Host "Extraction layout (depth 2):"
+            Get-ChildItem "C:\LLVM" -Recurse -Depth 2 | Select-Object FullName
+            Write-Host "Searching for llvm-config.exe:"
+            Get-ChildItem "C:\LLVM" -Recurse -Filter "llvm-config.exe" -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "llvm-config.exe not found at C:\LLVM\bin\llvm-config.exe"
           }
+          Write-Host "LLVM ready at C:\LLVM"
 
       - name: Set LLVM env (Windows)
         shell: pwsh
         run: |
-          "LLVM_SYS_201_PREFIX=C:\Program Files\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_SYS_201_PREFIX=C:\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
