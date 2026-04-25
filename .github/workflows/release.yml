@@ -70,8 +70,8 @@ jobs:
           version: "20"
 
       - name: Set LLVM prefix
-        run: echo "LLVM_SYS_201_PREFIX=${{ env.LLVM_PATH }}" >> $GITHUB_ENV
-        shell: bash
+        shell: pwsh
+        run: Add-Content $env:GITHUB_ENV "LLVM_SYS_201_PREFIX=$env:LLVM_PATH"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
