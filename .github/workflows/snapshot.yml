@@ -60,7 +60,6 @@ jobs:
 
       - name: Install LLVM 20
         env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
           brew install llvm@20
@@ -119,9 +118,22 @@ jobs:
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          # Runner image has incomplete LLVM (no llvm-config); --force installs the full package
-          choco install llvm --version 20.1.8 -y --no-progress --force
-          if (-not (Test-Path "C:\Program Files\LLVM\bin\llvm-config.exe")) { throw "llvm-config.exe not found after install" }
+          # Remove the runner's pre-installed (incomplete) LLVM so the installer
+          # does a clean install rather than a registry-triggered repair.
+          if (Test-Path "C:\Program Files\LLVM") {
+            Remove-Item "C:\Program Files\LLVM" -Recurse -Force
+          }
+          # Download the official installer directly — choco forces a repair via registry,
+          # which leaves llvm-config.exe missing.
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/LLVM-20.1.8-win64.exe"
+          $installer = "$env:TEMP\LLVM-20.1.8-win64.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
+          $proc = Start-Process -FilePath $installer -ArgumentList '/quiet' -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "LLVM installer exited with code $($proc.ExitCode)" }
+          if (-not (Test-Path "C:\Program Files\LLVM\bin\llvm-config.exe")) {
+            Write-Host "bin contents:"; Get-ChildItem "C:\Program Files\LLVM\bin" -ErrorAction SilentlyContinue | Select-Object Name
+            throw "llvm-config.exe not found after install"
+          }
 
       - name: Set LLVM env (Windows)
         shell: pwsh
