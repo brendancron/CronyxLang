@@ -3694,7 +3694,13 @@ impl<'ctx> Cg<'ctx> {
                                 self.builder.build_conditional_branch(need_grow, grow_bb, store_bb)?;
 
                                 self.builder.position_at_end(grow_bb);
-                                let new_cap = self.builder.build_int_mul(cap, self.i64_ty.const_int(2, false), "new_cap")?;
+                                let doubled = self.builder.build_int_mul(cap, self.i64_ty.const_int(2, false), "cap_doubled")?;
+                                // Guard against cap==0: max(cap*2, 1) so realloc never gets size 0
+                                let is_zero = self.builder.build_int_compare(IntPredicate::EQ, doubled, self.i64_ty.const_int(0, false), "is_zero")?;
+                                let new_cap = match self.builder.build_select(is_zero, self.i64_ty.const_int(1, false), doubled, "new_cap")? {
+                                    BasicValueEnum::IntValue(v) => v,
+                                    _ => unreachable!(),
+                                };
                                 let new_size = self.builder.build_int_mul(new_cap, self.i64_ty.const_int(8, false), "new_size")?;
                                 let old_data = load_data(slice_ptr)?;
                                 let new_data = self.builder.build_call(realloc_fn, &[old_data.into(), new_size.into()], "realloc")?
