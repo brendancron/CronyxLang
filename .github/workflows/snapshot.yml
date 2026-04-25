@@ -101,13 +101,27 @@ jobs:
       - name: Install LLVM 20 (Windows)
         shell: pwsh
         run: |
-          $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/llvm/llvm-project/releases?per_page=50" -UseBasicParsing
-          $rel = $releases | Where-Object { $_.tag_name -match '^llvmorg-20\.' } | Select-Object -First 1
-          $version = $rel.tag_name -replace 'llvmorg-', ''
+          # Find the latest LLVM 20.x release that actually ships a win64.exe asset
+          # (not all patch releases include pre-built Windows binaries)
+          $releases = Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/llvm/llvm-project/releases?per_page=50" `
+            -UseBasicParsing
+          $rel = $releases | Where-Object {
+            $_.tag_name -match '^llvmorg-20\.' -and
+            -not $_.prerelease -and
+            ($_.assets | Where-Object { $_.name -match '^LLVM-.*-win64\.exe$' })
+          } | Select-Object -First 1
+          if (-not $rel) { throw "No LLVM 20.x release with a win64.exe asset found" }
+          $asset = $rel.assets | Where-Object { $_.name -match '^LLVM-.*-win64\.exe$' } | Select-Object -First 1
+          Write-Host "Found: $($rel.tag_name) — $($asset.name)"
           $installer = "$env:RUNNER_TEMP\llvm-installer.exe"
-          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/LLVM-${version}-win64.exe" -OutFile $installer -UseBasicParsing
-          Start-Process -FilePath $installer -ArgumentList "/S" -Wait
-          "LLVM_SYS_201_PREFIX=C:\Program Files\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing
+          # /D must be last and unquoted; install to C:\LLVM to avoid spaces in path
+          $proc = Start-Process -FilePath $installer -ArgumentList "/S", "/D=C:\LLVM" -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "LLVM installer exited with code $($proc.ExitCode)" }
+          if (-not (Test-Path "C:\LLVM\bin\llvm-config.exe")) { throw "llvm-config.exe not found after install" }
+          Write-Host "LLVM installed at C:\LLVM"
+          "LLVM_SYS_201_PREFIX=C:\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
