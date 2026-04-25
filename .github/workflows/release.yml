@@ -64,14 +64,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM 20
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "20"
-
-      - name: Set LLVM prefix
+      - name: Install LLVM 20 (Windows)
         shell: pwsh
-        run: Add-Content $env:GITHUB_ENV "LLVM_SYS_201_PREFIX=$env:LLVM_PATH"
+        run: |
+          # Find latest LLVM 20.x release and download its Windows installer
+          $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/llvm/llvm-project/releases?per_page=50" -UseBasicParsing
+          $rel = $releases | Where-Object { $_.tag_name -match '^llvmorg-20\.' } | Select-Object -First 1
+          $version = $rel.tag_name -replace 'llvmorg-', ''
+          $installer = "$env:RUNNER_TEMP\llvm-installer.exe"
+          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/LLVM-${version}-win64.exe" -OutFile $installer -UseBasicParsing
+          Start-Process -FilePath $installer -ArgumentList "/S" -Wait
+          Add-Content $env:GITHUB_ENV "LLVM_SYS_201_PREFIX=C:\Program Files\LLVM"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
