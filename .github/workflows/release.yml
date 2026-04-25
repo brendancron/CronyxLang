@@ -8,12 +8,14 @@ on:
 jobs:
   build-macos:
     name: Build (${{ matrix.target }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
+        include:
+          - os: macos-latest  # Apple Silicon
+            target: aarch64-apple-darwin
+          - os: macos-13      # Intel (last Intel runner)
+            target: x86_64-apple-darwin
 
     steps:
       - uses: actions/checkout@v4
