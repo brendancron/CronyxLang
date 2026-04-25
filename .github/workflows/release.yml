@@ -32,6 +32,7 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
           brew install llvm@20
+          brew link --force --overwrite llvm@20
           echo "LLVM_SYS_201_PREFIX=$(brew --prefix llvm@20)" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
@@ -80,16 +81,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\Program Files\LLVM
-          key: llvm-20-x86_64-pc-windows-msvc
+          key: llvm-20.1.8-x86_64-pc-windows-msvc
 
       - name: Install LLVM 20 (Windows)
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          choco install llvm --version 20.1.8 -y --no-progress
-          $prefix = "C:\Program Files\LLVM"
-          if (-not (Test-Path "$prefix\bin\llvm-config.exe")) { throw "llvm-config.exe not found after install" }
-          Write-Host "LLVM installed at $prefix"
+          # Runner image has incomplete LLVM (no llvm-config); --force installs the full package
+          choco install llvm --version 20.1.8 -y --no-progress --force
+          if (-not (Test-Path "C:\Program Files\LLVM\bin\llvm-config.exe")) { throw "llvm-config.exe not found after install" }
 
       - name: Set LLVM env (Windows)
         shell: pwsh
