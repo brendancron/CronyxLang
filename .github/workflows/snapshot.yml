@@ -116,7 +116,7 @@ jobs:
           Write-Host "Found: $($rel.tag_name) — $($asset.name)"
           $installer = "$env:RUNNER_TEMP\llvm-installer.exe"
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing
-          $proc = Start-Process -FilePath $installer -ArgumentList "/S" -PassThru -Wait
+          $proc = Start-Process -FilePath $installer -ArgumentList "/quiet" -PassThru -Wait
           if ($proc.ExitCode -ne 0) { throw "LLVM installer exited with code $($proc.ExitCode)" }
           $prefix = "C:\Program Files\LLVM"
           if (-not (Test-Path "$prefix\bin\llvm-config.exe")) { throw "llvm-config.exe not found after install" }
