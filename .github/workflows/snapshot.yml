@@ -137,6 +137,17 @@ jobs:
             Get-ChildItem "D:\llvm20" -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName
             throw "llvm-config.exe not found at D:\llvm20\bin\"
           }
+          # The tarball was built with libxml2 support; llvm-config --system-libs
+          # emits libxml2s.lib but it's not bundled. Install via vcpkg and drop it
+          # into D:\llvm20\lib (already in the linker search path) so it's cached.
+          Write-Host "Installing libxml2 via vcpkg..."
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg" install libxml2:x64-windows-static --no-print-usage
+          $xmllib = Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib" `
+                      -Filter "libxml2*.lib" |
+                    Where-Object { $_.Name -notmatch "d\.lib$" } |
+                    Select-Object -First 1
+          if (-not $xmllib) { throw "libxml2 lib not found after vcpkg install" }
+          Copy-Item $xmllib.FullName "D:\llvm20\lib\libxml2s.lib"
           Write-Host "LLVM 20.1.8 ready at D:\llvm20"
 
       - name: Set LLVM env (Windows)
