@@ -1,17 +1,41 @@
-# Cronyx Docs
+# Website
 
-Docusaurus site, deployed to https://brendancron.github.io/compiler/ via GitHub Actions on push to `main`.
+This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
 
-## Local development
+## Installation
 
 ```bash
-cd docs
-npm install        # first time, generates package-lock.json
-npm start          # dev server with hot reload
-npm run build      # production build into ./build
-npm run serve      # serve the production build locally
+yarn
 ```
 
-## Adding content
+## Local Development
 
-Drop markdown files into `docs/`. The sidebar is auto-generated from the directory tree. Use `sidebar_position` frontmatter to control ordering.
+```bash
+yarn start
+```
+
+This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+
+## Build
+
+```bash
+yarn build
+```
+
+This command generates static content into the `build` directory and can be served using any static contents hosting service.
+
+## Deployment
+
+Using SSH:
+
+```bash
+USE_SSH=true yarn deploy
+```
+
+Not using SSH:
+
+```bash
+GIT_USER=<Your GitHub username> yarn deploy
+```
+
+If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
