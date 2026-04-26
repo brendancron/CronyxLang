@@ -1,0 +1,33 @@
+name: Auto Tag
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Bump patch version and tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute and push next patch tag
+        run: |
+          # Latest clean semver tag (ignore snapshot/pre-release tags)
+          LATEST=$(git tag --list 'v*' --sort=-version:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | head -1)
+          LATEST="${LATEST:-v0.0.0}"
+
+          VERSION="${LATEST#v}"
+          IFS='.' read -r major minor patch <<< "$VERSION"
+          NEW_TAG="v${major}.${minor}.$((patch + 1))"
+
+          echo "Latest: $LATEST  →  New: $NEW_TAG"
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"

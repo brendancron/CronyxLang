@@ -1,0 +1,19 @@
+effect exception {
+    ctl throw(msg: string): unit;
+}
+
+fn main() {
+    print("Start of Main");
+    run {
+        print("Start of Run Block");
+        throw("Some Exception");
+        print("End of Run Block");
+    } handle exception {
+        ctl throw(msg) {
+            print(msg);
+        }
+    }
+    print("End of Main");
+}
+
+main();

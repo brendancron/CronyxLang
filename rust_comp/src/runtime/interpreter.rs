@@ -80,6 +80,15 @@ pub struct EvalCtx<'a, W> {
     /// continuation argument (CPS style), the continuation is pushed here so that
     /// `Resume` inside the handler body calls it instead of collecting.
     pub cps_continuations: Vec<Value>,
+    /// Stack of outer continuations for CPS functions. When a function with a `__k_*`
+    /// parameter is called, that continuation value is pushed here. After a ctl handler
+    /// runs in CPS mode without calling resume, this is used to invoke the outer
+    /// continuation (i.e., continue execution after the `run { } handle { }` block).
+    pub handle_continuations: Vec<Value>,
+    /// Counts how many times `resume` (or a CPS continuation) has been invoked during
+    /// the current ctl handler execution. Compared before/after the handler runs to
+    /// detect whether resume was called.
+    pub cps_resume_count: usize,
 }
 
 pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
@@ -469,8 +478,10 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 // This is correct both for direct handler-body resume (where __resume__ ==
                 // cps_continuations.last()) and for closures that captured __resume__ at
                 // handler-entry time (where cps_continuations may have grown since).
+                ctx.cps_resume_count += 1;
                 call_value(resume_fn, vec![val], ctx)
             } else if let Some(cont) = ctx.cps_continuations.last().cloned() {
+                ctx.cps_resume_count += 1;
                 let result = call_value(cont, vec![val], ctx)?;
                 Ok(result)
             } else {
@@ -565,9 +576,28 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                     ctx.cps_continuations.push(continuation.clone());
                     // Inject __resume__ so lambdas created in the handler body can capture it.
                     ctx.env.define("__resume__".to_string(), continuation);
+                    let resume_count_before = ctx.cps_resume_count;
                     let handler_result = eval_stmt(body, ctx);
+                    let resume_was_called = ctx.cps_resume_count > resume_count_before;
                     ctx.cps_continuations.pop();
                     ctx.env.pop_scope();
+                    // If the handler did not call resume, the run-block continuation chain
+                    // was never invoked.  Call the outer continuation (`__k_N` of the
+                    // enclosing `__handle_*` function) so that execution continues after
+                    // the `run { } handle { }` expression.
+                    if !resume_was_called {
+                        let handler_val = match handler_result {
+                            Ok(ExecResult::Return(v)) => v,
+                            Ok(_) => Value::Unit,
+                            Err(EvalError::EffectAborted) => Value::Unit,
+                            Err(e) => return Err(e),
+                        };
+                        return if let Some(outer_k) = ctx.handle_continuations.last().cloned() {
+                            call_value(outer_k, vec![handler_val], ctx)
+                        } else {
+                            Ok(handler_val)
+                        };
+                    }
                     return match handler_result {
                         Ok(ExecResult::Return(v)) => Ok(v),
                         Ok(_) => Ok(Value::Unit),
@@ -647,7 +677,14 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 None
             };
             ctx.env.push_scope();
+            let mut pushed_handle_k = false;
             for (param, value) in func.params.iter().zip(arg_vals) {
+                // Track the outer continuation for CPS functions so that ctl handlers
+                // that don't call resume can still invoke it after the handler body runs.
+                if param.starts_with("__k") {
+                    ctx.handle_continuations.push(value.clone());
+                    pushed_handle_k = true;
+                }
                 ctx.env.define(param.clone(), value);
             }
 
@@ -657,6 +694,7 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 ExecResult::Resumed(v) => v,
             };
             ctx.env.pop_scope();
+            if pushed_handle_k { ctx.handle_continuations.pop(); }
             if let Some(old) = saved_env { ctx.env.swap(old); }
 
             Ok(result)
@@ -881,9 +919,11 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             } else if let Ok(resume_fn) = ctx.env.get("__resume__") {
                 // Prefer lexically-captured __resume__ over the continuation stack.
                 // Correct for both direct handler-body resume and closures.
+                ctx.cps_resume_count += 1;
                 call_value(resume_fn, vec![val], ctx)?;
                 Ok(ExecResult::Continue)
             } else if let Some(cont) = ctx.cps_continuations.last().cloned() {
+                ctx.cps_resume_count += 1;
                 call_value(cont, vec![val], ctx)?;
                 Ok(ExecResult::Continue)
             } else {
@@ -1147,6 +1187,8 @@ pub fn eval<W: Write>(
         collected_resumes: Vec::new(),
         replay_stack: Vec::new(),
         cps_continuations: Vec::new(),
+        handle_continuations: Vec::new(),
+        cps_resume_count: 0,
     };
     match eval_stmts(&root_stmts, &mut ctx) {
         // Handler ran without resume — computation was intentionally discarded (e.g. abort).

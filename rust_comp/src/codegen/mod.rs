@@ -974,12 +974,6 @@ pub fn compile(
         fn_is_ptr_return.insert(unique_name.clone(), false);
     }
 
-    // Build param name map for user functions (for HOF wrapper creation)
-    let mut fn_param_names: HashMap<String, Vec<String>> = HashMap::new();
-    for (_, fname, params, _) in &fn_decls {
-        fn_param_names.insert(fname.clone(), params.clone());
-    }
-
     // ── Pass 1.5: pre-create nested FnDecl LLVM stubs ─────────────────────────
     // Nested FnDecls (FnDecl inside another FnDecl body) are treated as closures.
     // We pre-declare their LLVM functions here so emit_stmt can look them up.
@@ -1075,8 +1069,6 @@ pub fn compile(
             None
         }).collect();
 
-        let closure_ty = closure_ty.expect("closure_ty must exist when has_hof_fns=true");
-
         for fn_name in &hof_names {
             let fn_val = match user_fns.get(fn_name.as_str()) {
                 Some(&v) => v,
@@ -1125,18 +1117,8 @@ pub fn compile(
             };
             builder.build_return(Some(&ret_i64))?;
 
-            // Create a global closure struct for this HOF wrapper (reusable).
-            // fn_ptr = wrapper_fn, env_ptr = null
-            let closure_size = closure_ty.size_of().unwrap();
-            let _ = closure_size;
             hof_wrapper_fns.insert(fn_name.clone(), wrapper_fn);
         }
-    }
-
-    // Build param name map for user functions
-    let mut fn_param_names: HashMap<String, Vec<String>> = HashMap::new();
-    for (_, fname, params, _) in &fn_decls {
-        fn_param_names.insert(fname.clone(), params.clone());
     }
 
     let mut cg = Cg {
@@ -1158,7 +1140,6 @@ pub fn compile(
         atoll_fn,
         readfile_fn,
         abort_fn,
-        fn_param_names,
         hof_wrapper_fns,
         nested_fn_stmts,
         global_vars,
@@ -1353,9 +1334,7 @@ pub fn compile(
             let data_sz = builder.build_int_mul(n, ptr_size, "data_sz")?;
             let data_buf = builder.build_call(ml_fn, &[data_sz.into()], "data_buf")?
                 .try_as_basic_value().basic().unwrap().into_pointer_value();
-            // Allocate slice struct
-            let slice_size = i64_ty.const_int(std::mem::size_of::<u128>() as u64, false);
-            // Use sizeof(__slice) = 3 * 8 = 24
+            // Allocate slice struct: sizeof(__slice) = 3 * 8 = 24
             let slice_size = i64_ty.const_int(24, false);
             let slice_ptr = builder.build_call(ml_fn, &[slice_size.into()], "slice_ptr")?
                 .try_as_basic_value().basic().unwrap().into_pointer_value();
@@ -1693,8 +1672,6 @@ struct Cg<'ctx> {
     readfile_fn: Option<FunctionValue<'ctx>>,
     /// abort(): used to stub unresolved effect calls in dead code paths.
     abort_fn: FunctionValue<'ctx>,
-    /// Param names per user function.
-    fn_param_names: HashMap<String, Vec<String>>,
     /// Pre-created HOF wrapper functions (fn_name → wrapper FunctionValue).
     /// Wrapper has closure calling convention: (ptr env, [params except __k]) → i64.
     hof_wrapper_fns: HashMap<String, FunctionValue<'ctx>>,
@@ -2787,8 +2764,6 @@ impl<'ctx> Cg<'ctx> {
                 }
                 // else: unknown nested fn (shouldn't happen with pre-detection)
             }
-
-            _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
         }
         Ok(())
     }
@@ -3637,7 +3612,6 @@ impl<'ctx> Cg<'ctx> {
                     );
                     if obj_is_slice {
                         let slice_ty   = self.slice_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
-                        let malloc_fn  = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                         let slice_ptr  = match self.emit_expr(*object, locals)? {
                             BasicValueEnum::PointerValue(p) => p,
                             _ => return Err(CodegenError::UnsupportedExpr(expr_id)),

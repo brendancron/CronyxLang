@@ -176,7 +176,7 @@ impl CompilerError {
             CompilerError::Codegen(msg) => Diagnostic::new(format!("codegen error: {msg}")),
             CompilerError::EffectNotHandled { op } => {
                 Diagnostic::new(format!("unhandled effect: '{op}' is called but no handler is active"))
-                    .with_help(format!("add `with ctl {op}(...) {{ ... }}` before this call"))
+                    .with_help(format!("wrap the call in `run {{ ... }} handle <effect> {{ ctl {op}(...) {{ ... }} }}`"))
             }
         }
     }

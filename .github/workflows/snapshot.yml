@@ -1,0 +1,190 @@
+name: Snapshot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  version:
+    name: Compute snapshot version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute snapshot version
+        id: compute
+        run: |
+          # Latest clean release tag
+          LATEST=$(git tag --list 'v*' --sort=-version:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | head -1)
+          LATEST="${LATEST:-v0.0.0}"
+
+          # Sanitize branch: lowercase, non-alnum → hyphen, collapse runs, strip edges, cap at 40 chars
+          BRANCH="${{ github.head_ref }}"
+          SANITIZED=$(echo "$BRANCH" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9]/-/g' \
+            | sed 's/-\+/-/g' \
+            | sed 's/^-//; s/-$//' \
+            | cut -c1-40)
+
+          VERSION="${LATEST}-snapshot-${SANITIZED}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Snapshot version: $VERSION"
+
+  build-macos:
+    name: Snapshot (${{ matrix.target }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: homebrew-llvm20-${{ matrix.target }}
+
+      - name: Install LLVM 20
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install --force-bottle llvm@20
+          brew link --force --overwrite llvm@20
+          echo "LLVM_SYS_201_PREFIX=$(brew --prefix llvm@20)" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust_comp/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-
+
+      - name: Build
+        working-directory: rust_comp
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          BINARY=rust_comp/target/${{ matrix.target }}/release/cronyxc
+          tar -czf "cronyxc-${VERSION}-${{ matrix.target }}.tar.gz" \
+            -C "$(dirname $BINARY)" "$(basename $BINARY)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cronyxc-${{ matrix.target }}
+          path: cronyxc-${{ needs.version.outputs.version }}-${{ matrix.target }}.tar.gz
+          retention-days: 14
+
+  build-windows:
+    name: Snapshot (x86_64-pc-windows-msvc)
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache LLVM 20 (Windows)
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: D:\llvm20
+          key: llvm-20.1.8-windows-msvc-tarxz-v1
+
+      - name: Install LLVM 20 (Windows)
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          # Download the official pre-built binary tarball — avoids the NSIS installer
+          # whose silent-mode /quiet flag stalls on GitHub runners.
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz"
+          $xz  = "$env:TEMP\llvm.tar.xz"
+          $tar = "$env:TEMP\llvm.tar"
+          Write-Host "Downloading LLVM 20.1.8 pre-built binary..."
+          Invoke-WebRequest -Uri $url -OutFile $xz -UseBasicParsing
+          Write-Host "Decompressing .xz..."
+          & 7z e "$xz" "-o$env:TEMP" -y | Out-Null
+          Write-Host "Extracting .tar to D:\..."
+          & 7z x "$tar" "-oD:\" -y | Out-Null
+          Rename-Item "D:\clang+llvm-20.1.8-x86_64-pc-windows-msvc" "llvm20"
+          if (-not (Test-Path "D:\llvm20\bin\llvm-config.exe")) {
+            Get-ChildItem "D:\llvm20" -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "llvm-config.exe not found at D:\llvm20\bin\"
+          }
+          # The tarball was built with libxml2 support; llvm-config --system-libs
+          # emits libxml2s.lib but it's not bundled. Install via vcpkg and drop it
+          # into D:\llvm20\lib (already in the linker search path) so it's cached.
+          Write-Host "Installing libxml2 via vcpkg..."
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg" install libxml2:x64-windows-static --no-print-usage
+          $xmllib = Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib" `
+                      -Filter "libxml2*.lib" |
+                    Where-Object { $_.Name -notmatch "d\.lib$" } |
+                    Select-Object -First 1
+          if (-not $xmllib) { throw "libxml2 lib not found after vcpkg install" }
+          Copy-Item $xmllib.FullName "D:\llvm20\lib\libxml2s.lib"
+          Write-Host "LLVM 20.1.8 ready at D:\llvm20"
+
+      - name: Set LLVM env (Windows)
+        shell: pwsh
+        run: |
+          "LLVM_SYS_201_PREFIX=D:\llvm20" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust_comp/target
+          key: windows-x86_64-pc-windows-msvc-cargo-llvm20-v2-${{ hashFiles('rust_comp/Cargo.lock') }}
+          restore-keys: windows-x86_64-pc-windows-msvc-cargo-llvm20-v2-
+
+      - name: Build
+        working-directory: rust_comp
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ needs.version.outputs.version }}"
+          Compress-Archive `
+            -Path "rust_comp/target/x86_64-pc-windows-msvc/release/cronyxc.exe" `
+            -DestinationPath "cronyxc-${version}-x86_64-pc-windows-msvc.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cronyxc-x86_64-pc-windows-msvc
+          path: cronyxc-${{ needs.version.outputs.version }}-x86_64-pc-windows-msvc.zip
+          retention-days: 14

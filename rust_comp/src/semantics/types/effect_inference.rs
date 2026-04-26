@@ -287,52 +287,54 @@ fn infer_runtime(ast: &RuntimeAst, cps_info: &CpsInfo) -> EffectInfo {
         }
     }
 
-    // Pass A2a: direct ctl calls.
+    // Pass A2a: direct ctl calls — immutable baseline.
+    let mut direct_rows: HashMap<String, BTreeSet<String>> = HashMap::new();
     for (name, &body_id) in &fn_bodies {
         let mut row = BTreeSet::new();
         collect_ctl_calls_runtime_stmt(ast, body_id, ctl_ops, &mut row);
         if !row.is_empty() {
-            info.fn_rows.insert(name.clone(), row);
+            direct_rows.insert(name.clone(), row);
         }
     }
 
-    // Pass A2b: transitive closure.
-    loop {
-        let mut changed = false;
-        let snapshot = info.fn_rows.clone();
-        for (name, &body_id) in &fn_bodies {
-            let mut additional = BTreeSet::new();
-            collect_transitive_runtime_stmt(ast, body_id, &snapshot, &mut additional);
-            let row = info.fn_rows.entry(name.clone()).or_default();
-            let prev = row.len();
-            row.extend(additional);
-            if row.len() > prev {
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
-    // Pass A2c: subtract effects that are handled internally by `with ctl` stmts
-    // within the function body. A function that installs its own handlers has a
-    // net external effect row that excludes those effects.
-    // Also populate fn_handles for use in HOF argument checking.
+    // Collect what each function handles internally — immutable.
     for (name, &body_id) in &fn_bodies {
         let mut handled = BTreeSet::new();
         collect_handled_ops_runtime_stmt(ast, body_id, &mut handled);
         if !handled.is_empty() {
-            info.fn_handles.insert(name.clone(), handled.clone());
-            if let Some(row) = info.fn_rows.get_mut(name) {
-                for op in &handled {
+            info.fn_handles.insert(name.clone(), handled);
+        }
+    }
+
+    // Convergence loop: new_row(f) = (direct(f) ∪ transitive_from_snapshot) - handled(f)
+    //
+    // Rebuilding from scratch each iteration ensures that subtract and propagate
+    // interact correctly: a handler in __handle_N removes an op both from its own
+    // direct calls AND from any transitive contributions it picks up from callees.
+    // A simple A2a→A2c→A2b order fails because A2b can re-introduce ops that A2c
+    // already removed (when a callee passes effects up through the handler).
+    loop {
+        let snapshot = info.fn_rows.clone();
+        let mut new_rows: HashMap<String, BTreeSet<String>> = HashMap::new();
+        for (name, &body_id) in &fn_bodies {
+            let mut row = direct_rows.get(name).cloned().unwrap_or_default();
+            let mut transitive = BTreeSet::new();
+            collect_transitive_runtime_stmt(ast, body_id, &snapshot, &mut transitive);
+            row.extend(transitive);
+            if let Some(handled) = info.fn_handles.get(name) {
+                for op in handled {
                     row.remove(op);
                 }
             }
+            if !row.is_empty() {
+                new_rows.insert(name.clone(), row);
+            }
         }
+        if new_rows == info.fn_rows {
+            break;
+        }
+        info.fn_rows = new_rows;
     }
-    // Remove empty rows.
-    info.fn_rows.retain(|_, row| !row.is_empty());
 
     info
 }

@@ -6,7 +6,7 @@ use debug_sink::DebugSink;
 
 use cronyx::codegen::compile as codegen_compile;
 use cronyx::error::{CompilerError, enrich_diagnostic};
-use cronyx::semantics::cps::cps_transform::{transform as cps_transform, transform_interpreter};
+use cronyx::semantics::cps::cps_transform::transform as cps_transform;
 use cronyx::semantics::cps::effect_marker::mark_cps;
 use cronyx::semantics::types::effect_inference;
 use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
