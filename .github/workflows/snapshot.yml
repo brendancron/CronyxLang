@@ -154,6 +154,18 @@ jobs:
         shell: pwsh
         run: |
           "LLVM_SYS_201_PREFIX=D:\llvm20" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # Add LLVM bin to PATH so LLVM-C.dll is found at link time and when running tests.
+          "D:\llvm20\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Inspect LLVM installation (Windows)
+        shell: pwsh
+        run: |
+          Write-Host "=== Targets built ==="
+          & "D:\llvm20\bin\llvm-config.exe" --targets-built
+          Write-Host "=== DLLs in bin ==="
+          Get-ChildItem "D:\llvm20\bin" -Filter "LLVM*.dll" | Select-Object Name
+          Write-Host "=== Static libs sample ==="
+          Get-ChildItem "D:\llvm20\lib" -Filter "LLVM*.lib" | Select-Object Name | Select-Object -First 15
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -167,8 +179,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             rust_comp/target
-          key: windows-x86_64-pc-windows-msvc-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
-          restore-keys: windows-x86_64-pc-windows-msvc-cargo-llvm20-
+          key: windows-x86_64-pc-windows-msvc-cargo-llvm20-dyn-${{ hashFiles('rust_comp/Cargo.lock') }}
+          restore-keys: windows-x86_64-pc-windows-msvc-cargo-llvm20-dyn-
 
       - name: Build
         working-directory: rust_comp
@@ -178,8 +190,11 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ needs.version.outputs.version }}"
+          # Include LLVM-C.dll alongside the binary (force-dynamic links against it).
+          $llvmDll = Get-ChildItem "D:\llvm20\bin" -Filter "LLVM-C*.dll" | Select-Object -First 1
+          if (-not $llvmDll) { throw "LLVM-C DLL not found in D:\llvm20\bin — check Inspect step output" }
           Compress-Archive `
-            -Path "rust_comp/target/x86_64-pc-windows-msvc/release/cronyxc.exe" `
+            -Path "rust_comp/target/x86_64-pc-windows-msvc/release/cronyxc.exe",$llvmDll.FullName `
             -DestinationPath "cronyxc-${version}-x86_64-pc-windows-msvc.zip"
 
       - name: Upload artifact

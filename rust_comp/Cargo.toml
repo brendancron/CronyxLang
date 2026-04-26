@@ -12,7 +12,8 @@ path = "src/main.rs"
 [dependencies]
 inkwell = { version = "0.9", features = ["llvm20-1"] }
 
-# force-dynamic only on Linux: avoids missing static Polly lib in APT packages.
-# macOS (brew) and Windows (LLVM installer) use static linking — no Polly issue there.
-[target.'cfg(target_os = "linux")'.dependencies]
+# force-dynamic on Linux (APT lacks static Polly lib) and Windows (official pre-built
+# tarball only includes X86/AArch64 static libs; exotic targets like Mips/Sparc/AMDGPU
+# that inkwell references are absent — LLVM-C.dll is the complete shared build).
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 llvm-sys = { version = "201", features = ["force-dynamic"] }
