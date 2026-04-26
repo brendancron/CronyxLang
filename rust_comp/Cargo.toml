@@ -10,10 +10,13 @@ name = "cronyxc"
 path = "src/main.rs"
 
 [dependencies]
-inkwell = { version = "0.9", features = ["llvm20-1"] }
+# Disable default inkwell target features so only the targets our codegen actually
+# uses get compiled in. The official LLVM Windows tarball only ships static libs for
+# X86/AArch64/ARM/BPF/WebAssembly/RISCV/NVPTX — enabling all targets (the default)
+# causes LNK2019 on Mips/Sparc/Hexagon/Lanai/MSP430/XCore/AMDGPU symbols.
+inkwell = { version = "0.9", default-features = false, features = ["llvm20-1", "target-x86", "target-aarch64"] }
 
-# force-dynamic on Linux (APT lacks static Polly lib) and Windows (official pre-built
-# tarball only includes X86/AArch64 static libs; exotic targets like Mips/Sparc/AMDGPU
-# that inkwell references are absent — LLVM-C.dll is the complete shared build).
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+# force-dynamic only on Linux: avoids missing static Polly lib in APT packages.
+# macOS (brew) ships a full LLVM. Windows uses the tarball with static libs above.
+[target.'cfg(target_os = "linux")'.dependencies]
 llvm-sys = { version = "201", features = ["force-dynamic"] }
