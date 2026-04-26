@@ -684,7 +684,7 @@ fn collect_expr_refs(
         Some(RuntimeExpr::Variable(name)) => {
             if !bound.contains(name) { refs.insert(name.clone()); }
         }
-        Some(RuntimeExpr::Call { callee, args }) => {
+        Some(RuntimeExpr::Call { callee: _, args }) => {
             // Don't include the callee — it's a function name, not a local variable.
             let args = args.clone();
             for a in args { collect_expr_refs(ast, a, bound, refs); }
