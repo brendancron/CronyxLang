@@ -15,10 +15,10 @@ const config: Config = {
   },
 
   url: 'https://brendancron.github.io',
-  baseUrl: '/Cronyx/',
+  baseUrl: '/CronyxLang/',
 
   organizationName: 'brendancron',
-  projectName: 'Cronyx',
+  projectName: 'CronyxLang',
   trailingSlash: false,
   deploymentBranch: 'gh-pages',
 
@@ -41,7 +41,7 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/brendancron/Cronyx/tree/main/docs/',
+            'https://github.com/brendancron/CronyxLang/tree/main/docs/',
         },
         blog: false,
         theme: {
@@ -71,7 +71,7 @@ const config: Config = {
           label: 'Tutorial',
         },
         {
-          href: 'https://github.com/brendancron/Cronyx',
+          href: 'https://github.com/brendancron/CronyxLang',
           label: 'GitHub',
           position: 'right',
         },
@@ -111,7 +111,7 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/brendancron/Cronyx',
+              href: 'https://github.com/brendancron/CronyxLang',
             },
           ],
         },
