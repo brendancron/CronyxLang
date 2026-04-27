@@ -1,0 +1,159 @@
+---
+sidebar_position: 3
+---
+
+# Control flow
+
+You saw `if` in passing in the last chapter, inside the recursive `fib` function. This chapter covers Cronyx's three control-flow constructs — `if`/`else`, `while`, and `for` — and when to reach for each.
+
+## `if` and `else`
+
+The simplest form runs a block when a condition is true:
+
+```cronyx
+if (true) {
+    print("if success");
+}
+```
+
+```
+if success
+```
+
+The condition goes in parens, the body in braces. Both are required — no paren-free conditions, no single-statement bodies.
+
+The condition has to be a `bool`. Cronyx doesn't have "truthy" values — `if (1)` won't compile, and neither will `if ("hello")`. If you want to test a number, say what you mean: `if (n > 0)`.
+
+Add `else` to handle the false case:
+
+```cronyx
+if (false) {
+    print("FAILURE");
+} else {
+    print("else success");
+}
+```
+
+```
+else success
+```
+
+## `else if` chains
+
+For more than two branches, chain with `else if`:
+
+```cronyx
+if (1 == 5) {
+    print("FAILURE");
+} else if (2 == 5) {
+    print("FAILURE");
+} else if (3 == 5) {
+    print("FAILURE");
+} else if (4 == 5) {
+    print("FAILURE");
+} else if (5 == 5) {
+    print("SUCCESS");
+}
+```
+
+```
+SUCCESS
+```
+
+Branches are checked top-to-bottom. The first one whose condition is true runs; the rest are skipped. If none match and there's no final `else`, nothing runs.
+
+## `while` loops
+
+A `while` loop runs its body as long as its condition stays true:
+
+```cronyx
+var i = 0;
+while (i < 5) {
+    print(i);
+    i = i + 1;
+}
+```
+
+```
+0
+1
+2
+3
+4
+```
+
+The condition is checked *before* each iteration, including the first — so if it's false to begin with, the body never runs.
+
+Reach for `while` when the stopping condition isn't a simple count: retrying until something succeeds, walking a structure until you hit the end, reading input until it runs out.
+
+## `for` loops
+
+For counted iteration, the C-style `for` is more compact than a hand-rolled `while`:
+
+```cronyx
+for (var i = 0; i < 5; i++) {
+    print(i);
+}
+```
+
+```
+0
+1
+2
+3
+4
+```
+
+Three pieces inside the parens, separated by semicolons:
+
+1. **Initialization** — `var i = 0;` runs once before the loop starts. The variable is scoped to the loop.
+2. **Condition** — `i < 5` is checked before each iteration. The loop exits when it's false.
+3. **Step** — `i++` runs after each iteration.
+
+`i++` and `i--` are shorthand for `i += 1` and `i -= 1` — they increment or decrement the variable in place. They show up most often as the step of a `for` loop.
+
+You can use `+=` and `-=` (and `++`/`--`) anywhere, not just inside `for`. Here's a `for` that uses an accumulator:
+
+```cronyx
+var sum = 0;
+for (var j = 1; j <= 4; j++) {
+    sum += j;
+}
+print(sum);
+```
+
+```
+10
+```
+
+`while` and `for` can express the same loops. Use `for` when the rhythm fits cleanly into "init / check / step"; use `while` for everything else.
+
+## Try it
+
+Write a function `factorial(n: int): int` that returns `n!` — the product `1 * 2 * ... * n`. Use a `for` loop. Calling `factorial(5)` should print `120`, and `factorial(0)` should print `1`.
+
+A working answer:
+
+```cronyx
+fn factorial(n: int): int {
+    var result = 1;
+    for (var i = 1; i <= n; i++) {
+        result = result * i;
+    }
+    return result;
+}
+
+print(factorial(5));
+print(factorial(0));
+```
+
+```
+120
+1
+```
+
+When `n` is `0`, the loop's condition `i <= 0` is false on the very first check, so the body never runs and `result` stays `1`. That's exactly what we want — by convention, `0!` is `1`.
+
+## What's next
+
+You can now branch, loop, and combine those with the functions from the last chapter. Next up: **collections** — slices and lists — where you'll finally have something to iterate *over*.

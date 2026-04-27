@@ -1,0 +1,116 @@
+---
+sidebar_position: 1
+---
+
+# Why effects
+
+You've probably written code like this before:
+
+```javascript
+try {
+    const data = await fetchUser(id);
+    yield processChunk(data);
+} catch (err) {
+    onError(err);
+}
+```
+
+Five different mechanisms in five lines. Each comes with its own keywords, its own scoping rules, its own quirks. When you start mixing them together — async error handling, generators that fail, callbacks that throw — you discover the seams. Each mechanism barely composes with the next.
+
+What if there were just *one* mechanism?
+
+## A single shape
+
+Look at what each of those constructs actually *does*:
+
+- `throw` raises an error. **What happens next** depends on whether some surrounding `catch` is installed.
+- `await` suspends the function. **What happens next** depends on the async runtime.
+- `yield` produces a value and pauses. **What happens next** depends on the consumer.
+- A callback like `onError` is invoked. **What happens next** depends on the function passed in.
+- An IO call reads data. **What happens next** depends on the operating system.
+
+In every case, the function performs some named action whose meaning isn't fixed by the function itself. It's decided by the surrounding *context*.
+
+That's the same idea expressed five different ways. The keywords differ; the shape doesn't.
+
+## The unification
+
+This idea has a name: **algebraic effects**. The cleanest expression of it is in the [Koka language](https://koka-lang.github.io/) from Microsoft Research, which was designed around effects from the ground up. Cronyx borrows the model directly.
+
+The core reason for adopting it is that the *compiler tracks every effect throughout your program*. Each function call, each effect performed, each handler installed — all of it is part of a single inference pass that knows exactly which effects can happen where. If a function in some library four levels down the call stack performs a `Log` effect, the compiler knows the function calling it does too, and so on up the chain. Effects are part of the type system; they aren't a runtime convention you can quietly violate.
+
+### No function coloring
+
+Other languages do this too, badly. In Java you write `throws IOException` on every signature in the chain. In Rust every fallible call is `?`-marked and every signature returns `Result<T, E>`. In JavaScript you sprinkle `async` and `await` through your codebase, and once a function is `async` everything that calls it has to become `async` too. This is **function coloring**: a function gets tagged with what it can do, and that tag is sticky and contagious.
+
+Cronyx tracks effects without making you write any of those annotations. The compiler infers them from how the function is used — call something that performs `Log`, and the compiler quietly notes that you perform `Log` too. There is no `async` keyword to add. There is no `throws` clause to thread through. There is no `Result<T, E>` to unwrap. You write a function that calls another function that performs an effect, and your function performs that effect. The compiler does the bookkeeping.
+
+This is the consequence worth emphasizing most: **the same code that calls a synchronous, infallible function also calls an asynchronous, fallible one**. The signature doesn't change. The body doesn't change. What changes is the set of effects the compiler has tracked through the call — and the set of handlers the *caller* must install.
+
+### The mechanism
+
+With those properties in mind, the surface mechanism is small:
+
+- An **effect** is a contract — a small set of named operations a function might perform.
+- A function that wants to perform one of those operations just *performs* it.
+- A **handler** installed by the caller says how each operation is interpreted: do something and return a value, abort, retry, switch to a different task, anything you like.
+
+Every example we just looked at — errors, async, generators, callbacks, IO — turns out to be the same construction with different operations and different handlers. Throughout this section we'll build all of them with the same three keywords:
+
+- `effect Name { ... }` — declare an effect.
+- `op(args)` — perform one of the effect's operations.
+- `run { ... } handle Name { ... }` — install a handler over a block.
+
+Same syntax for declaring an exception as for declaring async. Same syntax for handling a generator as for handling logging. There is one mechanism, and it works for all of these because all of these are the same idea.
+
+## What you get from one mechanism instead of five
+
+The unification isn't just an aesthetic win — it makes things *possible* that aren't, with separate mechanisms.
+
+**Multiple resumption.** A handler can resume the continuation *more than once*, exploring several branches from one call site. This is impossible with `try`/`catch` (the stack is gone after `throw`) and impossible with `async`/`await` (the continuation is single-use). With effects, it's just another handler. Backtracking parsers, nondeterministic search, simulation rewinding — all become natural.
+
+**Custom effects.** You're not limited to the effects in the standard library. Tracing, rate limiting, sandboxing, transactions — each becomes a regular concept in your codebase, declared and handled the same way as logging or error handling.
+
+**Swap the handler, not the code.** Run your program under a real IO handler in production and a fake one in tests. The code being tested doesn't change. No dependency injection scaffolding, no mock libraries, no `if (testing) { ... }` branches. Just a different handler installed at the top.
+
+**Inversion of control without callbacks.** Functions look like ordinary direct-style code that calls `read_line()` and gets a value back. The handler does the inversion at the boundary. No callback hell, no promise chains, no monad transformers.
+
+## The cost
+
+Effects aren't free. When a function performs an effect, the compiler transforms it (only that function — not the rest of your program) so that its execution can be paused and resumed by a handler. There's a runtime cost: pausing the function means saving its remaining work as a continuation, which the handler can then run later.
+
+For pure code that doesn't perform any effects, nothing changes — the transformation is selective. Code paths that perform effects pay a small cost; code paths that don't, don't. In practice this is fine for almost everything: the kinds of work that benefit from effects (IO, error recovery, generators) already operate well above the threshold where this cost matters.
+
+## A taste
+
+Here's the simplest non-trivial effect — a logging effect with an inline handler:
+
+```cronyx
+effect log {
+    fn log(msg: string): unit;
+}
+
+fn greet(name: string) {
+    log("Hello, " + name);
+}
+
+run {
+    greet("Brendan");
+} handle log {
+    fn log(msg) {
+        print("From handler: " + msg);
+    }
+}
+```
+
+```
+From handler: Hello, Brendan
+```
+
+`greet` performed a `log` effect; the surrounding handler decided what to do with it (in this case, print with a prefix). Notice that `greet` didn't have to know anything about how logs are produced — it just declares "I want to log this." Swap the handler and the same `greet` writes to a file, batches messages, or drops them entirely. The function never changes.
+
+## What's next
+
+The rest of this section is hands-on. Each chapter introduces a new effect with a new handler shape, building from "fire-and-forget logging" up to "implement async/await from scratch."
+
+Next up: **A first effect** — walking through every line of the example above, slowly, to set up the declare/perform/handle pattern that every effect follows.

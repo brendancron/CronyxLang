@@ -1,0 +1,149 @@
+---
+sidebar_position: 3
+---
+
+# Meta functions
+
+`meta { ... }` blocks are great when you have a one-shot piece of compile-time logic. But the moment you want to *reuse* that logic — call it from two places, parameterize it, recurse on it — you need a function. That's what `meta fn` is for.
+
+A `meta fn` looks exactly like a regular `fn` with a keyword in front. The difference is *when* it runs: every call to a meta function happens at compile time, and the call site gets replaced with the result.
+
+## Defining and calling
+
+Here's a meta function that computes Fibonacci numbers:
+
+```cronyx
+meta fn fib(n) {
+    if (n == 1) {
+        return 1;
+    } else if (n == 0) {
+        return 1;
+    }
+    return fib(n-1) + fib(n-2);
+}
+
+var x = fib(10);
+print(x);
+```
+
+```
+89
+```
+
+Two things happened that aren't obvious from the source:
+
+- The Fibonacci computation ran *during compilation*, not while the program was running.
+- The call `fib(10)` in `var x = fib(10);` got replaced with the literal value `89` before the program started.
+
+Dump the runtime code and you can see the substitution:
+
+```cronyx title="runtime_code.cx"
+var x = 89;
+print(x);
+```
+
+The `meta fn fib` declaration is gone. The call is gone. All that's left is the answer. From the runtime program's perspective, you might as well have written `var x = 89;` yourself — the compiler did the arithmetic for you.
+
+## Why this matters
+
+Look at what just happened. We wrote a recursive function, called it with a moderately expensive input, and the runtime program paid *zero* cost. No recursion at runtime, no comparisons, no addition — just a literal `89` baked into the binary.
+
+Anywhere you have an expensive-but-constant computation, `meta fn` is the answer:
+
+- Lookup tables you'd otherwise hard-code by hand
+- Configuration values derived from other configuration values
+- Compile-time validation of inputs that should be known at build time
+- Arithmetic that would be wasteful to repeat at runtime
+
+The shape is always the same: write a regular-looking function, prefix it with `meta`, and let the compiler evaluate it.
+
+## Calling a meta fn from many places
+
+A regular `meta { ... }` block is single-use — its work is bound to that one location. A `meta fn` can be called as many times as you like:
+
+```cronyx
+meta fn fib(n) {
+    if (n == 1) {
+        return 1;
+    } else if (n == 0) {
+        return 1;
+    }
+    return fib(n-1) + fib(n-2);
+}
+
+print("Hello Fib");
+var x = fib(10);
+print(x);
+```
+
+```
+Hello Fib
+89
+```
+
+```cronyx title="runtime_code.cx"
+print("Hello Fib");
+var x = 89;
+print(x);
+```
+
+The runtime code has the same `var x = 89` substitution as before — the `meta fn` declaration was lifted out, the call was replaced with its result, and the rest of the program flows around it untouched.
+
+## Meta functions are still functions
+
+A `meta fn` is a normal function in every way except *when* it runs:
+
+- **Parameters and return values** work the same way. `fib(n)` takes an `int` and returns an `int`.
+- **Recursion works.** `fib` calls itself, and the meta evaluator handles the recursion just like the runtime would.
+- **Type inference and annotations** work the same way. You can write `meta fn fib(n: int): int { ... }` if you want to be explicit.
+- **Local variables, control flow, all of it** — same rules as a regular function. The only reason it's marked `meta` is to tell the compiler "evaluate calls to me at compile time."
+
+Think of `meta` here as a tag on the function that says "every call to this function is a meta block in disguise." The function body runs in a meta context, the result gets spliced back where the call was, and the runtime program never sees the function at all.
+
+## Try it
+
+Write a `meta fn factorial(n: int): int` that returns `n!`. Use the iterative `for`-loop version from the control-flow chapter. Then call it three times at the top level:
+
+```cronyx
+print(factorial(5));
+print(factorial(6));
+print(factorial(7));
+```
+
+Check the dumped runtime code afterward — the three `factorial(...)` calls should be gone, replaced with literal numbers.
+
+A working answer:
+
+```cronyx
+meta fn factorial(n: int): int {
+    var result = 1;
+    for (var i = 1; i <= n; i++) {
+        result = result * i;
+    }
+    return result;
+}
+
+print(factorial(5));
+print(factorial(6));
+print(factorial(7));
+```
+
+```
+120
+720
+5040
+```
+
+```cronyx title="runtime_code.cx"
+print(120);
+print(720);
+print(5040);
+```
+
+Three calls at compile time, three literal numbers at runtime. If you compare this with the regular-`fn` factorial from chapter 4 of the basics tour, the source looks almost identical — but the runtime cost is zero instead of "loop seven times every time `factorial(7)` is called."
+
+## What's next
+
+You can now define reusable compile-time functions and let the compiler bake their results into the runtime program. So far, every meta function we've written has been straightforward arithmetic — taking values, doing math, returning values.
+
+Next up: **reflection** — `typeof` and the ability for compile-time code to *inspect* the values it's working with. Once meta code can look at types, it can start making decisions based on them, which unlocks generation patterns that aren't possible with arithmetic alone.

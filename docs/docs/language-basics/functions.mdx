@@ -1,0 +1,238 @@
+---
+sidebar_position: 2
+---
+
+# Functions
+
+You've already seen functions in passing — `add` and `greet` from the last chapter. This chapter covers them properly: declaring them, returning values, recursing, closing over outer variables, and passing them around as values. By the end you'll be able to write and read most of the function shapes you'll see in real Cronyx code.
+
+## Declaring a function
+
+The `fn` keyword introduces a function:
+
+```cronyx
+fn greet_brendan() {
+    print("Hello Brendan");
+}
+
+fn greet_john() {
+    print("Hello John");
+}
+
+greet_brendan();
+greet_john();
+```
+
+```
+Hello Brendan
+Hello John
+```
+
+A function is a name, a parameter list in parentheses, and a body in braces. Calling it is just `name();` — the parentheses on the call site are required even when there are no arguments.
+
+A function with no `return` and no return-type annotation implicitly returns `unit`.
+
+## Parameters and return values
+
+Parameters work like the `var` annotations from the last chapter — name, colon, type. The return type goes after the parameter list with the same `: type` syntax:
+
+```cronyx
+fn add(a: int, b: int): int {
+    return a + b;
+}
+
+var result = add(10, 32);
+print(result);
+```
+
+```
+42
+```
+
+`return` evaluates an expression and exits the function with that value. The expression's type has to match the declared return type — `add` returns `int`, so `return a + b` works because `a + b` is also `int`.
+
+## Returning early
+
+`return` doesn't have to come last. As soon as it runs, the rest of the function is skipped:
+
+```cronyx
+fn get_name() {
+    return "Brendan";
+    print("unreachable");
+}
+
+print(get_name());
+```
+
+```
+Brendan
+```
+
+The `print("unreachable")` line never executes — control left the function on the `return`. Early returns are useful for guard clauses (handle the unusual case up front, then continue with the main path).
+
+## Recursion
+
+Functions can call themselves. Here's the classic Fibonacci:
+
+```cronyx
+fn fib(n) {
+    if (n == 1) {
+        return 1;
+    } else if (n == 0) {
+        return 1;
+    }
+    return fib(n-1) + fib(n-2);
+}
+
+print(fib(0));
+print(fib(1));
+print(fib(2));
+print(fib(3));
+print(fib(4));
+print(fib(5));
+```
+
+```
+1
+1
+2
+3
+5
+8
+```
+
+A few things to call out:
+
+- We left the parameter type off — `fn fib(n)` instead of `fn fib(n: int): int`. Cronyx infers it from the body. As discussed last chapter, you'll usually want to annotate function signatures anyway, but it's not required.
+- `if`/`else if`/`else` work the way you'd expect. We'll cover them properly in the next chapter — for now, just read them as conditional branches.
+- The two base cases come first, then the recursive case falls through.
+
+## Closures
+
+Functions in Cronyx can be defined inside other functions, and an inner function can see variables from the surrounding scope:
+
+```cronyx
+var x = 5;
+
+fn foo() {
+    var y = 8;
+    fn bar() {
+        print(x);
+        print(y);
+    }
+    bar();
+}
+foo();
+```
+
+```
+5
+8
+```
+
+`bar` reaches out and reads both `x` (declared at the top level) and `y` (declared in `foo`). This "reaching out" is what makes a function a *closure* — it carries its surrounding environment with it. We'll lean on this more once we're passing functions around as values, which is next.
+
+## Functions as values
+
+Functions are values. You can store one in a variable, pass one as an argument, and return one from another function. The type of a function is written `fn(<param-types>): <return-type>` — so `fn(int): int` is the type of a function from `int` to `int`.
+
+Imagine a checkout function that needs to apply a discount, but the *kind* of discount depends on the customer — a percentage off, a flat amount off, a loyalty bonus, and so on. Instead of stuffing every option inside `checkout` with a pile of `if`s, we can let the caller pass in a discount *function*:
+
+```cronyx
+fn checkout(price: int, discount: fn(int): int): int {
+    return discount(price);
+}
+```
+
+`checkout` takes a `price` and a function `discount` that maps an `int` price to an `int` final price, and returns whatever the discount function returns.
+
+Now we need to actually pass it a discount. One way is to construct one with a `fn` *expression* and bind it to a variable:
+
+```cronyx
+fn checkout(price: int, discount: fn(int): int): int {
+    return discount(price);
+}
+
+var ten_percent_off = fn(price: int): int { return price - (price / 10); };
+var flat_five_off   = fn(price: int): int { return price - 5; };
+
+print(checkout(100, ten_percent_off));
+print(checkout(100, flat_five_off));
+```
+
+```
+90
+95
+```
+
+Same `checkout`, same starting price, different result — because we passed in a different function.
+
+Look closely at `fn(price: int): int { return price - (price / 10); }`. It has the same shape as a regular function declaration — parameters, return type, body — but no name, and the whole thing ends with a semicolon because it's an expression being assigned to a variable. We bind it to `ten_percent_off`, then pass `ten_percent_off` to `checkout` like we'd pass any other value.
+
+Writing `fn(...) { ... }` every time is verbose, though, so Cronyx gives you a shorter form for the common case.
+
+## Trailing lambdas
+
+When a function's last parameter is a function, you can pass that function in a pair of braces *after* the call. This is a **trailing lambda**:
+
+```cronyx
+fn apply(f: fn(int): int): int {
+    return f(10);
+}
+print(apply { it * 2 });
+```
+
+```
+20
+```
+
+Inside the braces, `it` refers to the lambda's single parameter. So `{ it * 2 }` is shorthand for "a function that takes one argument and returns twice that argument." `apply` calls it with `10`, gets back `20`, and `print` prints it.
+
+If you want to name the parameter explicitly — for clarity, or because the lambda has more than one — use the `param -> body` form:
+
+```cronyx
+fn apply(f: fn(int): int): int {
+    return f(10);
+}
+print(apply { x -> x + 5 });
+```
+
+```
+15
+```
+
+For multiple parameters, separate them with commas:
+
+```cronyx
+fn combine(a: int, b: int, f: fn(int, int): int): int {
+    return f(a, b);
+}
+print(combine(3, 4) { x, y -> x + y });
+print(combine(10, 3) { x, y -> x - y });
+```
+
+```
+7
+7
+```
+
+Notice that `combine` takes its non-function arguments in the parens and the trailing lambda after — `combine(3, 4) { x, y -> x + y }`. Reads almost like the function is a block.
+
+This is one of the syntactic features that gives Cronyx its flavor. You'll see it everywhere once we start working with collections.
+
+## Try it
+
+Write a function `twice` that takes a function `f: fn(int): int` and an `int`, and returns `f(f(x))` — `f` applied to `x`, then applied again to the result. Call it with a trailing lambda that adds 1, starting from 0. The output should be `2`.
+
+A working answer is hidden below — try it on your own first.
+
+```cronyx
+fn twice(x: int, f: fn(int): int): int {
+    return f(f(x));
+}
+print(twice(0) { it + 1 });
+```
+
+## What's next
+
+You can now declare functions, return values from them, recurse, capture outer state, and pass functions around. Next up: **control flow** — `if`/`else`, `while`, and `for` — using the functions you've just written as building blocks.

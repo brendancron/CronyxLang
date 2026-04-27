@@ -11,32 +11,36 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Easy to Use',
+    title: 'Easy to start, no ceiling',
     Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
     description: (
       <>
-        Docusaurus was designed from the ground up to be easily installed and
-        used to get your website up and running quickly.
+        Fast to code in, with zero-cost abstractions. Reach for the high-level
+        features early and ship — the compiler erases their cost before the
+        binary runs.
       </>
     ),
   },
   {
-    title: 'Focus on What Matters',
+    title: 'Metaprogramming, first-class',
     Svg: require('@site/static/img/undraw_docusaurus_tree.svg').default,
     description: (
       <>
-        Docusaurus lets you focus on your docs, and we&apos;ll do the chores. Go
-        ahead and move your docs into the <code>docs</code> directory.
+        Run code at compile time with <code>meta</code> blocks, generate runtime
+        code with <code>gen</code>, and reflect on types with <code>typeof</code>.
+        Generics are just compile-time parameters — the same machinery, with
+        friendlier syntax.
       </>
     ),
   },
   {
-    title: 'Powered by React',
+    title: 'Static types, zero overhead',
     Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
     description: (
       <>
-        Extend or customize your website layout by reusing React. Docusaurus can
-        be extended while reusing the same header and footer.
+        Hindley–Milner inference catches mistakes before your program runs.
+        Generics monomorphize away; meta computations bake into literal values;
+        traits dispatch statically. The runtime gets exactly the code it needs.
       </>
     ),
   },

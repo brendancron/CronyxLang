@@ -1,0 +1,211 @@
+---
+sidebar_position: 7
+---
+
+# Enums
+
+A struct says "a value has these fields." An **enum** says "a value is one of these cases." Use a struct when every value has the same shape; use an enum when a value comes in a fixed, finite set of *variants* — the days of the week, a card's rarity, the result of a parse that either succeeded or failed.
+
+By the end of this chapter you'll be able to declare enums in three flavors, construct values of them, and tear them apart with `match`.
+
+## Declaring an enum
+
+Use `enum`, a name, and a comma-separated list of variants:
+
+```cronyx
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+```
+
+Same naming convention as structs — type and variant names are capitalized. The trailing comma after `West` is optional but conventional; it makes adding a new variant a one-line diff.
+
+`Direction` is now a type. A value of that type is *one of* `North`, `South`, `East`, or `West` — exactly one, and nothing else.
+
+## Constructing a variant
+
+To create a value, use the enum name, two colons, and the variant name:
+
+```cronyx
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+var dir = Direction::South;
+```
+
+The `::` is how Cronyx says "look inside `Direction` for `South`." It's a different operator from the dot you'd use for struct field access — `.` means "field of a value," `::` means "name inside a type."
+
+## Matching on an enum
+
+You can't *do* anything useful with `dir` until you find out which variant it is. That's what `match` is for:
+
+```cronyx
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+var dir = Direction::South;
+
+match dir {
+    Direction::North => { print("north"); }
+    Direction::South => { print("south"); }
+    Direction::East  => { print("east");  }
+    Direction::West  => { print("west");  }
+}
+```
+
+```
+south
+```
+
+Read it as a list of "if it's *this* variant, run *this* block." Cronyx checks each arm in order and runs the body of the first one whose pattern matches. The arms aren't separated by anything — just whitespace and the `=>` arrow.
+
+The compiler also checks that you've covered every variant. If you delete the `Direction::West` arm, your program won't compile — Cronyx will tell you which case you forgot. This is one of the main reasons to reach for an enum: the type system makes "I forgot one" impossible.
+
+## Variants can hold data
+
+Variants don't have to be empty tags. They can carry payloads, with two flavors of payload syntax.
+
+### Tuple variants
+
+A variant followed by parens declares a **tuple variant** — positional fields, like a tuple:
+
+```cronyx
+enum Shape {
+    Point,
+    Circle(int),
+    Rect(int, int),
+}
+```
+
+`Point` is a unit variant (no payload). `Circle(int)` carries a single `int` (the radius). `Rect(int, int)` carries two `int`s (width and height).
+
+You construct them by passing arguments:
+
+```cronyx
+var p  = Shape::Point;
+var c  = Shape::Circle(10);
+var r  = Shape::Rect(3, 4);
+```
+
+When you `match` on a value with a tuple variant, you give names to the payload fields and they become available in that arm:
+
+```cronyx
+match Shape::Circle(10) {
+    Shape::Point      => { print("point"); }
+    Shape::Circle(r)  => { print(r); }
+    Shape::Rect(w, h) => { print(w + h); }
+}
+```
+
+```
+10
+```
+
+Inside the `Shape::Circle(r) => { ... }` arm, `r` is bound to whatever int the matched value carried — `10` in this case. The names are local to the arm, so you can reuse them: another arm could also call its variable `r`.
+
+### Struct variants
+
+When a payload has more than one or two fields, naming them is clearer than relying on position. **Struct variants** use the `{ field: type, ... }` syntax inside the variant declaration:
+
+```cronyx
+enum CardEffect {
+    Damage { amount: int },
+    Heal   { amount: int },
+    Draw   { count: int  },
+    None,
+}
+```
+
+You construct them with the struct-construction syntax we saw last chapter:
+
+```cronyx
+var dmg  = CardEffect::Damage { amount: 15 };
+var heal = CardEffect::Heal   { amount: 5  };
+var draw = CardEffect::Draw   { count: 3   };
+var none = CardEffect::None;
+```
+
+And you match them with the same shape, binding the fields by name:
+
+```cronyx
+match dmg {
+    CardEffect::Damage { amount } => { print(amount); }
+    CardEffect::Heal   { amount } => { print(amount); }
+    CardEffect::Draw   { count  } => { print(count);  }
+    CardEffect::None              => { print("none"); }
+}
+```
+
+```
+15
+```
+
+`{ amount }` is shorthand for `{ amount: amount }` — bind the field's value to a variable of the same name. Use struct variants when "is this the second one or the third one?" would be a real source of bugs at the call site.
+
+## Wildcards
+
+If you only care about *one* variant and want a single fallback for the rest, `_` matches anything:
+
+```cronyx
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+match Color::Green {
+    Color::Red => { print("red"); }
+    _          => { print("other"); }
+}
+```
+
+```
+other
+```
+
+Use `_` sparingly. The exhaustiveness check is one of an enum's biggest benefits — every wildcard you add is a place where adding a new variant *won't* trigger a "you forgot to handle this" error.
+
+## Try it
+
+Write an `enum Shape` with a `Circle(int)` and a `Rect(int, int)` variant. Then write a function `describe_area(s: Shape)` that uses `match` to print the area of each shape. (Use `r * r * 3` as a stand-in for `π·r²` — we'll cover floats and constants in a later chapter.)
+
+A working answer:
+
+```cronyx
+enum Shape {
+    Circle(int),
+    Rect(int, int),
+}
+
+fn describe_area(s: Shape) {
+    match s {
+        Shape::Circle(r)  => { print(r * r * 3); }
+        Shape::Rect(w, h) => { print(w * h); }
+    }
+}
+
+describe_area(Shape::Circle(5));
+describe_area(Shape::Rect(4, 6));
+```
+
+```
+75
+24
+```
+
+Each `match` arm sees only the variant it matched, with the payload already destructured into named variables. Try adding a third variant like `Triangle(int, int)` — the compiler will tell you exactly where you need to handle it.
+
+## What's next
+
+Structs and enums between them cover the two ways to combine data: "this *and* that" (struct fields) and "this *or* that" (enum variants). Next up: **traits** — declaring a set of methods a type must implement, so you can write functions that work with any type implementing the right interface.

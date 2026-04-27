@@ -1,0 +1,202 @@
+---
+sidebar_position: 5
+---
+
+# Comptime parameters
+
+*Other languages call these generics.*
+
+Through this section we've kept reaching for `meta { ... }` and `gen` to write code that produces other code. **Comptime parameters** are the same idea folded into normal function and struct declarations — values (most often, *types*) that get filled in at compile time, with the compiler producing one specialized version per call shape.
+
+If you've used generics in any other language, the syntax will look familiar. The difference is the framing: in Cronyx, generic parameters aren't a separate "type system feature" — they're just parameters that get resolved at meta time, the same staging machinery you've been using.
+
+## Type parameters on functions
+
+Declare a type parameter with angle brackets after the function name. Inside the body, the parameter behaves like a placeholder for whatever type the caller provides:
+
+```cronyx
+fn identity<T>(x) {
+    return x;
+}
+
+print(identity(42));
+print(identity("hello"));
+print(identity(true));
+```
+
+```
+42
+hello
+true
+```
+
+`identity<T>` works for any `T`. We called it with an `int`, then a `string`, then a `bool` — and each call returned its argument unchanged. The compiler inferred `T` from the argument at each call site; we didn't have to write `identity<int>(42)` explicitly.
+
+## Monomorphization: one definition, many specializations
+
+That single `identity` definition isn't really *one* function in the runtime program. It's three. The compiler walked the call sites, saw three different argument types, and produced three independent specialized copies — a process called **monomorphization** (literally, "making it one shape").
+
+You can see it directly with `--dump-runtime-code`:
+
+```cronyx title="runtime_code.cx"
+fn identity__int(x) { return x; }
+fn identity__str(x) { return x; }
+fn identity__bool(x) { return x; }
+
+print(identity__int(42));
+print(identity__str("hello"));
+print(identity__bool(true));
+```
+
+Three real top-level functions, each with a fully-resolved type. The runtime program never deals with "a generic `identity`" — by the time the program runs, the generics have been compiled away into ordinary, specialized code. (The naming convention is `<original>__<type>`. The exact suffixes are an implementation detail, but the shape is stable.)
+
+This is why generics in Cronyx don't cost anything at runtime: there *isn't* a generic at runtime. There's only the specialization the call site needed, with nothing left of the abstraction.
+
+It's also the same machinery, ultimately, as the `meta { for ... gen fn ... }` pattern from the [generation chapter](./generation.mdx). The compiler is producing many concrete declarations from one source declaration based on data known at compile time. `<T>` is just a friendlier syntax for the most common version of that pattern — "produce one copy per type I'm called with."
+
+## Multiple type parameters
+
+A function can have more than one type parameter. Comma-separate them:
+
+```cronyx
+fn wrap<T>(x) {
+    return [x];
+}
+
+fn swap<A, B>(pair) {
+    return (pair.1, pair.0);
+}
+
+print(wrap(7));
+print(wrap("hi"));
+
+var swapped_nums = swap((1, 2));
+var swapped_mix  = swap(("left", 42));
+
+print(swapped_nums.0);
+print(swapped_nums.1);
+print(swapped_mix.0);
+print(swapped_mix.1);
+```
+
+```
+[7]
+[hi]
+2
+1
+42
+left
+```
+
+Each unique combination of type arguments produces its own specialization. `swap<int, int>` and `swap<string, int>` are entirely separate functions in the runtime program — they share no code, no dispatch table, no boxing. Each is exactly as fast as if you'd written it by hand for those specific types.
+
+## Generic structs
+
+Type parameters work on structs the same way:
+
+```cronyx
+struct Pair<A, B> {
+    first: A;
+    second: B
+}
+
+struct Box<T> {
+    value: T
+}
+
+var p1 = Pair { first: 1, second: "one" };
+var p2 = Pair { first: true, second: 99 };
+var b  = Box { value: [1, 2, 3] };
+
+print(p1.first);
+print(p1.second);
+print(p2.first);
+print(p2.second);
+print(b.value[1]);
+```
+
+```
+1
+one
+true
+99
+2
+```
+
+The same monomorphization story applies. `Pair { first: 1, second: "one" }` produces a `Pair<int, string>`; `Pair { first: true, second: 99 }` produces a `Pair<bool, int>`. They're different concrete struct types in the runtime program, sharing nothing but the source-level declaration.
+
+That means you can't accidentally pass a `Pair<int, string>` where a `Pair<bool, int>` was expected — they're as distinct to the type system as `int` and `string` are, even though they came from the same generic declaration.
+
+## Beyond types: value parameters
+
+A comptime parameter doesn't have to be a type. It can be any value the compiler knows at meta time:
+
+```cronyx
+fn my_func<n: int>() {
+    print(n);
+}
+
+my_func<5>();
+```
+
+`<n: int>` declares a comptime *value* parameter — an `int` provided at the call site, available inside the body. `my_func<5>()` produces a specialized version where `n` is hard-coded to `5`. From the compiler's perspective, this is the same machinery: a parameter resolved at meta time, used to specialize one definition into a concrete function.
+
+Value comptime parameters open the door to compile-time-sized arrays, dimension-tagged numeric types, lookup-table generators, and other patterns where a constant needs to be part of the type. The feature is supported but used less often than type parameters — most generic code only needs to abstract over types.
+
+## Try it
+
+Write a generic function `pair_up<T>(a, b)` that takes two values of the same type and returns them as a tuple `(a, b)`. Call it with three different types and check the dumped runtime code to confirm three specialized copies were produced.
+
+A working answer:
+
+```cronyx
+fn pair_up<T>(a, b) {
+    return (a, b);
+}
+
+var ints    = pair_up(1, 2);
+var strings = pair_up("hello", "world");
+var bools   = pair_up(true, false);
+
+print(ints.0);
+print(strings.0);
+print(bools.0);
+```
+
+```
+1
+hello
+true
+```
+
+Dump the runtime code:
+
+```cronyx title="runtime_code.cx"
+fn pair_up__int(a, b)  { return (a, b); }
+fn pair_up__str(a, b)  { return (a, b); }
+fn pair_up__bool(a, b) { return (a, b); }
+
+var ints    = pair_up__int(1, 2);
+var strings = pair_up__str("hello", "world");
+var bools   = pair_up__bool(true, false);
+
+print(ints.0);
+print(strings.0);
+print(bools.0);
+```
+
+You wrote one function. The runtime got three.
+
+## Wrapping up the section
+
+Across these five chapters you've seen the full metaprogramming story:
+
+- **[Metaprocessing](./metaprocessing.mdx)** — code that runs at compile time, in two phases that don't interleave.
+- **[Generation](./generation.mdx)** — `gen` for splicing values, statements, and declarations from compile time into the runtime program.
+- **[Meta functions](./meta-functions.mdx)** — `meta fn` for reusable compile-time computation whose call sites get replaced with results.
+- **[Reflection](./reflection.mdx)** — `typeof` for inspecting types at compile time, with zero runtime cost.
+- **Comptime parameters** — `<T>` and `<n: int>` as the everyday face of monomorphization.
+
+These are five views of the same underlying staging system. `<T>` is sugar for "generate one specialization per call type." `meta fn` is sugar for "evaluate me at compile time and replace the call." `typeof` is sugar for "ask the type system, at compile time, what this is." Underneath, it's all one phase of work running before your program does — whichever surface syntax is most natural for the job at hand.
+
+Reach for the higher-level tools (`<T>`, `meta fn`) when they fit. Drop down to `meta { ... gen ... }` when you need the flexibility. Either way, you're paying nothing for the abstraction at runtime.

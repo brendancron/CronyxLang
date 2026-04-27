@@ -1,0 +1,199 @@
+---
+sidebar_position: 2
+---
+
+# Generation
+
+The previous chapter ended on a complaint: a `meta` block could *compute* things, but its results vanished when compilation finished. Anything you did in there — the variables, the loop counters, the data structures — was gone the moment the program started running.
+
+This chapter is the answer. Inside a `meta` block, prefix any statement with `gen` and that statement gets spliced into the runtime program. Meta code computes; `gen` emits.
+
+## Your first `gen`
+
+Compare these two programs:
+
+```cronyx
+print("Top");
+meta {
+    print("Middle");
+}
+print("Bottom");
+```
+
+```cronyx
+print("Top");
+meta {
+    gen print("Middle");
+}
+print("Bottom");
+```
+
+The first one runs `print("Middle")` *during compilation* and prints it before `Top` (we covered that last chapter). The second one *generates a runtime statement*. Its output is:
+
+```
+Top
+Middle
+Bottom
+```
+
+The `gen` turned a compile-time print into a runtime print. After the meta phase finishes, the program that actually runs is, literally:
+
+```cronyx title="runtime_code.cx"
+print("Top");
+print("Middle");
+print("Bottom");
+```
+
+This isn't a metaphor or an approximation. Cronyx compiles your code in two distinct phases:
+
+1. **Meta phase.** The compiler walks the source, executes every `meta { ... }` block, and replaces each block with the statements its `gen`s emitted.
+2. **Runtime phase.** The transformed program — with every `meta` block already evaluated and substituted — runs.
+
+By the time the runtime phase starts, the `meta { ... }` block in your source code has been *removed entirely* and replaced with `print("Middle");` in its place. There's no leftover meta machinery in the runtime program; the meta scope, the `gen` keyword, even the braces — all gone. Just plain runtime statements.
+
+### See it for yourself
+
+You don't have to take my word for the substitution. Pass `--dump-runtime-code` to the compiler and it writes the post-meta program to a file:
+
+```
+cronyx run main.cx --dump-runtime-code --out-dir out
+```
+
+That produces `out/runtime_code.cx` — a pretty-printed source file showing the program after the meta phase has finished. For the example above, the dumped file will look like the three-line `print("Top"); print("Middle"); print("Bottom");` block above. Open it up whenever you want to see what your `meta` and `gen` actually produced.
+
+This dump is the single best debugging tool when metaprogramming gets confusing. If a generated function isn't behaving the way you expected, dump the runtime code and *read it*. Nine times out of ten, the bug is obvious once you see the source the compiler actually produced.
+
+Read `gen` that way: it's a "splice the following statement into the program at this position" instruction. The meta block is a generator; `gen` is the only thing it produces output with.
+
+## Splicing meta values
+
+This is where `gen` earns its keep. Names from meta scope get *substituted* into the generated code; runtime names stay as written.
+
+```cronyx
+var y = 4;
+meta {
+    gen var x = y + 5;
+}
+print(x);
+```
+
+```
+9
+```
+
+Walk through the generation:
+
+- `y` is a *runtime* variable (declared at the top level, outside any meta).
+- `x` is the variable being declared by the gen statement, so it becomes a runtime variable too.
+- `gen var x = y + 5;` emits the literal statement `var x = y + 5;` into the runtime program.
+
+The generated program is:
+
+```cronyx title="runtime_code.cx"
+var y = 4;
+var x = y + 5;
+print(x);
+```
+
+So at runtime, `x` is `9`. Notice that `y` wasn't substituted — `y` isn't a *meta-scope* variable, so it stays as a literal name reference.
+
+The rule: **inside a `gen` statement, references to variables in meta scope get baked in as values; everything else is treated as literal source.** That's how the "compute at compile time, emit at runtime" boundary works.
+
+## Generating many declarations
+
+The reason `gen` exists is for generating *many* declarations from data. Here's the canonical example:
+
+```cronyx
+meta {
+    var names = ["alice", "bob", "charlie"];
+    for (name in names) {
+        var fn_name = "greet_" + name;
+        gen fn fn_name() {
+            print("Hello " + name);
+        }
+    }
+}
+
+greet_alice();
+greet_bob();
+greet_charlie();
+```
+
+```
+Hello alice
+Hello bob
+Hello charlie
+```
+
+Read what's happening at compile time:
+
+- `names` and `name` and `fn_name` are all meta-scope variables.
+- The loop runs three times, once per name.
+- Each iteration emits a `gen fn fn_name() { ... }`.
+- Both `fn_name` (in the *function name position*) and `name` (in the body) get substituted with their current meta values.
+
+After compilation, the runtime program is:
+
+```cronyx title="runtime_code.cx"
+fn greet_alice()   { print("Hello alice"); }
+fn greet_bob()     { print("Hello bob"); }
+fn greet_charlie() { print("Hello charlie"); }
+
+greet_alice();
+greet_bob();
+greet_charlie();
+```
+
+You wrote three lines of `gen`; you got three real top-level functions. Add a name to the list, recompile, and a fourth function appears — *the program changes shape based on data the compiler had access to*. That's the payoff.
+
+Run with `--dump-runtime-code` and you'll see the three function declarations sitting at the top level of `runtime_code.cx`, followed by the three calls — exactly as if you'd written them out by hand.
+
+A subtle point worth lingering on: `fn_name` is being used in the *identifier position* — it's not a name being looked up at runtime, it's a name being *constructed* at compile time and spliced into the function declaration. When you see a meta-scope variable used where a function name or variable name would normally go, that's the splice happening.
+
+## Try it
+
+Adapt the greeting pattern to a different domain. Generate three functions — `speak_cat`, `speak_dog`, `speak_fox` — each of which prints `"<animal> says hi"`. Drive it from a single list, just like the greeting example.
+
+A working answer:
+
+```cronyx
+meta {
+    var animals = ["cat", "dog", "fox"];
+    for (a in animals) {
+        var fn_name = "speak_" + a;
+        gen fn fn_name() {
+            print(a + " says hi");
+        }
+    }
+}
+
+speak_cat();
+speak_dog();
+speak_fox();
+```
+
+```
+cat says hi
+dog says hi
+fox says hi
+```
+
+Dump it with `--dump-runtime-code` and the meta block is gone — replaced by three concrete function declarations:
+
+```cronyx title="runtime_code.cx"
+fn speak_cat() { print("cat says hi"); }
+fn speak_dog() { print("dog says hi"); }
+fn speak_fox() { print("fox says hi"); }
+
+speak_cat();
+speak_dog();
+speak_fox();
+```
+
+Try adding `"bear"` to the list and calling `speak_bear()`. The function appears without you writing it — that's metaprogramming earning its keep.
+
+## What's next
+
+`meta` blocks let you compute at compile time, and `gen` lets you splice the results into the runtime program. So far the work has lived inline — every `meta { ... }` block is a one-shot. That's fine for small generators, but soon you'll want to *factor* compile-time logic into reusable pieces.
+
+Next up: **meta functions** — declaring `meta fn` once and calling it from anywhere, just like a regular function, except the work happens during the compile.

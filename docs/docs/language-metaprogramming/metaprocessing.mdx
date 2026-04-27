@@ -1,0 +1,135 @@
+---
+sidebar_position: 1
+---
+
+# Metaprocessing
+
+Most code runs *when you run your program*. **Metaprocessing** is Cronyx's way of running code *while it's being compiled*. The result of that compile-time work becomes part of your program — values get baked in, code gets generated, choices get resolved before your binary ever starts up.
+
+This chapter is the foundation. It introduces the `meta { ... }` block and shows how Cronyx orders the work between compile time and runtime. Later chapters layer on the ability to produce code (`gen`) and reusable compile-time logic (`meta fn`).
+
+## Your first meta block
+
+Wrap any code in `meta { ... }` to make it run at compile time:
+
+```cronyx
+print("Top");
+meta {
+    print("Middle");
+}
+print("Bottom");
+```
+
+Run it:
+
+```
+Middle
+Top
+Bottom
+```
+
+Look at the order carefully. `"Middle"` prints *before* `"Top"`, even though it sits between `"Top"` and `"Bottom"` in the source. That's because the `print("Middle")` happened during compilation — the work was already done by the time the program started executing.
+
+## Two phases, in order
+
+A Cronyx program runs in two phases:
+
+1. **Compile time.** Cronyx walks the source and executes every `meta { ... }` block top-to-bottom.
+2. **Runtime.** The compiled program runs, executing everything that *wasn't* inside a meta block.
+
+The two phases don't interleave. **All** compile-time work finishes before **any** runtime work begins. That's why the output above is `Middle, Top, Bottom`: the meta phase ran first and produced its output, then the runtime phase printed `Top` and `Bottom` in source order.
+
+You can think of `meta { ... }` as a flag that says "run this *now*, not later." Anything outside a meta block runs later.
+
+## Inside a meta block, it's just Cronyx
+
+A meta block isn't a special mini-language — it's a regular Cronyx scope. You can declare variables, call functions, use loops and `if`, build up data structures. All of it runs at compile time.
+
+```cronyx
+meta {
+    var total = 0;
+    for (var i = 1; i <= 10; i++) {
+        total += i;
+    }
+    print(total);
+}
+
+print("done");
+```
+
+```
+55
+done
+```
+
+The `total` variable lives only inside the meta block — it doesn't survive into runtime. Once compilation finishes, the meta scope is gone, and the only trace of it is whatever side effects it had during the compile.
+
+## Nested meta blocks
+
+Meta blocks can nest. When they do, the *innermost* level runs first:
+
+```cronyx
+print("A");
+meta {
+    print("B");
+    meta {
+        print("C");
+    }
+    print("D");
+}
+print("E");
+```
+
+Output:
+
+```
+C
+B
+D
+A
+E
+```
+
+Read that ordering carefully. The innermost meta (`C`) runs first, *during the compilation of the outer meta*. Then the outer meta (`B`, `D`) runs, *during the compilation of the runtime program*. Then the runtime (`A`, `E`) runs.
+
+It's compilation, all the way down. Each layer of `meta` is one more phase that runs before the layer outside it.
+
+You won't reach for nested meta often — most metaprogramming fits comfortably in a single `meta` block. But knowing the rule (deeper runs first) is what lets the more advanced patterns in later chapters make sense.
+
+## Try it
+
+Predict the output of this program before running it:
+
+```cronyx
+print("1");
+meta {
+    print("2");
+    meta {
+        print("3");
+        meta {
+            print("4");
+        }
+    }
+    print("5");
+}
+print("6");
+```
+
+The deepest level runs first, so `4` comes out before `3`, which comes out before `2` and `5`, which come out before `1` and `6`. The full sequence:
+
+```
+4
+3
+2
+5
+1
+6
+```
+
+If you got it right, you understand staging. If you didn't, re-read the rule (deepest first) and walk it through step by step — this ordering is the conceptual core of every other chapter in this section.
+
+## What's next
+
+Right now a meta block can compute things, but it can't actually *change* the program that runs. The variables it builds up vanish when compilation ends, and the only output we can produce is `print` calls during the compile.
+
+Next up: **`gen` nodes** — the way meta code reaches across the boundary and emits real values, statements, and declarations into the runtime program. That's where metaprogramming starts paying for itself.

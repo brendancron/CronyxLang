@@ -1,0 +1,163 @@
+---
+sidebar_position: 1
+---
+
+# Values, variables, and types
+
+By the end of this chapter you'll know how to declare variables, reassign them, annotate them with types, and recognize Cronyx's four primitive types. We'll build up one piece at a time — type along in a `.cx` file and run each snippet with `cronyx run <file>.cx`.
+
+## Your first variable
+
+Every variable in Cronyx is introduced with `var`:
+
+```cronyx
+var x = 5;
+print(x);
+```
+
+Run it:
+
+```
+5
+```
+
+Three things to notice:
+
+- `var` is the only binding keyword — there's no `let` or `const`.
+- The `=` is required. You can't declare a variable without giving it a value.
+- The semicolon at the end of the statement is required.
+
+The compiler figured out that `x` holds an integer on its own. We'll come back to that in a moment.
+
+## Reassignment
+
+Variables in Cronyx are mutable. Once a variable exists, you can assign a new value to it without `var`:
+
+```cronyx
+var x = 5;
+x = 10;
+print(x);
+```
+
+```
+10
+```
+
+Reassigning with `var x = 10;` would be a *new* declaration, not an update — the bare `x = 10;` is what you want.
+
+## The four primitive types
+
+Cronyx ships with four built-in primitive types:
+
+| Type     | What it holds              | Example values        |
+| -------- | -------------------------- | --------------------- |
+| `int`    | Signed integers            | `0`, `42`, `-7`       |
+| `bool`   | Booleans                   | `true`, `false`       |
+| `string` | Text                       | `"hello"`, `""`       |
+| `unit`   | The "no value" type        | (no literal)          |
+
+A few notes:
+
+- There is no separate float type yet — numbers are integers.
+- String literals use double quotes. Single quotes are not strings.
+- `unit` doesn't have a literal you can write. It shows up as the return type of functions that don't return anything meaningful (like `print`).
+
+You can mix them in the same program:
+
+```cronyx
+var count = 42;
+var name = "Alice";
+var ready = true;
+
+print(count);
+print(name);
+print(ready);
+```
+
+```
+42
+Alice
+true
+```
+
+## Type annotations
+
+Cronyx infers types when it can, but you can also write them explicitly. The annotation goes after the variable name, separated by `:`:
+
+```cronyx
+var x: int = 42;
+var name: string = "Alice";
+var flag: bool = true;
+
+print(x);
+print(name);
+print(flag);
+```
+
+```
+42
+Alice
+true
+```
+
+Annotations are useful in three situations:
+
+1. **Documentation.** A reader can see the intended type without running the inference in their head.
+2. **Locking down a value.** If you mean for `count` to be an `int`, annotating it makes the compiler enforce that.
+3. **Function signatures**, which we'll get to next.
+
+## Annotating functions
+
+Function parameters and return types use the same `: type` syntax:
+
+```cronyx
+fn add(a: int, b: int): int {
+    return a + b;
+}
+
+fn greet(name: string): unit {
+    print("Hello " + name);
+}
+
+var result = add(10, 32);
+print(result);
+greet("World");
+```
+
+```
+42
+Hello World
+```
+
+The `: int` after `add`'s parameter list is its return type. `greet` returns `unit` because it doesn't produce a value — it just prints.
+
+Unlike `var`, **function annotations aren't optional in most cases.** Get into the habit of writing them on every function — it makes type errors point at the right place and makes your code easier to read.
+
+## Inference vs. annotation: which to use?
+
+A reasonable default:
+
+- **Local `var`s** — let inference do its job. `var i = 0;` is shorter and just as clear as `var i: int = 0;`.
+- **Function signatures** — annotate everything. The signature is the contract; making it explicit is worth the keystrokes.
+- **When the inferred type would surprise a reader** — annotate, even on a local. If the right-hand side is a long expression, an annotation tells the reader what it evaluates to without making them work it out.
+
+## Try it
+
+Open a new file and predict the output before you run it:
+
+```cronyx
+var a: int = 6;
+var b: int = 7;
+var product = a * b;
+
+var label: string = "answer: ";
+print(label + product);
+```
+
+What do you expect to happen?
+
+If you said "it prints `answer: 42`," try running it. You'll find that Cronyx won't let you concatenate a `string` and an `int` directly — `+` on strings only joins strings. This is the type system catching a real bug. (We'll cover converting between types in a later chapter.)
+
+## What's next
+
+You can now declare values, reassign them, and read a type signature. Next up: **functions and control flow** — calling functions, using `if`, and writing loops with the values you've just learned to handle.

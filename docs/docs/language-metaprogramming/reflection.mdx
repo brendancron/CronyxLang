@@ -1,0 +1,152 @@
+---
+sidebar_position: 4
+---
+
+# Reflection
+
+**Reflection** is a program's ability to inspect its own values, types, and structure. A serializer needs to know the fields of a struct. A validator needs to know whether a value is an `int` or a `string`. A logger needs to know the names of an enum's variants. All three are asking the same question: *"What is this thing?"*
+
+Most languages answer that question at runtime. Cronyx answers it at compile time. This chapter explains how — and, more importantly, *why*.
+
+## How most languages do reflection
+
+In Java, C#, Python, JavaScript, and many others, reflection happens *while the program runs*. To make that possible, every value carries type information with it: a hidden tag, a class pointer, a metaclass, a `__dict__`. When you ask `typeof(x)`, the runtime walks that metadata and gives you an answer.
+
+That capability has a price:
+
+- **Memory.** Every value pays the storage cost of its own type metadata, even values whose type was obvious to the compiler.
+- **Speed.** Reading metadata is a runtime operation, with the indirection and cache pressure that implies.
+- **Optimization.** Compilers can't fully erase a type if reflection might ask about it later, so optimizations like inlining, devirtualization, and specialization get inhibited.
+- **Binary size.** Type metadata ships in the final binary even for code paths that never reflect.
+
+In return, you get *late binding*: the program can adapt to types it didn't know about when it was compiled. That's genuinely useful for plugin systems and dynamic dispatch — but most reflection use cases don't need late binding. Most code reflects on types that are perfectly known at compile time. Serializing a `Person` struct, generating a validator for a `Config`, deriving a comparison function for an `Order` — every one of these has a fully-known type at the point reflection is needed.
+
+For those cases, paying a runtime cost is paying for nothing.
+
+## How Cronyx does reflection
+
+Cronyx is statically typed, so the type of every value is *known to the compiler*. There's no need to wait until runtime to ask. Instead, reflection runs at meta time:
+
+```cronyx
+var x = 42;
+var b = true;
+var s = "hello";
+
+print(typeof(x));
+print(typeof(b));
+print(typeof(s));
+```
+
+```
+int
+bool
+string
+```
+
+`typeof(value)` returns a string describing the value's type. It runs at compile time — by the time the program executes, the call is gone:
+
+```cronyx title="runtime_code.cx"
+var x = 42;
+var b = true;
+var s = "hello";
+
+print("int");
+print("bool");
+print("string");
+```
+
+The runtime program prints three string literals. There's no metadata, no dispatch, no lookup. The compiler did the type-asking; the program just has the answers baked in. Reflection in Cronyx costs *nothing* at runtime — because it isn't *at* runtime.
+
+## What `typeof` returns
+
+`typeof` works on every kind of value Cronyx has. The string it returns is a human-readable rendering of the type:
+
+```cronyx
+var nums   = [1, 2, 3];
+var pair   = (1, "hello");
+var nested = ((1, 2), "abc");
+var point  = { x: 1, y: 2 };
+```
+
+```cronyx
+print(typeof(nums));    // [int]
+print(typeof(pair));    // (int, string)
+print(typeof(nested));  // ((int, int), string)
+print(typeof(point));   // { x: int, y: int }
+```
+
+Enums report their declared name:
+
+```cronyx
+enum Color { Red, Green, Blue }
+enum Shape { Circle(int), Rectangle(int, int) }
+
+var c = Color::Red;
+var s = Shape::Circle(5);
+
+print(typeof(c));  // Color
+print(typeof(s));  // Shape
+```
+
+(Notice that `typeof(Shape::Circle(5))` returns `Shape`, not `Shape::Circle` — `typeof` reports the type, and a variant isn't its own type.)
+
+Functions report their signature:
+
+```cronyx
+fn double(n) { return n * 2; }
+fn greet(name) { return "hello " + name; }
+
+print(typeof(double));  // (int) -> int
+print(typeof(greet));   // (string) -> string
+```
+
+(One small quirk: the rendering uses arrow-style `(int) -> int` rather than the `fn(int): int` syntax you'd type in a parameter annotation. They mean the same thing — the arrow form is how `typeof` chooses to display function types. Don't read anything deeper into the discrepancy.)
+
+## Why this design unlocks more, not less
+
+A surprising consequence of doing reflection at compile time is that you can do *more* with it, not less. Compile-time code can:
+
+- **Read a value's type and emit specialized runtime code based on it.** Combined with `gen` from the previous chapter, you can write a single meta function that consumes a type description and produces a tailored serializer, parser, or validator — and the runtime program contains only the specialized version, with zero generic machinery left over.
+- **Reject invalid types at compile time.** If your reflection meta function is given a type it doesn't know how to handle, the error fires during compilation, not three months into production.
+- **Be inlined and constant-folded freely.** Because `typeof` evaluates to a literal string, anything built on top of it composes with the rest of the meta system. You can pass type strings through `meta fn`s, build them up, compare them, or use them to construct identifiers for `gen`-emitted declarations.
+
+The runtime-reflection languages can't do any of this without giving up their performance story. Cronyx gets it for free, because the reflection ran *before* the performance story started.
+
+## Try it
+
+Predict the output of the program below. Walk through each `typeof` call mentally and write down what you think will print before running the file.
+
+```cronyx
+var n      = 7;
+var name   = "Cronyx";
+var ready  = true;
+var coords = (1, 2, 3);
+var ages   = [10, 20, 30];
+var record = { x: 5, y: 10 };
+
+print(typeof(n));
+print(typeof(name));
+print(typeof(ready));
+print(typeof(coords));
+print(typeof(ages));
+print(typeof(record));
+```
+
+Expected output:
+
+```
+int
+string
+bool
+(int, int, int)
+[int]
+{ x: int, y: int }
+```
+
+Now dump the runtime code with `--dump-runtime-code`. You'll see six `print("...")` calls with the type strings already substituted in — the `typeof` calls themselves are gone. Reflection happened during compilation; the runtime program just prints strings.
+
+## What's next
+
+`typeof` is reflection's foundation. By itself it produces type strings; combined with `meta fn` and `gen`, it becomes the input to *type-driven code generation* — meta functions that take a type description, decide what to do based on it, and emit specialized runtime code accordingly. That's the pattern most production-strength metaprogramming follows.
+
+Next up: **comptime parameters** (other languages call them generics) — passing types and other compile-time values to functions and structs as parameters. Once you can take a type *as input*, the metaprogramming features in this section start composing into proper reusable abstractions.

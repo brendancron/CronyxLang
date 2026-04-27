@@ -5,8 +5,8 @@ import type * as Preset from '@docusaurus/preset-classic';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  title: 'My Site',
-  tagline: 'Dinosaurs are cool',
+  title: 'Cronyx',
+  tagline: 'A statically-typed, metaprogramming-first language with algebraic effects.',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -15,10 +15,10 @@ const config: Config = {
   },
 
   url: 'https://brendancron.github.io',
-  baseUrl: '/Compiler/',
+  baseUrl: '/Cronyx/',
 
   organizationName: 'brendancron',
-  projectName: 'Compiler',
+  projectName: 'Cronyx',
   trailingSlash: false,
   deploymentBranch: 'gh-pages',
 
@@ -41,23 +41,9 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/brendancron/Compiler/tree/main/docs/',
+            'https://github.com/brendancron/Cronyx/tree/main/docs/',
         },
-        blog: {
-          showReadingTime: true,
-          feedOptions: {
-            type: ['rss', 'atom'],
-            xslt: true,
-          },
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
-          editUrl:
-            'https://github.com/brendancron/Compiler/tree/main/docs/',
-          // Useful options to enforce blogging best practices
-          onInlineTags: 'warn',
-          onInlineAuthors: 'warn',
-          onUntruncatedBlogPosts: 'warn',
-        },
+        blog: false,
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -72,9 +58,9 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'My Site',
+      title: 'Cronyx',
       logo: {
-        alt: 'My Site Logo',
+        alt: 'Cronyx Logo',
         src: 'img/logo.svg',
       },
       items: [
@@ -84,9 +70,8 @@ const config: Config = {
           position: 'left',
           label: 'Tutorial',
         },
-        {to: '/blog', label: 'Blog', position: 'left'},
         {
-          href: 'https://github.com/brendancron/Compiler',
+          href: 'https://github.com/brendancron/Cronyx',
           label: 'GitHub',
           position: 'right',
         },
@@ -99,8 +84,8 @@ const config: Config = {
           title: 'Docs',
           items: [
             {
-              label: 'Tutorial',
-              to: '/docs/intro',
+              label: 'Getting Started',
+              to: '/docs/getting-started',
             },
           ],
         },
@@ -125,17 +110,13 @@ const config: Config = {
           title: 'More',
           items: [
             {
-              label: 'Blog',
-              to: '/blog',
-            },
-            {
               label: 'GitHub',
-              href: 'https://github.com/brendancron/Compiler',
+              href: 'https://github.com/brendancron/Cronyx',
             },
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} My Project, Inc. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Cronyx. Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,

@@ -1,0 +1,8 @@
+{
+  "label": "Language - Metaprogramming",
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "description": "Write code that writes code at compile time."
+  }
+}
