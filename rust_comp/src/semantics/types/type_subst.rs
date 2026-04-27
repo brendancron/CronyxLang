@@ -2,6 +2,7 @@ use super::type_error::TypeError;
 use super::types::{Type, TypeVar};
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct TypeSubst {
     pub map: HashMap<TypeVar, Type>,
 }
@@ -39,6 +40,7 @@ impl ApplySubst for Type {
             },
             Type::Tuple(items) => Type::Tuple(items.iter().map(|t| t.apply(subst)).collect()),
             Type::Slice(elem) => Type::Slice(Box::new(elem.apply(subst))),
+            Type::App(name, args) => Type::App(name.clone(), args.iter().map(|t| t.apply(subst)).collect()),
             _ => self.clone(),
         }
     }
@@ -48,6 +50,9 @@ fn contains(tv: TypeVar, ty: &Type) -> bool {
     match ty {
         Type::Var(v) => *v == tv,
         Type::Func { params, ret, .. } => params.iter().any(|p| contains(tv, p)) || contains(tv, ret),
+        Type::Tuple(items) => items.iter().any(|t| contains(tv, t)),
+        Type::Slice(elem) => contains(tv, elem),
+        Type::App(_, args) => args.iter().any(|t| contains(tv, t)),
         _ => false,
     }
 }
@@ -96,7 +101,7 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
                 return Err(TypeError::type_mismatch(a, b));
             }
             for (k, ta) in fa.iter() {
-                let tb = fb.get(k).unwrap();
+                let tb = fb.get(k).ok_or_else(|| TypeError::type_mismatch(a.clone(), b.clone()))?;
                 unify(ta, tb, subst)?;
             }
             Ok(())
@@ -110,7 +115,7 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
                 return Err(TypeError::type_mismatch(a, b));
             }
             for (k, ta) in fa.iter() {
-                let tb = fb.get(k).unwrap();
+                let tb = fb.get(k).ok_or_else(|| TypeError::type_mismatch(a.clone(), b.clone()))?;
                 unify(ta, tb, subst)?;
             }
             Ok(())
@@ -129,6 +134,13 @@ pub fn unify(a: &Type, b: &Type, subst: &mut TypeSubst) -> Result<(), TypeError>
         }
 
         (Type::Enum(na), Type::Enum(nb)) if na == nb => Ok(()),
+
+        (Type::App(na, aa), Type::App(nb, ab)) if na == nb && aa.len() == ab.len() => {
+            for (x, y) in aa.iter().zip(ab.iter()) {
+                unify(x, y, subst)?;
+            }
+            Ok(())
+        }
 
         _ => Err(TypeError::type_mismatch(a, b)),
     }

@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::frontend::meta_ast::EffectOpKind;
 use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
+use crate::util::node_id::RuntimeNodeId;
 
 /// Result of the effect-marking pass.
 #[derive(Debug, Default)]
@@ -30,9 +31,8 @@ pub fn mark_cps(ast: &RuntimeAst) -> CpsInfo {
         }
     }
 
-    // Phase 2 — find functions that make direct sequential ctl calls in their body
-    // (top-level block only; ctl calls inside loops are excluded).
-    let mut fn_bodies: HashMap<String, usize> = HashMap::new();
+    // Phase 2 — find functions that make direct sequential ctl calls in their body.
+    let mut fn_bodies: HashMap<String, RuntimeNodeId> = HashMap::new();
     for stmt in ast.stmts.values() {
         if let RuntimeStmt::FnDecl { name, body, .. } = stmt {
             fn_bodies.insert(name.clone(), *body);
@@ -42,20 +42,25 @@ pub fn mark_cps(ast: &RuntimeAst) -> CpsInfo {
         }
     }
 
-    // Phase 3 — transitive closure: if a function calls a cps_fn it is also cps.
-    loop {
-        let mut added = false;
-        for (name, &body_id) in &fn_bodies {
-            if info.cps_fns.contains(name) {
-                continue;
-            }
-            if body_calls_any_of(ast, body_id, &info.cps_fns) {
-                info.cps_fns.insert(name.clone());
-                added = true;
-            }
+    // Phase 3 — transitive closure via BFS on a reverse call graph.
+    // Build callers: fn_name → functions that call it.
+    // Then seed a worklist from the initial cps_fns and propagate outward.
+    // Each function is enqueued at most once → O(n + E) vs the previous O(n²).
+    let mut callers: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, &body_id) in &fn_bodies {
+        for callee in collect_callees(ast, body_id) {
+            callers.entry(callee).or_default().push(name.clone());
         }
-        if !added {
-            break;
+    }
+
+    let mut queue: VecDeque<String> = info.cps_fns.iter().cloned().collect();
+    while let Some(cps_fn) = queue.pop_front() {
+        if let Some(caller_list) = callers.get(&cps_fn) {
+            for caller in caller_list {
+                if info.cps_fns.insert(caller.clone()) {
+                    queue.push_back(caller.clone());
+                }
+            }
         }
     }
 
@@ -64,9 +69,7 @@ pub fn mark_cps(ast: &RuntimeAst) -> CpsInfo {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/// Returns true if `body_id` (a Block or single stmt) contains a ctl op call at
-/// the top level of the block — i.e. not nested inside a loop body.
-fn body_has_sequential_ctl_call(ast: &RuntimeAst, body_id: usize, ctl_ops: &HashSet<String>) -> bool {
+fn body_has_sequential_ctl_call(ast: &RuntimeAst, body_id: RuntimeNodeId, ctl_ops: &HashSet<String>) -> bool {
     match ast.get_stmt(body_id) {
         Some(RuntimeStmt::Block(stmts)) => {
             stmts.iter().any(|&id| stmt_is_direct_ctl_call(ast, id, ctl_ops))
@@ -76,10 +79,7 @@ fn body_has_sequential_ctl_call(ast: &RuntimeAst, body_id: usize, ctl_ops: &Hash
     }
 }
 
-/// Returns true if `stmt_id` is, or recursively contains, a ctl op call.
-/// Recurses into WhileLoop bodies so that functions like `range` that only
-/// call ctl ops from inside a loop are still marked as CPS functions.
-fn stmt_is_direct_ctl_call(ast: &RuntimeAst, stmt_id: usize, ctl_ops: &HashSet<String>) -> bool {
+fn stmt_is_direct_ctl_call(ast: &RuntimeAst, stmt_id: RuntimeNodeId, ctl_ops: &HashSet<String>) -> bool {
     match ast.get_stmt(stmt_id) {
         Some(RuntimeStmt::VarDecl { expr, .. }) | Some(RuntimeStmt::ExprStmt(expr)) => {
             expr_calls_ctl_op(ast, *expr, ctl_ops)
@@ -102,50 +102,50 @@ fn stmt_is_direct_ctl_call(ast: &RuntimeAst, stmt_id: usize, ctl_ops: &HashSet<S
     }
 }
 
-fn expr_calls_ctl_op(ast: &RuntimeAst, expr_id: usize, ctl_ops: &HashSet<String>) -> bool {
+fn expr_calls_ctl_op(ast: &RuntimeAst, expr_id: RuntimeNodeId, ctl_ops: &HashSet<String>) -> bool {
     match ast.get_expr(expr_id) {
         Some(RuntimeExpr::Call { callee, .. }) => ctl_ops.contains(callee.as_str()),
         _ => false,
     }
 }
 
-/// Returns true if `stmt_id` (recursively) calls any function in `fns`.
-fn body_calls_any_of(ast: &RuntimeAst, body_id: usize, fns: &HashSet<String>) -> bool {
-    stmt_calls_any_of(ast, body_id, fns)
+fn collect_callees(ast: &RuntimeAst, body_id: RuntimeNodeId) -> HashSet<String> {
+    let mut out = HashSet::new();
+    collect_callees_stmt(ast, body_id, &mut out);
+    out
 }
 
-fn stmt_calls_any_of(ast: &RuntimeAst, stmt_id: usize, fns: &HashSet<String>) -> bool {
+fn collect_callees_stmt(ast: &RuntimeAst, stmt_id: RuntimeNodeId, out: &mut HashSet<String>) {
     match ast.get_stmt(stmt_id) {
         Some(RuntimeStmt::VarDecl { expr, .. }) | Some(RuntimeStmt::ExprStmt(expr)) => {
-            expr_calls_any_of(ast, *expr, fns)
+            collect_callees_expr(ast, *expr, out);
         }
         Some(RuntimeStmt::Block(stmts)) => {
             let stmts = stmts.clone();
-            stmts.iter().any(|&id| stmt_calls_any_of(ast, id, fns))
+            for &id in &stmts { collect_callees_stmt(ast, id, out); }
         }
         Some(RuntimeStmt::If { cond, body, else_branch }) => {
-            expr_calls_any_of(ast, *cond, fns)
-                || stmt_calls_any_of(ast, *body, fns)
-                || else_branch.map_or(false, |e| stmt_calls_any_of(ast, e, fns))
+            collect_callees_expr(ast, *cond, out);
+            collect_callees_stmt(ast, *body, out);
+            if let Some(e) = else_branch { collect_callees_stmt(ast, *e, out); }
         }
         Some(RuntimeStmt::WhileLoop { cond, body }) => {
-            expr_calls_any_of(ast, *cond, fns) || stmt_calls_any_of(ast, *body, fns)
+            collect_callees_expr(ast, *cond, out);
+            collect_callees_stmt(ast, *body, out);
         }
-        Some(RuntimeStmt::ForEach { body, .. }) => stmt_calls_any_of(ast, *body, fns),
-        Some(RuntimeStmt::Return(Some(expr))) => expr_calls_any_of(ast, *expr, fns),
-        _ => false,
+        Some(RuntimeStmt::ForEach { body, .. }) => collect_callees_stmt(ast, *body, out),
+        Some(RuntimeStmt::Return(Some(expr))) => collect_callees_expr(ast, *expr, out),
+        _ => {}
     }
 }
 
-fn expr_calls_any_of(ast: &RuntimeAst, expr_id: usize, fns: &HashSet<String>) -> bool {
+fn collect_callees_expr(ast: &RuntimeAst, expr_id: RuntimeNodeId, out: &mut HashSet<String>) {
     match ast.get_expr(expr_id) {
         Some(RuntimeExpr::Call { callee, args }) => {
-            if fns.contains(callee.as_str()) {
-                return true;
-            }
+            out.insert(callee.clone());
             let args = args.clone();
-            args.iter().any(|&a| expr_calls_any_of(ast, a, fns))
+            for &a in &args { collect_callees_expr(ast, a, out); }
         }
-        _ => false,
+        _ => {}
     }
 }

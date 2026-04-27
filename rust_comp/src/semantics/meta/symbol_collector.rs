@@ -1,4 +1,5 @@
 use super::staged_ast::*;
+use crate::util::node_id::StagedNodeId;
 use std::collections::HashSet;
 
 /// Names declared at the top level of a tree — what this tree exports to others.
@@ -24,7 +25,7 @@ pub fn collect_external_uses(ast: &StagedAst) -> HashSet<String> {
     uses.difference(&declares).cloned().collect()
 }
 
-fn collect_top_level_decl(ast: &StagedAst, stmt_id: usize, out: &mut HashSet<String>) {
+fn collect_top_level_decl(ast: &StagedAst, stmt_id: StagedNodeId, out: &mut HashSet<String>) {
     let Some(stmt) = ast.get_stmt(stmt_id) else { return };
     match stmt {
         StagedStmt::VarDecl { name, .. } => { out.insert(name.clone()); }
@@ -48,7 +49,7 @@ fn collect_top_level_decl(ast: &StagedAst, stmt_id: usize, out: &mut HashSet<Str
 /// `in_gen`: if true, collect declares but skip uses (gen body is runtime code, not meta deps).
 fn collect_stmt_symbols(
     ast: &StagedAst,
-    stmt_id: usize,
+    stmt_id: StagedNodeId,
     declares: &mut HashSet<String>,
     uses: &mut HashSet<String>,
     in_gen: bool,
@@ -126,7 +127,7 @@ fn collect_stmt_symbols(
 
 fn collect_expr_symbols(
     ast: &StagedAst,
-    expr_id: usize,
+    expr_id: StagedNodeId,
     declares: &mut HashSet<String>,
     uses: &mut HashSet<String>,
     in_gen: bool,
@@ -206,15 +207,14 @@ fn collect_expr_symbols(
         StagedExpr::Int(_) | StagedExpr::String(_) | StagedExpr::Bool(_)
         | StagedExpr::MetaExpr(_) => {}
         StagedExpr::EnumConstructor { payload, .. } => {
-            use crate::frontend::meta_ast::ConstructorPayload;
             match payload {
-                ConstructorPayload::Tuple(ids) => {
+                StagedConstructorPayload::Tuple(ids) => {
                     for &id in ids { collect_expr_symbols(ast, id, declares, uses, in_gen); }
                 }
-                ConstructorPayload::Struct(fields) => {
+                StagedConstructorPayload::Struct(fields) => {
                     for (_, id) in fields { collect_expr_symbols(ast, *id, declares, uses, in_gen); }
                 }
-                ConstructorPayload::Unit => {}
+                StagedConstructorPayload::Unit => {}
             }
         }
     }

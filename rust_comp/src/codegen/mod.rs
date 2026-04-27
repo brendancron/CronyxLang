@@ -34,20 +34,21 @@ use inkwell::targets::{InitializationConfig, Target};
 use inkwell::types::{ArrayType, BasicType, BasicTypeEnum, BasicMetadataTypeEnum, IntType, PointerType, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PointerValue};
 
-use crate::frontend::meta_ast::{ConstructorPayload, Param, Pattern, VariantBindings};
+use crate::frontend::meta_ast::{Param, Pattern, VariantBindings};
 use crate::semantics::cps::effect_marker::CpsInfo;
-use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
-use crate::semantics::types::enum_registry::EnumRegistry;
+use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeConstructorPayload, RuntimeExpr, RuntimeStmt};
+use crate::semantics::types::enum_registry::{EnumRegistry, ResolvedPayload};
 use crate::semantics::types::types::{PrimitiveType, Type};
+use crate::util::node_id::RuntimeNodeId;
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
 pub enum CodegenError {
     Builder(BuilderError),
-    UnsupportedExpr(usize),
-    UnsupportedStmt(usize),
-    MissingNode(usize),
+    UnsupportedExpr(RuntimeNodeId),
+    UnsupportedStmt(RuntimeNodeId),
+    MissingNode(RuntimeNodeId),
     UnboundVar(String),
     Io(std::io::Error),
     ClangFailed(String),
@@ -65,7 +66,7 @@ impl std::fmt::Display for CodegenError {
             CodegenError::Builder(e)           => write!(f, "LLVM builder error: {e}"),
             CodegenError::UnsupportedExpr(id)  => write!(f, "unsupported expression (id={id})"),
             CodegenError::UnsupportedStmt(id)  => write!(f, "unsupported statement (id={id})"),
-            CodegenError::MissingNode(id)      => write!(f, "missing AST node (id={id})"),
+            CodegenError::MissingNode(id)      => write!(f, "missing AST node (id={})", id.0),
             CodegenError::UnboundVar(name)     => write!(f, "unbound variable: {name}"),
             CodegenError::Io(e)                => write!(f, "I/O error: {e}"),
             CodegenError::ClangFailed(msg)     => write!(f, "clang failed: {msg}"),
@@ -107,7 +108,7 @@ type Locals<'ctx> = HashMap<String, Local<'ctx>>;
 
 pub fn compile(
     ast: &RuntimeAst,
-    type_map: &HashMap<usize, Type>,
+    type_map: &HashMap<RuntimeNodeId, Type>,
     cps_info: &CpsInfo,
     out_path: &Path,
 ) -> Result<(), CodegenError> {
@@ -174,7 +175,7 @@ pub fn compile(
 
     // ── Collect top-level FnDecl names early (needed for has_closures detection) ─
     // Also collect nested FnDecl detection (FnDecl inside FnDecl bodies).
-    fn collect_fn_decls(ast: &RuntimeAst, ids: &[usize], out: &mut Vec<(usize, String, Vec<String>, usize)>) {
+    fn collect_fn_decls(ast: &RuntimeAst, ids: &[RuntimeNodeId], out: &mut Vec<(RuntimeNodeId, String, Vec<String>, RuntimeNodeId)>) {
         for &id in ids {
             match ast.get_stmt(id) {
                 Some(RuntimeStmt::FnDecl { name, params, body, .. }) =>
@@ -185,13 +186,13 @@ pub fn compile(
             }
         }
     }
-    let mut fn_decls_early: Vec<(usize, String, Vec<String>, usize)> = Vec::new();
+    let mut fn_decls_early: Vec<(RuntimeNodeId, String, Vec<String>, RuntimeNodeId)> = Vec::new();
     collect_fn_decls(ast, &ast.sem_root_stmts, &mut fn_decls_early);
     let fn_decl_name_set: std::collections::HashSet<String> =
         fn_decls_early.iter().map(|(_, n, _, _)| n.clone()).collect();
 
     // Check for nested FnDecls (FnDecl inside another FnDecl body)
-    fn body_has_fn_decl(ast: &RuntimeAst, stmt_id: usize) -> bool {
+    fn body_has_fn_decl(ast: &RuntimeAst, stmt_id: RuntimeNodeId) -> bool {
         match ast.get_stmt(stmt_id) {
             Some(RuntimeStmt::Block(stmts)) => stmts.iter().any(|&id| {
                 matches!(ast.get_stmt(id), Some(RuntimeStmt::FnDecl { .. }))
@@ -202,14 +203,9 @@ pub fn compile(
     }
     let has_nested_fn_decls = fn_decls_early.iter().any(|(_, _, _, body_id)| body_has_fn_decl(ast, *body_id));
 
-    // Check for HOF usage: Variable(name) where name is a top-level fn
-    let has_hof_fns = ast.exprs.values().any(|e| {
-        matches!(e, RuntimeExpr::Variable(n) if fn_decl_name_set.contains(n))
-    });
-
     // Collect top-level VarDecl stmts for LLVM global promotion.
     // Top-level vars must be globals so nested functions can access them directly.
-    let top_level_var_decls: Vec<(String, usize)> = ast.sem_root_stmts.iter()
+    let top_level_var_decls: Vec<(String, RuntimeNodeId)> = ast.sem_root_stmts.iter()
         .filter_map(|&id| match ast.get_stmt(id) {
             Some(RuntimeStmt::VarDecl { name, expr }) => Some((name.clone(), *expr)),
             _ => None,
@@ -223,8 +219,18 @@ pub fn compile(
     let has_slices    = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::List(_)))
         || ast.exprs.values().any(|e| matches!(e, RuntimeExpr::DotCall { method, .. }
             if matches!(method.as_str(), "split" | "chars")));
-    let has_closures  = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::Lambda { .. }))
-        || has_nested_fn_decls || has_hof_fns;
+    // Single pass to detect lambda and HOF usage simultaneously.
+    let (has_lambdas, has_hof_fns) = {
+        let mut lam = false;
+        let mut hof = false;
+        for e in ast.exprs.values() {
+            if !lam && matches!(e, RuntimeExpr::Lambda { .. }) { lam = true; }
+            if !hof { if let RuntimeExpr::Variable(n) = e { if fn_decl_name_set.contains(n) { hof = true; } } }
+            if lam && hof { break; }
+        }
+        (lam, hof)
+    };
+    let has_closures  = has_lambdas || has_nested_fn_decls || has_hof_fns;
     let has_enums     = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::EnumConstructor { .. }));
     let has_tuples    = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::Tuple(_)));
     // Detect string operations that need C string library calls + heap allocation.
@@ -236,7 +242,7 @@ pub fn compile(
     // is used outside a print statement.
     // Collect all to_string(x) expr IDs that are directly wrapped by a Print stmt.
     // Those are handled by the print codegen (uses fmt_int directly, no sprintf needed).
-    let print_unwrapped_to_string_ids: std::collections::BTreeSet<usize> = {
+    let print_unwrapped_to_string_ids: std::collections::BTreeSet<RuntimeNodeId> = {
         let mut set = std::collections::BTreeSet::new();
         for (_, stmt) in &ast.stmts {
             if let RuntimeStmt::Print(inner) = stmt {
@@ -462,7 +468,7 @@ pub fn compile(
             Some(Type::Struct { name: sname, .. }) => LocalKind::StructPtr(sname.clone()),
             Some(Type::Slice(_)) => LocalKind::Slice,
             Some(Type::Func { .. }) => LocalKind::Closure,
-            Some(Type::Enum(_)) => LocalKind::EnumPtr,
+            Some(Type::Enum(_)) | Some(Type::App(..)) => LocalKind::EnumPtr,
             Some(Type::Tuple(_)) => LocalKind::Tuple,
             _ => {
                 // Check if value expression is a lambda or other ptr type
@@ -668,7 +674,7 @@ pub fn compile(
     // (lower IDs) and outer ones later (higher IDs). We must emit outer lambda
     // bodies first so that inner lambdas' capture sets are populated before their
     // own bodies are emitted.
-    let mut lambda_exprs: Vec<(usize, Vec<String>)> = ast.exprs.iter()
+    let mut lambda_exprs: Vec<(RuntimeNodeId, Vec<String>)> = ast.exprs.iter()
         .filter_map(|(&id, expr)| match expr {
             RuntimeExpr::Lambda { params, .. } => Some((id, params.clone())),
             _ => None,
@@ -677,11 +683,11 @@ pub fn compile(
     lambda_exprs.sort_by(|a, b| b.0.cmp(&a.0));
 
     // Precompute which names each lambda references (for closure capture).
-    let lambda_ref_names: HashMap<usize, Vec<String>> = lambda_exprs.iter()
+    let lambda_ref_names: HashMap<RuntimeNodeId, Vec<String>> = lambda_exprs.iter()
         .map(|(id, _)| (*id, collect_lambda_refs(ast, *id)))
         .collect();
 
-    let mut lambda_fns: HashMap<usize, FunctionValue<'_>> = HashMap::new();
+    let mut lambda_fns: HashMap<RuntimeNodeId, FunctionValue<'_>> = HashMap::new();
     for (lambda_id, params) in &lambda_exprs {
         // Param types: env ptr first, then int for each lambda param.
         // Type::Func in type_map could refine this, but i64 is safe for M4.
@@ -717,7 +723,7 @@ pub fn compile(
 
     // Collect `with fn` handlers — each gets a unique LLVM name (__handler_<op>_<stmt_id>)
     // so multiple handlers for the same op can coexist. Active handler is tracked in Pass 3.
-    let with_fn_decls: Vec<(String, String, Vec<Param>, usize)> = ast.sem_root_stmts.iter()
+    let with_fn_decls: Vec<(String, String, Vec<Param>, RuntimeNodeId)> = ast.sem_root_stmts.iter()
         .filter_map(|&id| match ast.get_stmt(id) {
             Some(RuntimeStmt::WithFn { op_name, params, body, .. }) => {
                 let unique = format!("__handler_{op_name}_{id}");
@@ -729,7 +735,7 @@ pub fn compile(
 
     // Collect ALL `with ctl` handlers from the entire AST (including inside lambda bodies after CPS).
     // Each gets a unique LLVM name to allow shadowing.
-    let with_ctl_decls: Vec<(usize, String, String, Vec<Param>, usize)> = ast.stmts.iter()
+    let with_ctl_decls: Vec<(RuntimeNodeId, String, String, Vec<Param>, RuntimeNodeId)> = ast.stmts.iter()
         .filter_map(|(&id, stmt)| match stmt {
             RuntimeStmt::WithCtl { op_name, params, body, .. } => {
                 let unique = format!("__handler_{op_name}_{id}");
@@ -805,7 +811,7 @@ pub fn compile(
                     !returns_bool
                 } else {
                     matches!(ret.as_ref(),
-                        Type::Enum(_) | Type::Struct { .. }
+                        Type::Enum(_) | Type::App(..) | Type::Struct { .. }
                         | Type::Primitive(PrimitiveType::String)
                         | Type::Slice(_)
                         | Type::Tuple(_))
@@ -854,6 +860,7 @@ pub fn compile(
                 | Some(Type::Slice(_))
                 | Some(Type::Func { .. })
                 | Some(Type::Enum(_))
+                | Some(Type::App(..))
                 | Some(Type::Tuple(_)) =>
                     BasicMetadataTypeEnum::PointerType(ptr_ty),
                 _ => BasicMetadataTypeEnum::IntType(i64_ty),
@@ -874,12 +881,12 @@ pub fn compile(
     // Each handler gets a unique LLVM name; active handler tracked via with_fn_active in Pass 3.
     for (_op_name, unique_name, params, _body_id) in &with_fn_decls {
         let param_meta: Vec<BasicMetadataTypeEnum<'_>> = params.iter()
-            .map(|p| param_llvm_type(p.ty.as_deref(), i64_ty, ptr_ty))
+            .map(|p| { let s = p.ty.as_ref().map(|t| t.to_string()); param_llvm_type(s.as_deref(), i64_ty, ptr_ty) })
             .collect();
         let fn_ty = i64_ty.fn_type(&param_meta, false);
         let fn_val = module.add_function(unique_name, fn_ty, None);
         let arg_types: Vec<Option<Type>> = params.iter()
-            .map(|p| param_type_from_annot(p.ty.as_deref()))
+            .map(|p| { let s = p.ty.as_ref().map(|t| t.to_string()); param_type_from_annot(s.as_deref()) })
             .collect();
         user_fns.insert(unique_name.clone(), fn_val);
         fn_arg_types.insert(unique_name.clone(), arg_types);
@@ -916,7 +923,7 @@ pub fn compile(
 
     // Fallback: infer ctl handler param types from body usage patterns.
     // If a handler body uses ForEach over a param, that param must be a Slice.
-    fn infer_param_type_from_body(ast: &RuntimeAst, body_id: usize, param_name: &str) -> Option<Type> {
+    fn infer_param_type_from_body(ast: &RuntimeAst, body_id: RuntimeNodeId, param_name: &str) -> Option<Type> {
         let stmts = match ast.get_stmt(body_id) {
             Some(RuntimeStmt::Block(s)) => s.clone(),
             _ => return None,
@@ -941,7 +948,8 @@ pub fn compile(
         // Resolve param types: explicit annotation > call-site inference > body-usage inference.
         let inferred = ctl_op_call_types.get(op_name.as_str());
         let resolve_param_type = |i: usize, p: &Param| -> Option<Type> {
-            param_type_from_annot(p.ty.as_deref())
+            let ty_s = p.ty.as_ref().map(|t| t.to_string());
+            param_type_from_annot(ty_s.as_deref())
                 .or_else(|| inferred.and_then(|v| v.get(i)).and_then(|t| t.clone()))
                 .or_else(|| infer_param_type_from_body(ast, *body_id, &p.name))
         };
@@ -949,11 +957,11 @@ pub fn compile(
             .map(|(i, p)| {
                 match resolve_param_type(i, p) {
                     Some(Type::Slice(_)) | Some(Type::Primitive(PrimitiveType::String))
-                    | Some(Type::Struct { .. }) | Some(Type::Enum(_))
+                    | Some(Type::Struct { .. }) | Some(Type::Enum(_)) | Some(Type::App(..))
                     | Some(Type::Tuple(_)) | Some(Type::Func { .. })
                         => BasicMetadataTypeEnum::PointerType(ptr_ty),
                     Some(_) => BasicMetadataTypeEnum::IntType(i64_ty),
-                    None => param_llvm_type(p.ty.as_deref(), i64_ty, ptr_ty),
+                    None => { let s = p.ty.as_ref().map(|t| t.to_string()); param_llvm_type(s.as_deref(), i64_ty, ptr_ty) },
                 }
             })
             .collect();
@@ -978,12 +986,12 @@ pub fn compile(
     // Nested FnDecls (FnDecl inside another FnDecl body) are treated as closures.
     // We pre-declare their LLVM functions here so emit_stmt can look them up.
     // Signature: (ptr env, [params as i64...]) → i64
-    let mut nested_fn_stmts: HashMap<usize, FunctionValue<'_>> = HashMap::new();
+    let mut nested_fn_stmts: HashMap<RuntimeNodeId, FunctionValue<'_>> = HashMap::new();
     fn collect_nested_fns(
         ast: &RuntimeAst,
-        stmt_id: usize,
+        stmt_id: RuntimeNodeId,
         fn_decl_name_set: &std::collections::HashSet<String>,
-        out: &mut HashMap<usize, (String, Vec<String>)>,
+        out: &mut HashMap<RuntimeNodeId, (String, Vec<String>)>,
     ) {
         let stmts = match ast.get_stmt(stmt_id) {
             Some(RuntimeStmt::Block(s)) => s.clone(),
@@ -991,12 +999,6 @@ pub fn compile(
         };
         for id in stmts {
             if let Some(RuntimeStmt::FnDecl { name, params, body, .. }) = ast.get_stmt(id) {
-                // Only nested if NOT in top-level fn_decl_name_set? No — nested fns
-                // have the same name but are in a different scope. Actually all FnDecl
-                // stmts that appear inside another fn's body are nested regardless of name.
-                // We detect nested by: the stmt_id is NOT in fn_decls (top-level set).
-                // Since fn_decl_name_set contains names (not stmt IDs), we can't use it.
-                // Instead, just collect all FnDecl stmts found inside blocks.
                 out.insert(id, (name.clone(), params.clone()));
                 collect_nested_fns(ast, *body, fn_decl_name_set, out);
             }
@@ -1004,9 +1006,9 @@ pub fn compile(
     }
 
     // Collect nested FnDecls from all top-level fn bodies
-    let top_level_fn_stmt_ids: std::collections::HashSet<usize> =
+    let top_level_fn_stmt_ids: std::collections::HashSet<RuntimeNodeId> =
         fn_decls.iter().map(|(id, _, _, _)| *id).collect();
-    let mut nested_fn_decl_map: HashMap<usize, (String, Vec<String>)> = HashMap::new();
+    let mut nested_fn_decl_map: HashMap<RuntimeNodeId, (String, Vec<String>)> = HashMap::new();
     for (_, _, _, body_id) in &fn_decls {
         collect_nested_fns(ast, *body_id, &fn_decl_name_set, &mut nested_fn_decl_map);
     }
@@ -1636,13 +1638,13 @@ struct Cg<'ctx> {
     structs:        HashMap<String, StructMeta<'ctx>>,
     string_globals: HashMap<String, GlobalValue<'ctx>>,
     /// Maps lambda expr_id → emitted LLVM function (for closure creation)
-    lambda_fns:     HashMap<usize, FunctionValue<'ctx>>,
+    lambda_fns:     HashMap<RuntimeNodeId, FunctionValue<'ctx>>,
     enum_registry:  EnumRegistry,
-    type_map:       &'ctx HashMap<usize, Type>,
+    type_map:       &'ctx HashMap<RuntimeNodeId, Type>,
     /// Pre-computed: all names referenced in each lambda's body (not its own params).
-    lambda_ref_names: HashMap<usize, Vec<String>>,
+    lambda_ref_names: HashMap<RuntimeNodeId, Vec<String>>,
     /// Populated at emit time: actual captures per lambda (names + kinds from locals).
-    lambda_actual_captures: RefCell<HashMap<usize, Vec<(String, LocalKind)>>>,
+    lambda_actual_captures: RefCell<HashMap<RuntimeNodeId, Vec<(String, LocalKind)>>>,
     // ── C string library functions (None when program has no strings) ─────────
     strlen_fn:  Option<FunctionValue<'ctx>>,
     strcpy_fn:  Option<FunctionValue<'ctx>>,
@@ -1677,7 +1679,7 @@ struct Cg<'ctx> {
     hof_wrapper_fns: HashMap<String, FunctionValue<'ctx>>,
     /// Pre-created nested FnDecl LLVM stubs (stmt_id → FunctionValue).
     /// Bodies are emitted lazily in emit_stmt when captures are known.
-    nested_fn_stmts: HashMap<usize, FunctionValue<'ctx>>,
+    nested_fn_stmts: HashMap<RuntimeNodeId, FunctionValue<'ctx>>,
     /// LLVM globals for top-level var declarations.
     /// Maps var_name → (global, LocalKind). Accessible from nested functions directly.
     global_vars: HashMap<String, (GlobalValue<'ctx>, LocalKind)>,
@@ -1701,21 +1703,21 @@ impl<'ctx> Cg<'ctx> {
     }
 
     fn fmt_str_ptr(&self) -> Result<PointerValue<'ctx>, CodegenError> {
-        let (g, ty) = self.fmt_str.as_ref().ok_or(CodegenError::UnsupportedStmt(0))?;
+        let (g, ty) = self.fmt_str.as_ref().ok_or(CodegenError::UnsupportedStmt(RuntimeNodeId(0)))?;
         let zero = self.context.i32_type().const_int(0, false);
         unsafe { self.builder.build_gep(*ty, g.as_pointer_value(), &[zero, zero], "fmt_str_ptr") }
             .map_err(CodegenError::Builder)
     }
 
     fn fmt_int_bare_ptr(&self) -> Result<PointerValue<'ctx>, CodegenError> {
-        let (g, ty) = self.fmt_int_bare.as_ref().ok_or(CodegenError::UnsupportedStmt(0))?;
+        let (g, ty) = self.fmt_int_bare.as_ref().ok_or(CodegenError::UnsupportedStmt(RuntimeNodeId(0)))?;
         let zero = self.context.i32_type().const_int(0, false);
         unsafe { self.builder.build_gep(*ty, g.as_pointer_value(), &[zero, zero], "fmt_int_bare_ptr") }
             .map_err(CodegenError::Builder)
     }
 
     fn fmt_str_bare_ptr(&self) -> Result<PointerValue<'ctx>, CodegenError> {
-        let (g, ty) = self.fmt_str_bare.as_ref().ok_or(CodegenError::UnsupportedStmt(0))?;
+        let (g, ty) = self.fmt_str_bare.as_ref().ok_or(CodegenError::UnsupportedStmt(RuntimeNodeId(0)))?;
         let zero = self.context.i32_type().const_int(0, false);
         unsafe { self.builder.build_gep(*ty, g.as_pointer_value(), &[zero, zero], "fmt_str_bare_ptr") }
             .map_err(CodegenError::Builder)
@@ -1735,13 +1737,13 @@ impl<'ctx> Cg<'ctx> {
     fn alloc_hof_closure(&self, fn_name: &str) -> Result<PointerValue<'ctx>, CodegenError> {
         let wrapper_fn = *self.hof_wrapper_fns.get(fn_name)
             .ok_or_else(|| CodegenError::UnboundVar(fn_name.to_string()))?;
-        let closure_ty = self.closure_ty.ok_or(CodegenError::UnsupportedExpr(0))?;
-        let malloc_fn  = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(0))?;
+        let closure_ty = self.closure_ty.ok_or(CodegenError::UnsupportedExpr(RuntimeNodeId(0)))?;
+        let malloc_fn  = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(RuntimeNodeId(0)))?;
 
-        let closure_size = closure_ty.size_of().ok_or(CodegenError::UnsupportedExpr(0))?;
+        let closure_size = closure_ty.size_of().ok_or(CodegenError::UnsupportedExpr(RuntimeNodeId(0)))?;
         let closure_ptr = self.builder
             .build_call(malloc_fn, &[BasicMetadataValueEnum::IntValue(closure_size)], "hof_closure_malloc")?
-            .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(0))?
+            .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(RuntimeNodeId(0)))?
             .into_pointer_value();
 
         let i32_zero = self.context.i32_type().const_int(0, false);
@@ -1767,7 +1769,7 @@ impl<'ctx> Cg<'ctx> {
         fn_val: FunctionValue<'ctx>,
         param_names: &[String],
         arg_types: &[Option<Type>],
-        body_id: usize,
+        body_id: RuntimeNodeId,
         is_ptr_return: bool,
     ) -> Result<(), CodegenError> {
         let entry = self.context.append_basic_block(fn_val, "entry");
@@ -1829,10 +1831,10 @@ impl<'ctx> Cg<'ctx> {
     fn emit_lambda_body(
         &self,
         fn_val: FunctionValue<'ctx>,
-        lambda_id: usize,
+        lambda_id: RuntimeNodeId,
         param_names: &[String],
         arg_types: &[Option<Type>],
-        body_id: usize,
+        body_id: RuntimeNodeId,
     ) -> Result<(), CodegenError> {
         let entry = self.context.append_basic_block(fn_val, "entry");
         self.builder.position_at_end(entry);
@@ -1926,9 +1928,9 @@ impl<'ctx> Cg<'ctx> {
     fn emit_closure_call(
         &self,
         closure_slot: PointerValue<'ctx>,
-        args: &[usize],
+        args: &[RuntimeNodeId],
         locals: &Locals<'ctx>,
-        expr_id: usize,
+        expr_id: RuntimeNodeId,
     ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         let closure_ty = self.closure_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
 
@@ -1988,7 +1990,7 @@ impl<'ctx> Cg<'ctx> {
 
     // ── Statement emission ────────────────────────────────────────────────────
 
-    fn emit_stmt(&self, stmt_id: usize, locals: &mut Locals<'ctx>) -> Result<(), CodegenError> {
+    fn emit_stmt(&self, stmt_id: RuntimeNodeId, locals: &mut Locals<'ctx>) -> Result<(), CodegenError> {
         let stmt = self.ast.get_stmt(stmt_id).ok_or(CodegenError::MissingNode(stmt_id))?;
         match stmt {
             // ── Print ─────────────────────────────────────────────────────────
@@ -2207,7 +2209,7 @@ impl<'ctx> Cg<'ctx> {
                                     LocalKind::Slice,
                                 Some(Type::Func { .. }) =>
                                     LocalKind::Closure,
-                                Some(Type::Enum(_)) =>
+                                Some(Type::Enum(_)) | Some(Type::App(..)) =>
                                     LocalKind::EnumPtr,
                                 Some(Type::Tuple(_)) =>
                                     LocalKind::Tuple,
@@ -2388,7 +2390,7 @@ impl<'ctx> Cg<'ctx> {
                     Some(Type::Slice(inner)) => matches!(inner.as_ref(),
                         Type::Primitive(PrimitiveType::String)
                         | Type::Slice(_) | Type::Struct { .. }
-                        | Type::Enum(_) | Type::Tuple(_) | Type::Func { .. }),
+                        | Type::Enum(_) | Type::App(..) | Type::Tuple(_) | Type::Func { .. }),
                     _ => false,
                 };
                 let elem_kind = if elem_is_ptr {
@@ -2397,7 +2399,7 @@ impl<'ctx> Cg<'ctx> {
                             Type::Primitive(PrimitiveType::String) => LocalKind::Str,
                             Type::Slice(_) => LocalKind::Slice,
                             Type::Struct { name: sname, .. } => LocalKind::StructPtr(sname.clone()),
-                            Type::Enum(_) => LocalKind::EnumPtr,
+                            Type::Enum(_) | Type::App(..) => LocalKind::EnumPtr,
                             Type::Tuple(_) => LocalKind::Tuple,
                             _ => LocalKind::Closure,
                         },
@@ -2478,11 +2480,11 @@ impl<'ctx> Cg<'ctx> {
                 let cur_fn = self.builder.get_insert_block().unwrap().get_parent().unwrap();
                 let merge_bb = self.context.append_basic_block(cur_fn, "match_merge");
 
-                // Collect arm data: (body_id, arm_bb, optional_binding)
+                // Collect arm data: (body_id, arm_bb, binding_names, payload_types)
                 // and switch cases: (tag_const, arm_bb)
                 let mut cases: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> = Vec::new();
-                let mut arm_emit: Vec<(usize, BasicBlock<'ctx>, Vec<String>)> = Vec::new();
-                let mut wildcard_body: Option<usize> = None;
+                let mut arm_emit: Vec<(RuntimeNodeId, BasicBlock<'ctx>, Vec<String>, Vec<Type>)> = Vec::new();
+                let mut wildcard_body: Option<RuntimeNodeId> = None;
 
                 for arm in arms.iter() {
                     match &arm.pattern {
@@ -2490,10 +2492,14 @@ impl<'ctx> Cg<'ctx> {
                             wildcard_body = Some(arm.body);
                         }
                         Pattern::Enum { enum_name, variant, bindings } => {
-                            let tag = self.enum_registry.get(enum_name)
-                                .and_then(|vs| vs.iter().find(|v| &v.name == variant))
-                                .map(|v| v.tag as u64)
-                                .unwrap_or(0);
+                            let resolved_variant = self.enum_registry.get(enum_name)
+                                .and_then(|vs| vs.iter().find(|v| &v.name == variant));
+                            let tag = resolved_variant.map(|v| v.tag as u64).unwrap_or(0);
+                            let payload_types: Vec<Type> = match resolved_variant.map(|v| &v.payload) {
+                                Some(ResolvedPayload::Tuple(tys)) => tys.clone(),
+                                Some(ResolvedPayload::Struct(fields)) => fields.iter().map(|(_, t)| t.clone()).collect(),
+                                _ => vec![],
+                            };
                             let arm_bb = self.context.append_basic_block(cur_fn, &format!("arm_{variant}"));
                             let tag_const = self.i64_ty.const_int(tag, false);
                             let binding_names: Vec<String> = match bindings {
@@ -2502,7 +2508,7 @@ impl<'ctx> Cg<'ctx> {
                                 VariantBindings::Unit => vec![],
                             };
                             cases.push((tag_const, arm_bb));
-                            arm_emit.push((arm.body, arm_bb, binding_names));
+                            arm_emit.push((arm.body, arm_bb, binding_names, payload_types));
                         }
                     }
                 }
@@ -2511,7 +2517,7 @@ impl<'ctx> Cg<'ctx> {
                 self.builder.build_switch(tag_val, default_bb, &cases)?;
 
                 // Emit specific arm blocks
-                for (body_id, arm_bb, binding_names) in arm_emit {
+                for (body_id, arm_bb, binding_names, payload_types) in arm_emit {
                     self.builder.position_at_end(arm_bb);
                     if !binding_names.is_empty() {
                         // Load payload i64 from field 1
@@ -2520,12 +2526,27 @@ impl<'ctx> Cg<'ctx> {
                                 &[i32_zero, self.context.i32_type().const_int(1, false)], "payload_ptr")?
                         };
                         let payload_val = self.builder.build_load(self.i64_ty, payload_ptr, "payload")?.into_int_value();
+                        // Helper: is the payload type a heap pointer (enum, string, slice, etc.)?
+                        let is_ptr_ty = |ty: &Type| matches!(
+                            ty,
+                            Type::Enum(_) | Type::App(..) | Type::Struct { .. }
+                            | Type::Slice(_) | Type::Tuple(_) | Type::Func { .. }
+                            | Type::Primitive(PrimitiveType::String)
+                        );
                         if binding_names.len() == 1 {
-                            // Single binding: payload is the value directly
+                            // Single binding: payload is the value (int) or ptrtoint (ptr) directly
                             let var_name = &binding_names[0];
-                            let var_slot = self.builder.build_alloca(self.i64_ty, var_name)?;
-                            self.builder.build_store(var_slot, payload_val)?;
-                            locals.insert(var_name.clone(), Local { slot: var_slot, kind: LocalKind::Int });
+                            let is_ptr = payload_types.first().map(is_ptr_ty).unwrap_or(false);
+                            if is_ptr {
+                                let ptr_val = self.builder.build_int_to_ptr(payload_val, self.ptr_ty, &format!("{var_name}_p"))?;
+                                let var_slot = self.builder.build_alloca(self.ptr_ty, var_name)?;
+                                self.builder.build_store(var_slot, ptr_val)?;
+                                locals.insert(var_name.clone(), Local { slot: var_slot, kind: LocalKind::EnumPtr });
+                            } else {
+                                let var_slot = self.builder.build_alloca(self.i64_ty, var_name)?;
+                                self.builder.build_store(var_slot, payload_val)?;
+                                locals.insert(var_name.clone(), Local { slot: var_slot, kind: LocalKind::Int });
+                            }
                         } else {
                             // Multiple bindings: payload is ptrtoint of heap array
                             let arr_ptr = self.builder.build_int_to_ptr(payload_val, self.ptr_ty, "arr_ptr")?;
@@ -2537,10 +2558,18 @@ impl<'ctx> Cg<'ctx> {
                                         &format!("ef{i}"),
                                     )?
                                 };
-                                let elem_val = self.builder.build_load(self.i64_ty, elem_ptr, var_name)?.into_int_value();
-                                let var_slot = self.builder.build_alloca(self.i64_ty, var_name)?;
-                                self.builder.build_store(var_slot, elem_val)?;
-                                locals.insert(var_name.clone(), Local { slot: var_slot, kind: LocalKind::Int });
+                                let elem_raw = self.builder.build_load(self.i64_ty, elem_ptr, var_name)?.into_int_value();
+                                let is_ptr = payload_types.get(i).map(is_ptr_ty).unwrap_or(false);
+                                if is_ptr {
+                                    let ptr_val = self.builder.build_int_to_ptr(elem_raw, self.ptr_ty, &format!("{var_name}_p"))?;
+                                    let var_slot = self.builder.build_alloca(self.ptr_ty, var_name)?;
+                                    self.builder.build_store(var_slot, ptr_val)?;
+                                    locals.insert(var_name.clone(), Local { slot: var_slot, kind: LocalKind::EnumPtr });
+                                } else {
+                                    let var_slot = self.builder.build_alloca(self.i64_ty, var_name)?;
+                                    self.builder.build_store(var_slot, elem_raw)?;
+                                    locals.insert(var_name.clone(), Local { slot: var_slot, kind: LocalKind::Int });
+                                }
                             }
                         }
                     }
@@ -2770,7 +2799,7 @@ impl<'ctx> Cg<'ctx> {
 
     // ── Expression emission ───────────────────────────────────────────────────
 
-    fn emit_expr(&self, expr_id: usize, locals: &Locals<'ctx>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+    fn emit_expr(&self, expr_id: RuntimeNodeId, locals: &Locals<'ctx>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         let expr = self.ast.get_expr(expr_id).ok_or(CodegenError::MissingNode(expr_id))?;
         match expr {
             // ── Literals ──────────────────────────────────────────────────────
@@ -2986,7 +3015,7 @@ impl<'ctx> Cg<'ctx> {
                 // String concatenation when either operand is a string.
                 // Also checks LocalKind because type_map may have TypeVar for function-body
                 // variable expressions even when the actual runtime type is String.
-                let operand_is_str = |id: usize| -> bool {
+                let operand_is_str = |id: RuntimeNodeId| -> bool {
                     if matches!(self.type_map.get(&id), Some(Type::Primitive(PrimitiveType::String))) {
                         return true;
                     }
@@ -3212,7 +3241,7 @@ impl<'ctx> Cg<'ctx> {
                 // Fallback to field_type_names only when type_map has no entry.
                 let field_is_ptr = match self.type_map.get(&expr_id) {
                     Some(ty) => matches!(ty,
-                        Type::Enum(_) | Type::Struct { .. }
+                        Type::Enum(_) | Type::App(..) | Type::Struct { .. }
                         | Type::Primitive(PrimitiveType::String)
                         | Type::Slice(_) | Type::Tuple(_) | Type::Func { .. }),
                     None => {
@@ -3274,15 +3303,24 @@ impl<'ctx> Cg<'ctx> {
                 //   Tuple/Struct with 1 field → direct i64
                 //   Tuple/Struct with N>1 fields → malloc(N*8), fill, store ptrtoint
                 let payload_val: IntValue<'_> = {
-                    let fields: Vec<usize> = match payload {
-                        ConstructorPayload::Tuple(exprs) => exprs.clone(),
-                        ConstructorPayload::Struct(named) => named.iter().map(|(_, id)| *id).collect(),
-                        ConstructorPayload::Unit => vec![],
+                    let fields: Vec<RuntimeNodeId> = match payload {
+                        RuntimeConstructorPayload::Tuple(exprs) => exprs.clone(),
+                        RuntimeConstructorPayload::Struct(named) => named.iter().map(|(_, id)| *id).collect(),
+                        RuntimeConstructorPayload::Unit => vec![],
+                    };
+                    // Coerce any field value (int or pointer) to i64 for uniform storage.
+                    let coerce_to_i64 = |val: BasicValueEnum<'ctx>| -> Result<IntValue<'ctx>, CodegenError> {
+                        match val {
+                            BasicValueEnum::IntValue(iv) => Ok(iv),
+                            BasicValueEnum::PointerValue(pv) =>
+                                Ok(self.builder.build_ptr_to_int(pv, self.i64_ty, "field_p2i")?),
+                            _ => Err(CodegenError::UnsupportedExpr(expr_id)),
+                        }
                     };
                     if fields.is_empty() {
                         self.i64_ty.const_int(0, false)
                     } else if fields.len() == 1 {
-                        self.emit_int_expr(fields[0], locals)?
+                        coerce_to_i64(self.emit_expr(fields[0], locals)?)?
                     } else {
                         let n = fields.len() as u64;
                         let arr_size = self.i64_ty.const_int(n * 8, false);
@@ -3292,7 +3330,7 @@ impl<'ctx> Cg<'ctx> {
                             .ok_or(CodegenError::UnsupportedExpr(expr_id))?
                             .into_pointer_value();
                         for (i, &fid) in fields.iter().enumerate() {
-                            let fval = self.emit_int_expr(fid, locals)?;
+                            let fval = coerce_to_i64(self.emit_expr(fid, locals)?)?;
                             let slot = unsafe {
                                 self.builder.build_gep(
                                     self.i64_ty, arr_ptr,
@@ -3499,6 +3537,7 @@ impl<'ctx> Cg<'ctx> {
                     | Some(Type::Func { .. })
                     | Some(Type::Struct { .. })
                     | Some(Type::Enum(_))
+                    | Some(Type::App(..))
                     | Some(Type::Tuple(_))
                 );
                 let raw = self.builder.build_load(self.i64_ty, slot_ptr, "tup_raw")?.into_int_value();
@@ -3705,7 +3744,7 @@ impl<'ctx> Cg<'ctx> {
                                     self.type_map.get(&expr_id),
                                     Some(Type::Primitive(PrimitiveType::String))
                                     | Some(Type::Slice(_)) | Some(Type::Struct { .. })
-                                    | Some(Type::Enum(_)) | Some(Type::Tuple(_))
+                                    | Some(Type::Enum(_)) | Some(Type::App(..)) | Some(Type::Tuple(_))
                                 );
                                 if is_ptr_elem {
                                     Ok(self.builder.build_int_to_ptr(raw, self.ptr_ty, "pop_i2p")?.as_basic_value_enum())
@@ -3763,7 +3802,7 @@ impl<'ctx> Cg<'ctx> {
                                 self.type_map.get(&expr_id),
                                 Some(Type::Primitive(PrimitiveType::String))
                                 | Some(Type::Struct { .. }) | Some(Type::Slice(_))
-                                | Some(Type::Tuple(_)) | Some(Type::Enum(_))
+                                | Some(Type::Tuple(_)) | Some(Type::Enum(_)) | Some(Type::App(..))
                                 | Some(Type::Func { .. })
                             );
                             return match result {
@@ -3812,6 +3851,7 @@ impl<'ctx> Cg<'ctx> {
                             | Some(Type::Slice(_))
                             | Some(Type::Struct { .. })
                             | Some(Type::Enum(_))
+                            | Some(Type::App(..))
                             | Some(Type::Tuple(_))
                             | Some(Type::Func { .. })
                         ) || (if let Some(RuntimeExpr::Variable(vname)) = self.ast.get_expr(*object) {
@@ -3984,7 +4024,7 @@ impl<'ctx> Cg<'ctx> {
     }
 
     /// String equality/inequality via strcmp.
-    fn emit_strcmp_eq(&self, a: usize, b: usize, eq: bool, expr_id: usize, locals: &Locals<'ctx>)
+    fn emit_strcmp_eq(&self, a: RuntimeNodeId, b: RuntimeNodeId, eq: bool, expr_id: RuntimeNodeId, locals: &Locals<'ctx>)
         -> Result<BasicValueEnum<'ctx>, CodegenError>
     {
         let strcmp_fn = self.strcmp_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
@@ -4005,27 +4045,27 @@ impl<'ctx> Cg<'ctx> {
         Ok(self.builder.build_int_z_extend(result, self.i64_ty, "strcmp_ext")?.as_basic_value_enum())
     }
 
-    fn emit_int_expr(&self, expr_id: usize, locals: &Locals<'ctx>) -> Result<IntValue<'ctx>, CodegenError> {
+    fn emit_int_expr(&self, expr_id: RuntimeNodeId, locals: &Locals<'ctx>) -> Result<IntValue<'ctx>, CodegenError> {
         match self.emit_expr(expr_id, locals)? {
             BasicValueEnum::IntValue(v) => Ok(v),
             _ => Err(CodegenError::UnsupportedExpr(expr_id)),
         }
     }
 
-    fn emit_cond(&self, expr_id: usize, locals: &Locals<'ctx>) -> Result<IntValue<'ctx>, CodegenError> {
+    fn emit_cond(&self, expr_id: RuntimeNodeId, locals: &Locals<'ctx>) -> Result<IntValue<'ctx>, CodegenError> {
         let val = self.emit_int_expr(expr_id, locals)?;
         if val.get_type().get_bit_width() == 1 { return Ok(val); }
         let zero = self.i64_ty.const_int(0, false);
         Ok(self.builder.build_int_compare(IntPredicate::NE, val, zero, "tobool")?)
     }
 
-    fn emit_binop_ints(&self, a: usize, b: usize, locals: &Locals<'ctx>)
+    fn emit_binop_ints(&self, a: RuntimeNodeId, b: RuntimeNodeId, locals: &Locals<'ctx>)
         -> Result<(IntValue<'ctx>, IntValue<'ctx>), CodegenError>
     {
         Ok((self.emit_int_expr(a, locals)?, self.emit_int_expr(b, locals)?))
     }
 
-    fn emit_icmp(&self, pred: IntPredicate, a: usize, b: usize, name: &str, locals: &Locals<'ctx>)
+    fn emit_icmp(&self, pred: IntPredicate, a: RuntimeNodeId, b: RuntimeNodeId, name: &str, locals: &Locals<'ctx>)
         -> Result<BasicValueEnum<'ctx>, CodegenError>
     {
         let (lhs, rhs) = self.emit_binop_ints(a, b, locals)?;
@@ -4045,7 +4085,7 @@ impl<'ctx> Cg<'ctx> {
 //
 // At lambda-creation time we intersect with `locals` to get the actual captures.
 
-fn collect_lambda_refs(ast: &RuntimeAst, lambda_id: usize) -> Vec<String> {
+fn collect_lambda_refs(ast: &RuntimeAst, lambda_id: RuntimeNodeId) -> Vec<String> {
     let (params, body) = match ast.get_expr(lambda_id) {
         Some(RuntimeExpr::Lambda { params, body }) => (params.clone(), *body),
         _ => return vec![],
@@ -4058,7 +4098,7 @@ fn collect_lambda_refs(ast: &RuntimeAst, lambda_id: usize) -> Vec<String> {
 
 fn collect_refs_stmt(
     ast: &RuntimeAst,
-    stmt_id: usize,
+    stmt_id: RuntimeNodeId,
     bound: &BTreeSet<String>,
     refs: &mut BTreeSet<String>,
 ) {
@@ -4121,7 +4161,7 @@ fn collect_refs_stmt(
 
 fn collect_refs_expr(
     ast: &RuntimeAst,
-    expr_id: usize,
+    expr_id: RuntimeNodeId,
     bound: &BTreeSet<String>,
     refs: &mut BTreeSet<String>,
 ) {
@@ -4167,6 +4207,7 @@ fn param_llvm_type<'ctx>(
     match ty_str {
         Some("string") | Some("fn") => BasicMetadataTypeEnum::PointerType(ptr_ty),
         Some(s) if s.starts_with('[') => BasicMetadataTypeEnum::PointerType(ptr_ty),
+        Some(s) if s.contains('<') => BasicMetadataTypeEnum::PointerType(ptr_ty), // App type
         _ => BasicMetadataTypeEnum::IntType(i64_ty),
     }
 }
@@ -4183,6 +4224,7 @@ fn param_type_from_annot(ty_str: Option<&str>) -> Option<Type> {
             ret: Box::new(Type::Primitive(PrimitiveType::Int)),
             effects: crate::semantics::types::types::EffectRow::empty(),
         }),
+        Some(s) if s.contains('<') => Some(Type::Enum(s.to_string())), // App type → treated as enum ptr
         _ => None,
     }
 }
@@ -4208,7 +4250,7 @@ fn basic_to_meta(val: BasicValueEnum<'_>) -> BasicMetadataValueEnum<'_> {
 }
 
 /// If `expr_id` is `to_string(inner)`, return `inner`. Otherwise return `expr_id`.
-fn unwrap_to_string(ast: &RuntimeAst, expr_id: usize) -> Result<usize, CodegenError> {
+fn unwrap_to_string(ast: &RuntimeAst, expr_id: RuntimeNodeId) -> Result<RuntimeNodeId, CodegenError> {
     let expr = ast.get_expr(expr_id).ok_or(CodegenError::MissingNode(expr_id))?;
     match expr {
         RuntimeExpr::Call { callee, args } if callee == "to_string" && args.len() == 1 => Ok(args[0]),

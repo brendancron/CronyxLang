@@ -5,7 +5,7 @@ use args::CliArgs;
 use debug_sink::DebugSink;
 
 use cronyx::codegen::compile as codegen_compile;
-use cronyx::error::{CompilerError, enrich_diagnostic};
+use cronyx::error::{CompilerError, Diagnostic, enrich_diagnostic};
 use cronyx::semantics::cps::cps_transform::transform as cps_transform;
 use cronyx::semantics::cps::effect_marker::mark_cps;
 use cronyx::semantics::types::effect_inference;
@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
 use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
-use cronyx::semantics::meta::meta_processor::process;
+use cronyx::semantics::meta::meta_processor::{process, ProcessError};
 use cronyx::semantics::meta::meta_stager::stage_all_files;
 use cronyx::semantics::meta::staged_forest::StagedForest;
 use cronyx::semantics::types::runtime_type_checker::type_check_runtime;
@@ -26,7 +26,10 @@ use std::io;
 use std::path::PathBuf;
 
 fn main() {
-    let args = CliArgs::parse();
+    let args = CliArgs::parse().unwrap_or_else(|msg| {
+        Diagnostic::new(msg).emit();
+        std::process::exit(1);
+    });
     let sink = DebugSink::from_args(&args);
     let mut entry_ctx: Option<(String, HashMap<usize, (usize, usize)>)> = None;
     if let Err(errors) = run_pipeline(&args, &sink, &mut entry_ctx) {
@@ -57,7 +60,8 @@ fn run_pipeline(
     let files = load_compilation_unit(root_path)
         .map_err(|e| vec![CompilerError::Load(e)])?;
 
-    let entry = files.iter().find(|f| matches!(f.role, FileRole::Entry)).unwrap();
+    let entry = files.iter().find(|f| matches!(f.role, FileRole::Entry))
+        .ok_or_else(|| vec![CompilerError::Codegen("internal error: no entry file found after loading".to_string())])?;
     // Surface span context so main can enrich error diagnostics.
     *entry_ctx = Some((entry.source.clone(), entry.span_table.clone()));
     let meta_ast = &entry.ast;
@@ -77,7 +81,7 @@ fn run_pipeline(
     staged_forest.source_dir = root_path.parent().map(|p| p.to_path_buf());
     let mut id_provider = IdProvider::new();
     stage_all_files(&files, &mut staged_forest, &mut id_provider, &type_env)
-        .map_err(|e| vec![CompilerError::Meta(e)])?;
+        .map_err(|errs| errs.into_iter().map(CompilerError::Meta).collect::<Vec<_>>())?;
     staged_forest.resolve_symbol_deps()
         .map_err(|e| vec![CompilerError::Meta(e)])?;
     sink.dump_staged(&staged_forest);
@@ -94,7 +98,10 @@ fn run_pipeline(
             meta_captures: Vec::new(),
         };
         process(staged_forest, &mut evaluator)
-            .map_err(|e| vec![CompilerError::Eval(e)])?
+            .map_err(|e| vec![match e {
+                ProcessError::Eval(eval_err) => CompilerError::Eval(eval_err),
+                ProcessError::Meta(meta_err) => CompilerError::Meta(meta_err),
+            }])?
     };
     sink.dump_runtime_ast(&runtime_ast);
     sink.dump_runtime_code(&runtime_ast);
@@ -102,24 +109,27 @@ fn run_pipeline(
     // SELECTIVE CPS TRANSFORM — marks ctl-performing functions and rewrites their bodies
     // to pass continuations explicitly. Must run after meta-processing and before eval.
     let cps_info = mark_cps(&runtime_ast);
-    let mut runtime_ast = runtime_ast;
 
     // EFFECT INFERENCE (Pass A2 + B) — infer per-function effect rows and check that
     // every top-level call site has all required effects handled.
     effect_inference::infer_and_check(&runtime_ast, &cps_info)
         .map_err(|e| vec![e])?;
-    // Both paths use full loop conversion now. The interpreter's old replay-stack
-    // mechanism handled ctl ops in while loops without loop-to-recursion conversion,
-    // but that approach cannot capture suspended continuations for async scheduling.
-    // The stack-depth concern for large loops is a known limitation of the interpreter.
-    cps_transform(&mut runtime_ast, &cps_info);
+    let runtime_ast = cps_transform(runtime_ast, &cps_info);
     sink.dump_cps(&cps_info, &runtime_ast);
 
     // RUNTIME TYPE CHECK — needed by codegen; also validates the post-CPS AST.
     let type_map = {
         let mut rt_env = TypeEnv::new();
-        type_check_runtime(&runtime_ast, &mut rt_env)
-            .map_err(|e| vec![CompilerError::TypeCheck(e)])?
+        let mut rt_warnings: Vec<_> = Vec::new();
+        let map = type_check_runtime(&runtime_ast, &mut rt_env, &mut rt_warnings)
+            .map_err(|e| vec![CompilerError::TypeCheck(e)])?;
+        // Polymorphic-call warnings are non-fatal for the interpreter (runtime
+        // dispatch handles them correctly) but block codegen (which would emit
+        // wrong types). Surface them as errors only on the --compile path.
+        if args.compile && !rt_warnings.is_empty() {
+            return Err(rt_warnings.into_iter().map(CompilerError::TypeCheck).collect());
+        }
+        map
     };
 
     // COMPILE — emit native binary via LLVM when --compile is set.

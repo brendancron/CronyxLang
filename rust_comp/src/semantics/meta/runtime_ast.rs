@@ -1,27 +1,24 @@
 use crate::frontend::meta_ast::{
-    ConstructorPayload, EffectOp, EnumVariant, ImportDecl, MatchArm, Param,
+    EffectOp, EnumVariant, ImportDecl, Param, Pattern,
 };
 use crate::util::formatters::tree_formatter::*;
+use crate::util::node_id::RuntimeNodeId;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeAst {
-    pub sem_root_stmts: Vec<usize>,
-    pub exprs: HashMap<usize, RuntimeExpr>,
-    pub stmts: HashMap<usize, RuntimeStmt>,
+    pub sem_root_stmts: Vec<RuntimeNodeId>,
+    pub exprs: HashMap<RuntimeNodeId, RuntimeExpr>,
+    pub stmts: HashMap<RuntimeNodeId, RuntimeStmt>,
     /// Maps (type_name, method_name) → mangled FnDecl name in this AST.
-    /// Used by the interpreter to dispatch trait method calls on struct values.
     pub impl_registry: HashMap<(String, String), String>,
-
     /// Maps (op_trait, type_name) → mangled FnDecl name.
-    /// Used by the interpreter to dispatch binary operators (+, -, *, /, ==) on user-defined types.
-    /// Populated from operator trait impls (impl Add for T, impl Eq for T, etc.).
     pub op_dispatch: HashMap<(String, String), String>,
-
     /// Lines printed by meta-block `print` statements during compile-time evaluation.
-    /// Codegen emits these as printf calls at the very start of main(), before all
-    /// runtime statements, replicating the interpreter's "meta first" execution order.
     pub meta_prints: Vec<String>,
+    /// One past the highest ID ever inserted. Safe starting point for any pass that
+    /// needs to allocate fresh nodes without scanning all existing IDs.
+    pub next_id: usize,
 }
 
 impl RuntimeAst {
@@ -33,45 +30,45 @@ impl RuntimeAst {
             impl_registry: HashMap::new(),
             op_dispatch: HashMap::new(),
             meta_prints: vec![],
+            next_id: 0,
         }
     }
 
-    pub fn insert_expr(&mut self, id: usize, expr: RuntimeExpr) {
+    pub fn insert_expr(&mut self, id: RuntimeNodeId, expr: RuntimeExpr) {
+        self.next_id = self.next_id.max(id.0 + 1);
         self.exprs.insert(id, expr);
     }
 
-    pub fn insert_stmt(&mut self, id: usize, stmt: RuntimeStmt) {
+    pub fn insert_stmt(&mut self, id: RuntimeNodeId, stmt: RuntimeStmt) {
+        self.next_id = self.next_id.max(id.0 + 1);
         self.stmts.insert(id, stmt);
     }
 
-    pub fn get_expr(&self, id: usize) -> Option<&RuntimeExpr> {
+    pub fn get_expr(&self, id: RuntimeNodeId) -> Option<&RuntimeExpr> {
         self.exprs.get(&id)
     }
 
-    pub fn get_stmt(&self, id: usize) -> Option<&RuntimeStmt> {
+    pub fn get_stmt(&self, id: RuntimeNodeId) -> Option<&RuntimeStmt> {
         self.stmts.get(&id)
     }
 
     /// Reassigns all IDs to a single compact 0..n range with no gaps.
-    /// Stmts and exprs share the same ID space so every node has a unique ID.
     pub fn compact(&self) -> Self {
-        // Interleave stmt and expr IDs into one sorted sequence, allocating
-        // new IDs from a shared counter so no two nodes share an ID.
-        let mut stmt_ids: Vec<usize> = self.stmts.keys().copied().collect();
+        let mut stmt_ids: Vec<RuntimeNodeId> = self.stmts.keys().copied().collect();
         stmt_ids.sort_unstable();
-        let mut expr_ids: Vec<usize> = self.exprs.keys().copied().collect();
+        let mut expr_ids: Vec<RuntimeNodeId> = self.exprs.keys().copied().collect();
         expr_ids.sort_unstable();
 
         let mut counter = 0usize;
-        let mut next = || { let id = counter; counter += 1; id };
+        let mut next = || { let id = counter; counter += 1; RuntimeNodeId(id) };
 
-        let stmt_remap: HashMap<usize, usize> =
+        let stmt_remap: HashMap<RuntimeNodeId, RuntimeNodeId> =
             stmt_ids.iter().map(|old| (*old, next())).collect();
-        let expr_remap: HashMap<usize, usize> =
+        let expr_remap: HashMap<RuntimeNodeId, RuntimeNodeId> =
             expr_ids.iter().map(|old| (*old, next())).collect();
 
-        let remap_stmt = |id: usize| *stmt_remap.get(&id).unwrap_or(&id);
-        let remap_expr = |id: usize| *expr_remap.get(&id).unwrap_or(&id);
+        let remap_stmt = |id: RuntimeNodeId| *stmt_remap.get(&id).unwrap_or(&id);
+        let remap_expr = |id: RuntimeNodeId| *expr_remap.get(&id).unwrap_or(&id);
 
         let mut out = RuntimeAst::new();
 
@@ -104,7 +101,7 @@ impl RuntimeAst {
                 }
                 RuntimeExpr::TupleIndex { object, index } => RuntimeExpr::TupleIndex {
                     object: remap_expr(*object),
-                    index: *index,
+                    index: *index, // plain tuple position, not a node ID
                 },
                 RuntimeExpr::SliceRange { object, start, end } => RuntimeExpr::SliceRange {
                     object: remap_expr(*object),
@@ -148,12 +145,12 @@ impl RuntimeAst {
                         enum_name: enum_name.clone(),
                         variant: variant.clone(),
                         payload: match payload {
-                            ConstructorPayload::Unit => ConstructorPayload::Unit,
-                            ConstructorPayload::Tuple(ids) => {
-                                ConstructorPayload::Tuple(ids.iter().map(|id| remap_expr(*id)).collect())
+                            RuntimeConstructorPayload::Unit => RuntimeConstructorPayload::Unit,
+                            RuntimeConstructorPayload::Tuple(ids) => {
+                                RuntimeConstructorPayload::Tuple(ids.iter().map(|id| remap_expr(*id)).collect())
                             }
-                            ConstructorPayload::Struct(fields) => {
-                                ConstructorPayload::Struct(fields.iter().map(|(n, id)| (n.clone(), remap_expr(*id))).collect())
+                            RuntimeConstructorPayload::Struct(fields) => {
+                                RuntimeConstructorPayload::Struct(fields.iter().map(|(n, id)| (n.clone(), remap_expr(*id))).collect())
                             }
                         },
                     }
@@ -199,11 +196,7 @@ impl RuntimeAst {
                 RuntimeStmt::Gen(children) => {
                     RuntimeStmt::Gen(children.iter().map(|id| remap_stmt(*id)).collect())
                 }
-                RuntimeStmt::If {
-                    cond,
-                    body,
-                    else_branch,
-                } => RuntimeStmt::If {
+                RuntimeStmt::If { cond, body, else_branch } => RuntimeStmt::If {
                     cond: remap_expr(*cond),
                     body: remap_stmt(*body),
                     else_branch: else_branch.map(|id| remap_stmt(id)),
@@ -212,22 +205,19 @@ impl RuntimeAst {
                     cond: remap_expr(*cond),
                     body: remap_stmt(*body),
                 },
-                RuntimeStmt::ForEach {
-                    var,
-                    iterable,
-                    body,
-                } => RuntimeStmt::ForEach {
+                RuntimeStmt::ForEach { var, iterable, body } => RuntimeStmt::ForEach {
                     var: var.clone(),
                     iterable: remap_expr(*iterable),
                     body: remap_stmt(*body),
                 },
-                RuntimeStmt::EnumDecl { name, variants } => RuntimeStmt::EnumDecl {
+                RuntimeStmt::EnumDecl { name, type_params, variants } => RuntimeStmt::EnumDecl {
                     name: name.clone(),
+                    type_params: type_params.clone(),
                     variants: variants.clone(),
                 },
                 RuntimeStmt::Match { scrutinee, arms } => RuntimeStmt::Match {
                     scrutinee: remap_expr(*scrutinee),
-                    arms: arms.iter().map(|arm| MatchArm {
+                    arms: arms.iter().map(|arm| RuntimeMatchArm {
                         pattern: arm.pattern.clone(),
                         body: remap_stmt(arm.body),
                     }).collect(),
@@ -255,7 +245,6 @@ impl RuntimeAst {
             out.insert_stmt(remap_stmt(*old_id), new_stmt);
         }
 
-        // impl_registry, op_dispatch, and meta_prints store string names — IDs are not embedded, so copy as-is.
         out.impl_registry = self.impl_registry.clone();
         out.op_dispatch = self.op_dispatch.clone();
         out.meta_prints = self.meta_prints.clone();
@@ -264,7 +253,24 @@ impl RuntimeAst {
     }
 }
 
-// For util purposes
+// ── Runtime-specific payload/arm types ───────────────────────────────────────
+
+/// Runtime version of `ConstructorPayload` — uses `RuntimeNodeId` instead of `usize`.
+#[derive(Debug, Clone)]
+pub enum RuntimeConstructorPayload {
+    Unit,
+    Tuple(Vec<RuntimeNodeId>),
+    Struct(Vec<(String, RuntimeNodeId)>),
+}
+
+/// Runtime version of `MatchArm` — uses `RuntimeNodeId` for the body.
+#[derive(Debug, Clone)]
+pub struct RuntimeMatchArm {
+    pub pattern: Pattern,
+    pub body: RuntimeNodeId,
+}
+
+// ── AST node types ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum RuntimeNode {
@@ -274,116 +280,105 @@ pub enum RuntimeNode {
 
 #[derive(Debug, Clone)]
 pub enum RuntimeExpr {
-    // LITERAL REPRESENTATION
     Int(i64),
     String(String),
     Bool(bool),
 
     StructLiteral {
         type_name: String,
-        fields: Vec<(String, usize)>,
+        fields: Vec<(String, RuntimeNodeId)>,
     },
 
     Variable(String),
 
-    List(Vec<usize>),
+    List(Vec<RuntimeNodeId>),
 
     Call {
         callee: String,
-        args: Vec<usize>,
+        args: Vec<RuntimeNodeId>,
     },
 
     DotAccess {
-        object: usize,
+        object: RuntimeNodeId,
         field: String,
     },
 
     DotCall {
-        object: usize,
+        object: RuntimeNodeId,
         method: String,
-        args: Vec<usize>,
+        args: Vec<RuntimeNodeId>,
     },
 
     Index {
-        object: usize,
-        index: usize,
+        object: RuntimeNodeId,
+        index: RuntimeNodeId,
     },
 
     EnumConstructor {
         enum_name: String,
         variant: String,
-        payload: ConstructorPayload,
+        payload: RuntimeConstructorPayload,
     },
 
-    // BINOPS
-    Add(usize, usize),
-    Sub(usize, usize),
-    Mult(usize, usize),
-    Div(usize, usize),
-    Equals(usize, usize),
-    NotEquals(usize, usize),
-    Lt(usize, usize),
-    Gt(usize, usize),
-    Lte(usize, usize),
-    Gte(usize, usize),
-    And(usize, usize),
-    Or(usize, usize),
-    Not(usize),
+    Add(RuntimeNodeId, RuntimeNodeId),
+    Sub(RuntimeNodeId, RuntimeNodeId),
+    Mult(RuntimeNodeId, RuntimeNodeId),
+    Div(RuntimeNodeId, RuntimeNodeId),
+    Equals(RuntimeNodeId, RuntimeNodeId),
+    NotEquals(RuntimeNodeId, RuntimeNodeId),
+    Lt(RuntimeNodeId, RuntimeNodeId),
+    Gt(RuntimeNodeId, RuntimeNodeId),
+    Lte(RuntimeNodeId, RuntimeNodeId),
+    Gte(RuntimeNodeId, RuntimeNodeId),
+    And(RuntimeNodeId, RuntimeNodeId),
+    Or(RuntimeNodeId, RuntimeNodeId),
+    Not(RuntimeNodeId),
 
-    Tuple(Vec<usize>),
+    Tuple(Vec<RuntimeNodeId>),
     TupleIndex {
-        object: usize,
-        index: usize,
+        object: RuntimeNodeId,
+        index: usize, // plain tuple position, not a node ID
     },
 
     SliceRange {
-        object: usize,
-        start: Option<usize>,
-        end: Option<usize>,
+        object: RuntimeNodeId,
+        start: Option<RuntimeNodeId>,
+        end: Option<RuntimeNodeId>,
     },
 
-    // CPS TRANSFORM — injected by the selective CPS pass, not present in source AST.
-    /// An anonymous closure: `fn(params) { body }`.
     Lambda {
         params: Vec<String>,
-        body: usize,
+        body: RuntimeNodeId,
     },
-    /// The unit value literal, used as the argument to `__k` at the end of a CPS
-    /// function body that has no explicit return.
     Unit,
-
-    /// `resume` or `resume(expr)` used as an expression.
-    /// In CPS mode: calls the active continuation and returns its result.
-    ResumeExpr(Option<usize>),
+    ResumeExpr(Option<RuntimeNodeId>),
 }
 
 #[derive(Debug, Clone)]
 pub enum RuntimeStmt {
-    // RAW EXPR STMTS
-    ExprStmt(usize),
+    ExprStmt(RuntimeNodeId),
 
-    // DECLARATION
     VarDecl {
         name: String,
-        expr: usize,
+        expr: RuntimeNodeId,
     },
 
     Assign {
         name: String,
-        expr: usize,
+        expr: RuntimeNodeId,
     },
 
     IndexAssign {
         name: String,
-        indices: Vec<usize>,
-        expr: usize,
+        indices: Vec<RuntimeNodeId>,
+        expr: RuntimeNodeId,
     },
 
     FnDecl {
         name: String,
         params: Vec<String>,
         type_params: Vec<String>,
-        body: usize,
+        body: RuntimeNodeId,
     },
 
     StructDecl {
@@ -393,43 +388,40 @@ pub enum RuntimeStmt {
 
     EnumDecl {
         name: String,
+        type_params: Vec<String>,
         variants: Vec<EnumVariant>,
     },
 
     Match {
-        scrutinee: usize,
-        arms: Vec<MatchArm>,
+        scrutinee: RuntimeNodeId,
+        arms: Vec<RuntimeMatchArm>,
     },
 
-    // CONTROL
     If {
-        cond: usize,
-        body: usize,
-        else_branch: Option<usize>,
+        cond: RuntimeNodeId,
+        body: RuntimeNodeId,
+        else_branch: Option<RuntimeNodeId>,
     },
 
     WhileLoop {
-        cond: usize,
-        body: usize,
+        cond: RuntimeNodeId,
+        body: RuntimeNodeId,
     },
 
     ForEach {
         var: String,
-        iterable: usize,
-        body: usize,
+        iterable: RuntimeNodeId,
+        body: RuntimeNodeId,
     },
 
-    Return(Option<usize>),
+    Return(Option<RuntimeNodeId>),
 
-    Block(Vec<usize>),
+    Block(Vec<RuntimeNodeId>),
 
-    // UTIL
     Import(ImportDecl),
 
-    // META
-    Gen(Vec<usize>),
+    Gen(Vec<RuntimeNodeId>),
 
-    // EFFECTS
     EffectDecl {
         name: String,
         ops: Vec<EffectOp>,
@@ -439,20 +431,19 @@ pub enum RuntimeStmt {
         op_name: String,
         params: Vec<Param>,
         ret_ty: Option<String>,
-        body: usize,
+        body: RuntimeNodeId,
     },
 
     WithCtl {
         op_name: String,
         params: Vec<Param>,
         ret_ty: Option<String>,
-        body: usize,
+        body: RuntimeNodeId,
     },
 
-    Resume(Option<usize>),
+    Resume(Option<RuntimeNodeId>),
 
-    // TEMPORARY
-    Print(usize),
+    Print(RuntimeNodeId),
 }
 
 #[derive(Debug, Clone)]
@@ -460,6 +451,8 @@ pub struct RuntimeFieldDecl {
     pub field_name: String,
     pub type_name: String,
 }
+
+// ── Tree rendering ────────────────────────────────────────────────────────────
 
 impl AsTree for RuntimeAst {
     fn as_tree(&self) -> Vec<TreeNode> {
@@ -472,7 +465,7 @@ impl AsTree for RuntimeAst {
 }
 
 impl RuntimeAst {
-    fn convert_stmt(&self, id: usize) -> TreeNode {
+    fn convert_stmt(&self, id: RuntimeNodeId) -> TreeNode {
         let stmt = self
             .get_stmt(id)
             .unwrap_or_else(|| panic!("invalid stmt id: {}", id));
@@ -530,11 +523,7 @@ impl RuntimeAst {
                 ],
             ),
 
-            RuntimeStmt::If {
-                cond,
-                body,
-                else_branch,
-            } => {
+            RuntimeStmt::If { cond, body, else_branch } => {
                 let mut v = vec![
                     TreeNode::node("Cond", vec![self.convert_expr(*cond)]),
                     TreeNode::node("Then", vec![self.convert_stmt(*body)]),
@@ -553,11 +542,7 @@ impl RuntimeAst {
                 ],
             ),
 
-            RuntimeStmt::ForEach {
-                var,
-                iterable,
-                body,
-            } => (
+            RuntimeStmt::ForEach { var, iterable, body } => (
                 "ForEachStmt".into(),
                 vec![
                     TreeNode::leaf(format!("Var({var})")),
@@ -585,7 +570,7 @@ impl RuntimeAst {
 
             RuntimeStmt::Print(e) => ("PrintStmt".into(), vec![self.convert_expr(*e)]),
 
-            RuntimeStmt::EnumDecl { name, variants } => (
+            RuntimeStmt::EnumDecl { name, variants, .. } => (
                 "EnumDecl".into(),
                 std::iter::once(TreeNode::leaf(format!("Name({name})")))
                     .chain(variants.iter().map(|v| TreeNode::leaf(format!("Variant({})", v.name))))
@@ -631,16 +616,13 @@ impl RuntimeAst {
         TreeNode::node(label, children)
     }
 
-    fn convert_expr(&self, id: usize) -> TreeNode {
+    fn convert_expr(&self, id: RuntimeNodeId) -> TreeNode {
         let expr = self.get_expr(id).expect("invalid expr id");
 
         let (label, mut children) = match expr {
             RuntimeExpr::Int(v) => ("Int".into(), vec![TreeNode::leaf(v.to_string())]),
-
             RuntimeExpr::String(s) => ("String".into(), vec![TreeNode::leaf(format!("\"{s}\""))]),
-
             RuntimeExpr::Bool(b) => ("Bool".into(), vec![TreeNode::leaf(b.to_string())]),
-
             RuntimeExpr::Variable(name) => ("Var".into(), vec![TreeNode::leaf(name.clone())]),
 
             RuntimeExpr::StructLiteral { type_name, fields } => (
@@ -661,62 +643,19 @@ impl RuntimeAst {
                 args.iter().map(|e| self.convert_expr(*e)).collect(),
             ),
 
-            RuntimeExpr::Add(a, b) => (
-                "Add".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-
-            RuntimeExpr::Sub(a, b) => (
-                "Sub".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-
-            RuntimeExpr::Mult(a, b) => (
-                "Mult".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-
-            RuntimeExpr::Div(a, b) => (
-                "Div".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-
-            RuntimeExpr::Equals(a, b) => (
-                "Equals".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-            RuntimeExpr::NotEquals(a, b) => (
-                "NotEquals".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-            RuntimeExpr::Lt(a, b) => (
-                "Lt".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-            RuntimeExpr::Gt(a, b) => (
-                "Gt".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-            RuntimeExpr::Lte(a, b) => (
-                "Lte".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-            RuntimeExpr::Gte(a, b) => (
-                "Gte".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-            RuntimeExpr::And(a, b) => (
-                "And".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-            RuntimeExpr::Or(a, b) => (
-                "Or".into(),
-                vec![self.convert_expr(*a), self.convert_expr(*b)],
-            ),
-            RuntimeExpr::Not(a) => (
-                "Not".into(),
-                vec![self.convert_expr(*a)],
-            ),
+            RuntimeExpr::Add(a, b) => ("Add".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Sub(a, b) => ("Sub".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Mult(a, b) => ("Mult".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Div(a, b) => ("Div".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Equals(a, b) => ("Equals".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::NotEquals(a, b) => ("NotEquals".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Lt(a, b) => ("Lt".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Gt(a, b) => ("Gt".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Lte(a, b) => ("Lte".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Gte(a, b) => ("Gte".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::And(a, b) => ("And".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Or(a, b) => ("Or".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Not(a) => ("Not".into(), vec![self.convert_expr(*a)]),
 
             RuntimeExpr::DotAccess { object, field } => (
                 format!("DotAccess(.{field})"),

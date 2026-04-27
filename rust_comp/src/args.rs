@@ -16,7 +16,7 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
-    pub fn parse() -> Self {
+    pub fn parse() -> Result<Self, String> {
         let mut args = std::env::args().skip(1);
 
         let mut source_path: Option<PathBuf> = None;
@@ -40,9 +40,9 @@ impl CliArgs {
                 "--dump-cps" => dump_cps = true,
                 "--compile" => compile = true,
                 "--out" => {
-                    out_path = Some(PathBuf::from(
-                        args.next().expect("--out requires a path argument"),
-                    ));
+                    let path = args.next()
+                        .ok_or_else(|| "--out requires a path argument".to_string())?;
+                    out_path = Some(PathBuf::from(path));
                 }
                 "--dump-all" => {
                     dump_ast = true;
@@ -53,9 +53,9 @@ impl CliArgs {
                     dump_cps = true;
                 }
                 "--out-dir" => {
-                    out_dir = PathBuf::from(
-                        args.next().expect("--out-dir requires a path argument"),
-                    );
+                    let path = args.next()
+                        .ok_or_else(|| "--out-dir requires a path argument".to_string())?;
+                    out_dir = PathBuf::from(path);
                 }
                 "--version" | "-V" => {
                     println!("cronyxc {}", env!("CRONYXC_VERSION"));
@@ -66,25 +66,22 @@ impl CliArgs {
                     std::process::exit(0);
                 }
                 flag if flag.starts_with("--") => {
-                    eprintln!("unknown flag: {flag}");
-                    eprintln!("run `cronyxc --help` for usage");
-                    std::process::exit(1);
+                    return Err(format!("unknown flag: {flag}\nrun `cronyxc --help` for usage"));
                 }
                 path => {
                     if source_path.is_some() {
-                        eprintln!("unexpected argument: {path}");
-                        std::process::exit(1);
+                        return Err(format!("unexpected argument: {path}"));
                     }
                     source_path = Some(PathBuf::from(path));
                 }
             }
         }
 
-        CliArgs {
-            source_path: source_path.unwrap_or_else(|| {
-                eprintln!("{}", Self::help_text());
-                std::process::exit(1);
-            }),
+        let source_path = source_path
+            .ok_or_else(|| Self::help_text().to_string())?;
+
+        Ok(CliArgs {
+            source_path,
             out_dir,
             dump_ast,
             dump_typed_ast,
@@ -94,7 +91,7 @@ impl CliArgs {
             dump_cps,
             compile,
             out_path,
-        }
+        })
     }
 
     fn help_text() -> &'static str {

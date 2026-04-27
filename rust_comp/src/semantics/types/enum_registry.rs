@@ -31,7 +31,7 @@ impl EnumRegistry {
     pub fn build(ast: &RuntimeAst) -> Self {
         let mut registry = EnumRegistry::default();
         for stmt in ast.stmts.values() {
-            if let RuntimeStmt::EnumDecl { name, variants } = stmt {
+            if let RuntimeStmt::EnumDecl { name, variants, .. } = stmt {
                 let resolved: Vec<ResolvedVariant> = variants
                     .iter()
                     .enumerate()
@@ -72,8 +72,8 @@ impl EnumRegistry {
 fn resolve_payload(payload: &VariantPayload) -> ResolvedPayload {
     match payload {
         VariantPayload::Unit => ResolvedPayload::Unit,
-        VariantPayload::Tuple(type_names) => {
-            ResolvedPayload::Tuple(type_names.iter().map(|s| resolve_type_name(s)).collect())
+        VariantPayload::Tuple(type_exprs) => {
+            ResolvedPayload::Tuple(type_exprs.iter().map(|e| resolve_type_name(&e.to_string())).collect())
         }
         VariantPayload::Struct(fields) => {
             ResolvedPayload::Struct(

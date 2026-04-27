@@ -63,12 +63,11 @@ pub fn run_compile_test(root_path: &PathBuf, out_path: &PathBuf, expected_path: 
     };
 
     let cps_info = mark_cps(&runtime_ast);
-    let mut runtime_ast = runtime_ast;
-    cps_transform(&mut runtime_ast, &cps_info);
+    let runtime_ast = cps_transform(runtime_ast, &cps_info);
 
     let type_map = {
         let mut rt_env = TypeEnv::new();
-        type_check_runtime(&runtime_ast, &mut rt_env).unwrap()
+        type_check_runtime(&runtime_ast, &mut rt_env, &mut Vec::new()).unwrap()
     };
 
     // ── Compile ───────────────────────────────────────────────────────────────
@@ -160,4 +159,5 @@ mod compile {
     cx_compile_test!(m5_sum,        "tests/compile/m5", "sum");
     cx_compile_test!(m6_apply,      "tests/compile/m6", "apply");
     cx_compile_test!(m7_safe_div,   "tests/compile/m7", "safe_div");
+    cx_compile_test!(m8_gadt,       "tests/compile/m8", "gadt");
 }

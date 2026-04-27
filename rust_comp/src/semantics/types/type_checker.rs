@@ -1,11 +1,12 @@
 use crate::frontend::meta_ast::{ConstructorPayload, EffectOpKind, Pattern, VariantBindings, *};
+use crate::util::node_id::MetaNodeId;
 use super::typed_ast::TypeTable;
 use super::type_env::TypeEnv;
 use super::type_error::TypeError;
 use super::type_subst::{unify, ApplySubst, TypeSubst};
 use super::type_utils::generalize;
 use super::types::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 fn resolve_annotation(s: &str) -> Option<Type> {
     match s {
@@ -14,6 +15,32 @@ fn resolve_annotation(s: &str) -> Option<Type> {
         "string" => Some(string_type()),
         "unit" => Some(unit_type()),
         _ => None,
+    }
+}
+
+fn meta_type_expr_to_type(te: &MetaTypeExpr, local_map: &HashMap<String, Type>, env: &mut TypeEnv) -> Type {
+    match te {
+        MetaTypeExpr::Named(n) => {
+            if let Some(ty) = local_map.get(n.as_str()) {
+                return ty.clone();
+            }
+            match n.as_str() {
+                "int" => int_type(),
+                "string" => string_type(),
+                "bool" => bool_type(),
+                "unit" => unit_type(),
+                _ => Type::Enum(n.clone()),
+            }
+        }
+        MetaTypeExpr::App(name, args) => {
+            Type::App(name.clone(), args.iter().map(|a| meta_type_expr_to_type(a, local_map, env)).collect())
+        }
+        MetaTypeExpr::Tuple(elems) => {
+            Type::Tuple(elems.iter().map(|e| meta_type_expr_to_type(e, local_map, env)).collect())
+        }
+        MetaTypeExpr::Slice(inner) => {
+            Type::Slice(Box::new(meta_type_expr_to_type(inner, local_map, env)))
+        }
     }
 }
 
@@ -40,40 +67,40 @@ impl TypeCheckCtx {
 /// their effects are their own, already reflected in their bound type.
 fn collect_body_effects(
     ast: &MetaAst,
-    stmt_id: usize,
+    stmt_id: MetaNodeId,
     ctl_ops: &BTreeSet<String>,
     env: &TypeEnv,
     out: &mut BTreeSet<String>,
 ) {
     let Some(stmt) = ast.get_stmt(stmt_id) else { return };
-    match stmt.clone() {
-        MetaStmt::ExprStmt(e) => collect_expr_effects(ast, e, ctl_ops, env, out),
-        MetaStmt::VarDecl { expr, .. } => collect_expr_effects(ast, expr, ctl_ops, env, out),
-        MetaStmt::Assign { expr, .. } => collect_expr_effects(ast, expr, ctl_ops, env, out),
+    match stmt {
+        MetaStmt::ExprStmt(e) => collect_expr_effects(ast, *e, ctl_ops, env, out),
+        MetaStmt::VarDecl { expr, .. } => collect_expr_effects(ast, *expr, ctl_ops, env, out),
+        MetaStmt::Assign { expr, .. } => collect_expr_effects(ast, *expr, ctl_ops, env, out),
         MetaStmt::IndexAssign { indices, expr, .. } => {
-            for i in indices { collect_expr_effects(ast, i, ctl_ops, env, out); }
-            collect_expr_effects(ast, expr, ctl_ops, env, out);
+            for &i in indices { collect_expr_effects(ast, i, ctl_ops, env, out); }
+            collect_expr_effects(ast, *expr, ctl_ops, env, out);
         }
-        MetaStmt::Return(Some(e)) => collect_expr_effects(ast, e, ctl_ops, env, out),
-        MetaStmt::Print(e) => collect_expr_effects(ast, e, ctl_ops, env, out),
+        MetaStmt::Return(Some(e)) => collect_expr_effects(ast, *e, ctl_ops, env, out),
+        MetaStmt::Print(e) => collect_expr_effects(ast, *e, ctl_ops, env, out),
         MetaStmt::Block(stmts) => {
-            for s in stmts { collect_body_effects(ast, s, ctl_ops, env, out); }
+            for &s in stmts { collect_body_effects(ast, s, ctl_ops, env, out); }
         }
         MetaStmt::If { cond, body, else_branch } => {
-            collect_expr_effects(ast, cond, ctl_ops, env, out);
-            collect_body_effects(ast, body, ctl_ops, env, out);
-            if let Some(e) = else_branch { collect_body_effects(ast, e, ctl_ops, env, out); }
+            collect_expr_effects(ast, *cond, ctl_ops, env, out);
+            collect_body_effects(ast, *body, ctl_ops, env, out);
+            if let Some(e) = else_branch { collect_body_effects(ast, *e, ctl_ops, env, out); }
         }
         MetaStmt::WhileLoop { cond, body } => {
-            collect_expr_effects(ast, cond, ctl_ops, env, out);
-            collect_body_effects(ast, body, ctl_ops, env, out);
+            collect_expr_effects(ast, *cond, ctl_ops, env, out);
+            collect_body_effects(ast, *body, ctl_ops, env, out);
         }
         MetaStmt::ForEach { iterable, body, .. } => {
-            collect_expr_effects(ast, iterable, ctl_ops, env, out);
-            collect_body_effects(ast, body, ctl_ops, env, out);
+            collect_expr_effects(ast, *iterable, ctl_ops, env, out);
+            collect_body_effects(ast, *body, ctl_ops, env, out);
         }
         MetaStmt::Match { scrutinee, arms } => {
-            collect_expr_effects(ast, scrutinee, ctl_ops, env, out);
+            collect_expr_effects(ast, *scrutinee, ctl_ops, env, out);
             for arm in arms { collect_body_effects(ast, arm.body, ctl_ops, env, out); }
         }
         // Nested fn / handler declarations — do not recurse into their bodies.
@@ -86,20 +113,20 @@ fn collect_body_effects(
 
 fn collect_expr_effects(
     ast: &MetaAst,
-    expr_id: usize,
+    expr_id: MetaNodeId,
     ctl_ops: &BTreeSet<String>,
     env: &TypeEnv,
     out: &mut BTreeSet<String>,
 ) {
     let Some(expr) = ast.get_expr(expr_id) else { return };
-    match expr.clone() {
+    match expr {
         MetaExpr::Call { callee, args } => {
             // Direct ctl op call.
-            if ctl_ops.contains(&callee) {
+            if ctl_ops.contains(callee.as_str()) {
                 out.insert(callee.clone());
             }
             // Transitive: pick up effects from the callee's bound type.
-            if let Some(scheme) = env.get_type(&callee) {
+            if let Some(scheme) = env.get_type(callee) {
                 let ty = match scheme {
                     TypeScheme::MonoType(t) => t,
                     TypeScheme::PolyType { ty, .. } => ty,
@@ -108,7 +135,7 @@ fn collect_expr_effects(
                     out.extend(effects.effects.iter().cloned());
                 }
             }
-            for a in args { collect_expr_effects(ast, a, ctl_ops, env, out); }
+            for &a in args { collect_expr_effects(ast, a, ctl_ops, env, out); }
         }
         MetaExpr::Add(a, b)
         | MetaExpr::Sub(a, b)
@@ -122,38 +149,38 @@ fn collect_expr_effects(
         | MetaExpr::Gte(a, b)
         | MetaExpr::And(a, b)
         | MetaExpr::Or(a, b) => {
-            collect_expr_effects(ast, a, ctl_ops, env, out);
-            collect_expr_effects(ast, b, ctl_ops, env, out);
+            collect_expr_effects(ast, *a, ctl_ops, env, out);
+            collect_expr_effects(ast, *b, ctl_ops, env, out);
         }
-        MetaExpr::Not(a) => collect_expr_effects(ast, a, ctl_ops, env, out),
+        MetaExpr::Not(a) => collect_expr_effects(ast, *a, ctl_ops, env, out),
         MetaExpr::List(items) | MetaExpr::Tuple(items) => {
-            for i in items { collect_expr_effects(ast, i, ctl_ops, env, out); }
+            for &i in items { collect_expr_effects(ast, i, ctl_ops, env, out); }
         }
         MetaExpr::SliceRange { object, start, end } => {
-            collect_expr_effects(ast, object, ctl_ops, env, out);
-            if let Some(s) = start { collect_expr_effects(ast, s, ctl_ops, env, out); }
-            if let Some(e) = end { collect_expr_effects(ast, e, ctl_ops, env, out); }
+            collect_expr_effects(ast, *object, ctl_ops, env, out);
+            if let Some(s) = start { collect_expr_effects(ast, *s, ctl_ops, env, out); }
+            if let Some(e) = end { collect_expr_effects(ast, *e, ctl_ops, env, out); }
         }
         MetaExpr::Index { object, index } => {
-            collect_expr_effects(ast, object, ctl_ops, env, out);
-            collect_expr_effects(ast, index, ctl_ops, env, out);
+            collect_expr_effects(ast, *object, ctl_ops, env, out);
+            collect_expr_effects(ast, *index, ctl_ops, env, out);
         }
-        MetaExpr::TupleIndex { object, .. } => collect_expr_effects(ast, object, ctl_ops, env, out),
-        MetaExpr::DotAccess { object, .. } => collect_expr_effects(ast, object, ctl_ops, env, out),
+        MetaExpr::TupleIndex { object, .. } => collect_expr_effects(ast, *object, ctl_ops, env, out),
+        MetaExpr::DotAccess { object, .. } => collect_expr_effects(ast, *object, ctl_ops, env, out),
         MetaExpr::DotCall { object, args, .. } => {
-            collect_expr_effects(ast, object, ctl_ops, env, out);
-            for a in args { collect_expr_effects(ast, a, ctl_ops, env, out); }
+            collect_expr_effects(ast, *object, ctl_ops, env, out);
+            for &a in args { collect_expr_effects(ast, a, ctl_ops, env, out); }
         }
         MetaExpr::StructLiteral { fields, .. } => {
-            for (_, e) in fields { collect_expr_effects(ast, e, ctl_ops, env, out); }
+            for (_, e) in fields { collect_expr_effects(ast, *e, ctl_ops, env, out); }
         }
         MetaExpr::EnumConstructor { payload, .. } => {
             match payload {
                 ConstructorPayload::Tuple(ids) => {
-                    for i in ids { collect_expr_effects(ast, i, ctl_ops, env, out); }
+                    for &i in ids { collect_expr_effects(ast, i, ctl_ops, env, out); }
                 }
                 ConstructorPayload::Struct(fields) => {
-                    for (_, i) in fields { collect_expr_effects(ast, i, ctl_ops, env, out); }
+                    for (_, i) in fields { collect_expr_effects(ast, *i, ctl_ops, env, out); }
                 }
                 ConstructorPayload::Unit => {}
             }
@@ -184,8 +211,8 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), Vec<TypeError>>
         ty: Type::Func { params: vec![Type::Var(beta)], ret: Box::new(unit_type()), effects: EffectRow::empty() },
     });
 
-    for stmt_id in &ast.sem_root_stmts.clone() {
-        if let Err(e) = infer_stmt(ast, *stmt_id, &mut env, &mut subst, &mut ctx, &mut table) {
+    for &stmt_id in &ast.sem_root_stmts {
+        if let Err(e) = infer_stmt(ast, stmt_id, &mut env, &mut subst, &mut ctx, &mut table) {
             errors.push(e);
         }
     }
@@ -195,7 +222,7 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), Vec<TypeError>>
 
 fn infer_expr(
     ast: &MetaAst,
-    expr_id: usize,
+    expr_id: MetaNodeId,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
     table: &mut TypeTable,
@@ -206,12 +233,12 @@ fn infer_expr(
 
 fn infer_expr_impl(
     ast: &MetaAst,
-    expr_id: usize,
+    expr_id: MetaNodeId,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
     table: &mut TypeTable,
 ) -> Result<Type, TypeError> {
-    let expr = ast.get_expr(expr_id).ok_or_else(|| TypeError::unsupported())?.clone();
+    let expr = ast.get_expr(expr_id).ok_or_else(|| TypeError::unsupported())?;
 
     let ty = match expr {
         MetaExpr::Int(_) => int_type(),
@@ -219,13 +246,18 @@ fn infer_expr_impl(
         MetaExpr::String(_) => string_type(),
 
         MetaExpr::Variable(name) => {
-            env.lookup(&name).unwrap_or_else(|| Type::Var(env.fresh()))
+            // Phase 1 runs before metaprocessing, so symbols generated by `gen {}`
+            // blocks or staged functions don't exist yet. Treating an unknown name
+            // as an error here would reject valid programs that reference generated
+            // symbols. Phase 2 (runtime_type_checker) catches genuinely undefined
+            // variables after all staged code has been executed.
+            env.lookup(name).unwrap_or_else(|| Type::Var(env.fresh()))
         }
 
         // Add is polymorphic: String+String→String, Int+Int→Int.
         MetaExpr::Add(a, b) => {
-            let ta = infer_expr(ast, a, env, subst, table)?;
-            let tb = infer_expr(ast, b, env, subst, table)?;
+            let ta = infer_expr(ast, *a, env, subst, table)?;
+            let tb = infer_expr(ast, *b, env, subst, table)?;
             let tv = Type::Var(env.fresh());
             unify(&ta, &tv, subst)?;
             unify(&tb, &tv, subst)?;
@@ -233,8 +265,8 @@ fn infer_expr_impl(
         }
 
         MetaExpr::Sub(a, b) | MetaExpr::Mult(a, b) | MetaExpr::Div(a, b) => {
-            let ta = infer_expr(ast, a, env, subst, table)?;
-            let tb = infer_expr(ast, b, env, subst, table)?;
+            let ta = infer_expr(ast, *a, env, subst, table)?;
+            let tb = infer_expr(ast, *b, env, subst, table)?;
             // If LHS is a struct, the op may be dispatched to a user impl — don't
             // constrain operands to int; return a fresh var for the result.
             // Otherwise require both to be int for standard arithmetic.
@@ -248,37 +280,37 @@ fn infer_expr_impl(
         }
 
         MetaExpr::Equals(a, b) | MetaExpr::NotEquals(a, b) => {
-            let ta = infer_expr(ast, a, env, subst, table)?;
-            let tb = infer_expr(ast, b, env, subst, table)?;
+            let ta = infer_expr(ast, *a, env, subst, table)?;
+            let tb = infer_expr(ast, *b, env, subst, table)?;
             unify(&ta, &tb, subst)?;
             bool_type()
         }
 
         MetaExpr::Lt(a, b) | MetaExpr::Gt(a, b) | MetaExpr::Lte(a, b) | MetaExpr::Gte(a, b) => {
-            let ta = infer_expr(ast, a, env, subst, table)?;
-            let tb = infer_expr(ast, b, env, subst, table)?;
+            let ta = infer_expr(ast, *a, env, subst, table)?;
+            let tb = infer_expr(ast, *b, env, subst, table)?;
             unify(&ta, &int_type(), subst)?;
             unify(&tb, &int_type(), subst)?;
             bool_type()
         }
 
         MetaExpr::And(a, b) | MetaExpr::Or(a, b) => {
-            let ta = infer_expr(ast, a, env, subst, table)?;
-            let tb = infer_expr(ast, b, env, subst, table)?;
+            let ta = infer_expr(ast, *a, env, subst, table)?;
+            let tb = infer_expr(ast, *b, env, subst, table)?;
             unify(&ta, &bool_type(), subst)?;
             unify(&tb, &bool_type(), subst)?;
             bool_type()
         }
 
         MetaExpr::Not(a) => {
-            let ta = infer_expr(ast, a, env, subst, table)?;
+            let ta = infer_expr(ast, *a, env, subst, table)?;
             unify(&ta, &bool_type(), subst)?;
             bool_type()
         }
 
         MetaExpr::List(items) => {
             let elem_tv = Type::Var(env.fresh());
-            for item_id in items {
+            for &item_id in items {
                 let t = infer_expr(ast, item_id, env, subst, table)?;
                 unify(&t, &elem_tv, subst)?;
             }
@@ -286,13 +318,13 @@ fn infer_expr_impl(
         }
 
         MetaExpr::SliceRange { object, start, end } => {
-            let obj_ty = infer_expr(ast, object, env, subst, table)?;
+            let obj_ty = infer_expr(ast, *object, env, subst, table)?;
             if let Some(start_id) = start {
-                let t = infer_expr(ast, start_id, env, subst, table)?;
+                let t = infer_expr(ast, *start_id, env, subst, table)?;
                 unify(&t, &int_type(), subst)?;
             }
             if let Some(end_id) = end {
-                let t = infer_expr(ast, end_id, env, subst, table)?;
+                let t = infer_expr(ast, *end_id, env, subst, table)?;
                 unify(&t, &int_type(), subst)?;
             }
             // Result is the same slice type as the object
@@ -300,10 +332,11 @@ fn infer_expr_impl(
         }
 
         MetaExpr::Call { callee, args } => {
-            let callee_ty = env.lookup(&callee).unwrap_or_else(|| Type::Var(env.fresh()));
+            // Same staged-symbol rationale as Variable above.
+            let callee_ty = env.lookup(callee).unwrap_or_else(|| Type::Var(env.fresh()));
 
             let mut arg_types = Vec::new();
-            for arg_id in args {
+            for &arg_id in args {
                 arg_types.push(infer_expr(ast, arg_id, env, subst, table)?);
             }
 
@@ -321,25 +354,37 @@ fn infer_expr_impl(
         MetaExpr::StructLiteral { fields, .. } => {
             let mut field_types = std::collections::BTreeMap::new();
             for (field_name, expr_id) in fields {
-                let t = infer_expr(ast, expr_id, env, subst, table)?;
-                field_types.insert(field_name, t);
+                let t = infer_expr(ast, *expr_id, env, subst, table)?;
+                field_types.insert(field_name.clone(), t);
             }
             Type::Record(field_types)
         }
 
-        MetaExpr::EnumConstructor { enum_name, payload, .. } => {
+        MetaExpr::EnumConstructor { enum_name, variant, payload } => {
             match payload {
                 ConstructorPayload::Tuple(ids) => {
-                    for id in ids {
+                    for &id in ids {
                         infer_expr(ast, id, env, subst, table)?;
                     }
                 }
                 ConstructorPayload::Struct(fields) => {
                     for (_, id) in fields {
-                        infer_expr(ast, id, env, subst, table)?;
+                        infer_expr(ast, *id, env, subst, table)?;
                     }
                 }
                 ConstructorPayload::Unit => {}
+            }
+            // For GADT constructors with a declared return type (e.g. `Lit(int) : Expr<int>`),
+            // return App("Expr", [Int]) so call-site unification works correctly.
+            if let Some(variants) = env.lookup_enum(enum_name).cloned() {
+                if let Some(v) = variants.iter().find(|v| v.name == *variant) {
+                    if let Some(ret_te) = &v.return_type {
+                        let local_map: HashMap<String, Type> = v.local_type_params.iter()
+                            .map(|ltp| (ltp.clone(), Type::Var(env.fresh())))
+                            .collect();
+                        return Ok(meta_type_expr_to_type(ret_te, &local_map, env));
+                    }
+                }
             }
             Type::Enum(enum_name.clone())
         }
@@ -348,36 +393,36 @@ fn infer_expr_impl(
         MetaExpr::Typeof(_) | MetaExpr::Embed(_) => string_type(),
 
         MetaExpr::DotAccess { object, .. } => {
-            infer_expr(ast, object, env, subst, table)?;
+            infer_expr(ast, *object, env, subst, table)?;
             Type::Var(env.fresh())
         }
 
         MetaExpr::DotCall { object, args, .. } => {
-            infer_expr(ast, object, env, subst, table)?;
-            for arg_id in args {
+            infer_expr(ast, *object, env, subst, table)?;
+            for &arg_id in args {
                 infer_expr(ast, arg_id, env, subst, table)?;
             }
             Type::Var(env.fresh())
         }
 
         MetaExpr::Index { object, index } => {
-            infer_expr(ast, object, env, subst, table)?;
-            infer_expr(ast, index, env, subst, table)?;
+            infer_expr(ast, *object, env, subst, table)?;
+            infer_expr(ast, *index, env, subst, table)?;
             Type::Var(env.fresh())
         }
 
         MetaExpr::Tuple(items) => {
             let mut elem_types = Vec::new();
-            for item_id in items {
+            for &item_id in items {
                 elem_types.push(infer_expr(ast, item_id, env, subst, table)?);
             }
             Type::Tuple(elem_types)
         }
 
         MetaExpr::TupleIndex { object, index } => {
-            let obj_ty = infer_expr(ast, object, env, subst, table)?;
+            let obj_ty = infer_expr(ast, *object, env, subst, table)?;
             match obj_ty.apply(subst) {
-                Type::Tuple(elems) => elems.get(index).cloned().unwrap_or_else(|| Type::Var(env.fresh())),
+                Type::Tuple(elems) => elems.get(*index).cloned().unwrap_or_else(|| Type::Var(env.fresh())),
                 _ => Type::Var(env.fresh()),
             }
         }
@@ -390,7 +435,7 @@ fn infer_expr_impl(
 
         MetaExpr::ResumeExpr(opt_expr) => {
             if let Some(e) = opt_expr {
-                infer_expr(ast, e, env, subst, table)?;
+                infer_expr(ast, *e, env, subst, table)?;
             }
             Type::Var(env.fresh())
         }
@@ -399,9 +444,9 @@ fn infer_expr_impl(
             let ret_tv = Type::Var(env.fresh());
             let mut body_ctx = TypeCheckCtx::new();
             body_ctx.return_type = Some(ret_tv.clone());
-            infer_stmt(ast, body, env, subst, &mut body_ctx, table)?;
+            infer_stmt(ast, *body, env, subst, &mut body_ctx, table)?;
             for (_, ops) in effects {
-                for h in ops {
+                for &h in ops {
                     let mut h_ctx = TypeCheckCtx::new();
                     h_ctx.return_type = Some(ret_tv.clone());
                     infer_stmt(ast, h, env, subst, &mut h_ctx, table)?;
@@ -414,12 +459,12 @@ fn infer_expr_impl(
             let ret_tv = Type::Var(env.fresh());
             let mut body_ctx = TypeCheckCtx::new();
             body_ctx.return_type = Some(ret_tv.clone());
-            infer_stmt(ast, body, env, subst, &mut body_ctx, table)?;
+            infer_stmt(ast, *body, env, subst, &mut body_ctx, table)?;
             // Find and type-check the handler's ops
-            let handler_ops: Vec<usize> = ast.sem_root_stmts.iter()
+            let handler_ops: Vec<MetaNodeId> = ast.sem_root_stmts.iter()
                 .filter_map(|&id| {
                     if let Some(MetaStmt::HandlerDef { name, ops, .. }) = ast.get_stmt(id) {
-                        if name == &handler_name { Some(ops.clone()) } else { None }
+                        if name == handler_name { Some(ops.clone()) } else { None }
                     } else { None }
                 })
                 .flatten()
@@ -440,7 +485,7 @@ fn infer_expr_impl(
 
 fn infer_stmt(
     ast: &MetaAst,
-    stmt_id: usize,
+    stmt_id: MetaNodeId,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
     ctx: &mut TypeCheckCtx,
@@ -452,55 +497,65 @@ fn infer_stmt(
 
 fn infer_stmt_impl(
     ast: &MetaAst,
-    stmt_id: usize,
+    stmt_id: MetaNodeId,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
     ctx: &mut TypeCheckCtx,
     table: &mut TypeTable,
 ) -> Result<Type, TypeError> {
-    let stmt = ast.get_stmt(stmt_id).ok_or_else(|| TypeError::unsupported())?.clone();
+    let stmt = ast.get_stmt(stmt_id).ok_or_else(|| TypeError::unsupported())?;
 
     let ty = match stmt {
         MetaStmt::ExprStmt(expr_id) => {
-            infer_expr(ast, expr_id, env, subst, table)?;
+            infer_expr(ast, *expr_id, env, subst, table)?;
             unit_type()
         }
 
         MetaStmt::VarDecl { name, type_annotation, expr } => {
-            let expr_ty = infer_expr(ast, expr, env, subst, table)?;
-            if let Some(declared_ty) = type_annotation.as_deref().and_then(resolve_annotation) {
-                unify(&expr_ty, &declared_ty, subst).map_err(|e| e.at(expr))?;
+            let expr_ty = infer_expr(ast, *expr, env, subst, table)?;
+            if let Some(te) = type_annotation {
+                let declared_ty = meta_type_expr_to_type(te, &HashMap::new(), env);
+                unify(&expr_ty, &declared_ty, subst).map_err(|e| e.at(*expr))?;
             }
             let scheme = generalize(env, expr_ty.apply(subst));
-            env.bind(&name, scheme);
+            env.bind(name, scheme);
             unit_type()
         }
 
         MetaStmt::Assign { name, expr } => {
-            let expr_ty = infer_expr(ast, expr, env, subst, table)?;
+            let expr_ty = infer_expr(ast, *expr, env, subst, table)?;
             if let Some(existing_ty) = env.lookup(name.as_str()) {
-                unify(&expr_ty, &existing_ty, subst).map_err(|e| e.at(expr))?;
+                unify(&expr_ty, &existing_ty, subst).map_err(|e| e.at(*expr))?;
             }
             unit_type()
         }
 
         MetaStmt::IndexAssign { indices, expr, .. } => {
-            for idx in indices {
+            for &idx in indices {
                 infer_expr(ast, idx, env, subst, table)?;
             }
-            infer_expr(ast, expr, env, subst, table)?;
+            infer_expr(ast, *expr, env, subst, table)?;
             unit_type()
         }
 
-        MetaStmt::FnDecl { name, params, body, .. } => {
+        MetaStmt::FnDecl { name, params, type_params, ret_ty, body } => {
+            // Map each declared type parameter to a fresh type variable.
+            let tp_map: HashMap<String, Type> = type_params.iter()
+                .map(|tp| (tp.clone(), Type::Var(env.fresh())))
+                .collect();
+
             let mut param_types = Vec::new();
-            for p in &params {
-                let ty = p.ty.as_deref()
-                    .and_then(resolve_annotation)
-                    .unwrap_or_else(|| Type::Var(env.fresh()));
+            for p in params.iter() {
+                let ty = match &p.ty {
+                    Some(te) => meta_type_expr_to_type(te, &tp_map, env),
+                    None => Type::Var(env.fresh()),
+                };
                 param_types.push(ty);
             }
-            let ret_tv = Type::Var(env.fresh());
+            let ret_tv = match ret_ty {
+                Some(te) => meta_type_expr_to_type(te, &tp_map, env),
+                None => Type::Var(env.fresh()),
+            };
 
             let fn_type = Type::Func {
                 params: param_types.clone(),
@@ -509,7 +564,7 @@ fn infer_stmt_impl(
             };
 
             env.push_scope();
-            env.bind_mono(&name, fn_type.clone());
+            env.bind_mono(name, fn_type.clone());
 
             for (param, ty) in params.iter().zip(param_types.iter()) {
                 env.bind_mono(&param.name, ty.clone());
@@ -520,7 +575,7 @@ fn infer_stmt_impl(
             ctx.return_type = Some(ret_tv.clone());
             ctx.saw_return = false;
 
-            infer_stmt(ast, body, env, subst, ctx, table)?;
+            infer_stmt(ast, *body, env, subst, ctx, table)?;
 
             if !ctx.saw_return {
                 unify(&ret_tv, &unit_type(), subst)?;
@@ -534,7 +589,7 @@ fn infer_stmt_impl(
             // Collect the effect row: direct ctl op calls + transitive effects
             // from called functions whose types are now resolved in the env.
             let mut raw_effects = BTreeSet::new();
-            collect_body_effects(ast, body, &ctx.ctl_ops, env, &mut raw_effects);
+            collect_body_effects(ast, *body, &ctx.ctl_ops, env, &mut raw_effects);
             let effect_row = EffectRow { effects: raw_effects };
 
             let base = fn_type.apply(subst);
@@ -543,7 +598,7 @@ fn infer_stmt_impl(
                 other => other,
             };
             let scheme = generalize(env, final_fn_type.clone());
-            env.bind(&name, scheme);
+            env.bind(name, scheme);
 
             final_fn_type
         }
@@ -551,13 +606,13 @@ fn infer_stmt_impl(
         MetaStmt::Return(opt_expr) => {
             let expr_ty = match opt_expr {
                 None => unit_type(),
-                Some(expr_id) => infer_expr(ast, expr_id, env, subst, table)?,
+                Some(expr_id) => infer_expr(ast, *expr_id, env, subst, table)?,
             };
 
             let ret_ty = ctx.return_type.as_ref().ok_or_else(|| TypeError::invalid_return())?.clone();
             ctx.saw_return = true;
             if let Some(eid) = opt_expr {
-                unify(&expr_ty, &ret_ty, subst).map_err(|e| e.at(eid))?;
+                unify(&expr_ty, &ret_ty, subst).map_err(|e| e.at(*eid))?;
             } else {
                 unify(&expr_ty, &ret_ty, subst)?;
             }
@@ -566,7 +621,7 @@ fn infer_stmt_impl(
 
         MetaStmt::Block(stmts) => {
             env.push_scope();
-            for s in stmts {
+            for &s in stmts {
                 infer_stmt(ast, s, env, subst, ctx, table)?;
             }
             env.pop_scope();
@@ -574,45 +629,46 @@ fn infer_stmt_impl(
         }
 
         MetaStmt::If { cond, body, else_branch } => {
-            let cond_ty = infer_expr(ast, cond, env, subst, table)?;
-            unify(&cond_ty, &bool_type(), subst).map_err(|e| e.at(cond))?;
-            infer_stmt(ast, body, env, subst, ctx, table)?;
+            let cond_ty = infer_expr(ast, *cond, env, subst, table)?;
+            unify(&cond_ty, &bool_type(), subst).map_err(|e| e.at(*cond))?;
+            infer_stmt(ast, *body, env, subst, ctx, table)?;
             if let Some(else_id) = else_branch {
-                infer_stmt(ast, else_id, env, subst, ctx, table)?;
+                infer_stmt(ast, *else_id, env, subst, ctx, table)?;
             }
             unit_type()
         }
 
         MetaStmt::WhileLoop { cond, body } => {
-            let cond_ty = infer_expr(ast, cond, env, subst, table)?;
-            unify(&cond_ty, &bool_type(), subst).map_err(|e| e.at(cond))?;
-            infer_stmt(ast, body, env, subst, ctx, table)?;
+            let cond_ty = infer_expr(ast, *cond, env, subst, table)?;
+            unify(&cond_ty, &bool_type(), subst).map_err(|e| e.at(*cond))?;
+            infer_stmt(ast, *body, env, subst, ctx, table)?;
             unit_type()
         }
 
         MetaStmt::ForEach { var, iterable, body } => {
-            let iter_ty = infer_expr(ast, iterable, env, subst, table)?;
+            let iter_ty = infer_expr(ast, *iterable, env, subst, table)?;
             let elem_tv = Type::Var(env.fresh());
             // iterable must be a list of elem_tv
             unify(&iter_ty, &elem_tv, subst)?;
             env.push_scope();
-            env.bind_mono(&var, elem_tv.apply(subst));
-            infer_stmt(ast, body, env, subst, ctx, table)?;
+            env.bind_mono(var, elem_tv.apply(subst));
+            infer_stmt(ast, *body, env, subst, ctx, table)?;
             env.pop_scope();
             unit_type()
         }
 
         MetaStmt::Print(expr_id) => {
-            infer_expr(ast, expr_id, env, subst, table)?;
+            infer_expr(ast, *expr_id, env, subst, table)?;
             unit_type()
         }
 
         MetaStmt::MetaFnDecl { name, params, body } => {
             let mut param_types = Vec::new();
             for p in params.iter() {
-                let ty = p.ty.as_deref()
-                    .and_then(resolve_annotation)
-                    .unwrap_or_else(|| Type::Var(env.fresh()));
+                let ty = match &p.ty {
+                    Some(te) => meta_type_expr_to_type(te, &HashMap::new(), env),
+                    None => Type::Var(env.fresh()),
+                };
                 param_types.push(ty);
             }
             let ret_tv = Type::Var(env.fresh());
@@ -630,7 +686,7 @@ fn infer_stmt_impl(
             let saved_saw = ctx.saw_return;
             ctx.return_type = Some(ret_tv.clone());
             ctx.saw_return = false;
-            infer_stmt(ast, body, env, subst, ctx, table)?;
+            infer_stmt(ast, *body, env, subst, ctx, table)?;
             if !ctx.saw_return {
                 unify(&ret_tv, &unit_type(), subst)?;
             }
@@ -643,32 +699,56 @@ fn infer_stmt_impl(
             final_fn_type
         }
 
-        MetaStmt::EnumDecl { name, variants } => {
-            env.register_enum(&name, variants.clone());
+        MetaStmt::EnumDecl { name, variants, .. } => {
+            env.register_enum(name, variants.clone());
             unit_type()
         }
 
         MetaStmt::Match { scrutinee, arms } => {
-            let _scrutinee_ty = infer_expr(ast, scrutinee, env, subst, table)?;
+            let scrutinee_ty = infer_expr(ast, *scrutinee, env, subst, table)?;
             for arm in arms {
+                // Per-arm substitution isolation: GADT arms refine type vars independently.
+                let mut arm_subst = subst.clone();
                 env.push_scope();
                 match &arm.pattern {
                     Pattern::Wildcard => {}
                     Pattern::Enum { enum_name, variant, bindings } => {
                         if let Some(variants) = env.lookup_enum(enum_name).cloned() {
                             if let Some(v) = variants.iter().find(|v| v.name == *variant) {
+                                // Fresh type vars for this constructor's local type params (e.g. If<A>).
+                                let local_map: HashMap<String, Type> = v.local_type_params.iter()
+                                    .map(|ltp| (ltp.clone(), Type::Var(env.fresh())))
+                                    .collect();
+
+                                // If there is a GADT return-type annotation, unify the scrutinee
+                                // with it in this arm's substitution to propagate refinements.
+                                if let Some(ret_te) = &v.return_type {
+                                    let ret_ty = meta_type_expr_to_type(ret_te, &local_map, env);
+                                    let _ = unify(&scrutinee_ty.apply(&arm_subst), &ret_ty, &mut arm_subst);
+                                }
+
                                 match (&v.payload, bindings) {
                                     (_, VariantBindings::Unit) => {}
+                                    (VariantPayload::Tuple(type_exprs), VariantBindings::Tuple(names)) => {
+                                        for (te, name) in type_exprs.iter().zip(names.iter()) {
+                                            let ty = meta_type_expr_to_type(te, &local_map, env);
+                                            env.bind_mono(name, ty);
+                                        }
+                                        for name in names.iter().skip(type_exprs.len()) {
+                                            let tv = env.fresh();
+                                            env.bind_mono(name, Type::Var(tv));
+                                        }
+                                    }
                                     (_, VariantBindings::Tuple(names)) => {
                                         for name in names {
-                                            let tv = Type::Var(env.fresh());
-                                            env.bind_mono(name, tv);
+                                            let tv = env.fresh();
+                                            env.bind_mono(name, Type::Var(tv));
                                         }
                                     }
                                     (_, VariantBindings::Struct(names)) => {
                                         for name in names {
-                                            let tv = Type::Var(env.fresh());
-                                            env.bind_mono(name, tv);
+                                            let tv = env.fresh();
+                                            env.bind_mono(name, Type::Var(tv));
                                         }
                                     }
                                 }
@@ -676,21 +756,24 @@ fn infer_stmt_impl(
                         }
                     }
                 }
-                infer_stmt(ast, arm.body, env, subst, ctx, table)?;
+                infer_stmt(ast, arm.body, env, &mut arm_subst, ctx, table)?;
                 env.pop_scope();
             }
             unit_type()
         }
 
         MetaStmt::EffectDecl { ops, .. } => {
-            for op in &ops {
+            for op in ops {
                 // Track ctl ops for effect inference.
                 if matches!(op.kind, EffectOpKind::Ctl) {
                     ctx.ctl_ops.insert(op.name.clone());
                 }
                 // Register the op as callable so call sites type-check.
                 let param_types: Vec<Type> = op.params.iter()
-                    .map(|p| p.ty.as_deref().and_then(resolve_annotation).unwrap_or_else(|| Type::Var(env.fresh())))
+                    .map(|p| match &p.ty {
+                        Some(te) => meta_type_expr_to_type(te, &HashMap::new(), env),
+                        None => Type::Var(env.fresh()),
+                    })
                     .collect();
                 let ret_ty = op.ret_ty.as_deref()
                     .and_then(resolve_annotation)
@@ -706,7 +789,7 @@ fn infer_stmt_impl(
 
         // These don't produce a meaningful type for the table
         MetaStmt::Defer(inner) => {
-            infer_stmt(ast, inner, env, subst, ctx, table)?;
+            infer_stmt(ast, *inner, env, subst, ctx, table)?;
             unit_type()
         }
 
