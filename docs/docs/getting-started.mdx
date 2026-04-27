@@ -1,0 +1,49 @@
+---
+sidebar_position: 1
+---
+
+# Getting Started
+
+Let's get setup with Cronyx in less than 5 minutes.
+
+## Installation
+
+The Cronyx build manager can be installed via package managers. This is the simplest way to get started.
+
+### Windows
+
+```
+scoop bucket add cronyx https://github.com/brendancron/scoop-cronyx
+scoop install cronyx
+```
+
+### Mac
+
+```
+brew tap brendancron/cronyx
+brew install cronyx
+```
+
+### Installing a Toolchain
+
+The cronyx build manager automatically manages different versions of the cronyx compiler across projects. You can install a toolchain with the following:
+
+```
+cronyx toolchain install vX.X.X
+```
+
+## Hello World
+
+In order to test that everything is working please make a file called `hello.cx` with the following:
+
+```
+print("Hello, World!");
+```
+
+And run it with:
+
+```
+cronyx run hello.cx
+```
+
+Great, You have ran your first cronyx program!

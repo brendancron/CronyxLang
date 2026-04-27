@@ -1,0 +1,151 @@
+---
+sidebar_position: 9
+---
+
+# Modules
+
+Once a program grows past a few dozen lines, you'll want to split it across files. In Cronyx, **every `.cx` file is a module**, and any other file can `import` it. This chapter covers the four shapes of import, how files relate to module names, and what happens when modules import each other.
+
+## A module is a file
+
+There's no `module` keyword and no special declaration at the top of a file. If you write a function (or struct, or enum) at the top level of a `.cx` file, it's part of that file's module. Every top-level declaration is visible to anyone who imports the file — there's no `pub` or `export` to remember.
+
+Suppose you have two files in the same directory:
+
+```cronyx title="math.cx"
+fn add(a, b) {
+    return a + b;
+}
+
+fn mul(a, b) {
+    return a * b;
+}
+```
+
+```cronyx title="main.cx"
+import "math";
+
+print(math.add(3, 4));
+print(math.mul(3, 4));
+```
+
+Run `cronyx run main.cx`:
+
+```
+7
+12
+```
+
+A few things to notice:
+
+- The string in the `import` is a *path*, without the `.cx` extension. `"math"` means "the file `math.cx` in the same directory."
+- Once imported, the module is available under its filename — `math.add(...)`, `math.mul(...)`. The dot here is the same dot you use for struct field access; the module is acting like a value with named fields.
+- The `math.cx` file doesn't have to do anything special to be importable. No `export`, no `module math`, no manifest.
+
+## Aliasing an import
+
+Sometimes the filename is awkwardly long, or you want to avoid a clash with a local variable. Use `as` to give the imported module a different name:
+
+```cronyx title="helpers.cx"
+fn greet(name) {
+    print("Hello, " + name);
+}
+```
+
+```cronyx title="main.cx"
+import "helpers" as h;
+
+h.greet("World");
+```
+
+```
+Hello, World
+```
+
+Inside `main.cx`, the module is now reached as `h.greet(...)` rather than `helpers.greet(...)`. The original filename is unchanged — `as` only affects how `main.cx` refers to it.
+
+## Selective imports
+
+If you only want a few names from a module — and you want to use them *unqualified*, without a `module.` prefix — use the `{ name, name } from` form:
+
+```cronyx title="helpers.cx"
+fn greet(name) {
+    print("Hello, " + name);
+}
+
+fn farewell(name) {
+    print("Goodbye, " + name);
+}
+```
+
+```cronyx title="main.cx"
+import { greet } from "helpers";
+
+greet("World");
+```
+
+```
+Hello, World
+```
+
+Now `greet` is in scope as a bare name, and `farewell` is *not* imported at all — it's still defined over in `helpers.cx`, but `main.cx` can't see it. Selective imports are useful when one or two names from a module get used so often that the prefix becomes noise.
+
+## Subdirectories and wildcard imports
+
+Modules can live in subdirectories. If your project layout looks like this:
+
+```
+main.cx
+utils/
+    math.cx
+    strings.cx
+```
+
+You can import `utils/math.cx` with the path `"utils/math"`, just like a single file. Or you can pull in *every* module in a directory at once with a `*`:
+
+```cronyx title="main.cx"
+import "utils/*";
+
+print(math.add(2, 3));
+print(strings.greet("World"));
+```
+
+Each file in `utils/` becomes available under its own filename — `math.add(...)`, `strings.greet(...)`. This keeps each module's namespace separate while saving you a bunch of individual `import` lines.
+
+## Circular imports just work
+
+If `a.cx` imports `b.cx` and `b.cx` imports `a.cx`, Cronyx handles it — the module loader resolves both files and lets each see the other's top-level declarations. You don't have to restructure your code to break a cycle the way you would in some languages.
+
+That said: cycles often *suggest* a missing third module that both files actually depend on. If two modules can't be understood without each other, it's worth asking whether they should be one module instead.
+
+## Try it
+
+Create two files in the same directory.
+
+In `greetings.cx`, define a function `greeting(name: string): string` that returns `"Hello, " + name`.
+
+In `main.cx`, import `greetings` and print the result of calling its `greeting` function with your name.
+
+A working answer:
+
+```cronyx title="greetings.cx"
+fn greeting(name: string): string {
+    return "Hello, " + name;
+}
+```
+
+```cronyx title="main.cx"
+import "greetings";
+
+print(greetings.greeting("Cronyx"));
+```
+
+```
+Hello, Cronyx
+```
+
+Then try changing it to use each of the other two import styles — alias the module as `g`, then switch to `import { greeting } from "greetings";` and call `greeting("Cronyx")` directly. The same one-line change at the top of `main.cx` is enough to swap between all three.
+
+## What's next
+
+You can now spread a Cronyx program across as many files as you like. That's the end of the language-basics tour — you've covered values, functions, control flow, slices, structs, enums, and modules. Next up is the **Concepts** section, where we slow down and explain the *why* behind some of Cronyx's distinctive choices: the two-phase type system, staging, and algebraic effects.

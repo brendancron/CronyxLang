@@ -1,0 +1,224 @@
+---
+sidebar_position: 4
+---
+
+# Slices
+
+A **slice** is Cronyx's only built-in collection type — an ordered, growable sequence of values. Other languages might split this into "arrays" and "lists" and "vectors;" Cronyx keeps it to one. The type is written `[T]` — `[int]` for a slice of integers, `[string]` for a slice of strings.
+
+By the end of this chapter you'll be able to create slices, read and write elements, iterate over them, slice subranges out of them, and use the handful of built-in methods.
+
+## Creating a slice
+
+A slice literal is a comma-separated list inside square brackets:
+
+```cronyx
+var nums  = [10, 20, 30];
+var names = ["alice", "bob", "charlie"];
+```
+
+The type is inferred from the elements: `nums` is `[int]`, `names` is `[string]`. All elements have to be the same type — `[1, "two", 3]` is a type error.
+
+Slices can also nest:
+
+```cronyx
+var grid = [[1, 2], [3, 4]];
+```
+
+`grid` has type `[[int]]` — a slice of slices of `int`.
+
+## Indexing
+
+Read an element with `xs[i]`. Indices start at `0`:
+
+```cronyx
+var row = [10, 20, 30];
+print(row[0]);
+print(row[1]);
+print(row[2]);
+```
+
+```
+10
+20
+30
+```
+
+Negative indices count from the end — `-1` is the last element, `-2` is the second-to-last:
+
+```cronyx
+var nums = [10, 20, 30];
+print(nums[-1]);
+print(nums[-2]);
+print(nums[-3]);
+```
+
+```
+30
+20
+10
+```
+
+For nested slices, chain the brackets:
+
+```cronyx
+var grid = [[1, 2], [3, 4]];
+print(grid[0][1]);
+print(grid[1][0]);
+```
+
+```
+2
+3
+```
+
+## Updating an element
+
+Slices are mutable. Assign to an index to update the value:
+
+```cronyx
+var row = [1, 2, 3];
+row[1] = 99;
+print(row[0]);
+print(row[1]);
+print(row[2]);
+```
+
+```
+1
+99
+3
+```
+
+The same works for nested slices:
+
+```cronyx
+var grid = [[1, 2], [3, 4]];
+grid[0][1] = 7;
+print(grid[0][1]);
+```
+
+```
+7
+```
+
+## Iterating
+
+You've already seen the C-style `for` loop. Slices have a friendlier alternative — `for (x in xs)`, which binds each element in turn to `x`:
+
+```cronyx
+var names = ["alice", "bob", "charlie"];
+for (name in names) {
+    print(name);
+}
+```
+
+```
+alice
+bob
+charlie
+```
+
+Use the C-style `for` when you need the *index* (or non-trivial stepping); use `for ... in` when you just need each element. They both compile to the same kind of loop — pick whichever reads more cleanly.
+
+## Slicing a subrange
+
+Square brackets with a colon inside give you a *subrange* — a new slice that's a window into the original:
+
+```cronyx
+var nums = [1, 2, 3, 4, 5];
+
+var tail = nums[2:];    // from index 2 to the end
+var head = nums[:3];    // from the start up to (but not including) index 3
+var mid  = nums[1:4];   // from index 1 up to (but not including) index 4
+```
+
+| Expression  | Contents       |
+| ----------- | -------------- |
+| `nums[2:]`  | `[3, 4, 5]`    |
+| `nums[:3]`  | `[1, 2, 3]`    |
+| `nums[1:4]` | `[2, 3, 4]`    |
+
+The end index is *exclusive* (it's the first element you *don't* want) — that's why `nums[1:4]` gives you three elements and not four.
+
+Negative indices work in slice bounds too. A handy idiom: `xs[0:-1]` is "everything except the last element":
+
+```cronyx
+var nums = [1, 2, 3, 4, 5];
+var drop_last = nums[0:-1];
+print(drop_last[0]);
+print(drop_last[3]);
+```
+
+```
+1
+4
+```
+
+## Built-in methods
+
+Slices have a small set of methods you can call with `.method(args)`:
+
+```cronyx
+var xs = [1, 2, 3];
+print(xs.len());
+
+xs.push(4);
+print(xs.len());
+print(xs[3]);
+
+var last = xs.pop();
+print(last);
+print(xs.len());
+
+if (xs.contains(2)) { print("has_2"); }
+if (xs.contains(9)) { print("has_9"); }
+```
+
+```
+3
+4
+4
+4
+3
+has_2
+```
+
+| Method            | What it does                                            |
+| ----------------- | ------------------------------------------------------- |
+| `xs.len()`        | Returns the number of elements as an `int`              |
+| `xs.push(x)`      | Appends `x` to the end                                  |
+| `xs.pop()`        | Removes and returns the last element                    |
+| `xs.contains(x)`  | Returns `true` if `x` is somewhere in the slice         |
+
+`push` and `pop` mutate the slice in place. `len` and `contains` just inspect it.
+
+## Try it
+
+Write a function `max(xs: [int]): int` that returns the largest element of a slice. Use `for ... in` and an `if` to track the running best. Calling `max([3, 7, 2, 9, 5])` should print `9`.
+
+A working answer:
+
+```cronyx
+fn max(xs: [int]): int {
+    var best = xs[0];
+    for (x in xs) {
+        if (x > best) {
+            best = x;
+        }
+    }
+    return best;
+}
+
+print(max([3, 7, 2, 9, 5]));
+```
+
+```
+9
+```
+
+We seed `best` with the first element rather than something like `0` so the function works correctly even when all values are negative. (What should happen if `xs` is empty? Right now `xs[0]` would crash — handling that gracefully is a job for a later chapter on errors and effects.)
+
+## What's next
+
+You can now hold collections of values, walk over them, transform them, and slice them up. Next up: **tuples** — fixed-size groups of values whose elements can be of different types, useful for returning more than one value from a function.

@@ -1,0 +1,150 @@
+---
+sidebar_position: 6
+---
+
+# Structs
+
+A **struct** is a value with named fields. When "an int and a string" doesn't say enough about what a value *is* — when those fields mean specific things, like the `x` and `y` of a point or the `name` and `age` of a person — a struct lets you say so in the type.
+
+By the end of this chapter you'll be able to declare structs, construct them, read and pass them around, and use them as the types in function signatures.
+
+## Declaring a struct
+
+Use the `struct` keyword followed by a name and a block of fields:
+
+```cronyx
+struct Point {
+    x: int;
+    y: int
+}
+```
+
+A few things to notice:
+
+- The struct name is capitalized. This isn't enforced, but it's the convention — type names start uppercase, value names start lowercase.
+- Each field is a `name: type` pair, just like a function parameter.
+- Fields are separated by **semicolons** (`;`). The last field can omit its trailing semicolon.
+- There's no semicolon after the closing brace.
+
+This declaration introduces a new type called `Point`. You can now use `Point` anywhere a type is expected — `var p: Point`, function parameters, return types, and so on.
+
+## Constructing a struct
+
+To create a value of a struct type, write the struct name followed by `{ field: value, ... }`:
+
+```cronyx
+struct Point {
+    x: int;
+    y: int
+}
+
+var origin = Point { x: 0, y: 0 };
+var p      = Point { x: 3, y: 4 };
+```
+
+Watch the punctuation — when you *construct* a struct, fields are separated by **commas** (`,`), not semicolons:
+
+```cronyx
+//  declaration uses ;
+struct Point {
+    x: int;
+    y: int
+}
+
+//  construction uses ,
+var p = Point { x: 3, y: 4 };
+```
+
+This trips people up at first. Easy way to remember: the declaration is a list of *statements* (`x: int;` is a statement), but the construction is a list of *arguments* (like the comma-separated args of a function call).
+
+## Reading fields
+
+Access a field with a dot:
+
+```cronyx
+struct Point {
+    x: int;
+    y: int
+}
+
+var p = Point { x: 3, y: 4 };
+print(p.x);
+print(p.y);
+```
+
+```
+3
+4
+```
+
+The compiler knows `p` is a `Point` and that `Point` has fields `x` and `y`, so `p.z` would be a type error — the typo gets caught before your program runs.
+
+## Structs in function signatures
+
+Once `Point` is a type, it works in function parameters and return types like any other:
+
+```cronyx
+struct Point {
+    x: int;
+    y: int
+}
+
+fn translate(p: Point, dx: int, dy: int): Point {
+    return Point { x: p.x + dx, y: p.y + dy };
+}
+
+var start = Point { x: 1, y: 1 };
+var moved = translate(start, 4, 6);
+
+print(moved.x);
+print(moved.y);
+```
+
+```
+5
+7
+```
+
+`translate` takes a `Point` and two `int` offsets, and returns a *new* `Point`. We're not modifying `start` — we're constructing a fresh value with the shifted coordinates. This pattern (functions that take a value and return a transformed one) is the bread and butter of struct-based code.
+
+## Try it
+
+Define a struct `Rectangle` with `width: int` and `height: int` fields. Write a function `area(r: Rectangle): int` that returns its area, and a function `bigger(a: Rectangle, b: Rectangle): Rectangle` that returns whichever rectangle has the larger area. Test it with two rectangles of your choice.
+
+A working answer:
+
+```cronyx
+struct Rectangle {
+    width: int;
+    height: int
+}
+
+fn area(r: Rectangle): int {
+    return r.width * r.height;
+}
+
+fn bigger(a: Rectangle, b: Rectangle): Rectangle {
+    if (area(a) > area(b)) {
+        return a;
+    }
+    return b;
+}
+
+var small = Rectangle { width: 2, height: 3 };
+var large = Rectangle { width: 4, height: 5 };
+
+var winner = bigger(small, large);
+print(winner.width);
+print(winner.height);
+```
+
+```
+4
+5
+```
+
+Notice how `bigger` returns one of its arguments unchanged — structs are values you can pass around freely, just like `int`s and `string`s.
+
+## What's next
+
+You can now define types that group related fields under one name. Next up: **enums** — for values that come in a *fixed set of cases* rather than a fixed set of fields, like a card's rarity (Common, Uncommon, Rare) or a traffic light's state.

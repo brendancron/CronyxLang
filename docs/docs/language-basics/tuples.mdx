@@ -1,0 +1,111 @@
+---
+sidebar_position: 5
+---
+
+# Tuples
+
+A **tuple** is a fixed-size group of values, where each value can be a different type. Reach for one when you want to bundle a small handful of values together — return more than one thing from a function, pair an `int` with the `string` that names it, group an x and a y as coordinates — and giving each piece a *name* would be overkill.
+
+You've already seen tuples in passing: in [Values, variables, and types](./values-variables-types.mdx) we listed `(int, string)` as a tuple type, and in [Functions](./functions.mdx) we used the `(x, y)` syntax inside lambdas. This chapter covers them properly.
+
+## Creating a tuple
+
+Wrap comma-separated values in parentheses:
+
+```cronyx
+var t = (10, "hello", true);
+```
+
+`t` is a tuple with three components: an `int`, a `string`, and a `bool`. Tuples can mix types freely — that's the main thing that separates them from slices.
+
+The type of `t` is `(int, string, bool)`. Cronyx writes tuple types the same way you write tuple values: comma-separated inside parens.
+
+## Reading components
+
+Access a component with `.0`, `.1`, `.2`, and so on. The numbers are positional, starting at zero:
+
+```cronyx
+var t = (10, "hello", true);
+
+print(t.0);
+print(t.1);
+print(t.2);
+```
+
+```
+10
+hello
+true
+```
+
+The compiler knows the type of each position — `t.0` is an `int`, `t.1` is a `string`, `t.2` is a `bool`. If you write `t.3` for a three-element tuple, that's a compile error, not a runtime crash.
+
+## Returning multiple values
+
+The most common reason to reach for a tuple is returning more than one thing from a function. Cronyx doesn't have a separate "out parameter" or multiple-return-value mechanism — you just return a tuple:
+
+```cronyx
+fn pair(a, b) {
+    return (a, b);
+}
+
+var p = pair(3, 4);
+print(p.0 + p.1);
+```
+
+```
+7
+```
+
+The caller picks the values back out with `.0` and `.1`. It's lightweight, type-safe, and feels natural for "I need to return two things" cases.
+
+## Tuples vs structs
+
+Tuples and structs do something similar — bundle a fixed set of values into one composite — but they fit different jobs:
+
+| Use a tuple when…                                       | Use a struct when…                                    |
+| ------------------------------------------------------- | ----------------------------------------------------- |
+| The grouping is one-off and local                       | The grouping is meaningful enough to deserve a name   |
+| Position is enough to identify each piece               | Names tell the reader what each field is *for*        |
+| Two or three values, max                                | Three or more meaningful fields                       |
+| The relationship between values is obvious from context | The relationship benefits from documentation          |
+
+A `(int, int)` returned from `divmod` is fine — readers know which is which. A `(string, int, bool, string)` floating around your codebase is begging to become a struct.
+
+The next chapter covers structs in detail. The short version: when you find yourself writing comments to explain what each tuple slot means, switch to a struct.
+
+## Try it
+
+Write a function `min_max(a: int, b: int): (int, int)` that returns its inputs as a tuple, smaller first. Use it on two pairs of numbers and print both components.
+
+A working answer:
+
+```cronyx
+fn min_max(a: int, b: int): (int, int) {
+    if (a < b) {
+        return (a, b);
+    }
+    return (b, a);
+}
+
+var sorted = min_max(7, 3);
+print(sorted.0);
+print(sorted.1);
+
+var same = min_max(5, 5);
+print(same.0);
+print(same.1);
+```
+
+```
+3
+7
+5
+5
+```
+
+Notice the return type annotation: `(int, int)` looks just like a tuple value, except in a type position. Cronyx is consistent that way — values, types, and the syntax for both lean on the same shape.
+
+## What's next
+
+You can now bundle values into tuples and slices, and you've got the vocabulary for "this *or* that" via enums. Next up: **structs** — naming the fields when position alone isn't descriptive enough.

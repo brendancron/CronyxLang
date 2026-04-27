@@ -1,0 +1,229 @@
+---
+sidebar_position: 8
+---
+
+# Traits
+
+Sometimes a few different types all need to support the *same operation* — every shape can compute its area, every value can render itself as a string, every record can be compared to another for equality. A **trait** is how Cronyx names that shared capability and lets each type plug into it.
+
+If you've used interfaces in Java or C#, protocols in Swift, or typeclasses in Rust or Haskell, the idea is the same. A trait declares "any type that implements me must provide these methods." Each type implements the trait separately, and any code that's written against the trait works for *every* type that implements it.
+
+## Declaring a trait
+
+Use the `trait` keyword followed by a name and a block of method signatures:
+
+```cronyx
+trait Describe {
+    fn describe(self) -> string;
+}
+```
+
+Each method inside the trait has:
+
+- A name (`describe`)
+- A parameter list starting with `self` — the value the method is being called on
+- A return type after `->` (note: traits use `->` for return types; this differs from the `:` used in normal `fn` declarations)
+- A semicolon at the end — there's no body, just a signature
+
+`Describe` is now a trait. By itself it does nothing; it's a contract waiting for types to fill in.
+
+## Implementing a trait
+
+Use `impl <Trait> for <Type>` to provide the methods for a specific type:
+
+```cronyx
+trait Describe {
+    fn describe(self) -> string;
+}
+
+struct Circle {
+    radius: int
+}
+
+struct Rectangle {
+    width: int;
+    height: int
+}
+
+impl Describe for Circle {
+    fn describe(self) -> string {
+        return "circle with radius " + to_string(self.radius);
+    }
+}
+
+impl Describe for Rectangle {
+    fn describe(self) -> string {
+        return "rectangle " + to_string(self.width) + "x" + to_string(self.height);
+    }
+}
+
+var c = Circle { radius: 5 };
+var r = Rectangle { width: 3, height: 4 };
+
+print(c.describe());
+print(r.describe());
+```
+
+```
+circle with radius 5
+rectangle 3x4
+```
+
+A few things worth noticing:
+
+- Inside the impl block, `self` refers to the value `describe` was called on — `self.radius` for `Circle`, `self.width` and `self.height` for `Rectangle`.
+- We call the trait method with familiar dot syntax: `c.describe()`, `r.describe()`. Cronyx looks up which `describe` to use based on the type of `c` and `r`.
+- We used `to_string(...)` to convert integers to strings. That's a built-in helper — Cronyx's `+` for strings only joins strings, so converting first is the way to mix types in a message.
+
+If you forget to implement a trait method, or implement it with the wrong signature, the compiler will tell you. Implementations must match the trait's declarations exactly.
+
+## One trait, many types
+
+A trait pays off when you have *several* types that share an interface. Here's the same `Show` operation implemented for two unrelated types:
+
+```cronyx
+trait Show {
+    fn show(self) -> string;
+}
+
+struct Point {
+    x: int;
+    y: int
+}
+
+struct Color {
+    r: int;
+    g: int;
+    b: int
+}
+
+impl Show for Point {
+    fn show(self) -> string {
+        return "(" + to_string(self.x) + ", " + to_string(self.y) + ")";
+    }
+}
+
+impl Show for Color {
+    fn show(self) -> string {
+        return "rgb(" + to_string(self.r) + ", " + to_string(self.g) + ", " + to_string(self.b) + ")";
+    }
+}
+
+var p = Point { x: 1, y: 2 };
+var c = Color { r: 255, g: 128, b: 0 };
+
+print(p.show());
+print(c.show());
+```
+
+```
+(1, 2)
+rgb(255, 128, 0)
+```
+
+`Point` and `Color` have nothing to do with each other structurally — different fields, different meaning. But they both *can* be rendered as a string, so they both implement `Show`. Anywhere code wants something showable, either type will do.
+
+## Trait bounds: generic code that uses traits
+
+The real power shows up when you write code that works for *any* type implementing a trait. Use angle brackets after the function name to declare a type parameter, with `: TraitName` to require it implements a specific trait:
+
+```cronyx
+trait Summary {
+    fn summarize(self) -> string;
+}
+
+struct Article {
+    title: string;
+    author: string
+}
+
+struct Tweet {
+    username: string;
+    content: string
+}
+
+impl Summary for Article {
+    fn summarize(self) -> string {
+        return self.title + " by " + self.author;
+    }
+}
+
+impl Summary for Tweet {
+    fn summarize(self) -> string {
+        return self.username + ": " + self.content;
+    }
+}
+
+fn notify<T: Summary>(item) {
+    print("Breaking news: " + item.summarize());
+}
+
+var a = Article { title: "Cronyx 0.1.4", author: "brendancron" };
+var t = Tweet { username: "cronyx_lang", content: "traits are here" };
+
+notify(a);
+notify(t);
+```
+
+```
+Breaking news: Cronyx 0.1.4 by brendancron
+Breaking news: cronyx_lang: traits are here
+```
+
+`notify<T: Summary>(item)` says "I work for any type `T` as long as `T` implements `Summary`." Inside the body, `item.summarize()` is allowed because the trait bound guarantees the method exists. We pass an `Article`; we pass a `Tweet`; both are accepted because both implement `Summary`.
+
+You'll see this pattern everywhere. A function with a trait bound is the standard way to write code that's reusable without giving up type safety — the compiler still checks every call site, it just checks them against the trait's contract instead of against a concrete type. (The angle brackets are *comptime parameters*, which we cover in detail in the metaprogramming section. For now, just read `<T: Summary>` as "any type that implements Summary.")
+
+## Try it
+
+Define a trait `Area` with one method, `area(self) -> int`. Implement it for `Circle { radius: int }` and `Rectangle { width: int; height: int }`. Then write a generic function `print_area<T: Area>(shape)` that prints the area of any shape, and call it with one of each.
+
+A working answer:
+
+```cronyx
+trait Area {
+    fn area(self) -> int;
+}
+
+struct Circle {
+    radius: int
+}
+
+struct Rectangle {
+    width: int;
+    height: int
+}
+
+impl Area for Circle {
+    fn area(self) -> int {
+        return self.radius * self.radius * 3;
+    }
+}
+
+impl Area for Rectangle {
+    fn area(self) -> int {
+        return self.width * self.height;
+    }
+}
+
+fn print_area<T: Area>(shape) {
+    print(shape.area());
+}
+
+var c = Circle { radius: 5 };
+var r = Rectangle { width: 4, height: 6 };
+
+print_area(c);
+print_area(r);
+```
+
+```
+75
+24
+```
+
+Try adding a `Triangle { base: int; height: int }` with its own `Area` impl. The `print_area` function picks it up without any change — that's the trait bound earning its keep.
+
+## What's next
+
+You can now declare types, group them under traits, and write functions that work across every type implementing the right interface. Next up: **modules** — splitting a growing program across multiple files, so you can give each trait, struct, and function the home it deserves.
