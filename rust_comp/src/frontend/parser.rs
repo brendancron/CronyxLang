@@ -1,4 +1,5 @@
 use crate::util::id_provider::*;
+use crate::util::node_id::MetaNodeId;
 use super::meta_ast::*;
 use super::token::*;
 use std::collections::HashMap;
@@ -12,7 +13,7 @@ fn parse_effect_decl(
     tokens: &[Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     consume(tokens, pos, TokenType::Effect)?;
     let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
     consume(tokens, pos, TokenType::LeftBrace)?;
@@ -58,7 +59,7 @@ fn parse_single_handler(
     tokens: &[Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let is_ctl = match tokens.get(*pos).map(|t| t.token_type) {
         Some(TokenType::Ctl) => { *pos += 1; true }
         Some(TokenType::Func) => { *pos += 1; false }
@@ -108,7 +109,7 @@ fn parse_resume(
     tokens: &[Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     consume(tokens, pos, TokenType::Resume)?;
     // bare resume (no expression) when followed by ; or }
     let opt_expr = if check(tokens, *pos, TokenType::Semicolon)
@@ -146,16 +147,16 @@ impl ParseCtx {
     }
 
     /// Record the source location for a node, if a location is known.
-    pub fn record_span(&mut self, node_id: usize, loc: Option<(usize, usize)>) {
+    pub fn record_span(&mut self, node_id: MetaNodeId, loc: Option<(usize, usize)>) {
         if let Some(l) = loc {
-            self.span_table.insert(node_id, l);
+            self.span_table.insert(node_id.0, l);
         }
     }
 
     /// Copy the span of `src` to `dst` (for compound nodes that start at src).
-    pub fn copy_span(&mut self, src: usize, dst: usize) {
-        if let Some(loc) = self.span_table.get(&src).cloned() {
-            self.span_table.insert(dst, loc);
+    pub fn copy_span(&mut self, src: MetaNodeId, dst: MetaNodeId) {
+        if let Some(loc) = self.span_table.get(&src.0).cloned() {
+            self.span_table.insert(dst.0, loc);
         }
     }
 }
@@ -221,7 +222,7 @@ fn parse_lambda_body<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let mut stmts = Vec::new();
 
     while *pos < tokens.len() && tokens[*pos].token_type != TokenType::RightBrace {
@@ -265,7 +266,7 @@ fn parse_trailing_lambda_block<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let start_loc = tok_loc(tokens, *pos);
     let explicit_params = peek_trailing_lambda_params(tokens, *pos);
 
@@ -315,7 +316,7 @@ fn consume<'a>(
     expected: TokenType,
 ) -> Result<&'a Token, ParseError> {
     match tokens.get(*pos) {
-        Some(t) if t.token_type == expected => Ok(consume_next(tokens, pos)),
+        Some(t) if t.token_type == expected => consume_next(tokens, pos),
         Some(t) => Err(ParseError::UnexpectedToken {
             found: t.token_type,
             expected,
@@ -326,12 +327,11 @@ fn consume<'a>(
     }
 }
 
-fn consume_next<'a>(tokens: &'a [Token], pos: &mut usize) -> &'a Token {
-    let tok = tokens
-        .get(*pos)
-        .expect("internal error: consume_next out of bounds");
-    *pos += 1;
-    tok
+fn consume_next<'a>(tokens: &'a [Token], pos: &mut usize) -> Result<&'a Token, ParseError> {
+    match tokens.get(*pos) {
+        Some(tok) => { *pos += 1; Ok(tok) }
+        None => Err(ParseError::UnexpectedEOF { expected: TokenType::EOF }),
+    }
 }
 
 /// Consume the next token as a field/method name in dot-access position.
@@ -358,44 +358,79 @@ fn consume_field_name(tokens: &[Token], pos: &mut usize) -> Result<String, Parse
     }
 }
 
-fn parse_type_annot(tokens: &[Token], pos: &mut usize) -> Option<String> {
-    if check(tokens, *pos, TokenType::Colon) {
+/// Parse a type expression starting at `*pos` (no leading `:` consumed).
+/// Handles Named, App (`Expr<T>`), Tuple (`(A, B)`), and Slice (`[T]`).
+fn parse_type_expr(tokens: &[Token], pos: &mut usize) -> Result<MetaTypeExpr, ParseError> {
+    // Tuple: (A, B, ...)
+    if check(tokens, *pos, TokenType::LeftParen) {
         *pos += 1;
-        // Slice type: `[T]`
-        if check(tokens, *pos, TokenType::LeftBracket) {
-            *pos += 1; // consume `[`
-            let elem = tokens.get(*pos)?.expect_str();
-            *pos += 1; // consume element type
-            if check(tokens, *pos, TokenType::RightBracket) {
-                *pos += 1; // consume `]`
-            }
-            return Some(format!("[{elem}]"));
+        let mut elems = Vec::new();
+        while *pos < tokens.len() && !check(tokens, *pos, TokenType::RightParen) {
+            elems.push(parse_type_expr(tokens, pos)?);
+            if check(tokens, *pos, TokenType::Comma) { *pos += 1; }
         }
-        // Function type: `fn(T, ...): R`
-        if check(tokens, *pos, TokenType::Func) {
-            *pos += 1; // consume `fn`
-            if check(tokens, *pos, TokenType::LeftParen) {
-                let mut depth = 1usize;
-                *pos += 1; // consume `(`
-                while *pos < tokens.len() && depth > 0 {
-                    match tokens[*pos].token_type {
-                        TokenType::LeftParen => { depth += 1; *pos += 1; }
-                        TokenType::RightParen => { depth -= 1; *pos += 1; }
-                        _ => { *pos += 1; }
-                    }
+        if check(tokens, *pos, TokenType::RightParen) { *pos += 1; }
+        return Ok(MetaTypeExpr::Tuple(elems));
+    }
+    // Slice: [T]
+    if check(tokens, *pos, TokenType::LeftBracket) {
+        *pos += 1;
+        let inner = parse_type_expr(tokens, pos)?;
+        if check(tokens, *pos, TokenType::RightBracket) { *pos += 1; }
+        return Ok(MetaTypeExpr::Slice(Box::new(inner)));
+    }
+    // Named or App
+    let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+    if check(tokens, *pos, TokenType::Less) {
+        *pos += 1; // consume <
+        let mut args = Vec::new();
+        while *pos < tokens.len() && !check(tokens, *pos, TokenType::Greater) {
+            args.push(parse_type_expr(tokens, pos)?);
+            if check(tokens, *pos, TokenType::Comma) { *pos += 1; }
+        }
+        if check(tokens, *pos, TokenType::Greater) { *pos += 1; }
+        return Ok(MetaTypeExpr::App(name, args));
+    }
+    Ok(MetaTypeExpr::Named(name))
+}
+
+fn parse_type_annot(tokens: &[Token], pos: &mut usize) -> Option<MetaTypeExpr> {
+    if !check(tokens, *pos, TokenType::Colon) {
+        return None;
+    }
+    *pos += 1; // consume `:`
+    // Function type: `fn(T, ...): R` — not a MetaTypeExpr, handled separately.
+    if check(tokens, *pos, TokenType::Func) {
+        *pos += 1;
+        if check(tokens, *pos, TokenType::LeftParen) {
+            let mut depth = 1usize;
+            *pos += 1;
+            while *pos < tokens.len() && depth > 0 {
+                match tokens[*pos].token_type {
+                    TokenType::LeftParen  => { depth += 1; *pos += 1; }
+                    TokenType::RightParen => { depth -= 1; *pos += 1; }
+                    _ => { *pos += 1; }
                 }
             }
-            // Skip `: ReturnType`
-            if check(tokens, *pos, TokenType::Colon) {
-                *pos += 1; // consume `:`
-                if *pos < tokens.len() { *pos += 1; } // consume type name
-            }
-            return Some("fn".to_string());
         }
-        if let Some(tok) = tokens.get(*pos) {
+        if check(tokens, *pos, TokenType::Colon) {
             *pos += 1;
-            return Some(tok.expect_str());
+            if *pos < tokens.len() { *pos += 1; }
         }
+        return Some(MetaTypeExpr::Named("fn".to_string()));
+    }
+    parse_type_expr(tokens, pos).ok()
+}
+
+/// Consume an optional `: Type` return-type annotation and return it.
+fn parse_return_type(tokens: &[Token], pos: &mut usize) -> Option<MetaTypeExpr> {
+    if check(tokens, *pos, TokenType::Colon) {
+        *pos += 1;
+        return parse_type_expr(tokens, pos).ok();
+    }
+    if check(tokens, *pos, TokenType::Arrow) {
+        *pos += 1;
+        return parse_type_expr(tokens, pos).ok();
     }
     None
 }
@@ -436,36 +471,6 @@ fn parse_type_params(tokens: &[Token], pos: &mut usize) -> Vec<String> {
     names
 }
 
-/// Consume and discard an optional `-> TypeName` or `: TypeName` return type annotation.
-fn skip_return_type(tokens: &[Token], pos: &mut usize) {
-    if check(tokens, *pos, TokenType::Colon) {
-        *pos += 1; // consume :
-        if *pos < tokens.len() { *pos += 1; } // consume type identifier
-        return;
-    }
-    if !check(tokens, *pos, TokenType::Arrow) {
-        return;
-    }
-    *pos += 1; // consume ->
-    // Consume one token for the return type (identifier or bracket-wrapped)
-    if check(tokens, *pos, TokenType::LeftBracket) {
-        // [T] style — consume until ]
-        *pos += 1;
-        while *pos < tokens.len() && !check(tokens, *pos, TokenType::RightBracket) {
-            *pos += 1;
-        }
-        if check(tokens, *pos, TokenType::RightBracket) { *pos += 1; }
-    } else if check(tokens, *pos, TokenType::LeftParen) {
-        // (A, B) tuple style — consume until )
-        *pos += 1;
-        while *pos < tokens.len() && !check(tokens, *pos, TokenType::RightParen) {
-            *pos += 1;
-        }
-        if check(tokens, *pos, TokenType::RightParen) { *pos += 1; }
-    } else {
-        *pos += 1; // single identifier
-    }
-}
 
 fn parse_separated<T>(
     tokens: &[Token],
@@ -486,7 +491,15 @@ fn parse_separated<T>(
         items.push(parse_item(tokens, pos, ctx)?);
 
         if *pos == before {
-            panic!("parser made no progress in comma-separated list");
+            return match tokens.get(*pos) {
+                Some(t) => Err(ParseError::UnexpectedToken {
+                    found: t.token_type,
+                    expected: separator,
+                    line: t.line_number,
+                    col: t.col,
+                }),
+                None => Err(ParseError::UnexpectedEOF { expected: separator }),
+            };
         }
 
         if check(tokens, *pos, separator) {
@@ -503,7 +516,7 @@ fn parse_factor<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let start_loc = tok_loc(tokens, *pos);
     match tokens.get(*pos) {
         Some(tok) => match tok.token_type {
@@ -525,7 +538,7 @@ fn parse_factor<'a>(
             }
 
             TokenType::Number => {
-                consume_next(tokens, pos);
+                consume_next(tokens, pos)?;
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::Int(tok.expect_int()));
@@ -534,7 +547,7 @@ fn parse_factor<'a>(
             }
 
             TokenType::String => {
-                consume_next(tokens, pos);
+                consume_next(tokens, pos)?;
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::String(tok.expect_str()));
@@ -543,7 +556,7 @@ fn parse_factor<'a>(
             }
 
             TokenType::True => {
-                consume_next(tokens, pos);
+                consume_next(tokens, pos)?;
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::Bool(true));
@@ -552,7 +565,7 @@ fn parse_factor<'a>(
             }
 
             TokenType::False => {
-                consume_next(tokens, pos);
+                consume_next(tokens, pos)?;
                 let id = ctx
                     .ast
                     .insert_expr(&mut ctx.id_provider, MetaExpr::Bool(false));
@@ -605,7 +618,7 @@ fn parse_factor<'a>(
             }
 
             TokenType::Identifier => {
-                let name = consume_next(tokens, pos).expect_str();
+                let name = consume_next(tokens, pos)?.expect_str();
 
                 // EnumName::Variant or EnumName::Variant(...) or EnumName::Variant { ... }
                 if check(tokens, *pos, TokenType::DoubleColon) {
@@ -794,7 +807,7 @@ fn parse_factor<'a>(
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let body_block = parse_block(tokens, pos, ctx)?;
                 consume(tokens, pos, TokenType::RightBrace)?;
-                let mut effects: Vec<(String, Vec<usize>)> = Vec::new();
+                let mut effects: Vec<(String, Vec<MetaNodeId>)> = Vec::new();
                 while check(tokens, *pos, TokenType::Handle) {
                     *pos += 1; // consume `handle`
                     let eff_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
@@ -829,7 +842,7 @@ fn parse_factor<'a>(
 
             // Lambda expression: `fn(params): ReturnType { body }`
             TokenType::Func => {
-                consume_next(tokens, pos); // consume `fn`
+                consume_next(tokens, pos)?; // consume `fn`
                 consume(tokens, pos, TokenType::LeftParen)?;
                 let params = parse_separated(
                     tokens, pos, ctx,
@@ -841,7 +854,7 @@ fn parse_factor<'a>(
                     },
                 )?;
                 consume(tokens, pos, TokenType::RightParen)?;
-                skip_return_type(tokens, pos); // skip `: ReturnType`
+                let _ = parse_return_type(tokens, pos);
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let body = parse_block(tokens, pos, ctx)?;
                 consume(tokens, pos, TokenType::RightBrace)?;
@@ -850,9 +863,14 @@ fn parse_factor<'a>(
                 Ok(id)
             }
 
-            _ => panic!("expected literal or '('"),
+            _ => Err(ParseError::UnexpectedToken {
+                found: tok.token_type,
+                expected: TokenType::LeftParen,
+                line: tok.line_number,
+                col: tok.col,
+            }),
         },
-        None => panic!("Unexpected EOF"),
+        None => Err(ParseError::UnexpectedEOF { expected: TokenType::LeftParen }),
     }
 }
 
@@ -862,7 +880,7 @@ fn parse_postfix<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let mut base = parse_factor(tokens, pos, ctx)?;
 
     loop {
@@ -870,7 +888,7 @@ fn parse_postfix<'a>(
             *pos += 1; // consume Dot
             // Numeric dot access: tuple.0, tuple.1
             if check(tokens, *pos, TokenType::Number) {
-                let idx = consume_next(tokens, pos).expect_int() as usize;
+                let idx = consume_next(tokens, pos)?.expect_int() as usize;
                 let prev = base;
                 base = ctx.ast.insert_expr(
                     &mut ctx.id_provider,
@@ -986,7 +1004,7 @@ fn parse_term<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let mut left = parse_postfix(tokens, pos, ctx)?;
     loop {
         match tokens.get(*pos).map(|t| t.token_type) {
@@ -1014,7 +1032,7 @@ fn parse_addition<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let mut left = parse_term(tokens, pos, ctx)?;
     loop {
         match tokens.get(*pos).map(|t| t.token_type) {
@@ -1042,7 +1060,7 @@ fn parse_comparison<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let mut left = parse_addition(tokens, pos, ctx)?;
     loop {
         match tokens.get(*pos).map(|t| t.token_type) {
@@ -1084,7 +1102,7 @@ fn parse_equality<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let mut left = parse_comparison(tokens, pos, ctx)?;
     loop {
         match tokens.get(*pos).map(|t| t.token_type) {
@@ -1112,7 +1130,7 @@ fn parse_and<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let mut left = parse_equality(tokens, pos, ctx)?;
     loop {
         if tokens.get(*pos).map(|t| t.token_type) == Some(TokenType::AmpAmp) {
@@ -1132,7 +1150,7 @@ fn parse_or<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let mut left = parse_and(tokens, pos, ctx)?;
     loop {
         if tokens.get(*pos).map(|t| t.token_type) == Some(TokenType::PipePipe) {
@@ -1152,7 +1170,7 @@ fn parse_expr<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     parse_or(tokens, pos, ctx)
 }
 
@@ -1160,7 +1178,7 @@ fn parse_expr_stmt<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let start_loc = tok_loc(tokens, *pos);
     let expr = parse_expr(tokens, pos, ctx)?;
     consume(tokens, pos, TokenType::Semicolon)?;
@@ -1175,7 +1193,7 @@ fn parse_stmt<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let start_loc = tok_loc(tokens, *pos);
     match tokens.get(*pos) {
         Some(tok) => match tok.token_type {
@@ -1327,13 +1345,13 @@ fn parse_stmt<'a>(
                     },
                 )?;
                 consume(tokens, pos, TokenType::RightParen)?;
-                skip_return_type(tokens, pos);
+                let ret_ty = parse_return_type(tokens, pos);
 
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let body = parse_block(tokens, pos, ctx)?;
                 consume(tokens, pos, TokenType::RightBrace)?;
 
-                let fn_decl = MetaStmt::FnDecl { name, params, type_params, body };
+                let fn_decl = MetaStmt::FnDecl { name, params, type_params, ret_ty, body };
                 let id = ctx.ast.insert_stmt(&mut ctx.id_provider, fn_decl);
                 ctx.record_span(id, start_loc);
                 Ok(id)
@@ -1415,18 +1433,20 @@ fn parse_stmt<'a>(
             TokenType::Enum => {
                 consume(tokens, pos, TokenType::Enum)?;
                 let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                // GADT: optional type params on the enum, e.g. `enum Expr<T>`
+                let type_params = parse_type_params(tokens, pos);
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let mut variants = Vec::new();
                 while !check(tokens, *pos, TokenType::RightBrace) {
                     let variant_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    // GADT: optional constructor-local type vars, e.g. `If<A>(...)`
+                    let local_type_params = parse_type_params(tokens, pos);
                     let payload = if check(tokens, *pos, TokenType::LeftParen) {
                         consume(tokens, pos, TokenType::LeftParen)?;
                         let types = parse_separated(
                             tokens, pos, ctx,
                             TokenType::Comma, TokenType::RightParen,
-                            |tokens, pos, _ctx| {
-                                Ok(consume(tokens, pos, TokenType::Identifier)?.expect_str())
-                            },
+                            |tokens, pos, _ctx| parse_type_expr(tokens, pos),
                         )?;
                         consume(tokens, pos, TokenType::RightParen)?;
                         VariantPayload::Tuple(types)
@@ -1447,14 +1467,21 @@ fn parse_stmt<'a>(
                     } else {
                         VariantPayload::Unit
                     };
-                    variants.push(EnumVariant { name: variant_name, payload });
+                    // GADT: optional return-type annotation, e.g. `: Expr<int>`
+                    let return_type = if check(tokens, *pos, TokenType::Colon) {
+                        *pos += 1;
+                        Some(parse_type_expr(tokens, pos)?)
+                    } else {
+                        None
+                    };
+                    variants.push(EnumVariant { name: variant_name, local_type_params, payload, return_type });
                     // Variants are separated by commas; trailing comma is allowed
                     if check(tokens, *pos, TokenType::Comma) {
                         *pos += 1;
                     }
                 }
                 consume(tokens, pos, TokenType::RightBrace)?;
-                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::EnumDecl { name, variants });
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::EnumDecl { name, type_params, variants });
                 Ok(id)
             }
 
@@ -1468,9 +1495,22 @@ fn parse_stmt<'a>(
                 while !check(tokens, *pos, TokenType::RightBrace) {
                     let pattern = parse_pattern(tokens, pos)?;
                     consume(tokens, pos, TokenType::FatArrow)?;
-                    consume(tokens, pos, TokenType::LeftBrace)?;
-                    let body = parse_block(tokens, pos, ctx)?;
-                    consume(tokens, pos, TokenType::RightBrace)?;
+                    let body = if check(tokens, *pos, TokenType::LeftBrace) {
+                        // Block-body arm: `Pattern => { stmts }`
+                        consume(tokens, pos, TokenType::LeftBrace)?;
+                        let b = parse_block(tokens, pos, ctx)?;
+                        consume(tokens, pos, TokenType::RightBrace)?;
+                        b
+                    } else {
+                        // Expression-body arm: `Pattern => expr,`
+                        // Wrap in Return so the value propagates out of the match.
+                        ctx.allow_trailing_brace = false;
+                        let expr = parse_expr(tokens, pos, ctx)?;
+                        ctx.allow_trailing_brace = true;
+                        let ret_id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Return(Some(expr)));
+                        if check(tokens, *pos, TokenType::Comma) { *pos += 1; }
+                        ret_id
+                    };
                     arms.push(MatchArm { pattern, body });
                 }
                 consume(tokens, pos, TokenType::RightBrace)?;
@@ -1654,7 +1694,7 @@ fn parse_stmt<'a>(
                         *pos += 1;
                     }
                     consume(tokens, pos, TokenType::RightParen)?;
-                    skip_return_type(tokens, pos);
+                    let _ = parse_return_type(tokens, pos);
                     consume(tokens, pos, TokenType::Semicolon)?;
                     method_names.push(method_name);
                 }
@@ -1687,7 +1727,7 @@ fn parse_stmt<'a>(
                         },
                     )?;
                     consume(tokens, pos, TokenType::RightParen)?;
-                    skip_return_type(tokens, pos);
+                    let _ = parse_return_type(tokens, pos);
                     consume(tokens, pos, TokenType::LeftBrace)?;
                     let body = parse_block(tokens, pos, ctx)?;
                     consume(tokens, pos, TokenType::RightBrace)?;
@@ -1710,7 +1750,7 @@ fn parse_for_incr<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
     match tokens.get(*pos).map(|t| t.token_type) {
         Some(TokenType::PlusPlus) => {
@@ -1746,7 +1786,13 @@ fn parse_for_incr<'a>(
             let expr = parse_expr(tokens, pos, ctx)?;
             Ok(ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Assign { name, expr }))
         }
-        _ => panic!("expected increment expression in for loop"),
+        Some(t) => Err(ParseError::UnexpectedToken {
+            found: t,
+            expected: TokenType::PlusPlus,
+            line: tokens[*pos].line_number,
+            col: tokens[*pos].col,
+        }),
+        None => Err(ParseError::UnexpectedEOF { expected: TokenType::PlusPlus }),
     }
 }
 
@@ -1790,7 +1836,7 @@ fn parse_meta_stmt(
     tokens: &[Token],
     pos: &mut usize,
     ctx: &mut ParseCtx,
-) -> Result<usize, ParseError> {
+) -> Result<MetaNodeId, ParseError> {
     consume(tokens, pos, TokenType::Meta)?;
 
     if check(tokens, *pos, TokenType::Func) {
@@ -1827,7 +1873,7 @@ fn parse_meta_stmt(
     Ok(id)
 }
 
-fn parse_block(tokens: &[Token], pos: &mut usize, ctx: &mut ParseCtx) -> Result<usize, ParseError> {
+fn parse_block(tokens: &[Token], pos: &mut usize, ctx: &mut ParseCtx) -> Result<MetaNodeId, ParseError> {
     let mut stmts = Vec::new();
 
     while *pos < tokens.len() && tokens[*pos].token_type != TokenType::RightBrace {

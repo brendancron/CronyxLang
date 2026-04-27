@@ -1,4 +1,5 @@
 use crate::runtime::environment::*;
+use crate::util::node_id::RuntimeNodeId;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -48,6 +49,10 @@ pub enum Value {
     /// Native Rust callable, used internally for injected default continuations.
     NativeFunction(NativeFunction),
 
+    /// A module namespace (imported via `use`). Intentionally immutable — no
+    /// `RefCell` wrapper — because modules represent read-only export tables.
+    /// `Struct` and `List` use `Rc<RefCell<...>>` to support in-place mutation
+    /// and shared identity; modules have neither requirement.
     Module(Rc<HashMap<String, Value>>),
 
     Unit,
@@ -56,18 +61,20 @@ pub enum Value {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub params: Vec<String>,
-    pub body: usize,
+    pub body: RuntimeNodeId,
     pub env: Rc<RefCell<Environment>>,
-    /// True for `fn() { ... }` lambda expressions — call uses lexical scoping.
-    /// False for named `fn foo()` declarations — call uses dynamic scoping.
+    /// True when this function should use lexical scoping: the call swaps to
+    /// the captured `env` before executing the body. All functions — both
+    /// named declarations and lambda expressions — capture their definition
+    /// environment and set this to true.
     pub is_closure: bool,
 }
 
 impl Value {
-    pub fn enumerate(&self) -> std::cell::Ref<'_, Vec<Value>> {
+    pub fn enumerate(&self) -> Result<std::cell::Ref<'_, Vec<Value>>, String> {
         match self {
-            Value::List(list) => list.borrow(),
-            _ => panic!("iterable expeced"),
+            Value::List(list) => Ok(list.borrow()),
+            _ => Err(format!("value is not iterable: {self}")),
         }
     }
 }

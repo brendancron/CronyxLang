@@ -34,6 +34,11 @@ impl FreeTypeVars for Type {
                 set
             }
             Type::Slice(elem) => elem.free_type_vars(),
+            Type::App(_, args) => {
+                let mut set = HashSet::new();
+                for a in args { set.extend(a.free_type_vars()); }
+                set
+            }
             _ => HashSet::new(),
         }
     }

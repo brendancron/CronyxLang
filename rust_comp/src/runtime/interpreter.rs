@@ -1,13 +1,14 @@
-use super::environment::{EnvHandler, EnvRef, Environment};
+use super::environment::{EnvHandler, EnvRef};
 use super::result::ExecResult;
 use super::value::{EnumValuePayload, Function, NativeFunction, Value};
-use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings};
+use crate::frontend::meta_ast::{Pattern, VariantBindings};
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::meta::staged_forest::ModuleBinding;
 use crate::semantics::types::type_error::TypeError;
 use crate::semantics::types::types::{self, Type};
 use crate::semantics::meta::gen_collector::{collect_and_subst, GeneratedCollector};
+use crate::util::node_id::RuntimeNodeId;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
@@ -15,10 +16,12 @@ use std::rc::Rc;
 
 #[derive(Debug)]
 pub enum EvalError {
-    ExprNotFound(usize),
-    StmtNotFound(usize),
+    ExprNotFound(RuntimeNodeId),
+    StmtNotFound(RuntimeNodeId),
     UnknownStructType(String),
     UndefinedVariable(String),
+    DivisionByZero,
+    Internal(String),
     TypeError(Type),
     TypeCheckFailed(TypeError),
     NonFunctionCall,
@@ -32,13 +35,29 @@ pub enum EvalError {
     /// A `ctl` handler collected multiple resume values; carries them up to the nearest
     /// `eval_stmts` so it can replay the suffix stmts for each value.
     CtlSuspend { op_name: String, resume_values: Vec<Value> },
+    IoError(String),
+    /// Wraps another error with the AST node ID of the expression or statement
+    /// where it originated, enabling source-span enrichment in diagnostics.
+    /// Innermost location wins — outer eval_expr/eval_stmt calls keep the first
+    /// WithLocation they see unchanged.
+    WithLocation { inner: Box<EvalError>, node_id: RuntimeNodeId },
 }
 
 /// Entry in the ctl handler stack installed by `with ctl`.
 pub struct CtlHandlerEntry {
     pub op_name: String,
     pub params: Vec<String>,
-    pub body: usize,
+    pub body: RuntimeNodeId,
+}
+
+/// Entry in the fn handler stack installed by `with fn`.
+/// `WithFn` handlers must be dynamically scoped — they're installed inside a
+/// `run...handle` block but called by functions that captured their env before
+/// the handler was installed. A separate stack (like `ctl_handlers`) lets
+/// functions find the handler without it being in their lexical env chain.
+pub struct FnHandlerEntry {
+    pub op_name: String,
+    pub func: Rc<Function>,
 }
 
 impl From<TypeError> for EvalError {
@@ -47,10 +66,9 @@ impl From<TypeError> for EvalError {
     }
 }
 
-// TODO this is not the correct way to do this
 impl From<String> for EvalError {
-    fn from(name: String) -> Self {
-        EvalError::UndefinedVariable(name)
+    fn from(msg: String) -> Self {
+        EvalError::Internal(msg)
     }
 }
 
@@ -68,6 +86,10 @@ pub struct EvalCtx<'a, W> {
     pub source_dir: Option<std::path::PathBuf>,
     /// Stack of active `ctl` handlers — last installed wins on lookup.
     pub ctl_handlers: Vec<CtlHandlerEntry>,
+    /// Stack of active `fn` effect handlers — last installed wins on lookup.
+    /// Checked after lexical env lookup fails, enabling dynamic dispatch for
+    /// effect operations called by lexically-scoped functions.
+    pub fn_handlers: Vec<FnHandlerEntry>,
     /// When true, `resume` pushes to `collected_resumes` instead of returning `Resumed`.
     /// Used during multi-resume collection phase.
     pub collecting_resumes: bool,
@@ -91,7 +113,17 @@ pub struct EvalCtx<'a, W> {
     pub cps_resume_count: usize,
 }
 
-pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
+pub fn eval_expr<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
+    eval_expr_inner(expr_id, ctx).map_err(|e| match e {
+        EvalError::WithLocation { .. }
+        | EvalError::EffectAborted
+        | EvalError::MultiResumed
+        | EvalError::CtlSuspend { .. } => e,
+        _ => EvalError::WithLocation { inner: Box::new(e), node_id: expr_id },
+    })
+}
+
+fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Result<Value, EvalError> {
     match ctx
         .ast
         .get_expr(expr_id)
@@ -116,8 +148,13 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
         }
 
         RuntimeExpr::Variable(name) => {
-            let var = ctx.env.get(name)?;
-            Ok(var)
+            if let Ok(var) = ctx.env.get(name) {
+                Ok(var)
+            } else if let Some(entry) = ctx.fn_handlers.iter().rev().find(|e| &e.op_name == name) {
+                Ok(Value::Function(entry.func.clone()))
+            } else {
+                Err(EvalError::UndefinedVariable(format!("Undefined variable: '{name}'")))
+            }
         }
 
         RuntimeExpr::List(exprs) => {
@@ -156,7 +193,10 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
         RuntimeExpr::Div(a, b) => {
             let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
             match (&lhs, &rhs) {
-                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x / y)),
+                (Value::Int(x), Value::Int(y)) => {
+                    if *y == 0 { return Err(EvalError::DivisionByZero); }
+                    Ok(Value::Int(x / y))
+                }
                 _ => dispatch_binop("Div", lhs, rhs, ctx),
             }
         }
@@ -238,14 +278,19 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 Value::List(items) => {
                     let borrowed = items.borrow();
                     let len = borrowed.len() as i64;
+                    if n < 0 && n < -len {
+                        return Err(EvalError::UndefinedVariable(format!("index {n} out of bounds")));
+                    }
                     let i = if n < 0 { (len + n) as usize } else { n as usize };
                     borrowed.get(i).cloned().ok_or_else(|| EvalError::UndefinedVariable(format!("index {n} out of bounds")))
                 }
                 Value::String(s) => {
-                    let chars: Vec<char> = s.chars().collect();
-                    let len = chars.len() as i64;
+                    let len = s.chars().count() as i64;
+                    if n < 0 && n < -len {
+                        return Err(EvalError::UndefinedVariable(format!("index {n} out of bounds")));
+                    }
                     let i = if n < 0 { (len + n) as usize } else { n as usize };
-                    chars.get(i).map(|c| Value::String(c.to_string()))
+                    s.chars().nth(i).map(|c| Value::String(c.to_string()))
                         .ok_or_else(|| EvalError::UndefinedVariable(format!("index {n} out of bounds")))
                 }
                 _ => Err(EvalError::TypeError(types::unit_type())),
@@ -279,8 +324,7 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                     Ok(Value::List(std::rc::Rc::new(std::cell::RefCell::new(slice))))
                 }
                 Value::String(s) => {
-                    let chars: Vec<char> = s.chars().collect();
-                    let len = chars.len() as i64;
+                    let len = s.chars().count() as i64;
                     let resolve = |n: i64| -> usize {
                         if n < 0 { (len + n).max(0) as usize } else { n.min(len) as usize }
                     };
@@ -296,9 +340,9 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                             Value::Int(n) => resolve(n),
                             _ => return Err(EvalError::TypeError(types::int_type())),
                         },
-                        None => chars.len(),
+                        None => len as usize,
                     };
-                    let slice: String = chars[start_i.min(chars.len())..end_i.min(chars.len())].iter().collect();
+                    let slice: String = s.chars().skip(start_i).take(end_i.saturating_sub(start_i)).collect();
                     Ok(Value::String(slice))
                 }
                 _ => Err(EvalError::TypeError(types::unit_type())),
@@ -393,7 +437,7 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
             // Trait method dispatch: struct value + impl_registry lookup
             if let Value::Struct { ref type_name, .. } = obj {
                 if let Some(fn_name) = ctx.ast.impl_registry.get(&(type_name.clone(), method.clone())).cloned() {
-                    let func = match ctx.env.get(&fn_name)? {
+                    let func = match ctx.env.get(&fn_name).map_err(EvalError::UndefinedVariable)? {
                         Value::Function(f) => f,
                         _ => return Err(EvalError::NonFunctionCall),
                     };
@@ -444,12 +488,12 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
 
         RuntimeExpr::EnumConstructor { enum_name, variant, payload } => {
             let val_payload = match payload {
-                ConstructorPayload::Unit => EnumValuePayload::Unit,
-                ConstructorPayload::Tuple(ids) => {
+                RuntimeConstructorPayload::Unit => EnumValuePayload::Unit,
+                RuntimeConstructorPayload::Tuple(ids) => {
                     let vals: Result<Vec<_>, _> = ids.iter().map(|id| eval_expr(*id, ctx)).collect();
                     EnumValuePayload::Tuple(vals?)
                 }
-                ConstructorPayload::Struct(fields) => {
+                RuntimeConstructorPayload::Struct(fields) => {
                     let vals: Result<Vec<_>, _> = fields.iter()
                         .map(|(name, id)| eval_expr(*id, ctx).map(|v| (name.clone(), v)))
                         .collect();
@@ -646,7 +690,12 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
                 return Ok((nf.0)(arg_vals));
             }
 
-            let func = match ctx.env.get(callee)? {
+            let callee_val = ctx.env.get(callee).ok().or_else(|| {
+                ctx.fn_handlers.iter().rev()
+                    .find(|e| &e.op_name == callee)
+                    .map(|e| Value::Function(e.func.clone()))
+            }).ok_or_else(|| EvalError::UndefinedVariable(format!("Undefined variable: '{callee}'")))?;
+            let func = match callee_val {
                 Value::Function(f) => f,
                 _ => return Err(EvalError::NonFunctionCall),
             };
@@ -702,7 +751,17 @@ pub fn eval_expr<W: Write>(expr_id: usize, ctx: &mut EvalCtx<W>) -> Result<Value
     }
 }
 
-pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecResult, EvalError> {
+pub fn eval_stmt<W: Write>(stmt_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Result<ExecResult, EvalError> {
+    eval_stmt_inner(stmt_id, ctx).map_err(|e| match e {
+        EvalError::WithLocation { .. }
+        | EvalError::EffectAborted
+        | EvalError::MultiResumed
+        | EvalError::CtlSuspend { .. } => e,
+        _ => EvalError::WithLocation { inner: Box::new(e), node_id: stmt_id },
+    })
+}
+
+fn eval_stmt_inner<W: Write>(stmt_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Result<ExecResult, EvalError> {
     match ctx
         .ast
         .get_stmt(stmt_id)
@@ -710,7 +769,7 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
     {
         RuntimeStmt::Print(expr) => {
             let value = eval_expr(*expr, ctx)?;
-            writeln!(ctx.out, "{}", value).unwrap();
+            writeln!(ctx.out, "{}", value).map_err(|e| EvalError::IoError(e.to_string()))?;
             Ok(ExecResult::Continue)
         }
 
@@ -750,7 +809,7 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
         } => {
             let value = eval_expr(*iterable, ctx);
 
-            for elem in value?.enumerate().iter() {
+            for elem in value?.enumerate()?.iter() {
                 ctx.env.push_scope();
                 ctx.env.define(var.clone(), elem.clone());
 
@@ -837,8 +896,8 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             let func = Rc::new(Function {
                 params: params.clone(),
                 body: *body,
-                env: Environment::new(),
-                is_closure: false,
+                env: ctx.env.env_ref(),
+                is_closure: true,
             });
             ctx.env.define(name.clone(), Value::Function(func));
             Ok(ExecResult::Continue)
@@ -889,8 +948,8 @@ pub fn eval_stmt<W: Write>(stmt_id: usize, ctx: &mut EvalCtx<W>) -> Result<ExecR
             let func = Rc::new(Function {
                 params: params.iter().map(|p| p.name.clone()).collect(),
                 body: *body,
-                env: Environment::new(),
-                is_closure: false,
+                env: ctx.env.env_ref(),
+                is_closure: true,
             });
             ctx.env.define(op_name.clone(), Value::Function(func));
             Ok(ExecResult::Continue)
@@ -998,14 +1057,14 @@ fn match_pattern<W: Write>(
 
 /// Hoist all FnDecl statements in `stmts` into the current scope before any statements run.
 /// This allows functions to be called before their definition point in the source.
-fn hoist_fndecls<W: Write>(stmts: &[usize], ctx: &mut EvalCtx<W>) {
+fn hoist_fndecls<W: Write>(stmts: &[RuntimeNodeId], ctx: &mut EvalCtx<W>) {
     for &stmt_id in stmts {
         if let Some(RuntimeStmt::FnDecl { name, params, body, .. }) = ctx.ast.get_stmt(stmt_id) {
             let func = Rc::new(Function {
                 params: params.clone(),
                 body: *body,
-                env: Environment::new(),
-                is_closure: false,
+                env: ctx.env.env_ref(),
+                is_closure: true,
             });
             ctx.env.define(name.clone(), Value::Function(func));
         }
@@ -1073,13 +1132,31 @@ pub fn call_value<W: Write>(func: Value, args: Vec<Value>, ctx: &mut EvalCtx<W>)
 }
 
 pub fn eval_stmts<W: Write>(
-    stmts: &Vec<usize>,
+    stmts: &[RuntimeNodeId],
     ctx: &mut EvalCtx<W>,
 ) -> Result<ExecResult, EvalError> {
     hoist_fndecls(stmts, ctx);
     let mut i = 0;
     while i < stmts.len() {
         let stmt_id = stmts[i];
+
+        // Special handling for WithFn: push handler onto the dynamic fn_handlers stack
+        // for the duration of the remaining stmts. This makes effect operations visible
+        // to lexically-scoped functions that captured their env before the handler was installed.
+        if let Some(RuntimeStmt::WithFn { op_name, params, body, .. }) = ctx.ast.get_stmt(stmt_id) {
+            let func = Rc::new(Function {
+                params: params.iter().map(|p| p.name.clone()).collect(),
+                body: *body,
+                env: ctx.env.env_ref(),
+                is_closure: true,
+            });
+            let op_name = op_name.clone();
+            let continuation: Vec<RuntimeNodeId> = stmts[i + 1..].to_vec();
+            ctx.fn_handlers.push(FnHandlerEntry { op_name, func });
+            let result = eval_stmts(&continuation, ctx);
+            ctx.fn_handlers.pop();
+            return result;
+        }
 
         // Special handling for WithCtl: capture the remaining stmts as the continuation
         // so multi-resume can re-run them for each `resume` call.
@@ -1090,7 +1167,7 @@ pub fn eval_stmts<W: Write>(
             _ => None,
         };
         if let Some((op_name, param_names, body)) = with_ctl_info {
-            let continuation: Vec<usize> = stmts[i + 1..].to_vec();
+            let continuation: Vec<RuntimeNodeId> = stmts[i + 1..].to_vec();
             ctx.ctl_handlers.push(CtlHandlerEntry { op_name, params: param_names, body });
             let result = eval_stmts(&continuation, ctx);
             ctx.ctl_handlers.pop();
@@ -1112,7 +1189,7 @@ pub fn eval_stmts<W: Write>(
             // stmts[i+1..] continue. Any further ctl ops in those stmts fire their own
             // CtlSuspend and are caught recursively by the inner eval_stmts.
             Err(EvalError::CtlSuspend { op_name, resume_values }) => {
-                let suffix: Vec<usize> = stmts[i..].to_vec();
+                let suffix: Vec<RuntimeNodeId> = stmts[i..].to_vec();
                 for resume_val in resume_values {
                     ctx.replay_stack.push((op_name.clone(), resume_val));
                     match eval_stmts(&suffix, ctx) {
@@ -1143,8 +1220,8 @@ pub fn setup_modules(ast: &RuntimeAst, bindings: &[ModuleBinding], env: &mut Env
             let func = Rc::new(Function {
                 params: params.clone(),
                 body: *body,
-                env: Environment::new(),
-                is_closure: false,
+                env: env.env_ref(),
+                is_closure: true,
             });
             env.define(name.clone(), Value::Function(func));
         }
@@ -1170,7 +1247,7 @@ pub fn setup_modules(ast: &RuntimeAst, bindings: &[ModuleBinding], env: &mut Env
 
 pub fn eval<W: Write>(
     ast: &RuntimeAst,
-    root_stmts: &Vec<usize>,
+    root_stmts: &[RuntimeNodeId],
     env: EnvRef,
     out: &mut W,
     gen_collector: Option<&mut GeneratedCollector>,
@@ -1183,6 +1260,7 @@ pub fn eval<W: Write>(
         gen_collector,
         source_dir,
         ctl_handlers: Vec::new(),
+        fn_handlers: Vec::new(),
         collecting_resumes: false,
         collected_resumes: Vec::new(),
         replay_stack: Vec::new(),

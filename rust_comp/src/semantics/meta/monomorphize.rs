@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use crate::frontend::meta_ast::{ConstructorPayload, MatchArm};
 use crate::semantics::meta::runtime_ast::*;
 use crate::semantics::types::types::{PrimitiveType, Type, TypeVar};
+use crate::util::node_id::RuntimeNodeId;
 
-/// Produce a stable identifier-safe string from a type for name mangling.
 fn mangle_type(ty: &Type) -> String {
     match ty {
         Type::Primitive(PrimitiveType::Int) => "int".to_string(),
@@ -23,6 +22,10 @@ fn mangle_type(ty: &Type) -> String {
         }
         Type::Slice(elem) => format!("slice_{}", mangle_type(elem)),
         Type::Enum(name) => name.clone(),
+        Type::App(name, args) => {
+            let inner = args.iter().map(mangle_type).collect::<Vec<_>>().join("_");
+            format!("{name}_{inner}")
+        }
     }
 }
 
@@ -30,17 +33,17 @@ fn mangle_type(ty: &Type) -> String {
 
 fn clone_expr(
     ast: &RuntimeAst,
-    expr_id: usize,
+    expr_id: RuntimeNodeId,
     next_id: &mut usize,
-    new_stmts: &mut HashMap<usize, RuntimeStmt>,
-    new_exprs: &mut HashMap<usize, RuntimeExpr>,
-    stmt_map: &mut HashMap<usize, usize>,
-    expr_map: &mut HashMap<usize, usize>,
-) -> usize {
+    new_stmts: &mut HashMap<RuntimeNodeId, RuntimeStmt>,
+    new_exprs: &mut HashMap<RuntimeNodeId, RuntimeExpr>,
+    stmt_map: &mut HashMap<RuntimeNodeId, RuntimeNodeId>,
+    expr_map: &mut HashMap<RuntimeNodeId, RuntimeNodeId>,
+) -> RuntimeNodeId {
     if let Some(&mapped) = expr_map.get(&expr_id) {
         return mapped;
     }
-    let new_id = *next_id;
+    let new_id = RuntimeNodeId(*next_id);
     *next_id += 1;
     expr_map.insert(expr_id, new_id);
 
@@ -87,9 +90,9 @@ fn clone_expr(
             enum_name,
             variant,
             payload: match payload {
-                ConstructorPayload::Unit => ConstructorPayload::Unit,
-                ConstructorPayload::Tuple(ids) => ConstructorPayload::Tuple(ids.iter().map(|i| ce!(*i)).collect()),
-                ConstructorPayload::Struct(fields) => ConstructorPayload::Struct(
+                RuntimeConstructorPayload::Unit => RuntimeConstructorPayload::Unit,
+                RuntimeConstructorPayload::Tuple(ids) => RuntimeConstructorPayload::Tuple(ids.iter().map(|&i| ce!(i)).collect()),
+                RuntimeConstructorPayload::Struct(fields) => RuntimeConstructorPayload::Struct(
                     fields.iter().map(|(n, id)| (n.clone(), ce!(*id))).collect(),
                 ),
             },
@@ -115,17 +118,17 @@ fn clone_expr(
 
 fn clone_stmt(
     ast: &RuntimeAst,
-    stmt_id: usize,
+    stmt_id: RuntimeNodeId,
     next_id: &mut usize,
-    new_stmts: &mut HashMap<usize, RuntimeStmt>,
-    new_exprs: &mut HashMap<usize, RuntimeExpr>,
-    stmt_map: &mut HashMap<usize, usize>,
-    expr_map: &mut HashMap<usize, usize>,
-) -> usize {
+    new_stmts: &mut HashMap<RuntimeNodeId, RuntimeStmt>,
+    new_exprs: &mut HashMap<RuntimeNodeId, RuntimeExpr>,
+    stmt_map: &mut HashMap<RuntimeNodeId, RuntimeNodeId>,
+    expr_map: &mut HashMap<RuntimeNodeId, RuntimeNodeId>,
+) -> RuntimeNodeId {
     if let Some(&mapped) = stmt_map.get(&stmt_id) {
         return mapped;
     }
-    let new_id = *next_id;
+    let new_id = RuntimeNodeId(*next_id);
     *next_id += 1;
     stmt_map.insert(stmt_id, new_id);
 
@@ -172,7 +175,7 @@ fn clone_stmt(
         },
         RuntimeStmt::Match { scrutinee, arms } => RuntimeStmt::Match {
             scrutinee: ce!(scrutinee),
-            arms: arms.iter().map(|arm| MatchArm {
+            arms: arms.iter().map(|arm| RuntimeMatchArm {
                 pattern: arm.pattern.clone(),
                 body: cs!(arm.body),
             }).collect(),
@@ -186,9 +189,8 @@ fn clone_stmt(
 
 // ── Main monomorphization pass ───────────────────────────────────────────────
 
-pub fn monomorphize(ast: &mut RuntimeAst, type_map: &HashMap<usize, Type>) {
-    // Collect all generic functions (non-empty type_params).
-    let generic_fns: HashMap<String, usize> = ast.stmts.iter()
+pub fn monomorphize(ast: &mut RuntimeAst, type_map: &HashMap<RuntimeNodeId, Type>) {
+    let generic_fns: HashMap<String, RuntimeNodeId> = ast.stmts.iter()
         .filter_map(|(&id, stmt)| {
             if let RuntimeStmt::FnDecl { name, type_params, .. } = stmt {
                 if !type_params.is_empty() {
@@ -203,14 +205,10 @@ pub fn monomorphize(ast: &mut RuntimeAst, type_map: &HashMap<usize, Type>) {
         return;
     }
 
-    // Allocate fresh IDs above the current max.
-    let mut next_id = ast.stmts.keys().chain(ast.exprs.keys()).max().copied().unwrap_or(0) + 1;
+    let mut next_id = ast.stmts.keys().chain(ast.exprs.keys()).map(|id| id.0).max().unwrap_or(0) + 1;
 
-    // Walk every expression in the AST to find call sites that target generic functions.
-    // Collect: mangled_name → (original_fn_name, original_stmt_id)
-    let mut instantiations: HashMap<String, (String, usize)> = HashMap::new();
-    // Per call-site rewrite: expr_id → mangled_name
-    let mut call_rewrites: HashMap<usize, String> = HashMap::new();
+    let mut instantiations: HashMap<String, (String, RuntimeNodeId)> = HashMap::new();
+    let mut call_rewrites: HashMap<RuntimeNodeId, String> = HashMap::new();
 
     for (&expr_id, expr) in &ast.exprs {
         if let RuntimeExpr::Call { callee, args } = expr {
@@ -232,14 +230,14 @@ pub fn monomorphize(ast: &mut RuntimeAst, type_map: &HashMap<usize, Type>) {
         return;
     }
 
-    // For each unique instantiation, clone the generic function body under the mangled name.
-    let mut new_fn_stmt_ids: Vec<usize> = Vec::new();
+    let mut new_fn_stmt_ids: Vec<RuntimeNodeId> = Vec::new();
+    let mut cloned_call_rewrites: HashMap<RuntimeNodeId, String> = HashMap::new();
     for (mangled_name, (_, orig_stmt_id)) in &instantiations {
         if let Some(RuntimeStmt::FnDecl { params, body, .. }) = ast.stmts.get(orig_stmt_id).cloned() {
-            let mut stmt_map: HashMap<usize, usize> = HashMap::new();
-            let mut expr_map: HashMap<usize, usize> = HashMap::new();
-            let mut new_stmts: HashMap<usize, RuntimeStmt> = HashMap::new();
-            let mut new_exprs: HashMap<usize, RuntimeExpr> = HashMap::new();
+            let mut stmt_map: HashMap<RuntimeNodeId, RuntimeNodeId> = HashMap::new();
+            let mut expr_map: HashMap<RuntimeNodeId, RuntimeNodeId> = HashMap::new();
+            let mut new_stmts: HashMap<RuntimeNodeId, RuntimeStmt> = HashMap::new();
+            let mut new_exprs: HashMap<RuntimeNodeId, RuntimeExpr> = HashMap::new();
 
             let new_body = clone_stmt(
                 ast, body, &mut next_id,
@@ -247,7 +245,23 @@ pub fn monomorphize(ast: &mut RuntimeAst, type_map: &HashMap<usize, Type>) {
                 &mut stmt_map, &mut expr_map,
             );
 
-            let fn_id = next_id;
+            for (&orig_id, &new_id) in &expr_map {
+                if let Some(mangled) = call_rewrites.get(&orig_id) {
+                    cloned_call_rewrites.insert(new_id, mangled.clone());
+                }
+            }
+
+            for (&_orig_id, &new_id) in &expr_map {
+                if !cloned_call_rewrites.contains_key(&new_id) {
+                    if let Some(RuntimeExpr::Call { callee, .. }) = new_exprs.get(&new_id) {
+                        if generic_fns.contains_key(callee.as_str()) {
+                            cloned_call_rewrites.insert(new_id, mangled_name.clone());
+                        }
+                    }
+                }
+            }
+
+            let fn_id = RuntimeNodeId(next_id);
             next_id += 1;
             new_stmts.insert(fn_id, RuntimeStmt::FnDecl {
                 name: mangled_name.clone(),
@@ -262,8 +276,7 @@ pub fn monomorphize(ast: &mut RuntimeAst, type_map: &HashMap<usize, Type>) {
         }
     }
 
-    // Rewrite every call site to use the mangled name.
-    for (expr_id, mangled_name) in &call_rewrites {
+    for (expr_id, mangled_name) in call_rewrites.iter().chain(cloned_call_rewrites.iter()) {
         if let Some(RuntimeExpr::Call { args, .. }) = ast.exprs.get(expr_id).cloned() {
             ast.exprs.insert(*expr_id, RuntimeExpr::Call {
                 callee: mangled_name.clone(),
@@ -272,14 +285,12 @@ pub fn monomorphize(ast: &mut RuntimeAst, type_map: &HashMap<usize, Type>) {
         }
     }
 
-    // Remove the original generic FnDecl stmts — both from the map and from sem_root_stmts.
-    let generic_ids: HashSet<usize> = generic_fns.values().copied().collect();
+    let generic_ids: HashSet<RuntimeNodeId> = generic_fns.values().copied().collect();
     ast.sem_root_stmts.retain(|id| !generic_ids.contains(id));
     for id in &generic_ids {
         ast.stmts.remove(id);
     }
 
-    // Prepend the new specialised FnDecls to sem_root_stmts so the formatter shows them first.
     let mut new_roots = new_fn_stmt_ids;
     new_roots.append(&mut ast.sem_root_stmts);
     ast.sem_root_stmts = new_roots;

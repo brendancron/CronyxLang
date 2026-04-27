@@ -60,15 +60,14 @@ pub fn run_compile_test(root_path: &PathBuf, out_path: &PathBuf, expected_path: 
     };
 
     let cps_info = mark_cps(&runtime_ast);
-    let mut runtime_ast = runtime_ast;
 
     effect_inference::infer_and_check(&runtime_ast, &cps_info).unwrap();
 
-    cps_transform(&mut runtime_ast, &cps_info);
+    let runtime_ast = cps_transform(runtime_ast, &cps_info);
 
     let type_map = {
         let mut rt_env = TypeEnv::new();
-        type_check_runtime(&runtime_ast, &mut rt_env).unwrap()
+        type_check_runtime(&runtime_ast, &mut rt_env, &mut Vec::new()).unwrap()
     };
 
     codegen_compile(&runtime_ast, &type_map, &cps_info, out_path).expect("codegen failed");

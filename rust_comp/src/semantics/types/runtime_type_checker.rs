@@ -1,5 +1,6 @@
-use crate::frontend::meta_ast::{ConstructorPayload, ImportDecl, Pattern, VariantBindings};
+use crate::frontend::meta_ast::{ImportDecl, MetaTypeExpr, Pattern, VariantBindings, VariantPayload};
 use crate::semantics::meta::runtime_ast::*;
+use crate::util::node_id::RuntimeNodeId;
 use super::type_env::TypeEnv;
 use super::type_error::TypeError;
 use super::type_subst::{unify, ApplySubst, TypeSubst};
@@ -10,6 +11,32 @@ use std::collections::HashMap;
 fn path_stem(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
     name.strip_suffix(".cx").unwrap_or(name).to_string()
+}
+
+fn meta_type_expr_to_type(te: &MetaTypeExpr, local_map: &HashMap<String, Type>, env: &mut TypeEnv) -> Type {
+    match te {
+        MetaTypeExpr::Named(n) => {
+            if let Some(ty) = local_map.get(n.as_str()) {
+                return ty.clone();
+            }
+            match n.as_str() {
+                "int" => Type::Primitive(crate::semantics::types::types::PrimitiveType::Int),
+                "string" => Type::Primitive(crate::semantics::types::types::PrimitiveType::String),
+                "bool" => Type::Primitive(crate::semantics::types::types::PrimitiveType::Bool),
+                "unit" => Type::Primitive(crate::semantics::types::types::PrimitiveType::Unit),
+                _ => Type::Enum(n.clone()),
+            }
+        }
+        MetaTypeExpr::App(name, args) => {
+            Type::App(name.clone(), args.iter().map(|a| meta_type_expr_to_type(a, local_map, env)).collect())
+        }
+        MetaTypeExpr::Tuple(elems) => {
+            Type::Tuple(elems.iter().map(|e| meta_type_expr_to_type(e, local_map, env)).collect())
+        }
+        MetaTypeExpr::Slice(inner) => {
+            Type::Slice(Box::new(meta_type_expr_to_type(inner, local_map, env)))
+        }
+    }
 }
 
 struct CheckCtx {
@@ -29,10 +56,20 @@ impl CheckCtx {
 /// unbound variable is a hard error. `env` is threaded in and mutated so that
 /// names introduced in earlier mini-trees remain visible when checking later
 /// ones (mirrors how the meta interpreter shares its environment).
-pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap<usize, Type>, TypeError> {
+/// Run Phase-2 type checking on a `RuntimeAst`.
+///
+/// Returns the resolved type map on success.  Non-fatal warnings (e.g.
+/// polymorphic calls that are correct at runtime but unsound for codegen) are
+/// appended to `warnings` rather than returned as errors so callers can choose
+/// how strictly to treat them.
+pub fn type_check_runtime(
+    ast: &RuntimeAst,
+    env: &mut TypeEnv,
+    warnings: &mut Vec<TypeError>,
+) -> Result<HashMap<RuntimeNodeId, Type>, TypeError> {
     let mut subst = TypeSubst::new();
     let mut ctx = CheckCtx::new();
-    let mut type_map: HashMap<usize, Type> = HashMap::new();
+    let mut type_map: HashMap<RuntimeNodeId, Type> = HashMap::new();
 
     // Pre-bind built-in runtime functions
     let alpha = env.fresh();
@@ -54,7 +91,7 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap
     }
 
     // Apply the final substitution so callers see concrete types, not raw type vars.
-    let mut resolved: HashMap<usize, Type> = type_map.into_iter()
+    let mut resolved: HashMap<RuntimeNodeId, Type> = type_map.into_iter()
         .map(|(id, ty)| (id, ty.apply(&subst)))
         .collect();
 
@@ -81,13 +118,8 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap
             }
             let ret_type = resolved.get(&expr_id).cloned().unwrap_or_else(|| Type::Var(env.fresh()));
             if let Some((existing_args, _)) = fn_call_types.get(callee.as_str()) {
-                // Warn if a second call site has a different concrete signature.
                 if existing_args != &arg_types {
-                    eprintln!(
-                        "warning: polymorphic call to `{callee}` with multiple distinct \
-                         concrete argument types — codegen will use the first call site. \
-                         Proper monomorphization is not yet implemented."
-                    );
+                    warnings.push(TypeError::polymorphic_call(callee.clone()));
                 }
                 // Keep the first concrete entry.
             } else {
@@ -98,9 +130,9 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap
     // Apply fn_call_types to all FnDecls — including those nested in Block stmts (impl methods).
     fn apply_call_types(
         ast: &RuntimeAst,
-        ids: &[usize],
+        ids: &[RuntimeNodeId],
         fn_call_types: &mut HashMap<String, (Vec<Type>, Type)>,
-        resolved: &mut HashMap<usize, Type>,
+        resolved: &mut HashMap<RuntimeNodeId, Type>,
     ) {
         for &stmt_id in ids {
             match ast.get_stmt(stmt_id) {
@@ -142,7 +174,7 @@ pub fn type_check_runtime(ast: &RuntimeAst, env: &mut TypeEnv) -> Result<HashMap
 /// forward calls type-check (including effect ops called inside __handle_N bodies).
 fn hoist_fn_types(
     ast: &RuntimeAst,
-    stmts: &[usize],
+    stmts: &[RuntimeNodeId],
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
 ) {
@@ -178,10 +210,10 @@ fn hoist_fn_types(
 
 fn infer_expr(
     ast: &RuntimeAst,
-    expr_id: usize,
+    expr_id: RuntimeNodeId,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
-    type_map: &mut HashMap<usize, Type>,
+    type_map: &mut HashMap<RuntimeNodeId, Type>,
 ) -> Result<Type, TypeError> {
     let expr = ast.get_expr(expr_id).ok_or(TypeError::unsupported())?.clone();
     let ty = match expr {
@@ -190,7 +222,7 @@ fn infer_expr(
         RuntimeExpr::String(_) => string_type(),
 
         RuntimeExpr::Variable(ref name) => {
-            env.lookup(name).ok_or_else(|| TypeError::unbound_var(name.clone()).at(expr_id))?
+            env.lookup(name).ok_or_else(|| TypeError::unbound_var(name.clone()))?
         }
 
         RuntimeExpr::Add(a, b) => {
@@ -275,7 +307,7 @@ fn infer_expr(
         RuntimeExpr::Call { ref callee, ref args } => {
             let callee_ty = env
                 .lookup(callee)
-                .ok_or_else(|| TypeError::unbound_var(callee.clone()).at(expr_id))?;
+                .ok_or_else(|| TypeError::unbound_var(callee.clone()))?;
             let mut arg_types = Vec::new();
             for &arg_id in args {
                 arg_types.push(infer_expr(ast, arg_id, env, subst, type_map)?);
@@ -286,22 +318,29 @@ fn infer_expr(
                 ret: Box::new(ret_tv.clone()),
                 effects: EffectRow::empty(),
             };
-            // Lenient unification: if there's an arity mismatch, retry with the
-            // last arg stripped. This handles CPS-transformed calls where the
-            // transform appended a `__k` continuation arg that isn't in the
-            // original effect declaration. Both pre-CPS and post-CPS ASTs must
-            // pass type checking with a single code path.
-            //
-            // TODO(B2): Make this stricter. Currently swallows genuine arity
-            // errors too. Proper fix requires threading CpsInfo into infer_expr
-            // so we can distinguish CPS-appended __k from real extra args.
+            // If unification fails with >1 args, check whether the failure is a
+            // CPS-injected continuation (last arg is a Lambda) or a genuine arity
+            // error. The CPS transform always appends a Lambda continuation, so
+            // stripping it and retrying handles post-CPS calls. Genuine arity
+            // errors (non-Lambda last arg) are now propagated as TypeErrors.
+            // When unification fails with exactly 1 arg, fall through silently —
+            // polymorphic recursive calls (e.g. in GADTs) currently rely on this
+            // leniency until full polymorphic type-checking is implemented.
             if unify(&callee_ty, &expected_fn, subst).is_err() && arg_types.len() > 1 {
-                let trimmed = Type::Func {
-                    params: arg_types[..arg_types.len() - 1].to_vec(),
-                    ret: Box::new(ret_tv.clone()),
-                    effects: EffectRow::empty(),
-                };
-                let _ = unify(&callee_ty, &trimmed, subst);
+                let last_is_lambda = args.last()
+                    .and_then(|&id| ast.get_expr(id))
+                    .map(|e| matches!(e, RuntimeExpr::Lambda { .. }))
+                    .unwrap_or(false);
+                if last_is_lambda {
+                    let trimmed = Type::Func {
+                        params: arg_types[..arg_types.len() - 1].to_vec(),
+                        ret: Box::new(ret_tv.clone()),
+                        effects: EffectRow::empty(),
+                    };
+                    unify(&callee_ty, &trimmed, subst)?;
+                } else {
+                    return Err(TypeError::type_mismatch(callee_ty, expected_fn));
+                }
             }
             ret_tv.apply(subst)
         }
@@ -408,19 +447,29 @@ fn infer_expr(
             }
         }
 
-        RuntimeExpr::EnumConstructor { ref enum_name, ref payload, .. } => {
+        RuntimeExpr::EnumConstructor { ref enum_name, ref variant, ref payload } => {
             match payload {
-                ConstructorPayload::Tuple(ids) => {
+                RuntimeConstructorPayload::Tuple(ids) => {
                     for &id in ids {
                         infer_expr(ast, id, env, subst, type_map)?;
                     }
                 }
-                ConstructorPayload::Struct(fields) => {
+                RuntimeConstructorPayload::Struct(fields) => {
                     for (_, id) in fields {
                         infer_expr(ast, *id, env, subst, type_map)?;
                     }
                 }
-                ConstructorPayload::Unit => {}
+                RuntimeConstructorPayload::Unit => {}
+            }
+            if let Some(variants) = env.lookup_enum(enum_name).cloned() {
+                if let Some(v) = variants.iter().find(|v| v.name == *variant) {
+                    if let Some(ret_te) = &v.return_type {
+                        let local_map: HashMap<String, Type> = v.local_type_params.iter()
+                            .map(|ltp| (ltp.clone(), Type::Var(env.fresh())))
+                            .collect();
+                        return Ok(meta_type_expr_to_type(ret_te, &local_map, env));
+                    }
+                }
             }
             Type::Enum(enum_name.clone())
         }
@@ -438,11 +487,11 @@ fn infer_expr(
 
 fn infer_stmt(
     ast: &RuntimeAst,
-    stmt_id: usize,
+    stmt_id: RuntimeNodeId,
     env: &mut TypeEnv,
     subst: &mut TypeSubst,
     ctx: &mut CheckCtx,
-    type_map: &mut HashMap<usize, Type>,
+    type_map: &mut HashMap<RuntimeNodeId, Type>,
 ) -> Result<(), TypeError> {
     let stmt = ast.get_stmt(stmt_id).ok_or(TypeError::unsupported())?.clone();
     match stmt {
@@ -465,7 +514,7 @@ fn infer_stmt(
             if let Some(existing) = env.lookup(&name) {
                 unify(&ty, &existing, subst)?;
             } else {
-                return Err(TypeError::unbound_var(name.clone()).at(stmt_id));
+                return Err(TypeError::unbound_var(name.clone()));
             }
         }
 
@@ -591,31 +640,51 @@ fn infer_stmt(
         // StructDecl doesn't have checkable expressions.
         RuntimeStmt::StructDecl { .. } => {}
 
-        RuntimeStmt::EnumDecl { name, variants } => {
+        RuntimeStmt::EnumDecl { name, variants, .. } => {
             env.register_enum(&name, variants.clone());
         }
 
         RuntimeStmt::Match { scrutinee, arms } => {
-            infer_expr(ast, scrutinee, env, subst, type_map)?;
+            let scrutinee_ty = infer_expr(ast, scrutinee, env, subst, type_map)?;
             for arm in arms {
+                let mut arm_subst = subst.clone();
                 env.push_scope();
                 match &arm.pattern {
                     Pattern::Wildcard => {}
                     Pattern::Enum { enum_name, variant, bindings } => {
                         if let Some(variants) = env.lookup_enum(enum_name).cloned() {
-                            if let Some(_v) = variants.iter().find(|v| v.name == *variant) {
-                                match bindings {
-                                    VariantBindings::Unit => {}
-                                    VariantBindings::Tuple(names) => {
-                                        for name in names {
-                                            let tv = Type::Var(env.fresh());
-                                            env.bind_mono(name, tv);
+                            if let Some(v) = variants.iter().find(|v| v.name == *variant) {
+                                let local_map: HashMap<String, Type> = v.local_type_params.iter()
+                                    .map(|ltp| (ltp.clone(), Type::Var(env.fresh())))
+                                    .collect();
+
+                                if let Some(ret_te) = &v.return_type {
+                                    let ret_ty = meta_type_expr_to_type(ret_te, &local_map, env);
+                                    let _ = unify(&scrutinee_ty.apply(&arm_subst), &ret_ty, &mut arm_subst);
+                                }
+
+                                match (&v.payload, bindings) {
+                                    (_, VariantBindings::Unit) => {}
+                                    (VariantPayload::Tuple(type_exprs), VariantBindings::Tuple(names)) => {
+                                        for (te, name) in type_exprs.iter().zip(names.iter()) {
+                                            let ty = meta_type_expr_to_type(te, &local_map, env);
+                                            env.bind_mono(name, ty);
+                                        }
+                                        for name in names.iter().skip(type_exprs.len()) {
+                                            let tv = env.fresh();
+                                            env.bind_mono(name, Type::Var(tv));
                                         }
                                     }
-                                    VariantBindings::Struct(names) => {
+                                    (_, VariantBindings::Tuple(names)) => {
                                         for name in names {
-                                            let tv = Type::Var(env.fresh());
-                                            env.bind_mono(name, tv);
+                                            let tv = env.fresh();
+                                            env.bind_mono(name, Type::Var(tv));
+                                        }
+                                    }
+                                    (_, VariantBindings::Struct(names)) => {
+                                        for name in names {
+                                            let tv = env.fresh();
+                                            env.bind_mono(name, Type::Var(tv));
                                         }
                                     }
                                 }
@@ -623,7 +692,7 @@ fn infer_stmt(
                         }
                     }
                 }
-                infer_stmt(ast, arm.body, env, subst, ctx, type_map)?;
+                infer_stmt(ast, arm.body, env, &mut arm_subst, ctx, type_map)?;
                 env.pop_scope();
             }
         }
