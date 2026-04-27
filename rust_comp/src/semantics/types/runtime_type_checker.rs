@@ -13,6 +13,16 @@ fn path_stem(path: &str) -> String {
     name.strip_suffix(".cx").unwrap_or(name).to_string()
 }
 
+fn hint_to_type(name: &str) -> Type {
+    match name {
+        "int" | "i64" => Type::Primitive(PrimitiveType::Int),
+        "string" | "str" => Type::Primitive(PrimitiveType::String),
+        "bool" => Type::Primitive(PrimitiveType::Bool),
+        "unit" => Type::Primitive(PrimitiveType::Unit),
+        _ => Type::Enum(name.to_string()),
+    }
+}
+
 fn meta_type_expr_to_type(te: &MetaTypeExpr, local_map: &HashMap<String, Type>, env: &mut TypeEnv) -> Type {
     match te {
         MetaTypeExpr::Named(n) => {
@@ -75,6 +85,7 @@ pub fn type_check_runtime(
     let alpha = env.fresh();
     let beta = env.fresh();
     env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()), effects: EffectRow::empty() });
+    env.bind_mono("writefile", Type::Func { params: vec![string_type(), string_type()], ret: Box::new(unit_type()), effects: EffectRow::empty() });
     env.bind("to_string", TypeScheme::PolyType {
         vars: vec![alpha],
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
@@ -117,11 +128,26 @@ pub fn type_check_runtime(
                 continue; // skip call sites with unresolved args
             }
             let ret_type = resolved.get(&expr_id).cloned().unwrap_or_else(|| Type::Var(env.fresh()));
-            if let Some((existing_args, _)) = fn_call_types.get(callee.as_str()) {
-                if existing_args != &arg_types {
+            let new_concrete = arg_types.iter().all(|t| !t.contains_var());
+            if let Some((existing_args, existing_ret)) = fn_call_types.get(callee.as_str()).cloned() {
+                let existing_len = existing_args.len();
+                if existing_len != arg_types.len() {
+                    // Different arity — genuinely polymorphic.
                     warnings.push(TypeError::polymorphic_call(callee.clone()));
+                } else if existing_args != arg_types {
+                    let existing_concrete = existing_args.iter().all(|t| !t.contains_var());
+                    if !existing_concrete && new_concrete {
+                        // New call site has more specific types — replace.
+                        fn_call_types.insert(callee.clone(), (arg_types, ret_type));
+                    } else if existing_concrete && !new_concrete {
+                        // Existing is more specific — keep it, no warning.
+                    } else if existing_concrete {
+                        // Both fully concrete but different — genuinely polymorphic.
+                        warnings.push(TypeError::polymorphic_call(callee.clone()));
+                    }
+                    // If neither is fully concrete, keep existing (best effort).
                 }
-                // Keep the first concrete entry.
+                let _ = (existing_ret, existing_len); // suppress unused warnings
             } else {
                 fn_call_types.insert(callee.clone(), (arg_types, ret_type));
             }
@@ -430,7 +456,12 @@ fn infer_expr(
 
         RuntimeExpr::Lambda { params, body } => {
             env.push_scope();
-            let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
+            let hints = ast.lambda_param_hints.get(&expr_id);
+            let param_types: Vec<Type> = params.iter().enumerate().map(|(i, _)| {
+                hints.and_then(|h| h.get(i)).and_then(|h| h.as_deref())
+                    .map(|name| hint_to_type(name))
+                    .unwrap_or_else(|| Type::Var(env.fresh()))
+            }).collect();
             for (name, ty) in params.iter().zip(&param_types) {
                 env.bind_mono(name, ty.clone());
             }

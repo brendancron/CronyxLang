@@ -200,6 +200,7 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), Vec<TypeError>>
     let alpha = env.fresh();
     let beta = env.fresh();
     env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()), effects: EffectRow::empty() });
+    env.bind_mono("writefile", Type::Func { params: vec![string_type(), string_type()], ret: Box::new(unit_type()), effects: EffectRow::empty() });
     env.bind("to_string", TypeScheme::PolyType {
         vars: vec![alpha],
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },

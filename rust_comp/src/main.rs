@@ -7,7 +7,8 @@ use debug_sink::DebugSink;
 use cronyx::codegen::compile as codegen_compile;
 use cronyx::error::{CompilerError, Diagnostic, enrich_diagnostic};
 use cronyx::semantics::cps::cps_transform::transform as cps_transform;
-use cronyx::semantics::cps::effect_marker::mark_cps;
+use cronyx::semantics::cps::effect_marker::{mark_cps, mark_fn_effects};
+use cronyx::semantics::cps::handler_transform::{transform as handler_transform, transform_ctl};
 use cronyx::semantics::types::effect_inference;
 use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use std::collections::HashMap;
@@ -115,6 +116,10 @@ fn run_pipeline(
     effect_inference::infer_and_check(&runtime_ast, &cps_info)
         .map_err(|e| vec![e])?;
     let runtime_ast = cps_transform(runtime_ast, &cps_info);
+    let fn_effect_info = mark_fn_effects(&runtime_ast);
+    let mut runtime_ast = runtime_ast;
+    handler_transform(&mut runtime_ast, &fn_effect_info);
+    transform_ctl(&mut runtime_ast, &cps_info);
     sink.dump_cps(&cps_info, &runtime_ast);
 
     // RUNTIME TYPE CHECK — needed by codegen; also validates the post-CPS AST.

@@ -291,7 +291,7 @@ pub fn convert_to_runtime(
             _ => {}
         }
     }
-    for builtin in &["readfile", "to_string", "to_int", "free", "print"] {
+    for builtin in &["readfile", "writefile", "to_string", "to_int", "free", "print"] {
         globals.insert(builtin.to_string());
     }
 

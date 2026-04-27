@@ -89,6 +89,19 @@ pub fn record_type(fields: impl IntoIterator<Item = (String, Type)>) -> Type {
     Type::Record(fields.into_iter().collect())
 }
 
+impl Type {
+    pub fn contains_var(&self) -> bool {
+        match self {
+            Type::Var(_) => true,
+            Type::Func { params, ret, .. } => params.iter().any(|p| p.contains_var()) || ret.contains_var(),
+            Type::Tuple(items) => items.iter().any(|t| t.contains_var()),
+            Type::Slice(elem) => elem.contains_var(),
+            Type::App(_, args) => args.iter().any(|t| t.contains_var()),
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

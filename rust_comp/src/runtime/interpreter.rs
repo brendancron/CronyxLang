@@ -568,6 +568,20 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                         .map_err(|e| EvalError::UndefinedVariable(format!("readfile: {e}")))?;
                     return Ok(Value::String(contents));
                 }
+                "writefile" => {
+                    let mut iter = args.iter();
+                    let path = match eval_expr(*iter.next().ok_or(EvalError::ArgumentMismatch)?, ctx)? {
+                        Value::String(s) => s,
+                        _ => return Err(EvalError::ArgumentMismatch),
+                    };
+                    let content = match eval_expr(*iter.next().ok_or(EvalError::ArgumentMismatch)?, ctx)? {
+                        Value::String(s) => s,
+                        _ => return Err(EvalError::ArgumentMismatch),
+                    };
+                    std::fs::write(&path, content)
+                        .map_err(|e| EvalError::UndefinedVariable(format!("writefile: {e}")))?;
+                    return Ok(Value::Unit);
+                }
                 "to_string" => {
                     let v = eval_expr(*args.first().ok_or(EvalError::ArgumentMismatch)?, ctx)?;
                     let s = match v {

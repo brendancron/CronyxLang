@@ -80,6 +80,9 @@ struct CpsCall {
     callee: String,
     args: Vec<RuntimeNodeId>,
     binding: Option<String>,
+    /// Original expr node ID — updated in-place to avoid dead-node contamination
+    /// of the `fn_call_types` pass.
+    expr_id: RuntimeNodeId,
 }
 
 impl<'a> CpsTransform<'a> {
@@ -151,7 +154,7 @@ impl<'a> CpsTransform<'a> {
                         let callee = callee.clone();
                         let ctl_args = args.clone();
                         let replacement = self.transform_if_ctl_cond(
-                            ast, callee, ctl_args, body_id, else_id, &stmts[i + 1..], is_cps_body,
+                            ast, cond_id, callee, ctl_args, body_id, else_id, &stmts[i + 1..], is_cps_body,
                         );
                         result.extend(replacement);
                         return result;
@@ -187,8 +190,10 @@ impl<'a> CpsTransform<'a> {
 
                     let mut new_args = call.args;
                     new_args.push(lambda);
-                    let call_expr =
-                        self.fresh_expr(ast, RuntimeExpr::Call { callee: call.callee, args: new_args });
+                    // Update the original call expr in-place so the old 0/1-arg version
+                    // doesn't remain in ast.exprs and corrupt the fn_call_types analysis.
+                    ast.insert_expr(call.expr_id, RuntimeExpr::Call { callee: call.callee, args: new_args });
+                    let call_expr = call.expr_id;
                     let call_stmt = if is_cps_body {
                         self.fresh_stmt(ast, RuntimeStmt::Return(Some(call_expr)))
                     } else {
@@ -238,24 +243,28 @@ impl<'a> CpsTransform<'a> {
     fn extract_cps_call(&self, ast: &RuntimeAst, stmt_id: RuntimeNodeId) -> Option<CpsCall> {
         match ast.get_stmt(stmt_id)? {
             RuntimeStmt::VarDecl { name, expr } => {
-                if let Some(RuntimeExpr::Call { callee, args }) = ast.get_expr(*expr) {
+                let expr_id = *expr;
+                if let Some(RuntimeExpr::Call { callee, args }) = ast.get_expr(expr_id) {
                     if self.is_cps_callee(callee) {
                         return Some(CpsCall {
                             callee: callee.clone(),
                             args: args.clone(),
                             binding: Some(name.clone()),
+                            expr_id,
                         });
                     }
                 }
                 None
             }
             RuntimeStmt::ExprStmt(expr) => {
-                if let Some(RuntimeExpr::Call { callee, args }) = ast.get_expr(*expr) {
+                let expr_id = *expr;
+                if let Some(RuntimeExpr::Call { callee, args }) = ast.get_expr(expr_id) {
                     if self.is_cps_callee(callee) {
                         return Some(CpsCall {
                             callee: callee.clone(),
                             args: args.clone(),
                             binding: None,
+                            expr_id,
                         });
                     }
                 }
@@ -403,6 +412,7 @@ impl<'a> CpsTransform<'a> {
     fn transform_if_ctl_cond(
         &mut self,
         ast: &mut RuntimeAst,
+        orig_cond_expr_id: RuntimeNodeId,
         callee: String,
         ctl_args: Vec<RuntimeNodeId>,
         body: RuntimeNodeId,
@@ -431,8 +441,9 @@ impl<'a> CpsTransform<'a> {
 
         let mut new_args = ctl_args;
         new_args.push(lambda);
-        let call_expr = self.fresh_expr(ast, RuntimeExpr::Call { callee, args: new_args });
-        let call_stmt = self.fresh_stmt(ast, RuntimeStmt::ExprStmt(call_expr));
+        // Update the original condition expr in-place.
+        ast.insert_expr(orig_cond_expr_id, RuntimeExpr::Call { callee, args: new_args });
+        let call_stmt = self.fresh_stmt(ast, RuntimeStmt::ExprStmt(orig_cond_expr_id));
 
         vec![call_stmt]
     }

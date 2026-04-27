@@ -450,6 +450,51 @@ pub fn compile(
         Some(rf_fn)
     } else { None };
 
+    // ── File I/O for writefile() builtin ─────────────────────────────────────
+    let has_writefile = ast.exprs.values().any(|e| {
+        matches!(e, RuntimeExpr::Call { callee, .. } if callee == "writefile")
+    });
+    let writefile_fn: Option<FunctionValue<'_>> = if has_writefile {
+        let i32_ty_local = context.i32_type();
+        let fopen_fn = module.get_function("fopen").unwrap_or_else(|| {
+            let ty = ptr_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+            module.add_function("fopen", ty, Some(Linkage::External))
+        });
+        let fputs_ty = i32_ty_local.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+        let fputs_fn = module.add_function("fputs", fputs_ty, Some(Linkage::External));
+        let fclose_fn = module.get_function("fclose").unwrap_or_else(|| {
+            let ty = i32_ty_local.fn_type(&[ptr_ty.into()], false);
+            module.add_function("fclose", ty, Some(Linkage::External))
+        });
+
+        // "w\0" mode string global
+        let w_mode_arr = context.const_string(b"w", true);
+        let w_mode_ty  = context.i8_type().array_type(2);
+        let w_mode_g   = module.add_global(w_mode_ty, Some(AddressSpace::default()), "__wf_mode");
+        w_mode_g.set_initializer(&w_mode_arr);
+        w_mode_g.set_constant(true);
+        w_mode_g.set_linkage(Linkage::Private);
+
+        // emit __cronyx_writefile(ptr path, ptr content) → void
+        let void_ty = context.void_type();
+        let wf_ty = void_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+        let wf_fn = module.add_function("__cronyx_writefile", wf_ty, Some(Linkage::Private));
+        let bb_entry = context.append_basic_block(wf_fn, "entry");
+        builder.position_at_end(bb_entry);
+        let path_arg    = wf_fn.get_nth_param(0).unwrap().into_pointer_value();
+        let content_arg = wf_fn.get_nth_param(1).unwrap().into_pointer_value();
+        let zero32 = context.i32_type().const_int(0, false);
+        let mode_ptr = unsafe {
+            builder.build_gep(w_mode_ty, w_mode_g.as_pointer_value(), &[zero32, zero32], "mode_ptr")?
+        };
+        let file_ptr = builder.build_call(fopen_fn, &[path_arg.into(), mode_ptr.into()], "fp")?
+            .try_as_basic_value().basic().unwrap().into_pointer_value();
+        builder.build_call(fputs_fn, &[content_arg.into(), file_ptr.into()], "fputs")?;
+        builder.build_call(fclose_fn, &[file_ptr.into()], "fclose")?;
+        builder.build_return(None)?;
+        Some(wf_fn)
+    } else { None };
+
     // ── abort() — used to stub unresolved effect calls in dead code ───────────
     let abort_fn = {
         let void_ty = context.void_type();
@@ -691,10 +736,22 @@ pub fn compile(
     for (lambda_id, params) in &lambda_exprs {
         // Param types: env ptr first, then int for each lambda param.
         // Type::Func in type_map could refine this, but i64 is safe for M4.
-        let resolved_lam_params: Vec<Option<Type>> = match type_map.get(lambda_id) {
+        let mut resolved_lam_params: Vec<Option<Type>> = match type_map.get(lambda_id) {
             Some(Type::Func { params: pt, .. }) => pt.iter().map(|t| Some(t.clone())).collect(),
             _ => vec![None; params.len()],
         };
+        // Force params named __k_* or __k_ctl to Func type so they get ptr_ty in LLVM.
+        for (i, name) in params.iter().enumerate() {
+            if name.starts_with("__k") && i < resolved_lam_params.len() {
+                if matches!(&resolved_lam_params[i], None | Some(Type::Var(_))) {
+                    resolved_lam_params[i] = Some(Type::Func {
+                        params: vec![],
+                        ret: Box::new(Type::Primitive(PrimitiveType::Unit)),
+                        effects: crate::semantics::types::types::EffectRow::empty(),
+                    });
+                }
+            }
+        }
         let mut lam_meta: Vec<BasicMetadataTypeEnum<'_>> = vec![
             BasicMetadataTypeEnum::PointerType(ptr_ty), // env
         ];
@@ -871,7 +928,12 @@ pub fn compile(
         } else {
             i64_ty.fn_type(&param_meta, false)
         };
-        let fn_val = module.add_function(fname, fn_ty, None);
+        // Rename user-defined `main` to avoid colliding with the C entry point `main`
+        // emitted in Pass 3. Without this, LLVM deduplicates to `main.1` (C entry) and
+        // `main` (user fn), but the OS calls the user fn with (argc, argv) instead of a
+        // closure — causing a SIGSEGV on the first continuation dereference.
+        let llvm_fname = if fname == "main" { "__cronyx_main" } else { fname.as_str() };
+        let fn_val = module.add_function(llvm_fname, fn_ty, None);
         user_fns.insert(fname.clone(), fn_val);
         fn_arg_types.insert(fname.clone(), resolved_param_types);
         fn_is_ptr_return.insert(fname.clone(), is_ptr_ret);
@@ -1141,6 +1203,7 @@ pub fn compile(
         with_ctl_active: RefCell::new(HashMap::new()),
         atoll_fn,
         readfile_fn,
+        writefile_fn,
         abort_fn,
         hof_wrapper_fns,
         nested_fn_stmts,
@@ -1672,6 +1735,8 @@ struct Cg<'ctx> {
     atoll_fn: Option<FunctionValue<'ctx>>,
     /// __cronyx_readfile(ptr path) → ptr: reads entire file into heap buffer.
     readfile_fn: Option<FunctionValue<'ctx>>,
+    /// __cronyx_writefile(ptr path, ptr content) → void: writes string to file (truncate/create).
+    writefile_fn: Option<FunctionValue<'ctx>>,
     /// abort(): used to stub unresolved effect calls in dead code paths.
     abort_fn: FunctionValue<'ctx>,
     /// Pre-created HOF wrapper functions (fn_name → wrapper FunctionValue).
@@ -3423,6 +3488,20 @@ impl<'ctx> Cg<'ctx> {
                     let result = self.builder.build_call(rf_fn, &[path_ptr.into()], "readfile")?
                         .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                     return Ok(result);
+                }
+                // writefile(path, content) → write string to file, return unit
+                if callee == "writefile" && args.len() == 2 {
+                    let wf_fn = self.writefile_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                    let path_ptr = match self.emit_expr(args[0], locals)? {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                    };
+                    let content_ptr = match self.emit_expr(args[1], locals)? {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                    };
+                    self.builder.build_call(wf_fn, &[path_ptr.into(), content_ptr.into()], "")?;
+                    return Ok(self.context.i64_type().const_int(0, false).into());
                 }
                 // free(x) → call void @free(ptr x)
                 if callee == "free" && args.len() == 1 {

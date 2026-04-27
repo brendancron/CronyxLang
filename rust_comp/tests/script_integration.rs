@@ -6,7 +6,8 @@ use cronyx::frontend::module_loader::{load_compilation_unit, FileRole};
 use cronyx::runtime::environment::*;
 use cronyx::runtime::interpreter::*;
 use cronyx::semantics::cps::cps_transform::transform as cps_transform;
-use cronyx::semantics::cps::effect_marker::mark_cps;
+use cronyx::semantics::cps::effect_marker::{mark_cps, mark_fn_effects};
+use cronyx::semantics::cps::handler_transform::transform as handler_transform;
 use cronyx::semantics::meta::interpreter_meta_evaluator::InterpreterMetaEvaluator;
 use cronyx::semantics::meta::meta_processor::*;
 use cronyx::semantics::meta::meta_stager::stage_all_files;
@@ -77,6 +78,9 @@ fn run_test_inner(root_path: &PathBuf, out_path: &PathBuf) {
     effect_inference::infer_and_check(&runtime_ast, &cps_info).unwrap();
 
     let runtime_ast = cps_transform(runtime_ast, &cps_info);
+    let fn_effect_info = mark_fn_effects(&runtime_ast);
+    let mut runtime_ast = runtime_ast;
+    handler_transform(&mut runtime_ast, &fn_effect_info);
 
     // Hoist all functions and create module namespace values before eval.
     let mut setup_env = EnvHandler::from(meta_env.clone());
@@ -244,7 +248,8 @@ mod script_integration {
         cx_test!(list_methods, "tests/core/lists", "list_methods");
         cx_test!(string_methods, "tests/core/strings", "string_methods");
         cx_test!(string_slice,   "tests/core/strings", "string_slice");   // Phase 2d
-        cx_test!(builtins_readfile, "tests/core/builtins", "readfile");
+        cx_test!(builtins_readfile,  "tests/core/builtins", "readfile");
+        cx_test!(builtins_writefile, "tests/core/builtins", "writefile");
         cx_test!(builtins_conversions, "tests/core/builtins", "conversions");
         cx_test!(builtins_free, "tests/core/builtins", "free");
 
