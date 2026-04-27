@@ -17,6 +17,7 @@ use crate::frontend::meta_ast::{EffectOpKind, MetaAst, MetaExpr, MetaStmt};
 use crate::semantics::cps::effect_marker::CpsInfo;
 use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
 use crate::semantics::types::type_env::TypeEnv;
+use crate::util::node_id::{MetaNodeId, RuntimeNodeId};
 use crate::semantics::types::types::{EffectRow, Type, TypeScheme};
 
 // ── Public types ─────────────────────────────────────────────────────────────
@@ -53,7 +54,7 @@ pub fn infer_meta(meta_ast: &MetaAst, type_env: &mut TypeEnv) {
     }
 
     // Collect function bodies from MetaAst sem_root_stmts.
-    let mut fn_bodies: HashMap<String, usize> = HashMap::new();
+    let mut fn_bodies: HashMap<String, MetaNodeId> = HashMap::new();
     for &stmt_id in &meta_ast.sem_root_stmts {
         if let Some(MetaStmt::FnDecl { name, body, .. }) = meta_ast.get_stmt(stmt_id) {
             fn_bodies.insert(name.clone(), *body);
@@ -103,7 +104,7 @@ fn collect_ctl_ops_meta(meta_ast: &MetaAst) -> HashSet<String> {
 
 fn infer_fn_rows_meta(
     meta_ast: &MetaAst,
-    fn_bodies: &HashMap<String, usize>,
+    fn_bodies: &HashMap<String, MetaNodeId>,
     ctl_ops: &HashSet<String>,
 ) -> HashMap<String, BTreeSet<String>> {
     let mut fn_rows: HashMap<String, BTreeSet<String>> = HashMap::new();
@@ -141,7 +142,7 @@ fn infer_fn_rows_meta(
 
 fn collect_ctl_calls_meta_stmt(
     ast: &MetaAst,
-    stmt_id: usize,
+    stmt_id: MetaNodeId,
     ctl_ops: &HashSet<String>,
     out: &mut BTreeSet<String>,
 ) {
@@ -181,7 +182,7 @@ fn collect_ctl_calls_meta_stmt(
 
 fn collect_ctl_calls_meta_expr(
     ast: &MetaAst,
-    expr_id: usize,
+    expr_id: MetaNodeId,
     ctl_ops: &HashSet<String>,
     out: &mut BTreeSet<String>,
 ) {
@@ -201,7 +202,7 @@ fn collect_ctl_calls_meta_expr(
 
 fn collect_transitive_meta_stmt(
     ast: &MetaAst,
-    stmt_id: usize,
+    stmt_id: MetaNodeId,
     fn_rows: &HashMap<String, BTreeSet<String>>,
     out: &mut BTreeSet<String>,
 ) {
@@ -241,7 +242,7 @@ fn collect_transitive_meta_stmt(
 
 fn collect_transitive_meta_expr(
     ast: &MetaAst,
-    expr_id: usize,
+    expr_id: MetaNodeId,
     fn_rows: &HashMap<String, BTreeSet<String>>,
     out: &mut BTreeSet<String>,
 ) {
@@ -280,7 +281,7 @@ fn infer_runtime(ast: &RuntimeAst, cps_info: &CpsInfo) -> EffectInfo {
     let ctl_ops = &cps_info.ctl_ops;
 
     // Collect function bodies.
-    let mut fn_bodies: HashMap<String, usize> = HashMap::new();
+    let mut fn_bodies: HashMap<String, RuntimeNodeId> = HashMap::new();
     for stmt in ast.stmts.values() {
         if let RuntimeStmt::FnDecl { name, body, .. } = stmt {
             fn_bodies.insert(name.clone(), *body);
@@ -339,7 +340,7 @@ fn infer_runtime(ast: &RuntimeAst, cps_info: &CpsInfo) -> EffectInfo {
     info
 }
 
-fn collect_handled_ops_runtime_stmt(ast: &RuntimeAst, stmt_id: usize, out: &mut BTreeSet<String>) {
+fn collect_handled_ops_runtime_stmt(ast: &RuntimeAst, stmt_id: RuntimeNodeId, out: &mut BTreeSet<String>) {
     match ast.get_stmt(stmt_id) {
         Some(RuntimeStmt::WithCtl { op_name, .. }) | Some(RuntimeStmt::WithFn { op_name, .. }) => {
             out.insert(op_name.clone());
@@ -356,7 +357,7 @@ fn collect_handled_ops_runtime_stmt(ast: &RuntimeAst, stmt_id: usize, out: &mut 
 
 fn collect_ctl_calls_runtime_stmt(
     ast: &RuntimeAst,
-    stmt_id: usize,
+    stmt_id: RuntimeNodeId,
     ctl_ops: &HashSet<String>,
     out: &mut BTreeSet<String>,
 ) {
@@ -396,7 +397,7 @@ fn collect_ctl_calls_runtime_stmt(
 
 fn collect_ctl_calls_runtime_expr(
     ast: &RuntimeAst,
-    expr_id: usize,
+    expr_id: RuntimeNodeId,
     ctl_ops: &HashSet<String>,
     out: &mut BTreeSet<String>,
 ) {
@@ -416,7 +417,7 @@ fn collect_ctl_calls_runtime_expr(
 
 fn collect_transitive_runtime_stmt(
     ast: &RuntimeAst,
-    stmt_id: usize,
+    stmt_id: RuntimeNodeId,
     fn_rows: &HashMap<String, BTreeSet<String>>,
     out: &mut BTreeSet<String>,
 ) {
@@ -456,7 +457,7 @@ fn collect_transitive_runtime_stmt(
 
 fn collect_transitive_runtime_expr(
     ast: &RuntimeAst,
-    expr_id: usize,
+    expr_id: RuntimeNodeId,
     fn_rows: &HashMap<String, BTreeSet<String>>,
     out: &mut BTreeSet<String>,
 ) {
@@ -487,7 +488,7 @@ fn check_top_level(
 
 fn check_stmts(
     ast: &RuntimeAst,
-    stmts: &[usize],
+    stmts: &[RuntimeNodeId],
     handler_stack: &BTreeSet<String>,
     info: &EffectInfo,
     cps_info: &CpsInfo,
@@ -501,7 +502,7 @@ fn check_stmts(
 
 fn check_stmt(
     ast: &RuntimeAst,
-    stmt_id: usize,
+    stmt_id: RuntimeNodeId,
     active: &mut BTreeSet<String>,
     info: &EffectInfo,
     cps_info: &CpsInfo,
@@ -548,7 +549,7 @@ fn check_stmt(
 /// Creates a fresh copy of the active set so handler additions don't leak out.
 fn check_stmts_block(
     ast: &RuntimeAst,
-    block_id: usize,
+    block_id: RuntimeNodeId,
     active: &BTreeSet<String>,
     info: &EffectInfo,
     cps_info: &CpsInfo,
@@ -564,7 +565,7 @@ fn check_stmts_block(
 
 fn check_expr(
     ast: &RuntimeAst,
-    expr_id: usize,
+    expr_id: RuntimeNodeId,
     active: &BTreeSet<String>,
     info: &EffectInfo,
     cps_info: &CpsInfo,

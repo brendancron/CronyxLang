@@ -7,6 +7,7 @@ use crate::semantics::meta::staged_forest::ModuleBinding;
 use crate::semantics::types::runtime_type_checker::type_check_runtime;
 use crate::semantics::types::type_env::TypeEnv;
 use crate::semantics::types::types::Type;
+use crate::util::node_id::RuntimeNodeId;
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -39,8 +40,11 @@ impl<'a, W: Write> MetaEvaluator for InterpreterMetaEvaluator<'a, W> {
         Ok(())
     }
 
-    fn type_check(&mut self, ast: &RuntimeAst) -> Result<HashMap<usize, Type>, Self::Error> {
-        type_check_runtime(ast, &mut self.type_env).map_err(EvalError::from)
+    fn type_check(&mut self, ast: &RuntimeAst) -> Result<HashMap<RuntimeNodeId, Type>, Self::Error> {
+        let mut warnings = Vec::new();
+        type_check_runtime(ast, &mut self.type_env, &mut warnings).map_err(EvalError::from)
+        // Polymorphic-call warnings from meta evaluation are intentionally
+        // ignored: the interpreter handles polymorphism correctly at runtime.
     }
 
     fn evaluate(

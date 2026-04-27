@@ -1,7 +1,7 @@
 use crate::util::id_provider::IdProvider;
+use crate::util::node_id::RuntimeNodeId;
 use crate::runtime::environment::EnvHandler;
 use crate::runtime::value::Value;
-use crate::frontend::meta_ast::{ConstructorPayload, MatchArm};
 use crate::semantics::meta::runtime_ast::*;
 use std::collections::HashMap;
 
@@ -10,8 +10,8 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct GeneratedOutput {
     pub stmts: Vec<RuntimeStmt>,
-    pub supporting_stmts: HashMap<usize, RuntimeStmt>,
-    pub exprs: HashMap<usize, RuntimeExpr>,
+    pub supporting_stmts: HashMap<RuntimeNodeId, RuntimeStmt>,
+    pub exprs: HashMap<RuntimeNodeId, RuntimeExpr>,
 }
 
 impl GeneratedOutput {
@@ -56,7 +56,7 @@ impl GeneratedCollector {
         }
     }
 
-    pub fn collect_expr_map(&mut self, id: usize, expr: RuntimeExpr) -> Result<(), String> {
+    pub fn collect_expr_map(&mut self, id: RuntimeNodeId, expr: RuntimeExpr) -> Result<(), String> {
         match self.mode {
             CollectorMode::SingleExpr => {
                 self.output.exprs.insert(id, expr);
@@ -79,7 +79,7 @@ pub fn collect_and_subst(
     root_stmt: &RuntimeStmt,
     env: &EnvHandler,
     id_provider: &mut IdProvider,
-) -> (RuntimeStmt, HashMap<usize, RuntimeStmt>, HashMap<usize, RuntimeExpr>) {
+) -> (RuntimeStmt, HashMap<RuntimeNodeId, RuntimeStmt>, HashMap<RuntimeNodeId, RuntimeExpr>) {
     let mut ctx = SubstCtx {
         ast,
         env,
@@ -97,19 +97,18 @@ struct SubstCtx<'a> {
     ast: &'a RuntimeAst,
     env: &'a EnvHandler,
     id_provider: &'a mut IdProvider,
-    stmt_remap: HashMap<usize, usize>,
-    expr_remap: HashMap<usize, usize>,
-    stmts: HashMap<usize, RuntimeStmt>,
-    exprs: HashMap<usize, RuntimeExpr>,
+    stmt_remap: HashMap<RuntimeNodeId, RuntimeNodeId>,
+    expr_remap: HashMap<RuntimeNodeId, RuntimeNodeId>,
+    stmts: HashMap<RuntimeNodeId, RuntimeStmt>,
+    exprs: HashMap<RuntimeNodeId, RuntimeExpr>,
 }
 
 impl<'a> SubstCtx<'a> {
-    /// Returns a fresh ID for `old_id`, recursively collecting and transforming its children.
-    fn remap_stmt(&mut self, old_id: usize) -> usize {
+    fn remap_stmt(&mut self, old_id: RuntimeNodeId) -> RuntimeNodeId {
         if let Some(&new_id) = self.stmt_remap.get(&old_id) {
             return new_id;
         }
-        let new_id = self.id_provider.next();
+        let new_id = self.id_provider.next_runtime();
         self.stmt_remap.insert(old_id, new_id);
         if let Some(stmt) = self.ast.get_stmt(old_id).cloned() {
             let transformed = self.transform_stmt(&stmt);
@@ -118,11 +117,11 @@ impl<'a> SubstCtx<'a> {
         new_id
     }
 
-    fn remap_expr(&mut self, old_id: usize) -> usize {
+    fn remap_expr(&mut self, old_id: RuntimeNodeId) -> RuntimeNodeId {
         if let Some(&new_id) = self.expr_remap.get(&old_id) {
             return new_id;
         }
-        let new_id = self.id_provider.next();
+        let new_id = self.id_provider.next_runtime();
         self.expr_remap.insert(old_id, new_id);
         if let Some(expr) = self.ast.get_expr(old_id).cloned() {
             let transformed = self.transform_expr(&expr);
@@ -196,7 +195,7 @@ impl<'a> SubstCtx<'a> {
             },
             RuntimeStmt::Match { scrutinee, arms } => RuntimeStmt::Match {
                 scrutinee: self.remap_expr(*scrutinee),
-                arms: arms.iter().map(|arm| MatchArm {
+                arms: arms.iter().map(|arm| RuntimeMatchArm {
                     pattern: arm.pattern.clone(),
                     body: self.remap_stmt(arm.body),
                 }).collect(),
@@ -245,12 +244,12 @@ impl<'a> SubstCtx<'a> {
                     enum_name: self.subst_name(enum_name),
                     variant: variant.clone(),
                     payload: match payload {
-                        ConstructorPayload::Unit => ConstructorPayload::Unit,
-                        ConstructorPayload::Tuple(ids) => {
-                            ConstructorPayload::Tuple(ids.iter().map(|id| self.remap_expr(*id)).collect())
+                        RuntimeConstructorPayload::Unit => RuntimeConstructorPayload::Unit,
+                        RuntimeConstructorPayload::Tuple(ids) => {
+                            RuntimeConstructorPayload::Tuple(ids.iter().map(|id| self.remap_expr(*id)).collect())
                         }
-                        ConstructorPayload::Struct(fields) => {
-                            ConstructorPayload::Struct(fields.iter().map(|(n, id)| (n.clone(), self.remap_expr(*id))).collect())
+                        RuntimeConstructorPayload::Struct(fields) => {
+                            RuntimeConstructorPayload::Struct(fields.iter().map(|(n, id)| (n.clone(), self.remap_expr(*id))).collect())
                         }
                     },
                 }
@@ -263,7 +262,7 @@ impl<'a> SubstCtx<'a> {
                 index: *index,
             },
             RuntimeExpr::ResumeExpr(opt) => RuntimeExpr::ResumeExpr(opt.map(|id| self.remap_expr(id))),
-            _ => expr.clone(), // Int, String, Bool, Unit, Lambda
+            _ => expr.clone(), // Int, String, Bool, Unit, Lambda, DotAccess, DotCall, SliceRange
         }
     }
 

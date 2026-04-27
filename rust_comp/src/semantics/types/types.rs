@@ -53,6 +53,8 @@ pub enum Type {
     Tuple(Vec<Type>),
     Slice(Box<Type>),
     Enum(String),
+    /// Type constructor application: `Expr<int>`, `Vec<Succ<N>, T>`.
+    App(String, Vec<Type>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -117,6 +119,10 @@ impl fmt::Display for Type {
             }
             Type::Slice(elem) => write!(f, "[{elem}]"),
             Type::Enum(name) => write!(f, "{name}"),
+            Type::App(name, args) => {
+                let s: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                write!(f, "{name}<{}>", s.join(", "))
+            }
         }
     }
 }

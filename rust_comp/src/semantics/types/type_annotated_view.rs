@@ -1,5 +1,6 @@
 use crate::frontend::meta_ast::*;
 use crate::util::formatters::tree_formatter::*;
+use crate::util::node_id::MetaNodeId;
 use super::typed_ast::TypeTable;
 
 pub struct TypeAnnotatedView<'a> {
@@ -12,15 +13,15 @@ impl<'a> TypeAnnotatedView<'a> {
         Self { ast, types }
     }
 
-    fn type_leaf_stmt(&self, id: usize) -> Option<TreeNode> {
+    fn type_leaf_stmt(&self, id: MetaNodeId) -> Option<TreeNode> {
         self.types.get_stmt_type(id).map(|ty| TreeNode::leaf(format!("type: {ty}")))
     }
 
-    fn type_leaf_expr(&self, id: usize) -> Option<TreeNode> {
+    fn type_leaf_expr(&self, id: MetaNodeId) -> Option<TreeNode> {
         self.types.get_expr_type(id).map(|ty| TreeNode::leaf(format!("type: {ty}")))
     }
 
-    fn convert_stmt(&self, id: usize) -> TreeNode {
+    fn convert_stmt(&self, id: MetaNodeId) -> TreeNode {
         let stmt = self.ast.get_stmt(id).expect("invalid stmt id");
 
         let (base_label, mut children): (String, Vec<TreeNode>) = match stmt {
@@ -204,7 +205,7 @@ impl<'a> TypeAnnotatedView<'a> {
         TreeNode::node(base_label, children)
     }
 
-    fn convert_expr(&self, id: usize) -> TreeNode {
+    fn convert_expr(&self, id: MetaNodeId) -> TreeNode {
         let expr = self.ast.get_expr(id).expect("invalid expr id");
 
         let (base_label, mut children): (String, Vec<TreeNode>) = match expr {

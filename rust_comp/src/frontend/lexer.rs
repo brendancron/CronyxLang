@@ -4,6 +4,7 @@ use super::token::*;
 pub enum ScanError {
     UnterminatedString,
     UnexpectedCharacter(char),
+    IntegerOverflow(String),
 }
 
 fn is_digit(c: char) -> bool {
@@ -18,7 +19,7 @@ fn is_alpha_numeric(c: char) -> bool {
     is_alpha(c) || is_digit(c)
 }
 
-fn lex_number(chars: &[char], mut i: usize) -> (i64, usize) {
+fn lex_number(chars: &[char], mut i: usize) -> Result<(i64, usize), ScanError> {
     let mut acc = String::new();
 
     while i < chars.len() && is_digit(chars[i]) {
@@ -26,7 +27,8 @@ fn lex_number(chars: &[char], mut i: usize) -> (i64, usize) {
         i += 1;
     }
 
-    (acc.parse::<i64>().unwrap(), i)
+    let n = acc.parse::<i64>().map_err(|_| ScanError::IntegerOverflow(acc))?;
+    Ok((n, i))
 }
 
 fn lex_identifier(chars: &[char], mut i: usize) -> (String, usize) {
@@ -334,7 +336,7 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
             }
 
             c if is_digit(c) => {
-                let (num, j) = lex_number(&chars, i);
+                let (num, j) = lex_number(&chars, i)?;
                 tokens.push(Token {
                     token_type: TokenType::Number,
                     line_number: line_number,

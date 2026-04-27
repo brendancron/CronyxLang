@@ -1,14 +1,13 @@
-use crate::frontend::meta_ast::{
-    ConstructorPayload, EffectOp, EnumVariant, ImportDecl, MatchArm, Param,
-};
+use crate::frontend::meta_ast::{EffectOp, EnumVariant, ImportDecl, Param, Pattern};
 use crate::util::formatters::tree_formatter::*;
+use crate::util::node_id::StagedNodeId;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct StagedAst {
-    pub sem_root_stmts: Vec<usize>,
-    pub exprs: HashMap<usize, StagedExpr>,
-    pub stmts: HashMap<usize, StagedStmt>,
+    pub sem_root_stmts: Vec<StagedNodeId>,
+    pub exprs: HashMap<StagedNodeId, StagedExpr>,
+    pub stmts: HashMap<StagedNodeId, StagedStmt>,
 }
 
 impl StagedAst {
@@ -20,19 +19,19 @@ impl StagedAst {
         }
     }
 
-    pub fn insert_expr(&mut self, id: usize, expr: StagedExpr) {
+    pub fn insert_expr(&mut self, id: StagedNodeId, expr: StagedExpr) {
         self.exprs.insert(id, expr);
     }
 
-    pub fn insert_stmt(&mut self, id: usize, stmt: StagedStmt) {
+    pub fn insert_stmt(&mut self, id: StagedNodeId, stmt: StagedStmt) {
         self.stmts.insert(id, stmt);
     }
 
-    pub fn get_expr(&self, id: usize) -> Option<&StagedExpr> {
+    pub fn get_expr(&self, id: StagedNodeId) -> Option<&StagedExpr> {
         self.exprs.get(&id)
     }
 
-    pub fn get_stmt(&self, id: usize) -> Option<&StagedStmt> {
+    pub fn get_stmt(&self, id: StagedNodeId) -> Option<&StagedStmt> {
         self.stmts.get(&id)
     }
 }
@@ -51,6 +50,19 @@ pub struct MetaRef {
 }
 
 #[derive(Debug, Clone)]
+pub struct StagedMatchArm {
+    pub pattern: Pattern,
+    pub body: StagedNodeId,
+}
+
+#[derive(Debug, Clone)]
+pub enum StagedConstructorPayload {
+    Unit,
+    Tuple(Vec<StagedNodeId>),
+    Struct(Vec<(String, StagedNodeId)>),
+}
+
+#[derive(Debug, Clone)]
 pub enum StagedExpr {
     // LITERAL REPRESENTATION
     Int(i64),
@@ -59,84 +71,84 @@ pub enum StagedExpr {
 
     StructLiteral {
         type_name: String,
-        fields: Vec<(String, usize)>,
+        fields: Vec<(String, StagedNodeId)>,
     },
 
     Variable(String),
 
-    List(Vec<usize>),
+    List(Vec<StagedNodeId>),
 
     Call {
         callee: String,
-        args: Vec<usize>,
+        args: Vec<StagedNodeId>,
     },
 
     DotAccess {
-        object: usize,
+        object: StagedNodeId,
         field: String,
     },
 
     DotCall {
-        object: usize,
+        object: StagedNodeId,
         method: String,
-        args: Vec<usize>,
+        args: Vec<StagedNodeId>,
     },
 
     Index {
-        object: usize,
-        index: usize,
+        object: StagedNodeId,
+        index: StagedNodeId,
     },
 
     EnumConstructor {
         enum_name: String,
         variant: String,
-        payload: ConstructorPayload,
+        payload: StagedConstructorPayload,
     },
 
     // BINOPS
-    Add(usize, usize),
-    Sub(usize, usize),
-    Mult(usize, usize),
-    Div(usize, usize),
-    Equals(usize, usize),
-    NotEquals(usize, usize),
-    Lt(usize, usize),
-    Gt(usize, usize),
-    Lte(usize, usize),
-    Gte(usize, usize),
-    And(usize, usize),
-    Or(usize, usize),
-    Not(usize),
+    Add(StagedNodeId, StagedNodeId),
+    Sub(StagedNodeId, StagedNodeId),
+    Mult(StagedNodeId, StagedNodeId),
+    Div(StagedNodeId, StagedNodeId),
+    Equals(StagedNodeId, StagedNodeId),
+    NotEquals(StagedNodeId, StagedNodeId),
+    Lt(StagedNodeId, StagedNodeId),
+    Gt(StagedNodeId, StagedNodeId),
+    Lte(StagedNodeId, StagedNodeId),
+    Gte(StagedNodeId, StagedNodeId),
+    And(StagedNodeId, StagedNodeId),
+    Or(StagedNodeId, StagedNodeId),
+    Not(StagedNodeId),
 
-    Tuple(Vec<usize>),
+    Tuple(Vec<StagedNodeId>),
     TupleIndex {
-        object: usize,
+        object: StagedNodeId,
         index: usize,
     },
 
     SliceRange {
-        object: usize,
-        start: Option<usize>,
-        end: Option<usize>,
+        object: StagedNodeId,
+        start: Option<StagedNodeId>,
+        end: Option<StagedNodeId>,
     },
 
     Lambda {
         params: Vec<String>,
-        body: usize,
+        body: StagedNodeId,
     },
 
     /// `resume` or `resume(expr)` as an expression.
-    ResumeExpr(Option<usize>),
+    ResumeExpr(Option<StagedNodeId>),
 
     /// `run { body } handle eff1 { ops } handle eff2 { ops } ...`
     RunHandle {
-        body: usize,
-        effects: Vec<(String, Vec<usize>)>,
+        body: StagedNodeId,
+        effects: Vec<(String, Vec<StagedNodeId>)>,
     },
 
     /// `run { body } with handler_name`
     RunWith {
-        body: usize,
+        body: StagedNodeId,
         handler_name: String,
     },
 
@@ -146,30 +158,30 @@ pub enum StagedExpr {
 #[derive(Debug, Clone)]
 pub enum StagedStmt {
     // RAW EXPR STMTS
-    ExprStmt(usize),
+    ExprStmt(StagedNodeId),
 
     // DECLARATION
     VarDecl {
         name: String,
-        expr: usize,
+        expr: StagedNodeId,
     },
 
     Assign {
         name: String,
-        expr: usize,
+        expr: StagedNodeId,
     },
 
     IndexAssign {
         name: String,
-        indices: Vec<usize>,
-        expr: usize,
+        indices: Vec<StagedNodeId>,
+        expr: StagedNodeId,
     },
 
     FnDecl {
         name: String,
         params: Vec<String>,
         type_params: Vec<String>,
-        body: usize,
+        body: StagedNodeId,
     },
 
     StructDecl {
@@ -179,41 +191,42 @@ pub enum StagedStmt {
 
     EnumDecl {
         name: String,
+        type_params: Vec<String>,
         variants: Vec<EnumVariant>,
     },
 
     Match {
-        scrutinee: usize,
-        arms: Vec<MatchArm>,
+        scrutinee: StagedNodeId,
+        arms: Vec<StagedMatchArm>,
     },
 
     // CONTROL
     If {
-        cond: usize,
-        body: usize,
-        else_branch: Option<usize>,
+        cond: StagedNodeId,
+        body: StagedNodeId,
+        else_branch: Option<StagedNodeId>,
     },
 
     WhileLoop {
-        cond: usize,
-        body: usize,
+        cond: StagedNodeId,
+        body: StagedNodeId,
     },
 
     ForEach {
         var: String,
-        iterable: usize,
-        body: usize,
+        iterable: StagedNodeId,
+        body: StagedNodeId,
     },
 
-    Return(Option<usize>),
+    Return(Option<StagedNodeId>),
 
-    Block(Vec<usize>),
+    Block(Vec<StagedNodeId>),
 
     // UTIL
     Import(ImportDecl),
 
     // META
-    Gen(Vec<usize>),
+    Gen(Vec<StagedNodeId>),
     MetaStmt(MetaRef),
 
     // EFFECTS
@@ -225,27 +238,27 @@ pub enum StagedStmt {
     HandlerDef {
         name: String,
         effect_name: Option<String>,
-        ops: Vec<usize>,
+        ops: Vec<StagedNodeId>,
     },
 
     WithFn {
         op_name: String,
         params: Vec<Param>,
         ret_ty: Option<String>,
-        body: usize,
+        body: StagedNodeId,
     },
 
     WithCtl {
         op_name: String,
         params: Vec<Param>,
         ret_ty: Option<String>,
-        body: usize,
+        body: StagedNodeId,
     },
 
-    Resume(Option<usize>),
+    Resume(Option<StagedNodeId>),
 
     // TEMPORARY
-    Print(usize),
+    Print(StagedNodeId),
 }
 
 #[derive(Debug, Clone)]
@@ -265,7 +278,7 @@ impl AsTree for StagedAst {
 }
 
 impl StagedAst {
-    fn convert_stmt(&self, id: usize) -> TreeNode {
+    fn convert_stmt(&self, id: StagedNodeId) -> TreeNode {
         let stmt = self
             .get_stmt(id)
             .unwrap_or_else(|| panic!("invalid stmt id: {}", id));
@@ -376,7 +389,7 @@ impl StagedAst {
                 stmts.iter().map(|s| self.convert_stmt(*s)).collect(),
             ),
 
-            StagedStmt::EnumDecl { name, variants } => (
+            StagedStmt::EnumDecl { name, variants, .. } => (
                 "EnumDecl".into(),
                 std::iter::once(TreeNode::leaf(format!("Name({name})")))
                     .chain(variants.iter().map(|v| TreeNode::leaf(format!("Variant({})", v.name))))
@@ -434,7 +447,7 @@ impl StagedAst {
         TreeNode::node(label, children)
     }
 
-    fn convert_expr(&self, id: usize) -> TreeNode {
+    fn convert_expr(&self, id: StagedNodeId) -> TreeNode {
         let expr = self.get_expr(id).expect("invalid expr id");
 
         let (label, mut children) = match expr {

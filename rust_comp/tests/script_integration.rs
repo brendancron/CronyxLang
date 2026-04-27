@@ -72,12 +72,11 @@ fn run_test_inner(root_path: &PathBuf, out_path: &PathBuf) {
     };
 
     let cps_info = mark_cps(&runtime_ast);
-    let mut runtime_ast = runtime_ast;
 
     // Pass A2 + B: infer effect rows and check for unhandled effects.
     effect_inference::infer_and_check(&runtime_ast, &cps_info).unwrap();
 
-    cps_transform(&mut runtime_ast, &cps_info);
+    let runtime_ast = cps_transform(runtime_ast, &cps_info);
 
     // Hoist all functions and create module namespace values before eval.
     let mut setup_env = EnvHandler::from(meta_env.clone());
@@ -319,6 +318,10 @@ mod script_integration {
             "tests/core/generics/monomorphize",
             "main"
         );
+
+        // GADTs — TDD: fails until parameterized enums + per-constructor return-type
+        // refinement are implemented.
+        cx_test!(types_gadt, "tests/types/gadt", "main");
 
         // Defer
         cx_test!(defer_basic, "tests/core/defer", "defer_basic");

@@ -1,5 +1,6 @@
-use crate::frontend::meta_ast::{ConstructorPayload, Pattern, VariantBindings, VariantPayload};
-use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
+use crate::frontend::meta_ast::{Pattern, VariantBindings, VariantPayload};
+use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeConstructorPayload, RuntimeExpr, RuntimeStmt};
+use crate::util::node_id::RuntimeNodeId;
 
 pub struct Formatter<'a> {
     ast: &'a RuntimeAst,
@@ -16,7 +17,7 @@ impl<'a> Formatter<'a> {
     }
 
     pub fn format_root(&mut self) -> String {
-        let root_ids: Vec<usize> = self.ast.sem_root_stmts.clone();
+        let root_ids: Vec<RuntimeNodeId> = self.ast.sem_root_stmts.clone();
         root_ids
             .iter()
             .map(|id| self.fmt_stmt(*id))
@@ -25,7 +26,7 @@ impl<'a> Formatter<'a> {
             .join("\n")
     }
 
-    fn fmt_stmt(&mut self, id: usize) -> String {
+    fn fmt_stmt(&mut self, id: RuntimeNodeId) -> String {
         let stmt = self.ast.get_stmt(id).expect("invalid stmt id").clone();
         match stmt {
             RuntimeStmt::ExprStmt(e) => {
@@ -70,14 +71,14 @@ impl<'a> Formatter<'a> {
                 format!("{}struct {} {{\n{}\n{}}}", indent, name, fields_str, indent)
             }
 
-            RuntimeStmt::EnumDecl { name, variants } => {
+            RuntimeStmt::EnumDecl { name, variants, .. } => {
                 let indent = self.pad();
                 let variants_str = variants
                     .iter()
                     .map(|v| {
                         let payload = match &v.payload {
                             VariantPayload::Unit => String::new(),
-                            VariantPayload::Tuple(types) => format!("({})", types.join(", ")),
+                            VariantPayload::Tuple(types) => format!("({})", types.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")),
                             VariantPayload::Struct(fields) => {
                                 let fs = fields
                                     .iter()
@@ -174,7 +175,7 @@ impl<'a> Formatter<'a> {
     }
 
     /// Format a stmt ID as a braced block: `{\n    ...\n}`.
-    fn fmt_block_body(&mut self, id: usize) -> String {
+    fn fmt_block_body(&mut self, id: RuntimeNodeId) -> String {
         let stmt = self.ast.get_stmt(id).expect("invalid stmt id").clone();
         match stmt {
             RuntimeStmt::Block(stmts) => self.fmt_block_stmts(&stmts),
@@ -187,7 +188,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn fmt_block_stmts(&mut self, stmts: &[usize]) -> String {
+    fn fmt_block_stmts(&mut self, stmts: &[RuntimeNodeId]) -> String {
         let stmts = stmts.to_vec();
         self.indent += 1;
         let lines: Vec<String> = stmts
@@ -203,7 +204,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn fmt_expr(&mut self, id: usize) -> String {
+    fn fmt_expr(&mut self, id: RuntimeNodeId) -> String {
         let expr = self.ast.get_expr(id).expect("invalid expr id").clone();
         match expr {
             RuntimeExpr::Int(n) => n.to_string(),
@@ -294,8 +295,8 @@ impl<'a> Formatter<'a> {
             }
 
             RuntimeExpr::EnumConstructor { enum_name, variant, payload } => match payload {
-                ConstructorPayload::Unit => format!("{}::{}", enum_name, variant),
-                ConstructorPayload::Tuple(ids) => {
+                RuntimeConstructorPayload::Unit => format!("{}::{}", enum_name, variant),
+                RuntimeConstructorPayload::Tuple(ids) => {
                     let args = ids
                         .iter()
                         .map(|id| self.fmt_expr(*id))
@@ -303,7 +304,7 @@ impl<'a> Formatter<'a> {
                         .join(", ");
                     format!("{}::{}({})", enum_name, variant, args)
                 }
-                ConstructorPayload::Struct(fields) => {
+                RuntimeConstructorPayload::Struct(fields) => {
                     let fs = fields
                         .iter()
                         .map(|(name, id)| format!("{}: {}", name, self.fmt_expr(*id)))

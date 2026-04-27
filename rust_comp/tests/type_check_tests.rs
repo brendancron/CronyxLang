@@ -1,4 +1,5 @@
 use cronyx::util::id_provider::IdProvider;
+use cronyx::util::node_id::{MetaNodeId, RuntimeNodeId};
 use cronyx::frontend::lexer::tokenize;
 use cronyx::frontend::meta_ast::*;
 use cronyx::frontend::parser::{parse, ParseCtx};
@@ -20,7 +21,7 @@ fn parse_source(source: &str) -> MetaAst {
 
 /// Build a MetaAst containing a single `var _ = <expr>` statement.
 /// Returns the ast and the ID of the inserted expression.
-fn ast_with_expr(expr: MetaExpr) -> (MetaAst, usize) {
+fn ast_with_expr(expr: MetaExpr) -> (MetaAst, MetaNodeId) {
     let mut ast = MetaAst::new();
     let mut ids = IdProvider::new();
     let expr_id = ast.insert_expr(&mut ids, expr);
@@ -243,9 +244,9 @@ mod type_check_tests {
 
     fn runtime_ast_var_decl(name: &str, expr: RuntimeExpr) -> RuntimeAst {
         let mut ast = RuntimeAst::new();
-        ast.insert_expr(0, expr);
-        ast.insert_stmt(1, RuntimeStmt::VarDecl { name: name.into(), expr: 0 });
-        ast.sem_root_stmts = vec![1];
+        ast.insert_expr(RuntimeNodeId(0), expr);
+        ast.insert_stmt(RuntimeNodeId(1), RuntimeStmt::VarDecl { name: name.into(), expr: RuntimeNodeId(0) });
+        ast.sem_root_stmts = vec![RuntimeNodeId(1)];
         ast
     }
 
@@ -253,27 +254,27 @@ mod type_check_tests {
     fn phase2_unbound_variable_errors() {
         let ast = runtime_ast_var_decl("x", RuntimeExpr::Variable("y".into()));
         let mut env = TypeEnv::new();
-        assert!(type_check_runtime(&ast, &mut env).is_err());
+        assert!(type_check_runtime(&ast, &mut env, &mut Vec::new()).is_err());
     }
 
     #[test]
     fn phase2_bound_variable_ok() {
         let mut ast = RuntimeAst::new();
         // var x = 1; var y = x;
-        ast.insert_expr(0, RuntimeExpr::Int(1));
-        ast.insert_stmt(1, RuntimeStmt::VarDecl { name: "x".into(), expr: 0 });
-        ast.insert_expr(2, RuntimeExpr::Variable("x".into()));
-        ast.insert_stmt(3, RuntimeStmt::VarDecl { name: "y".into(), expr: 2 });
-        ast.sem_root_stmts = vec![1, 3];
+        ast.insert_expr(RuntimeNodeId(0), RuntimeExpr::Int(1));
+        ast.insert_stmt(RuntimeNodeId(1), RuntimeStmt::VarDecl { name: "x".into(), expr: RuntimeNodeId(0) });
+        ast.insert_expr(RuntimeNodeId(2), RuntimeExpr::Variable("x".into()));
+        ast.insert_stmt(RuntimeNodeId(3), RuntimeStmt::VarDecl { name: "y".into(), expr: RuntimeNodeId(2) });
+        ast.sem_root_stmts = vec![RuntimeNodeId(1), RuntimeNodeId(3)];
         let mut env = TypeEnv::new();
-        assert!(type_check_runtime(&ast, &mut env).is_ok());
+        assert!(type_check_runtime(&ast, &mut env, &mut Vec::new()).is_ok());
     }
 
     #[test]
     fn phase2_int_literal_ok() {
         let ast = runtime_ast_var_decl("x", RuntimeExpr::Int(42));
         let mut env = TypeEnv::new();
-        assert!(type_check_runtime(&ast, &mut env).is_ok());
+        assert!(type_check_runtime(&ast, &mut env, &mut Vec::new()).is_ok());
     }
 
     // --- Record types ---

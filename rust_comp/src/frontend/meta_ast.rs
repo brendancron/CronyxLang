@@ -1,18 +1,46 @@
 use crate::util::id_provider::*;
 use crate::util::formatters::tree_formatter::*;
+use crate::util::node_id::MetaNodeId;
 use std::collections::HashMap;
+
+/// Structured representation of a type expression in source position.
+/// Used in GADT variant payloads and return-type annotations.
+#[derive(Debug, Clone)]
+pub enum MetaTypeExpr {
+    Named(String),
+    App(String, Vec<MetaTypeExpr>),
+    Tuple(Vec<MetaTypeExpr>),
+    Slice(Box<MetaTypeExpr>),
+}
+
+impl std::fmt::Display for MetaTypeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MetaTypeExpr::Named(n) => write!(f, "{n}"),
+            MetaTypeExpr::App(name, args) => {
+                let s: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                write!(f, "{name}<{}>", s.join(", "))
+            }
+            MetaTypeExpr::Tuple(elems) => {
+                let s: Vec<String> = elems.iter().map(|e| e.to_string()).collect();
+                write!(f, "({})", s.join(", "))
+            }
+            MetaTypeExpr::Slice(inner) => write!(f, "[{inner}]"),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct MetaAst {
-    pub sem_root_stmts: Vec<usize>,
-    exprs: HashMap<usize, MetaExpr>,
-    stmts: HashMap<usize, MetaStmt>,
+    pub sem_root_stmts: Vec<MetaNodeId>,
+    exprs: HashMap<MetaNodeId, MetaExpr>,
+    stmts: HashMap<MetaNodeId, MetaStmt>,
 }
 
 #[derive(Debug)]
 pub enum MetaAstNode {
-    Stmt(usize),
-    Expr(usize),
+    Stmt(MetaNodeId),
+    Expr(MetaNodeId),
 }
 
 impl MetaAst {
@@ -24,23 +52,23 @@ impl MetaAst {
         }
     }
 
-    pub fn insert_expr(&mut self, id_provider: &mut IdProvider, expr: MetaExpr) -> usize {
-        let id = id_provider.next();
+    pub fn insert_expr(&mut self, id_provider: &mut IdProvider, expr: MetaExpr) -> MetaNodeId {
+        let id = id_provider.next_meta();
         self.exprs.insert(id, expr);
         id
     }
 
-    pub fn insert_stmt(&mut self, id_provider: &mut IdProvider, stmt: MetaStmt) -> usize {
-        let id = id_provider.next();
+    pub fn insert_stmt(&mut self, id_provider: &mut IdProvider, stmt: MetaStmt) -> MetaNodeId {
+        let id = id_provider.next_meta();
         self.stmts.insert(id, stmt);
         id
     }
 
-    pub fn get_expr(&self, id: usize) -> Option<&MetaExpr> {
+    pub fn get_expr(&self, id: MetaNodeId) -> Option<&MetaExpr> {
         self.exprs.get(&id)
     }
 
-    pub fn get_stmt(&self, id: usize) -> Option<&MetaStmt> {
+    pub fn get_stmt(&self, id: MetaNodeId) -> Option<&MetaStmt> {
         self.stmts.get(&id)
     }
 }
@@ -54,32 +82,32 @@ pub enum MetaExpr {
 
     StructLiteral {
         type_name: String,
-        fields: Vec<(String, usize)>,
+        fields: Vec<(String, MetaNodeId)>,
     },
 
     Variable(String),
 
-    List(Vec<usize>),
+    List(Vec<MetaNodeId>),
 
     Call {
         callee: String,
-        args: Vec<usize>,
+        args: Vec<MetaNodeId>,
     },
 
     DotAccess {
-        object: usize,
+        object: MetaNodeId,
         field: String,
     },
 
     DotCall {
-        object: usize,
+        object: MetaNodeId,
         method: String,
-        args: Vec<usize>,
+        args: Vec<MetaNodeId>,
     },
 
     Index {
-        object: usize,
-        index: usize,
+        object: MetaNodeId,
+        index: MetaNodeId,
     },
 
     Typeof(String),
@@ -93,50 +121,50 @@ pub enum MetaExpr {
     },
 
     // BINOPS
-    Add(usize, usize),
-    Sub(usize, usize),
-    Mult(usize, usize),
-    Div(usize, usize),
-    Equals(usize, usize),
-    NotEquals(usize, usize),
-    Lt(usize, usize),
-    Gt(usize, usize),
-    Lte(usize, usize),
-    Gte(usize, usize),
-    And(usize, usize),
-    Or(usize, usize),
-    Not(usize),
+    Add(MetaNodeId, MetaNodeId),
+    Sub(MetaNodeId, MetaNodeId),
+    Mult(MetaNodeId, MetaNodeId),
+    Div(MetaNodeId, MetaNodeId),
+    Equals(MetaNodeId, MetaNodeId),
+    NotEquals(MetaNodeId, MetaNodeId),
+    Lt(MetaNodeId, MetaNodeId),
+    Gt(MetaNodeId, MetaNodeId),
+    Lte(MetaNodeId, MetaNodeId),
+    Gte(MetaNodeId, MetaNodeId),
+    And(MetaNodeId, MetaNodeId),
+    Or(MetaNodeId, MetaNodeId),
+    Not(MetaNodeId),
 
-    Tuple(Vec<usize>),
+    Tuple(Vec<MetaNodeId>),
     TupleIndex {
-        object: usize,
+        object: MetaNodeId,
         index: usize,
     },
 
     SliceRange {
-        object: usize,
-        start: Option<usize>,
-        end: Option<usize>,
+        object: MetaNodeId,
+        start: Option<MetaNodeId>,
+        end: Option<MetaNodeId>,
     },
 
     Lambda {
         params: Vec<String>,
-        body: usize,
+        body: MetaNodeId,
     },
 
     /// `resume` or `resume(expr)` used as an expression (returns the continuation's value).
-    ResumeExpr(Option<usize>),
+    ResumeExpr(Option<MetaNodeId>),
 
     /// `run { body } handle eff1 { ops } handle eff2 { ops } ...`
     RunHandle {
-        body: usize,
+        body: MetaNodeId,
         /// (effect_name, [WithFn/WithCtl stmt IDs])
-        effects: Vec<(String, Vec<usize>)>,
+        effects: Vec<(String, Vec<MetaNodeId>)>,
     },
 
     /// `run { body } with handler_name`
     RunWith {
-        body: usize,
+        body: MetaNodeId,
         handler_name: String,
     },
 }
@@ -158,31 +186,32 @@ pub struct EffectOp {
 #[derive(Debug, Clone)]
 pub enum MetaStmt {
     // RAW EXPR STMTS
-    ExprStmt(usize),
+    ExprStmt(MetaNodeId),
 
     // DECLARATION
     VarDecl {
         name: String,
-        type_annotation: Option<String>,
-        expr: usize,
+        type_annotation: Option<MetaTypeExpr>,
+        expr: MetaNodeId,
     },
 
     Assign {
         name: String,
-        expr: usize,
+        expr: MetaNodeId,
     },
 
     IndexAssign {
         name: String,
-        indices: Vec<usize>,
-        expr: usize,
+        indices: Vec<MetaNodeId>,
+        expr: MetaNodeId,
     },
 
     FnDecl {
         name: String,
         params: Vec<Param>,
         type_params: Vec<String>,
-        body: usize,
+        ret_ty: Option<MetaTypeExpr>,
+        body: MetaNodeId,
     },
 
     StructDecl {
@@ -192,47 +221,48 @@ pub enum MetaStmt {
 
     EnumDecl {
         name: String,
+        type_params: Vec<String>,
         variants: Vec<EnumVariant>,
     },
 
     Match {
-        scrutinee: usize,
+        scrutinee: MetaNodeId,
         arms: Vec<MatchArm>,
     },
 
     // CONTROL
     If {
-        cond: usize,
-        body: usize,
-        else_branch: Option<usize>,
+        cond: MetaNodeId,
+        body: MetaNodeId,
+        else_branch: Option<MetaNodeId>,
     },
 
     WhileLoop {
-        cond: usize,
-        body: usize,
+        cond: MetaNodeId,
+        body: MetaNodeId,
     },
 
     ForEach {
         var: String,
-        iterable: usize,
-        body: usize,
+        iterable: MetaNodeId,
+        body: MetaNodeId,
     },
 
-    Return(Option<usize>),
+    Return(Option<MetaNodeId>),
 
-    Block(Vec<usize>),
+    Block(Vec<MetaNodeId>),
 
     // UTIL
     Import(ImportDecl),
 
     // META
-    MetaBlock(usize),
+    MetaBlock(MetaNodeId),
     MetaFnDecl {
         name: String,
         params: Vec<Param>,
-        body: usize,
+        body: MetaNodeId,
     },
-    Gen(Vec<usize>),
+    Gen(Vec<MetaNodeId>),
 
     // EFFECTS
     EffectDecl {
@@ -244,28 +274,28 @@ pub enum MetaStmt {
     HandlerDef {
         name: String,
         effect_name: Option<String>,
-        ops: Vec<usize>,
+        ops: Vec<MetaNodeId>,
     },
 
     WithFn {
         op_name: String,
         params: Vec<Param>,
         ret_ty: Option<String>,
-        body: usize,
+        body: MetaNodeId,
     },
 
     WithCtl {
         op_name: String,
         params: Vec<Param>,
         ret_ty: Option<String>,
-        body: usize,
+        body: MetaNodeId,
     },
 
     /// `resume` or `resume expr`
-    Resume(Option<usize>),
+    Resume(Option<MetaNodeId>),
 
     // TEMPORARY
-    Print(usize),
+    Print(MetaNodeId),
 
     TraitDecl {
         name: String,
@@ -280,33 +310,37 @@ pub enum MetaStmt {
     },
 
     /// `defer <stmt>` — executes deferred stmt in LIFO order when the enclosing block exits.
-    Defer(usize),
+    Defer(MetaNodeId),
 }
 
 #[derive(Debug, Clone)]
 pub struct ImplMethodDecl {
     pub name: String,
     pub params: Vec<Param>,  // first param is typically "self"
-    pub body: usize,
+    pub body: MetaNodeId,
 }
 
 #[derive(Debug, Clone)]
 pub struct EnumVariant {
     pub name: String,
+    /// Type variables scoped to this constructor, e.g. `["A"]` for `If<A>(...)`.
+    pub local_type_params: Vec<String>,
     pub payload: VariantPayload,
+    /// GADT return-type annotation, e.g. `Some(App("Expr", [Named("A")]))` for `: Expr<A>`.
+    pub return_type: Option<MetaTypeExpr>,
 }
 
 #[derive(Debug, Clone)]
 pub enum VariantPayload {
     Unit,
-    Tuple(Vec<String>),
+    Tuple(Vec<MetaTypeExpr>),
     Struct(Vec<MetaFieldDecl>),
 }
 
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: Pattern,
-    pub body: usize,
+    pub body: MetaNodeId,
 }
 
 #[derive(Debug, Clone)]
@@ -329,14 +363,14 @@ pub enum VariantBindings {
 #[derive(Debug, Clone)]
 pub enum ConstructorPayload {
     Unit,
-    Tuple(Vec<usize>),
-    Struct(Vec<(String, usize)>),
+    Tuple(Vec<MetaNodeId>),
+    Struct(Vec<(String, MetaNodeId)>),
 }
 
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
-    pub ty: Option<String>,
+    pub ty: Option<MetaTypeExpr>,
 }
 
 #[derive(Debug, Clone)]
@@ -372,16 +406,16 @@ impl ImportDecl {
 impl MetaAst {
     /// Insert a stmt with a freshly-generated ID that is guaranteed not to collide
     /// with any existing stmt or expr ID.  Useful for post-parse transformations.
-    pub fn inject_stmt(&mut self, stmt: MetaStmt) -> usize {
-        let max_stmt = self.stmts.keys().max().copied().unwrap_or(0);
-        let max_expr = self.exprs.keys().max().copied().unwrap_or(0);
-        let id = max_stmt.max(max_expr) + 1;
+    pub fn inject_stmt(&mut self, stmt: MetaStmt) -> MetaNodeId {
+        let max_stmt = self.stmts.keys().map(|k| k.0).max().unwrap_or(0);
+        let max_expr = self.exprs.keys().map(|k| k.0).max().unwrap_or(0);
+        let id = MetaNodeId(max_stmt.max(max_expr) + 1);
         self.stmts.insert(id, stmt);
         id
     }
 
     /// Remove a stmt by ID (does not touch `sem_root_stmts`).
-    pub fn remove_stmt(&mut self, id: usize) {
+    pub fn remove_stmt(&mut self, id: MetaNodeId) {
         self.stmts.remove(&id);
     }
 }
@@ -397,7 +431,7 @@ impl AsTree for MetaAst {
 }
 
 impl MetaAst {
-    fn convert_stmt(&self, id: usize) -> TreeNode {
+    fn convert_stmt(&self, id: MetaNodeId) -> TreeNode {
         let stmt = self.get_stmt(id).expect("invalid stmt id");
 
         let (label, mut children): (String, Vec<TreeNode>) = match stmt {
@@ -430,7 +464,7 @@ impl MetaAst {
                     .collect(),
             ),
 
-            MetaStmt::FnDecl { name, params, type_params, body } => (
+            MetaStmt::FnDecl { name, params, type_params, ret_ty, body } => (
                 "FnDecl".into(),
                 vec![
                     TreeNode::leaf(if type_params.is_empty() {
@@ -441,10 +475,14 @@ impl MetaAst {
                     TreeNode::node(
                         "Params",
                         params.iter().map(|p| TreeNode::leaf(match &p.ty {
-                            Some(ty) => format!("{}: {}", p.name, ty),
+                            Some(ty) => format!("{}: {ty}", p.name),
                             None => p.name.clone(),
                         })).collect(),
                     ),
+                    TreeNode::leaf(match ret_ty {
+                        Some(ty) => format!("Ret({ty})"),
+                        None => "Ret(unit)".into(),
+                    }),
                     self.convert_stmt(*body),
                 ],
             ),
@@ -511,9 +549,13 @@ impl MetaAst {
 
             MetaStmt::Import(decl) => ("Import".into(), vec![TreeNode::leaf(decl.path().to_string())]),
 
-            MetaStmt::EnumDecl { name, variants } => (
+            MetaStmt::EnumDecl { name, type_params, variants } => (
                 "EnumDecl".into(),
-                std::iter::once(TreeNode::leaf(format!("Name({name})")))
+                std::iter::once(TreeNode::leaf(if type_params.is_empty() {
+                    format!("Name({name})")
+                } else {
+                    format!("Name({name}<{}>)", type_params.join(", "))
+                }))
                     .chain(variants.iter().map(|v| TreeNode::leaf(format!("Variant({})", v.name))))
                     .collect(),
             ),
@@ -630,7 +672,7 @@ impl MetaAst {
         TreeNode::node(label, children)
     }
 
-    fn convert_expr(&self, id: usize) -> TreeNode {
+    fn convert_expr(&self, id: MetaNodeId) -> TreeNode {
         let expr = self.get_expr(id).expect("invalid expr id");
 
         let (label, mut children) = match expr {

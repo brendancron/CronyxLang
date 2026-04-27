@@ -1,3 +1,5 @@
+use crate::util::node_id::{MetaNodeId, RuntimeNodeId, StagedNodeId};
+
 pub struct IdProvider {
     current_id: usize,
 }
@@ -15,5 +17,17 @@ impl IdProvider {
         let id = self.current_id;
         self.current_id += 1;
         id
+    }
+
+    pub fn next_meta(&mut self) -> MetaNodeId {
+        MetaNodeId(self.next())
+    }
+
+    pub fn next_staged(&mut self) -> StagedNodeId {
+        StagedNodeId(self.next())
+    }
+
+    pub fn next_runtime(&mut self) -> RuntimeNodeId {
+        RuntimeNodeId(self.next())
     }
 }

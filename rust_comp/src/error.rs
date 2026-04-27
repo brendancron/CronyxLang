@@ -233,6 +233,10 @@ fn type_diagnostic(e: &TypeError) -> Diagnostic {
         TypeErrorKind::Unsupported => {
             ice("unsupported type operation")
         }
+        TypeErrorKind::PolymorphicCall(name) => {
+            Diagnostic::new(format!("polymorphic call to `{name}` with multiple distinct concrete argument types"))
+                .with_help("monomorphization is not yet implemented — call `{name}` with the same argument types at every call site")
+        }
     }
 }
 
@@ -242,9 +246,14 @@ fn meta_diagnostic(e: &MetaProcessError) -> Diagnostic {
             Diagnostic::new(format!("unresolved symbol '{name}'"))
                 .with_help(format!("check that '{name}' is exported and its module is imported"))
         }
-        MetaProcessError::CircularDependency => {
-            Diagnostic::new("circular dependency detected between modules")
-                .with_help("reorganise imports to remove the cycle")
+        MetaProcessError::CircularDependency(chain) => {
+            let msg = match chain.len() {
+                0 => "circular dependency detected between modules".to_string(),
+                1 => format!("circular dependency detected: {}", chain[0]),
+                _ => format!("circular dependency detected: {}", chain.join(" → ")),
+            };
+            Diagnostic::new(msg)
+                .with_help("break the cycle by extracting shared code into a separate module")
         }
         MetaProcessError::EmbedFailed { path, error } => {
             Diagnostic::new(format!("could not embed '{path}': {error}"))
@@ -284,6 +293,9 @@ fn eval_diagnostic(e: &EvalError) -> Diagnostic {
             Diagnostic::new("gen block used outside of a meta context")
                 .with_help("gen blocks can only appear inside meta { } or meta fn bodies")
         }
+        EvalError::DivisionByZero => Diagnostic::new("division by zero"),
+        EvalError::Internal(msg) => ice(&format!("internal error: {msg}")),
+        EvalError::IoError(msg) => Diagnostic::new(format!("I/O error: {msg}")),
         EvalError::ExprNotFound(id) => ice(&format!("expression node not found (id={id})")),
         EvalError::StmtNotFound(id) => ice(&format!("statement node not found (id={id})")),
         EvalError::Unimplemented => ice("hit an unimplemented interpreter path"),
@@ -291,6 +303,7 @@ fn eval_diagnostic(e: &EvalError) -> Diagnostic {
         EvalError::EffectAborted
         | EvalError::MultiResumed
         | EvalError::CtlSuspend { .. } => ice("effect control-flow signal escaped the interpreter"),
+        EvalError::WithLocation { inner, .. } => eval_diagnostic(inner),
     }
 }
 
@@ -304,6 +317,19 @@ pub fn enrich_diagnostic(
     source: &str,
     spans: &HashMap<usize, (usize, usize)>,
 ) -> Diagnostic {
+    // Runtime errors carry a node ID from eval_expr/eval_stmt wrappers.
+    // These IDs come from the same parser-generated span table.
+    if let CompilerError::Eval(EvalError::WithLocation { node_id, .. }) = error {
+        if let Some(&(line, col)) = spans.get(&node_id.0) {
+            let src_line = source_line(source, line);
+            let len = token_len_at(&src_line, col);
+            return diag
+                .with_location(line, col)
+                .with_source(src_line, col, len, "here");
+        }
+        return diag;
+    }
+
     // Phase-2 (runtime) type errors carry staged-AST node IDs that don't match
     // the parser's span table.  For UnboundVar we can still locate the token
     // with a source-text search; other Phase-2 errors fall back to file-only.
@@ -322,7 +348,7 @@ pub fn enrich_diagnostic(
         Some(id) => id,
         None => return diag,
     };
-    let &(line, col) = match spans.get(&node_id) {
+    let &(line, col) = match spans.get(&node_id.0) {
         Some(loc) => loc,
         None => return diag,
     };
@@ -382,6 +408,9 @@ fn type_error_snippet(kind: &TypeErrorKind, col: usize, src_line: &str) -> (Stri
         }
         TypeErrorKind::Unsupported => {
             ("here".to_string(), 1)
+        }
+        TypeErrorKind::PolymorphicCall(name) => {
+            (format!("multiple concrete types for `{name}`"), name.len())
         }
     }
 }

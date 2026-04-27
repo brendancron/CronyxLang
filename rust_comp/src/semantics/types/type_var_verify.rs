@@ -12,6 +12,7 @@ fn contains_type_var(ty: &Type) -> bool {
         Type::Struct { fields, .. } => fields.values().any(contains_type_var),
         Type::Tuple(items) => items.iter().any(contains_type_var),
         Type::Slice(elem) => contains_type_var(elem),
+        Type::App(_, args) => args.iter().any(contains_type_var),
         Type::Primitive(_) | Type::Enum(_) => false,
     }
 }

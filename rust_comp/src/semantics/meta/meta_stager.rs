@@ -3,6 +3,7 @@ use super::process_dependency::*;
 use super::staged_ast::*;
 use super::staged_forest::*;
 use crate::util::id_provider::IdProvider;
+use crate::util::node_id::{MetaNodeId, StagedNodeId};
 use crate::frontend::meta_ast::*;
 use crate::frontend::module_loader::{FileRole, LoadedFile};
 use crate::semantics::types::type_env::TypeEnv;
@@ -11,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 pub fn process_root(
     meta_ast: &MetaAst,
-    root_stmts: Vec<usize>,
+    root_stmts: Vec<MetaNodeId>,
     staged_forest: &mut StagedForest,
     id_provider: &mut IdProvider,
     type_env: &TypeEnv,
@@ -40,14 +41,14 @@ pub fn process_root(
 
 pub fn process_expr(
     meta_ast: &MetaAst,
-    meta_expr_id: usize,
+    meta_expr_id: MetaNodeId,
     staged_ast: &mut StagedAst,
     id_provider: &mut IdProvider,
     dependency_set: &mut HashSet<ProcessDependency>,
     staged_forest: &mut StagedForest,
     type_env: &TypeEnv,
-) -> Result<usize, MetaProcessError> {
-    let staged_expr_id = id_provider.next();
+) -> Result<StagedNodeId, MetaProcessError> {
+    let staged_expr_id = id_provider.next_staged();
     let meta_expr = meta_ast
         .get_expr(meta_expr_id)
         .ok_or(MetaProcessError::ExprNotFound(meta_expr_id))?;
@@ -196,13 +197,13 @@ pub fn process_expr(
 
         MetaExpr::EnumConstructor { enum_name, variant, payload } => {
             let staged_payload = match payload {
-                ConstructorPayload::Unit => ConstructorPayload::Unit,
+                ConstructorPayload::Unit => StagedConstructorPayload::Unit,
                 ConstructorPayload::Tuple(exprs) => {
                     let mut ids = Vec::new();
                     for e in exprs {
                         ids.push(process_expr(meta_ast, *e, staged_ast, id_provider, dependency_set, staged_forest, type_env)?);
                     }
-                    ConstructorPayload::Tuple(ids)
+                    StagedConstructorPayload::Tuple(ids)
                 }
                 ConstructorPayload::Struct(fields) => {
                     let mut out = Vec::new();
@@ -210,7 +211,7 @@ pub fn process_expr(
                         let id = process_expr(meta_ast, *e, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
                         out.push((name.clone(), id));
                     }
-                    ConstructorPayload::Struct(out)
+                    StagedConstructorPayload::Struct(out)
                 }
             };
             staged_ast.insert_expr(staged_expr_id, StagedExpr::EnumConstructor {
@@ -268,9 +269,9 @@ pub fn process_expr(
 
         MetaExpr::RunHandle { body, effects } => {
             let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
-            let mut staged_effects: Vec<(String, Vec<usize>)> = Vec::new();
+            let mut staged_effects: Vec<(String, Vec<StagedNodeId>)> = Vec::new();
             for (eff_name, ops) in effects {
-                let op_ids: Result<Vec<usize>, _> = ops
+                let op_ids: Result<Vec<StagedNodeId>, _> = ops
                     .iter()
                     .map(|&s| process_stmt(meta_ast, s, staged_ast, id_provider, dependency_set, staged_forest, type_env))
                     .collect();
@@ -295,14 +296,14 @@ pub fn process_expr(
 
 pub fn process_stmt(
     meta_ast: &MetaAst,
-    meta_stmt_id: usize,
+    meta_stmt_id: MetaNodeId,
     staged_ast: &mut StagedAst,
     id_provider: &mut IdProvider,
     dependency_set: &mut HashSet<ProcessDependency>,
     staged_forest: &mut StagedForest,
     type_env: &TypeEnv,
-) -> Result<usize, MetaProcessError> {
-    let staged_stmt_id = id_provider.next();
+) -> Result<StagedNodeId, MetaProcessError> {
+    let staged_stmt_id = id_provider.next_staged();
     let meta_stmt = meta_ast
         .get_stmt(meta_stmt_id)
         .ok_or(MetaProcessError::StmtNotFound(meta_stmt_id))?;
@@ -380,8 +381,8 @@ pub fn process_stmt(
         }
 
         MetaStmt::Block(stmts) => {
-            let mut deferred: Vec<usize> = Vec::new();
-            let mut regular: Vec<usize> = Vec::new();
+            let mut deferred: Vec<StagedNodeId> = Vec::new();
+            let mut regular: Vec<StagedNodeId> = Vec::new();
             for &meta_stmt_id in stmts {
                 if let Some(MetaStmt::Defer(inner)) = meta_ast.get_stmt(meta_stmt_id) {
                     let inner_id = process_stmt(meta_ast, *inner, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
@@ -395,13 +396,13 @@ pub fn process_stmt(
                 staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(regular));
             } else {
                 // LIFO: last defer declared runs first.
-                let defers_lifo: Vec<usize> = deferred.into_iter().rev().collect();
+                let defers_lifo: Vec<StagedNodeId> = deferred.into_iter().rev().collect();
                 let transformed = transform_block_with_defers(regular, &defers_lifo, staged_ast, id_provider);
                 staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(transformed));
             }
         }
 
-        MetaStmt::FnDecl { name, params, type_params, body } => {
+        MetaStmt::FnDecl { name, params, type_params, body, .. } => {
             let body_id = process_stmt(meta_ast, *body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::FnDecl {
                 name: name.clone(),
@@ -440,9 +441,9 @@ pub fn process_stmt(
             let trait_name = trait_name.clone();
             let type_name = type_name.clone();
             let methods = methods.clone();
-            let mut fn_ids = Vec::new();
+            let mut fn_ids: Vec<StagedNodeId> = Vec::new();
             for method in &methods {
-                let fn_id = id_provider.next();
+                let fn_id = id_provider.next_staged();
                 let body_id = process_stmt(
                     meta_ast, method.body,
                     staged_ast, id_provider, dependency_set, staged_forest, type_env,
@@ -466,9 +467,10 @@ pub fn process_stmt(
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Block(fn_ids));
         }
 
-        MetaStmt::EnumDecl { name, variants } => {
+        MetaStmt::EnumDecl { name, type_params, variants } => {
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::EnumDecl {
                 name: name.clone(),
+                type_params: type_params.clone(),
                 variants: variants.clone(),
             });
         }
@@ -478,7 +480,7 @@ pub fn process_stmt(
             let mut staged_arms = Vec::new();
             for arm in arms {
                 let body_id = process_stmt(meta_ast, arm.body, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
-                staged_arms.push(MatchArm { pattern: arm.pattern.clone(), body: body_id });
+                staged_arms.push(StagedMatchArm { pattern: arm.pattern.clone(), body: body_id });
             }
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Match {
                 scrutinee: scrutinee_id,
@@ -547,7 +549,7 @@ pub fn process_stmt(
         }
 
         MetaStmt::HandlerDef { name, effect_name, ops } => {
-            let op_ids: Result<Vec<usize>, _> = ops
+            let op_ids: Result<Vec<StagedNodeId>, _> = ops
                 .iter()
                 .map(|&s| process_stmt(meta_ast, s, staged_ast, id_provider, dependency_set, staged_forest, type_env))
                 .collect();
@@ -584,12 +586,12 @@ pub fn process_stmt(
 /// The second copy at the natural end is dead code on any all-return path, which is
 /// harmless — the LLVM backend will DCE it.
 fn transform_block_with_defers(
-    stmts: Vec<usize>,
-    defers_lifo: &[usize],
+    stmts: Vec<StagedNodeId>,
+    defers_lifo: &[StagedNodeId],
     staged_ast: &mut StagedAst,
     id_provider: &mut IdProvider,
-) -> Vec<usize> {
-    let mut result: Vec<usize> = stmts
+) -> Vec<StagedNodeId> {
+    let mut result: Vec<StagedNodeId> = stmts
         .into_iter()
         .map(|s| inject_before_returns(s, defers_lifo, staged_ast, id_provider))
         .collect();
@@ -601,11 +603,11 @@ fn transform_block_with_defers(
 /// the deferred statements. Stops recursion at `FnDecl` boundaries (a `return` inside
 /// a nested function exits that function, not the one that owns the defers).
 fn inject_before_returns(
-    stmt_id: usize,
-    defers: &[usize],
+    stmt_id: StagedNodeId,
+    defers: &[StagedNodeId],
     staged_ast: &mut StagedAst,
     id_provider: &mut IdProvider,
-) -> usize {
+) -> StagedNodeId {
     let stmt = match staged_ast.get_stmt(stmt_id) {
         Some(s) => s.clone(),
         None => return stmt_id,
@@ -616,17 +618,17 @@ fn inject_before_returns(
             // Wrap: { defer1; defer2; ...; return <expr>; }
             let mut block_stmts = defers.to_vec();
             block_stmts.push(stmt_id);
-            let new_id = id_provider.next();
+            let new_id = id_provider.next_staged();
             staged_ast.insert_stmt(new_id, StagedStmt::Block(block_stmts));
             new_id
         }
 
         StagedStmt::Block(children) => {
-            let new_children: Vec<usize> = children
+            let new_children: Vec<StagedNodeId> = children
                 .into_iter()
                 .map(|c| inject_before_returns(c, defers, staged_ast, id_provider))
                 .collect();
-            let new_id = id_provider.next();
+            let new_id = id_provider.next_staged();
             staged_ast.insert_stmt(new_id, StagedStmt::Block(new_children));
             new_id
         }
@@ -635,34 +637,34 @@ fn inject_before_returns(
             let new_body = inject_before_returns(body, defers, staged_ast, id_provider);
             let new_else = else_branch
                 .map(|e| inject_before_returns(e, defers, staged_ast, id_provider));
-            let new_id = id_provider.next();
+            let new_id = id_provider.next_staged();
             staged_ast.insert_stmt(new_id, StagedStmt::If { cond, body: new_body, else_branch: new_else });
             new_id
         }
 
         StagedStmt::WhileLoop { cond, body } => {
             let new_body = inject_before_returns(body, defers, staged_ast, id_provider);
-            let new_id = id_provider.next();
+            let new_id = id_provider.next_staged();
             staged_ast.insert_stmt(new_id, StagedStmt::WhileLoop { cond, body: new_body });
             new_id
         }
 
         StagedStmt::ForEach { var, iterable, body } => {
             let new_body = inject_before_returns(body, defers, staged_ast, id_provider);
-            let new_id = id_provider.next();
+            let new_id = id_provider.next_staged();
             staged_ast.insert_stmt(new_id, StagedStmt::ForEach { var, iterable, body: new_body });
             new_id
         }
 
         StagedStmt::Match { scrutinee, arms } => {
-            let new_arms: Vec<MatchArm> = arms
+            let new_arms: Vec<StagedMatchArm> = arms
                 .into_iter()
-                .map(|arm| MatchArm {
+                .map(|arm| StagedMatchArm {
                     pattern: arm.pattern,
                     body: inject_before_returns(arm.body, defers, staged_ast, id_provider),
                 })
                 .collect();
-            let new_id = id_provider.next();
+            let new_id = id_provider.next_staged();
             staged_ast.insert_stmt(new_id, StagedStmt::Match { scrutinee, arms: new_arms });
             new_id
         }
@@ -689,7 +691,7 @@ pub fn stage_all_files(
     staged_forest: &mut StagedForest,
     id_provider: &mut IdProvider,
     type_env: &TypeEnv,
-) -> Result<usize, MetaProcessError> {
+) -> Result<usize, Vec<MetaProcessError>> {
     let entry = files
         .iter()
         .find(|f| matches!(f.role, FileRole::Entry))
@@ -697,7 +699,8 @@ pub fn stage_all_files(
 
     let mut staged_ast = StagedAst::new();
     let mut dependency_set: HashSet<ProcessDependency> = HashSet::new();
-    let mut sem_root_stmts: Vec<usize> = Vec::new();
+    let mut sem_root_stmts: Vec<StagedNodeId> = Vec::new();
+    let mut errors: Vec<MetaProcessError> = Vec::new();
 
     // Build a map from path stem → exports for every file (used for transitive bindings).
     let mut exports_by_stem: HashMap<String, Vec<String>> = HashMap::new();
@@ -739,12 +742,14 @@ pub fn stage_all_files(
             if !is_exportable_stmt(&file.ast, stmt_id) {
                 continue;
             }
-            let staged_id = process_stmt(
+            match process_stmt(
                 &file.ast, stmt_id,
                 &mut staged_ast, id_provider,
                 &mut dependency_set, staged_forest, type_env,
-            )?;
-            sem_root_stmts.push(staged_id);
+            ) {
+                Ok(id) => sem_root_stmts.push(id),
+                Err(e) => errors.push(e),
+            }
         }
 
         // Record module binding for explicit imports.
@@ -806,12 +811,18 @@ pub fn stage_all_files(
 
     // Stage entry file statements.
     for &stmt_id in &entry.ast.sem_root_stmts {
-        let staged_id = process_stmt(
+        match process_stmt(
             &entry.ast, stmt_id,
             &mut staged_ast, id_provider,
             &mut dependency_set, staged_forest, type_env,
-        )?;
-        sem_root_stmts.push(staged_id);
+        ) {
+            Ok(id) => sem_root_stmts.push(id),
+            Err(e) => errors.push(e),
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(errors);
     }
 
     staged_ast.sem_root_stmts = sem_root_stmts;
@@ -822,7 +833,7 @@ pub fn stage_all_files(
     Ok(root_id)
 }
 
-fn is_exportable_stmt(ast: &MetaAst, stmt_id: usize) -> bool {
+fn is_exportable_stmt(ast: &MetaAst, stmt_id: MetaNodeId) -> bool {
     matches!(
         ast.get_stmt(stmt_id),
         Some(MetaStmt::FnDecl { .. })

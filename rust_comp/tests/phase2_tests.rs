@@ -10,13 +10,14 @@
 /// Phase 2d (string slice range) is tested as a script integration test.
 use std::collections::HashMap;
 
-use cronyx::frontend::meta_ast::{EnumVariant, VariantPayload};
+use cronyx::frontend::meta_ast::{EnumVariant, MetaTypeExpr, VariantPayload};
 use cronyx::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
 use cronyx::semantics::types::enum_registry::{EnumRegistry, ResolvedPayload};
 use cronyx::semantics::types::runtime_type_checker::type_check_runtime;
 use cronyx::semantics::types::type_env::TypeEnv;
 use cronyx::semantics::types::type_var_verify::verify_no_type_vars;
 use cronyx::semantics::types::types::*;
+use cronyx::util::node_id::RuntimeNodeId;
 
 // ---------------------------------------------------------------------------
 // Phase 2a — TypeVar verification
@@ -103,21 +104,22 @@ mod phase2b {
 
     fn ast_with_enum(name: &str, variants: Vec<EnumVariant>) -> RuntimeAst {
         let mut ast = RuntimeAst::new();
-        ast.insert_stmt(0, RuntimeStmt::EnumDecl {
+        ast.insert_stmt(RuntimeNodeId(0), RuntimeStmt::EnumDecl {
             name: name.into(),
+            type_params: vec![],
             variants,
         });
-        ast.sem_root_stmts = vec![0];
+        ast.sem_root_stmts = vec![RuntimeNodeId(0)];
         ast
     }
 
     #[test]
     fn unit_variants_get_sequential_tags() {
         let ast = ast_with_enum("Direction", vec![
-            EnumVariant { name: "North".into(), payload: VariantPayload::Unit },
-            EnumVariant { name: "South".into(), payload: VariantPayload::Unit },
-            EnumVariant { name: "East".into(),  payload: VariantPayload::Unit },
-            EnumVariant { name: "West".into(),  payload: VariantPayload::Unit },
+            EnumVariant { name: "North".into(), local_type_params: vec![], payload: VariantPayload::Unit, return_type: None },
+            EnumVariant { name: "South".into(), local_type_params: vec![], payload: VariantPayload::Unit, return_type: None },
+            EnumVariant { name: "East".into(),  local_type_params: vec![], payload: VariantPayload::Unit, return_type: None },
+            EnumVariant { name: "West".into(),  local_type_params: vec![], payload: VariantPayload::Unit, return_type: None },
         ]);
         let registry = EnumRegistry::build(&ast);
         let variants = registry.get("Direction").expect("Direction not in registry");
@@ -131,7 +133,7 @@ mod phase2b {
     #[test]
     fn unit_variant_payload_is_unit() {
         let ast = ast_with_enum("Color", vec![
-            EnumVariant { name: "Red".into(), payload: VariantPayload::Unit },
+            EnumVariant { name: "Red".into(), local_type_params: vec![], payload: VariantPayload::Unit, return_type: None },
         ]);
         let registry = EnumRegistry::build(&ast);
         let variants = registry.get("Color").unwrap();
@@ -143,11 +145,15 @@ mod phase2b {
         let ast = ast_with_enum("Shape", vec![
             EnumVariant {
                 name: "Circle".into(),
-                payload: VariantPayload::Tuple(vec!["int".into()]),
+                local_type_params: vec![],
+                payload: VariantPayload::Tuple(vec![MetaTypeExpr::Named("int".into())]),
+                return_type: None,
             },
             EnumVariant {
                 name: "Rect".into(),
-                payload: VariantPayload::Tuple(vec!["int".into(), "int".into()]),
+                local_type_params: vec![],
+                payload: VariantPayload::Tuple(vec![MetaTypeExpr::Named("int".into()), MetaTypeExpr::Named("int".into())]),
+                return_type: None,
             },
         ]);
         let registry = EnumRegistry::build(&ast);
@@ -172,11 +178,15 @@ mod phase2b {
         let ast = ast_with_enum("Tree", vec![
             EnumVariant {
                 name: "Leaf".into(),
-                payload: VariantPayload::Tuple(vec!["int".into()]),
+                local_type_params: vec![],
+                payload: VariantPayload::Tuple(vec![MetaTypeExpr::Named("int".into())]),
+                return_type: None,
             },
             EnumVariant {
                 name: "Node".into(),
-                payload: VariantPayload::Tuple(vec!["Tree".into(), "Tree".into()]),
+                local_type_params: vec![],
+                payload: VariantPayload::Tuple(vec![MetaTypeExpr::Named("Tree".into()), MetaTypeExpr::Named("Tree".into())]),
+                return_type: None,
             },
         ]);
         let registry = EnumRegistry::build(&ast);
@@ -193,15 +203,17 @@ mod phase2b {
     #[test]
     fn multiple_enums_in_one_ast() {
         let mut ast = RuntimeAst::new();
-        ast.insert_stmt(0, RuntimeStmt::EnumDecl {
+        ast.insert_stmt(RuntimeNodeId(0), RuntimeStmt::EnumDecl {
             name: "A".into(),
-            variants: vec![EnumVariant { name: "X".into(), payload: VariantPayload::Unit }],
+            type_params: vec![],
+            variants: vec![EnumVariant { name: "X".into(), local_type_params: vec![], payload: VariantPayload::Unit, return_type: None }],
         });
-        ast.insert_stmt(1, RuntimeStmt::EnumDecl {
+        ast.insert_stmt(RuntimeNodeId(1), RuntimeStmt::EnumDecl {
             name: "B".into(),
-            variants: vec![EnumVariant { name: "Y".into(), payload: VariantPayload::Unit }],
+            type_params: vec![],
+            variants: vec![EnumVariant { name: "Y".into(), local_type_params: vec![], payload: VariantPayload::Unit, return_type: None }],
         });
-        ast.sem_root_stmts = vec![0, 1];
+        ast.sem_root_stmts = vec![RuntimeNodeId(0), RuntimeNodeId(1)];
         let registry = EnumRegistry::build(&ast);
         assert!(registry.get("A").is_some());
         assert!(registry.get("B").is_some());
@@ -222,10 +234,10 @@ mod phase2b {
 mod phase2c {
     use super::*;
 
-    fn ast_with_struct_literal(struct_name: &str, fields: Vec<(&str, RuntimeExpr)>) -> (RuntimeAst, usize) {
+    fn ast_with_struct_literal(struct_name: &str, fields: Vec<(&str, RuntimeExpr)>) -> (RuntimeAst, RuntimeNodeId) {
         let mut ast = RuntimeAst::new();
         let mut next_id = 0usize;
-        let mut alloc = || { let id = next_id; next_id += 1; id };
+        let mut alloc = || { let id = next_id; next_id += 1; RuntimeNodeId(id) };
 
         let mut field_ids = vec![];
         for (name, expr) in &fields {
@@ -254,7 +266,7 @@ mod phase2c {
             ("y", RuntimeExpr::Int(2)),
         ]);
         let mut env = TypeEnv::new();
-        let type_map = type_check_runtime(&ast, &mut env).unwrap();
+        let type_map = type_check_runtime(&ast, &mut env, &mut Vec::new()).unwrap();
         let ty = type_map.get(&lit_id).expect("no type for struct literal");
         // Must be Type::Struct, not Type::Record or Type::Var
         match ty {
@@ -274,7 +286,7 @@ mod phase2c {
             ("y", RuntimeExpr::Int(0)),
         ]);
         let mut env = TypeEnv::new();
-        type_check_runtime(&ast, &mut env).unwrap();
+        type_check_runtime(&ast, &mut env, &mut Vec::new()).unwrap();
         // The variable "p" should have type Type::Struct { name: "Vec2", ... }
         let ty = env.lookup("p").expect("p not in env");
         match ty {
@@ -320,24 +332,24 @@ mod phase2e {
     fn foreach_element_type_recorded_under_stmt_id() {
         let mut ast = RuntimeAst::new();
         // [1, 2, 3]
-        ast.insert_expr(0, RuntimeExpr::Int(1));
-        ast.insert_expr(1, RuntimeExpr::Int(2));
-        ast.insert_expr(2, RuntimeExpr::Int(3));
-        ast.insert_expr(3, RuntimeExpr::List(vec![0, 1, 2]));
+        ast.insert_expr(RuntimeNodeId(0), RuntimeExpr::Int(1));
+        ast.insert_expr(RuntimeNodeId(1), RuntimeExpr::Int(2));
+        ast.insert_expr(RuntimeNodeId(2), RuntimeExpr::Int(3));
+        ast.insert_expr(RuntimeNodeId(3), RuntimeExpr::List(vec![RuntimeNodeId(0), RuntimeNodeId(1), RuntimeNodeId(2)]));
         // var nums = [...]
-        ast.insert_stmt(4, RuntimeStmt::VarDecl { name: "nums".into(), expr: 3 });
+        ast.insert_stmt(RuntimeNodeId(4), RuntimeStmt::VarDecl { name: "nums".into(), expr: RuntimeNodeId(3) });
         // for (x in nums) { }
-        ast.insert_stmt(5, RuntimeStmt::Block(vec![]));
-        let foreach_id = 6;
+        ast.insert_stmt(RuntimeNodeId(5), RuntimeStmt::Block(vec![]));
+        let foreach_id = RuntimeNodeId(6);
         ast.insert_stmt(foreach_id, RuntimeStmt::ForEach {
             var: "x".into(),
-            iterable: 3,
-            body: 5,
+            iterable: RuntimeNodeId(3),
+            body: RuntimeNodeId(5),
         });
-        ast.sem_root_stmts = vec![4, foreach_id];
+        ast.sem_root_stmts = vec![RuntimeNodeId(4), foreach_id];
 
         let mut env = TypeEnv::new();
-        let type_map = type_check_runtime(&ast, &mut env).unwrap();
+        let type_map = type_check_runtime(&ast, &mut env, &mut Vec::new()).unwrap();
 
         // ForEach stmt_id should map to the element type (int)
         assert_eq!(
@@ -351,22 +363,22 @@ mod phase2e {
     fn foreach_element_type_is_string_for_string_slice() {
         let mut ast = RuntimeAst::new();
         // ["a", "b", "c"]
-        ast.insert_expr(0, RuntimeExpr::String("a".into()));
-        ast.insert_expr(1, RuntimeExpr::String("b".into()));
-        ast.insert_expr(2, RuntimeExpr::String("c".into()));
-        ast.insert_expr(3, RuntimeExpr::List(vec![0, 1, 2]));
-        ast.insert_stmt(4, RuntimeStmt::VarDecl { name: "strs".into(), expr: 3 });
-        ast.insert_stmt(5, RuntimeStmt::Block(vec![]));
-        let foreach_id = 6;
+        ast.insert_expr(RuntimeNodeId(0), RuntimeExpr::String("a".into()));
+        ast.insert_expr(RuntimeNodeId(1), RuntimeExpr::String("b".into()));
+        ast.insert_expr(RuntimeNodeId(2), RuntimeExpr::String("c".into()));
+        ast.insert_expr(RuntimeNodeId(3), RuntimeExpr::List(vec![RuntimeNodeId(0), RuntimeNodeId(1), RuntimeNodeId(2)]));
+        ast.insert_stmt(RuntimeNodeId(4), RuntimeStmt::VarDecl { name: "strs".into(), expr: RuntimeNodeId(3) });
+        ast.insert_stmt(RuntimeNodeId(5), RuntimeStmt::Block(vec![]));
+        let foreach_id = RuntimeNodeId(6);
         ast.insert_stmt(foreach_id, RuntimeStmt::ForEach {
             var: "s".into(),
-            iterable: 3,
-            body: 5,
+            iterable: RuntimeNodeId(3),
+            body: RuntimeNodeId(5),
         });
-        ast.sem_root_stmts = vec![4, foreach_id];
+        ast.sem_root_stmts = vec![RuntimeNodeId(4), foreach_id];
 
         let mut env = TypeEnv::new();
-        let type_map = type_check_runtime(&ast, &mut env).unwrap();
+        let type_map = type_check_runtime(&ast, &mut env, &mut Vec::new()).unwrap();
 
         assert_eq!(type_map.get(&foreach_id), Some(&string_type()));
     }

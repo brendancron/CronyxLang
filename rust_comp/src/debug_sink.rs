@@ -24,9 +24,13 @@ pub struct DebugSink {
 impl DebugSink {
     pub fn from_args(args: &CliArgs) -> Self {
         let out_dir = if args.any_dump() {
-            fs::create_dir_all(&args.out_dir)
-                .unwrap_or_else(|e| panic!("could not create out-dir {}: {e}", args.out_dir.display()));
-            Some(args.out_dir.clone())
+            match fs::create_dir_all(&args.out_dir) {
+                Ok(()) => Some(args.out_dir.clone()),
+                Err(e) => {
+                    eprintln!("warning: could not create out-dir {}: {e}", args.out_dir.display());
+                    None
+                }
+            }
         } else {
             None
         };
@@ -47,8 +51,12 @@ impl DebugSink {
         if !self.dump_ast { return; }
         let Some(ref dir) = self.out_dir else { return };
 
-        ast.format_tree(&mut self.open(dir, "meta_ast.txt"));
-        writeln!(self.open(dir, "meta_ast_graph.txt"), "{ast:?}").unwrap();
+        if let Some(mut f) = self.open(dir, "meta_ast.txt") {
+            ast.format_tree(&mut f);
+        }
+        if let Some(mut f) = self.open(dir, "meta_ast_graph.txt") {
+            let _ = writeln!(f, "{ast:?}");
+        }
     }
 
     /// Write `meta_ast_typed.txt` (annotated tree) and `type_table.txt`.
@@ -56,14 +64,17 @@ impl DebugSink {
         if !self.dump_typed_ast { return; }
         let Some(ref dir) = self.out_dir else { return };
 
-        view.format_tree(&mut self.open(dir, "meta_ast_typed.txt"));
-
-        let mut f = self.open(dir, "type_table.txt");
-        for (id, ty) in &table.expr_types {
-            writeln!(f, "expr {id}: {ty:?}").unwrap();
+        if let Some(mut f) = self.open(dir, "meta_ast_typed.txt") {
+            view.format_tree(&mut f);
         }
-        for (id, ty) in &table.stmt_types {
-            writeln!(f, "stmt {id}: {ty:?}").unwrap();
+
+        if let Some(mut f) = self.open(dir, "type_table.txt") {
+            for (id, ty) in &table.expr_types {
+                let _ = writeln!(f, "expr {id}: {ty:?}");
+            }
+            for (id, ty) in &table.stmt_types {
+                let _ = writeln!(f, "stmt {id}: {ty:?}");
+            }
         }
     }
 
@@ -72,8 +83,12 @@ impl DebugSink {
         if !self.dump_staged { return; }
         let Some(ref dir) = self.out_dir else { return };
 
-        forest.format_tree(&mut self.open(dir, "staged_forest.txt"));
-        writeln!(self.open(dir, "staged_forest_graph.txt"), "{forest:?}").unwrap();
+        if let Some(mut f) = self.open(dir, "staged_forest.txt") {
+            forest.format_tree(&mut f);
+        }
+        if let Some(mut f) = self.open(dir, "staged_forest_graph.txt") {
+            let _ = writeln!(f, "{forest:?}");
+        }
     }
 
     /// Write `runtime_ast.txt` (tree) and `runtime_ast_graph.txt` (debug).
@@ -81,8 +96,12 @@ impl DebugSink {
         if !self.dump_runtime_ast { return; }
         let Some(ref dir) = self.out_dir else { return };
 
-        ast.format_tree(&mut self.open(dir, "runtime_ast.txt"));
-        writeln!(self.open(dir, "runtime_ast_graph.txt"), "{ast:?}").unwrap();
+        if let Some(mut f) = self.open(dir, "runtime_ast.txt") {
+            ast.format_tree(&mut f);
+        }
+        if let Some(mut f) = self.open(dir, "runtime_ast_graph.txt") {
+            let _ = writeln!(f, "{ast:?}");
+        }
     }
 
     /// Write `runtime_code.cx` (pretty-printed generated source).
@@ -90,7 +109,9 @@ impl DebugSink {
         if !self.dump_runtime_code { return; }
         let Some(ref dir) = self.out_dir else { return };
 
-        write!(self.open(dir, "runtime_code.cx"), "{}", format_runtime_ast(ast)).unwrap();
+        if let Some(mut f) = self.open(dir, "runtime_code.cx") {
+            let _ = write!(f, "{}", format_runtime_ast(ast));
+        }
     }
 
     /// Write `cps_info.txt` (marked ops/functions) and `cps_code.cx` (transformed source).
@@ -99,27 +120,33 @@ impl DebugSink {
         if !self.dump_cps { return; }
         let Some(ref dir) = self.out_dir else { return };
 
-        // cps_info.txt — what the marker found
-        let mut f = self.open(dir, "cps_info.txt");
-        writeln!(f, "ctl ops:").unwrap();
-        let mut ops: Vec<&String> = info.ctl_ops.iter().collect();
-        ops.sort();
-        for op in ops {
-            writeln!(f, "  {op}").unwrap();
-        }
-        writeln!(f, "\ncps functions:").unwrap();
-        let mut fns: Vec<&String> = info.cps_fns.iter().collect();
-        fns.sort();
-        for name in fns {
-            writeln!(f, "  {name}").unwrap();
+        if let Some(mut f) = self.open(dir, "cps_info.txt") {
+            let _ = writeln!(f, "ctl ops:");
+            let mut ops: Vec<&String> = info.ctl_ops.iter().collect();
+            ops.sort();
+            for op in ops {
+                let _ = writeln!(f, "  {op}");
+            }
+            let _ = writeln!(f, "\ncps functions:");
+            let mut fns: Vec<&String> = info.cps_fns.iter().collect();
+            fns.sort();
+            for name in fns {
+                let _ = writeln!(f, "  {name}");
+            }
         }
 
-        // cps_code.cx — pretty-printed AST after transform
-        write!(self.open(dir, "cps_code.cx"), "{}", format_runtime_ast(ast)).unwrap();
+        if let Some(mut f) = self.open(dir, "cps_code.cx") {
+            let _ = write!(f, "{}", format_runtime_ast(ast));
+        }
     }
 
-    fn open(&self, dir: &PathBuf, name: &str) -> File {
-        File::create(dir.join(name))
-            .unwrap_or_else(|e| panic!("could not create {name}: {e}"))
+    fn open(&self, dir: &PathBuf, name: &str) -> Option<File> {
+        match File::create(dir.join(name)) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                eprintln!("warning: could not write debug file {name}: {e}");
+                None
+            }
+        }
     }
 }
