@@ -1,0 +1,3 @@
+writefile("/tmp/cronyx_writefile_test.txt", "hello from cronyx");
+var contents = readfile("/tmp/cronyx_writefile_test.txt");
+print(contents);
