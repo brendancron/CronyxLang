@@ -177,6 +177,12 @@ pub enum StagedStmt {
         expr: StagedNodeId,
     },
 
+    DotAssign {
+        object: String,
+        field: String,
+        expr: StagedNodeId,
+    },
+
     FnDecl {
         name: String,
         params: Vec<String>,
@@ -308,6 +314,11 @@ impl StagedAst {
                     .chain(indices.iter().map(|i| self.convert_expr(*i)))
                     .chain(std::iter::once(self.convert_expr(*expr)))
                     .collect(),
+            ),
+
+            StagedStmt::DotAssign { object, field, expr } => (
+                format!("DotAssign({object}.{field})"),
+                vec![self.convert_expr(*expr)],
             ),
 
             StagedStmt::FnDecl { name, params, type_params: _, body } => (

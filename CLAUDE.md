@@ -9,22 +9,22 @@ All commands run from repo root unless noted.
 ```bash
 # Build
 make rust                          # release build
-cd rust_comp && cargo build        # dev build
+cd bootstrap && cargo build        # dev build
 
 # Test
 make test                          # all tests
-cd rust_comp && cargo test         # all Rust tests
-cd rust_comp && cargo test <name>  # single test by name (substring match)
-cd rust_comp && cargo test --test script_integration    # one test file
-cd rust_comp && cargo test --test compile_integration   # compile tests
-cd rust_comp && cargo test -- --nocapture               # show stdout
+cd bootstrap && cargo test         # all Rust tests
+cd bootstrap && cargo test <name>  # single test by name (substring match)
+cd bootstrap && cargo test --test script_integration    # one test file
+cd bootstrap && cargo test --test compile_integration   # compile tests
+cd bootstrap && cargo test -- --nocapture               # show stdout
 
 # Run
-cargo run --manifest-path rust_comp/Cargo.toml -- path/to/file.cx
-cargo run --manifest-path rust_comp/Cargo.toml -- path/to/file.cx --compile --out /tmp/bin
+cargo run --manifest-path bootstrap/Cargo.toml -- path/to/file.cx
+cargo run --manifest-path bootstrap/Cargo.toml -- path/to/file.cx --compile --out /tmp/bin
 
 # Suppress warnings during test iteration
-cd rust_comp && RUSTFLAGS="-A warnings" cargo test
+cd bootstrap && RUSTFLAGS="-A warnings" cargo test
 ```
 
 **Useful CLI flags** (passed to the compiler binary):
@@ -34,7 +34,7 @@ cd rust_comp && RUSTFLAGS="-A warnings" cargo test
 
 ## Architecture
 
-Cronyx is a statically-typed, metaprogramming-first language. The compiler lives entirely in `rust_comp/src/`.
+Cronyx is a statically-typed, metaprogramming-first language. The compiler lives entirely in `bootstrap/src/`.
 
 ### Pipeline (in order)
 
@@ -82,10 +82,10 @@ Source files
 
 ### Test fixtures
 
-`tests/` (repo root, not `rust_comp/tests/`) contains `.cx` source + `.txt` expected-stdout pairs organized by category: `core/`, `effects/`, `meta/`, `operators/`, `types/`, `compile/`.
+`tests/` (repo root, not `bootstrap/tests/`) contains `.cx` source + `.txt` expected-stdout pairs organized by category: `core/`, `effects/`, `meta/`, `operators/`, `types/`, `compile/`.
 
 Compile tests additionally have `.ll` expected IR files for regression (target triple line stripped before comparison).
 
 ### LLVM setup
 
-`rust_comp/.cargo/config.toml` sets `LLVM_SYS_200_PREFIX=/usr/local/opt/llvm@20`. inkwell 0.9 with feature `llvm20-1`. Uses opaque pointers (`context.ptr_type(AddressSpace::default())`). Shells out to `clang -Wno-override-module` for linking.
+`bootstrap/.cargo/config.toml` sets `LLVM_SYS_200_PREFIX=/usr/local/opt/llvm@20`. inkwell 0.9 with feature `llvm20-1`. Uses opaque pointers (`context.ptr_type(AddressSpace::default())`). Shells out to `clang -Wno-override-module` for linking.

@@ -200,6 +200,12 @@ fn rewrite_stmts(
                 let new_stmt = fresh_stmt(ast, RuntimeStmt::IndexAssign { name, indices: new_indices, expr: new_expr });
                 out.push(new_stmt);
             }
+            // DotAssign — rewrite RHS
+            Some(RuntimeStmt::DotAssign { object, field, expr }) => {
+                let new_expr = rewrite_expr(ast, expr, info, scope);
+                let new_stmt = fresh_stmt(ast, RuntimeStmt::DotAssign { object, field, expr: new_expr });
+                out.push(new_stmt);
+            }
             // Match — rewrite scrutinee and arm bodies
             Some(RuntimeStmt::Match { scrutinee, arms }) => {
                 let new_scrut = rewrite_expr(ast, scrutinee, info, scope);

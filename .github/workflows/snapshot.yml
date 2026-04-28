@@ -79,18 +79,18 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust_comp/target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
+            bootstrap/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-${{ hashFiles('bootstrap/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-
 
       - name: Build
-        working-directory: rust_comp
+        working-directory: bootstrap
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package
         run: |
           VERSION="${{ needs.version.outputs.version }}"
-          BINARY=rust_comp/target/${{ matrix.target }}/release/cronyxc
+          BINARY=bootstrap/target/${{ matrix.target }}/release/cronyxc
           tar -czf "cronyxc-${VERSION}-${{ matrix.target }}.tar.gz" \
             -C "$(dirname $BINARY)" "$(basename $BINARY)"
 
@@ -166,12 +166,12 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust_comp/target
-          key: windows-x86_64-pc-windows-msvc-cargo-llvm20-v2-${{ hashFiles('rust_comp/Cargo.lock') }}
+            bootstrap/target
+          key: windows-x86_64-pc-windows-msvc-cargo-llvm20-v2-${{ hashFiles('bootstrap/Cargo.lock') }}
           restore-keys: windows-x86_64-pc-windows-msvc-cargo-llvm20-v2-
 
       - name: Build
-        working-directory: rust_comp
+        working-directory: bootstrap
         run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Package
@@ -179,7 +179,7 @@ jobs:
         run: |
           $version = "${{ needs.version.outputs.version }}"
           Compress-Archive `
-            -Path "rust_comp/target/x86_64-pc-windows-msvc/release/cronyxc.exe" `
+            -Path "bootstrap/target/x86_64-pc-windows-msvc/release/cronyxc.exe" `
             -DestinationPath "cronyxc-${version}-x86_64-pc-windows-msvc.zip"
 
       - name: Upload artifact

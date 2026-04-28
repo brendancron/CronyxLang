@@ -2800,6 +2800,56 @@ impl<'ctx> Cg<'ctx> {
                 self.emit_expr(*expr_id, locals)?;
             }
 
+            // ── DotAssign (struct.field = val) ───────────────────────────────
+            RuntimeStmt::DotAssign { object, field, expr } => {
+                let local = locals.get(object.as_str())
+                    .or_else(|| self.global_vars.get(object.as_str()).map(|(g, k)| {
+                        let _ = (g, k); // lookup handled below
+                        locals.get(object.as_str()).unwrap_or_else(|| unreachable!())
+                    }));
+
+                let struct_name = local
+                    .and_then(|l| if let LocalKind::StructPtr(n) = &l.kind { Some(n.clone()) } else { None })
+                    .or_else(|| self.global_vars.get(object.as_str()).and_then(|(_, k)| {
+                        if let LocalKind::StructPtr(n) = k { Some(n.clone()) } else { None }
+                    }))
+                    .ok_or_else(|| CodegenError::UnboundVar(object.clone()))?;
+
+                let obj_ptr = if let Some(local) = locals.get(object.as_str()) {
+                    self.builder.build_load(self.ptr_ty, local.slot, "da_obj")?.into_pointer_value()
+                } else if let Some((g, _)) = self.global_vars.get(object.as_str()) {
+                    self.builder.build_load(self.ptr_ty, g.as_pointer_value(), "da_obj_g")?.into_pointer_value()
+                } else {
+                    return Err(CodegenError::UnboundVar(object.clone()));
+                };
+
+                let meta = self.structs.get(&struct_name)
+                    .ok_or_else(|| CodegenError::UnboundVar(struct_name.clone()))?;
+                let fidx = meta.field_names.iter().position(|n| n == field)
+                    .ok_or_else(|| CodegenError::UnboundVar(format!("{object}.{field}")))?;
+                let llvm_ty = meta.llvm_ty;
+
+                let rhs = self.emit_expr(*expr, locals)?;
+                let rhs_i64 = match rhs {
+                    BasicValueEnum::IntValue(v) => v,
+                    BasicValueEnum::PointerValue(p) =>
+                        self.builder.build_ptr_to_int(p, self.i64_ty, "da_p2i")?,
+                    _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
+                };
+
+                let fptr = unsafe {
+                    self.builder.build_gep(
+                        llvm_ty, obj_ptr,
+                        &[
+                            self.context.i32_type().const_int(0, false),
+                            self.context.i32_type().const_int(fidx as u64, false),
+                        ],
+                        &format!("{field}_fptr"),
+                    )?
+                };
+                self.builder.build_store(fptr, rhs_i64)?;
+            }
+
             // ── IndexAssign (list[i] = val, or list[i][j] = val) ─────────────
             RuntimeStmt::IndexAssign { name, indices, expr } => {
                 let slice_ty = self.slice_ty.ok_or(CodegenError::UnsupportedStmt(stmt_id))?;

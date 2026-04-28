@@ -57,6 +57,11 @@ impl<'a> TypeAnnotatedView<'a> {
                     .collect(),
             ),
 
+            MetaStmt::DotAssign { object, field, expr } => (
+                format!("DotAssign({object}.{field})"),
+                vec![self.convert_expr(*expr)],
+            ),
+
             MetaStmt::FnDecl { name, params, body, .. } => (
                 "FnDecl".into(),
                 vec![

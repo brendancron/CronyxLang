@@ -871,6 +871,23 @@ fn eval_stmt_inner<W: Write>(stmt_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
             Ok(ExecResult::Continue)
         }
 
+        RuntimeStmt::DotAssign { object, field, expr } => {
+            let new_val = eval_expr(*expr, ctx)?;
+            let obj = ctx.env.get(object).map_err(EvalError::UndefinedVariable)?;
+            match obj {
+                Value::Struct { fields, .. } => {
+                    let mut borrow = fields.borrow_mut();
+                    if let Some(entry) = borrow.iter_mut().find(|(n, _)| n == field) {
+                        entry.1 = new_val;
+                        Ok(ExecResult::Continue)
+                    } else {
+                        Err(EvalError::UndefinedVariable(format!("{object}.{field}")))
+                    }
+                }
+                _ => Err(EvalError::TypeError(types::unit_type())),
+            }
+        }
+
         RuntimeStmt::IndexAssign { name, indices, expr } => {
             let new_val = eval_expr(*expr, ctx)?;
             let root = ctx.env.get(name).map_err(EvalError::UndefinedVariable)?;

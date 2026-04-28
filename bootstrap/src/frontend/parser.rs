@@ -1721,6 +1721,21 @@ fn parse_stmt<'a>(
                 Ok(id)
             }
 
+            TokenType::Identifier
+                if check(tokens, *pos + 1, TokenType::Dot)
+                    && check(tokens, *pos + 2, TokenType::Identifier)
+                    && check(tokens, *pos + 3, TokenType::Equal) =>
+            {
+                let object = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                *pos += 1; // consume dot
+                let field = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                consume(tokens, pos, TokenType::Equal)?;
+                let expr = parse_expr(tokens, pos, ctx)?;
+                consume(tokens, pos, TokenType::Semicolon)?;
+                let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::DotAssign { object, field, expr });
+                Ok(id)
+            }
+
             TokenType::Identifier if check(tokens, *pos + 1, TokenType::LeftBracket) => {
                 let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
                 let mut indices = Vec::new();

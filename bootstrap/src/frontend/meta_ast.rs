@@ -206,6 +206,12 @@ pub enum MetaStmt {
         expr: MetaNodeId,
     },
 
+    DotAssign {
+        object: String,
+        field: String,
+        expr: MetaNodeId,
+    },
+
     FnDecl {
         name: String,
         params: Vec<Param>,
@@ -462,6 +468,11 @@ impl MetaAst {
                     .chain(indices.iter().map(|i| self.convert_expr(*i)))
                     .chain(std::iter::once(self.convert_expr(*expr)))
                     .collect(),
+            ),
+
+            MetaStmt::DotAssign { object, field, expr } => (
+                format!("DotAssign({object}.{field})"),
+                vec![self.convert_expr(*expr)],
             ),
 
             MetaStmt::FnDecl { name, params, type_params, ret_ty, body } => (
