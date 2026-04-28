@@ -2,7 +2,7 @@ use crate::frontend::meta_ast::{ImportDecl, MetaTypeExpr, Pattern, VariantBindin
 use crate::semantics::meta::runtime_ast::*;
 use crate::util::node_id::RuntimeNodeId;
 use super::type_env::TypeEnv;
-use super::type_error::TypeError;
+use super::type_error::{TypeError, TypeErrorKind};
 use super::type_subst::{unify, ApplySubst, TypeSubst};
 use super::type_utils::generalize;
 use super::types::*;
@@ -11,6 +11,16 @@ use std::collections::HashMap;
 fn path_stem(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
     name.strip_suffix(".cx").unwrap_or(name).to_string()
+}
+
+fn hint_to_type(name: &str) -> Type {
+    match name {
+        "int" | "i64" => Type::Primitive(PrimitiveType::Int),
+        "string" | "str" => Type::Primitive(PrimitiveType::String),
+        "bool" => Type::Primitive(PrimitiveType::Bool),
+        "unit" => Type::Primitive(PrimitiveType::Unit),
+        _ => Type::Enum(name.to_string()),
+    }
 }
 
 fn meta_type_expr_to_type(te: &MetaTypeExpr, local_map: &HashMap<String, Type>, env: &mut TypeEnv) -> Type {
@@ -75,6 +85,7 @@ pub fn type_check_runtime(
     let alpha = env.fresh();
     let beta = env.fresh();
     env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()), effects: EffectRow::empty() });
+    env.bind_mono("writefile", Type::Func { params: vec![string_type(), string_type()], ret: Box::new(unit_type()), effects: EffectRow::empty() });
     env.bind("to_string", TypeScheme::PolyType {
         vars: vec![alpha],
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
@@ -85,6 +96,14 @@ pub fn type_check_runtime(
         ty: Type::Func { params: vec![Type::Var(beta)], ret: Box::new(unit_type()), effects: EffectRow::empty() },
     });
 
+    // Pre-register all enum declarations so FnDecl bodies (which may appear
+    // before the EnumDecl in sem_root_stmts after monomorphization) can find
+    // variant types during pattern match arm binding.
+    for &stmt_id in &ast.sem_root_stmts {
+        if let Some(RuntimeStmt::EnumDecl { name, variants, .. }) = ast.get_stmt(stmt_id) {
+            env.register_enum(name, variants.clone());
+        }
+    }
     hoist_fn_types(ast, &ast.sem_root_stmts, env, &mut subst);
     for &stmt_id in &ast.sem_root_stmts.clone() {
         infer_stmt(ast, stmt_id, env, &mut subst, &mut ctx, &mut type_map)?;
@@ -117,11 +136,26 @@ pub fn type_check_runtime(
                 continue; // skip call sites with unresolved args
             }
             let ret_type = resolved.get(&expr_id).cloned().unwrap_or_else(|| Type::Var(env.fresh()));
-            if let Some((existing_args, _)) = fn_call_types.get(callee.as_str()) {
-                if existing_args != &arg_types {
+            let new_concrete = arg_types.iter().all(|t| !t.contains_var());
+            if let Some((existing_args, existing_ret)) = fn_call_types.get(callee.as_str()).cloned() {
+                let existing_len = existing_args.len();
+                if existing_len != arg_types.len() {
+                    // Different arity — genuinely polymorphic.
                     warnings.push(TypeError::polymorphic_call(callee.clone()));
+                } else if existing_args != arg_types {
+                    let existing_concrete = existing_args.iter().all(|t| !t.contains_var());
+                    if !existing_concrete && new_concrete {
+                        // New call site has more specific types — replace.
+                        fn_call_types.insert(callee.clone(), (arg_types, ret_type));
+                    } else if existing_concrete && !new_concrete {
+                        // Existing is more specific — keep it, no warning.
+                    } else if existing_concrete {
+                        // Both fully concrete but different — genuinely polymorphic.
+                        warnings.push(TypeError::polymorphic_call(callee.clone()));
+                    }
+                    // If neither is fully concrete, keep existing (best effort).
                 }
-                // Keep the first concrete entry.
+                let _ = (existing_ret, existing_len); // suppress unused warnings
             } else {
                 fn_call_types.insert(callee.clone(), (arg_types, ret_type));
             }
@@ -215,7 +249,7 @@ fn infer_expr(
     subst: &mut TypeSubst,
     type_map: &mut HashMap<RuntimeNodeId, Type>,
 ) -> Result<Type, TypeError> {
-    let expr = ast.get_expr(expr_id).ok_or(TypeError::unsupported())?.clone();
+    let expr = ast.get_expr(expr_id).ok_or_else(|| TypeError::unsupported())?.clone();
     let ty = match expr {
         RuntimeExpr::Int(_) => int_type(),
         RuntimeExpr::Bool(_) => bool_type(),
@@ -319,17 +353,18 @@ fn infer_expr(
                 effects: EffectRow::empty(),
             };
             // If unification fails with >1 args, check whether the failure is a
-            // CPS-injected continuation (last arg is a Lambda) or a genuine arity
-            // error. The CPS transform always appends a Lambda continuation, so
-            // stripping it and retrying handles post-CPS calls. Genuine arity
-            // errors (non-Lambda last arg) are now propagated as TypeErrors.
+            // CPS-injected continuation (last arg is a Lambda or a __k_* Variable)
+            // or a genuine arity error. The CPS transform appends either an inline
+            // Lambda continuation or the enclosing function's __k_N parameter when
+            // the ctl call is in tail position (`return ctl_op(args, __k_N)`).
             // When unification fails with exactly 1 arg, fall through silently —
             // polymorphic recursive calls (e.g. in GADTs) currently rely on this
             // leniency until full polymorphic type-checking is implemented.
             if unify(&callee_ty, &expected_fn, subst).is_err() && arg_types.len() > 1 {
                 let last_is_lambda = args.last()
                     .and_then(|&id| ast.get_expr(id))
-                    .map(|e| matches!(e, RuntimeExpr::Lambda { .. }))
+                    .map(|e| matches!(e, RuntimeExpr::Lambda { .. })
+                        || matches!(e, RuntimeExpr::Variable(n) if n.starts_with("__k")))
                     .unwrap_or(false);
                 if last_is_lambda {
                     let trimmed = Type::Func {
@@ -430,7 +465,12 @@ fn infer_expr(
 
         RuntimeExpr::Lambda { params, body } => {
             env.push_scope();
-            let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
+            let hints = ast.lambda_param_hints.get(&expr_id);
+            let param_types: Vec<Type> = params.iter().enumerate().map(|(i, _)| {
+                hints.and_then(|h| h.get(i)).and_then(|h| h.as_deref())
+                    .map(|name| hint_to_type(name))
+                    .unwrap_or_else(|| Type::Var(env.fresh()))
+            }).collect();
             for (name, ty) in params.iter().zip(&param_types) {
                 env.bind_mono(name, ty.clone());
             }
@@ -493,7 +533,7 @@ fn infer_stmt(
     ctx: &mut CheckCtx,
     type_map: &mut HashMap<RuntimeNodeId, Type>,
 ) -> Result<(), TypeError> {
-    let stmt = ast.get_stmt(stmt_id).ok_or(TypeError::unsupported())?.clone();
+    let stmt = ast.get_stmt(stmt_id).ok_or_else(|| TypeError::unsupported())?.clone();
     match stmt {
         RuntimeStmt::ExprStmt(expr_id) => {
             infer_expr(ast, expr_id, env, subst, type_map)?;
@@ -561,7 +601,11 @@ fn infer_stmt(
                 Some(expr_id) => infer_expr(ast, expr_id, env, subst, type_map)?,
             };
             if let Some(ret_ty) = ctx.return_type.as_ref() {
-                unify(&ty, ret_ty, subst)?;
+                if let Err(e) = unify(&ty, ret_ty, subst) {
+                    if !matches!(e.kind, TypeErrorKind::Unsupported) {
+                        return Err(e);
+                    }
+                }
             } else {
                 return Err(TypeError::invalid_return());
             }
@@ -652,40 +696,52 @@ fn infer_stmt(
                 match &arm.pattern {
                     Pattern::Wildcard => {}
                     Pattern::Enum { enum_name, variant, bindings } => {
-                        if let Some(variants) = env.lookup_enum(enum_name).cloned() {
-                            if let Some(v) = variants.iter().find(|v| v.name == *variant) {
-                                let local_map: HashMap<String, Type> = v.local_type_params.iter()
-                                    .map(|ltp| (ltp.clone(), Type::Var(env.fresh())))
-                                    .collect();
+                        let found_variant = env.lookup_enum(enum_name).cloned()
+                            .and_then(|variants| variants.iter().find(|v| v.name == *variant).cloned());
+                        if let Some(v) = found_variant {
+                            let local_map: HashMap<String, Type> = v.local_type_params.iter()
+                                .map(|ltp| (ltp.clone(), Type::Var(env.fresh())))
+                                .collect();
 
-                                if let Some(ret_te) = &v.return_type {
-                                    let ret_ty = meta_type_expr_to_type(ret_te, &local_map, env);
-                                    let _ = unify(&scrutinee_ty.apply(&arm_subst), &ret_ty, &mut arm_subst);
+                            if let Some(ret_te) = &v.return_type {
+                                let ret_ty = meta_type_expr_to_type(ret_te, &local_map, env);
+                                let _ = unify(&scrutinee_ty.apply(&arm_subst), &ret_ty, &mut arm_subst);
+                            }
+
+                            match (&v.payload, bindings) {
+                                (_, VariantBindings::Unit) => {}
+                                (VariantPayload::Tuple(type_exprs), VariantBindings::Tuple(names)) => {
+                                    for (te, name) in type_exprs.iter().zip(names.iter()) {
+                                        let ty = meta_type_expr_to_type(te, &local_map, env);
+                                        env.bind_mono(name, ty);
+                                    }
+                                    for name in names.iter().skip(type_exprs.len()) {
+                                        let tv = env.fresh();
+                                        env.bind_mono(name, Type::Var(tv));
+                                    }
                                 }
-
-                                match (&v.payload, bindings) {
-                                    (_, VariantBindings::Unit) => {}
-                                    (VariantPayload::Tuple(type_exprs), VariantBindings::Tuple(names)) => {
-                                        for (te, name) in type_exprs.iter().zip(names.iter()) {
-                                            let ty = meta_type_expr_to_type(te, &local_map, env);
-                                            env.bind_mono(name, ty);
-                                        }
-                                        for name in names.iter().skip(type_exprs.len()) {
-                                            let tv = env.fresh();
-                                            env.bind_mono(name, Type::Var(tv));
-                                        }
+                                (_, VariantBindings::Tuple(names)) => {
+                                    for name in names {
+                                        let tv = env.fresh();
+                                        env.bind_mono(name, Type::Var(tv));
                                     }
-                                    (_, VariantBindings::Tuple(names)) => {
-                                        for name in names {
-                                            let tv = env.fresh();
-                                            env.bind_mono(name, Type::Var(tv));
-                                        }
+                                }
+                                (_, VariantBindings::Struct(names)) => {
+                                    for name in names {
+                                        let tv = env.fresh();
+                                        env.bind_mono(name, Type::Var(tv));
                                     }
-                                    (_, VariantBindings::Struct(names)) => {
-                                        for name in names {
-                                            let tv = env.fresh();
-                                            env.bind_mono(name, Type::Var(tv));
-                                        }
+                                }
+                            }
+                        } else {
+                            // Enum not yet registered (e.g. meta-eval incremental type check)
+                            // or variant not found — bind all pattern vars with fresh type vars.
+                            match bindings {
+                                VariantBindings::Unit => {}
+                                VariantBindings::Tuple(names) | VariantBindings::Struct(names) => {
+                                    for name in names {
+                                        let tv = env.fresh();
+                                        env.bind_mono(name, Type::Var(tv));
                                     }
                                 }
                             }

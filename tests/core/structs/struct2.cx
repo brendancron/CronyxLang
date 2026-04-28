@@ -1,14 +1,16 @@
+enum Rarity { Rare, Uncommon, Common }
+
 [
     {
         name: "Card A",
         energy: 3,
-        rarity: Rare,
+        rarity: Rarity::Rare,
         apply: (x) => { x * 2 },
     },
     {
         name: "Card B",
         energy: 2,
-        rarity: Uncommon,
+        rarity: Rarity::Uncommon,
         apply: (x) => { x + 4 },
     },
 ]

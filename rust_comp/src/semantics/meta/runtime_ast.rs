@@ -19,6 +19,9 @@ pub struct RuntimeAst {
     /// One past the highest ID ever inserted. Safe starting point for any pass that
     /// needs to allocate fresh nodes without scanning all existing IDs.
     pub next_id: usize,
+    /// Type hints for lambda params set by handler_transform.
+    /// Maps lambda expr_id → param type name strings (parallel to Lambda.params).
+    pub lambda_param_hints: HashMap<RuntimeNodeId, Vec<Option<String>>>,
 }
 
 impl RuntimeAst {
@@ -31,6 +34,7 @@ impl RuntimeAst {
             op_dispatch: HashMap::new(),
             meta_prints: vec![],
             next_id: 0,
+            lambda_param_hints: HashMap::new(),
         }
     }
 
@@ -232,11 +236,12 @@ impl RuntimeAst {
                     ret_ty: ret_ty.clone(),
                     body: remap_stmt(*body),
                 },
-                RuntimeStmt::WithCtl { op_name, params, ret_ty, body } => RuntimeStmt::WithCtl {
+                RuntimeStmt::WithCtl { op_name, params, ret_ty, body, outer_k } => RuntimeStmt::WithCtl {
                     op_name: op_name.clone(),
                     params: params.clone(),
                     ret_ty: ret_ty.clone(),
                     body: remap_stmt(*body),
+                    outer_k: outer_k.clone(),
                 },
                 RuntimeStmt::Resume(opt_expr) => {
                     RuntimeStmt::Resume(opt_expr.map(|id| remap_expr(id)))
@@ -248,6 +253,9 @@ impl RuntimeAst {
         out.impl_registry = self.impl_registry.clone();
         out.op_dispatch = self.op_dispatch.clone();
         out.meta_prints = self.meta_prints.clone();
+        out.lambda_param_hints = self.lambda_param_hints.iter()
+            .map(|(old_id, hints)| (*expr_remap.get(old_id).unwrap_or(old_id), hints.clone()))
+            .collect();
 
         out
     }
@@ -439,6 +447,7 @@ pub enum RuntimeStmt {
         params: Vec<Param>,
         ret_ty: Option<String>,
         body: RuntimeNodeId,
+        outer_k: Option<String>,
     },
 
     Resume(Option<RuntimeNodeId>),

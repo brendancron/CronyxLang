@@ -273,7 +273,7 @@ pub fn convert_to_runtime(
                 RuntimeStmt::WithFn { op_name, params, ret_ty, body: rid(body) }
             }
             StagedStmt::WithCtl { op_name, params, ret_ty, body } => {
-                RuntimeStmt::WithCtl { op_name, params, ret_ty, body: rid(body) }
+                RuntimeStmt::WithCtl { op_name, params, ret_ty, body: rid(body), outer_k: None }
             }
             StagedStmt::Resume(opt_expr) => RuntimeStmt::Resume(opt_expr.map(rid)),
         };
@@ -291,7 +291,7 @@ pub fn convert_to_runtime(
             _ => {}
         }
     }
-    for builtin in &["readfile", "to_string", "to_int", "free", "print"] {
+    for builtin in &["readfile", "writefile", "to_string", "to_int", "free", "print"] {
         globals.insert(builtin.to_string());
     }
 

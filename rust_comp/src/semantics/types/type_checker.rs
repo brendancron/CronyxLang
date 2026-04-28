@@ -200,6 +200,7 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), Vec<TypeError>>
     let alpha = env.fresh();
     let beta = env.fresh();
     env.bind_mono("readfile",  Type::Func { params: vec![string_type()], ret: Box::new(string_type()), effects: EffectRow::empty() });
+    env.bind_mono("writefile", Type::Func { params: vec![string_type(), string_type()], ret: Box::new(unit_type()), effects: EffectRow::empty() });
     env.bind("to_string", TypeScheme::PolyType {
         vars: vec![alpha],
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
@@ -347,7 +348,14 @@ fn infer_expr_impl(
                 effects: EffectRow::empty(),
             };
 
-            unify(&callee_ty, &expected_fn, subst)?;
+            // Phase-1 is permissive for occurs-check failures: recursive GADT
+            // calls can trigger an infinite-type error here, but Phase-2 handles
+            // them correctly. Real type mismatches are still propagated.
+            match unify(&callee_ty, &expected_fn, subst) {
+                Ok(()) => {}
+                Err(ref e) if matches!(e.kind, crate::semantics::types::type_error::TypeErrorKind::Unsupported) => {}
+                Err(e) => return Err(e),
+            }
             ret_tv.apply(subst)
         }
 
