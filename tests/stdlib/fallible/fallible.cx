@@ -1,0 +1,28 @@
+import "../../../stdlib/lang/Fallible";
+
+fn parse_int(s) {
+    if (s == "42") {
+        return 42;
+    }
+    return raise("not a number: " + s);
+}
+
+run {
+    var n = parse_int("42");
+    print(n);
+} handle Fallible {
+    fn raise(msg) {
+        print("fallible: " + msg);
+        return "default";
+    }
+}
+
+run {
+    var n = parse_int("abc");
+    print(n);
+} handle Fallible {
+    fn raise(msg) {
+        print("fallible: " + msg);
+        return "default";
+    }
+}

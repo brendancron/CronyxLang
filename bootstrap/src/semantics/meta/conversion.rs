@@ -359,6 +359,7 @@ fn convert_expr(expr: &StagedExpr, id: StagedNodeId) -> Result<RuntimeExpr, AstC
         StagedExpr::Sub(a, b) => RuntimeExpr::Sub(rid(a), rid(b)),
         StagedExpr::Mult(a, b) => RuntimeExpr::Mult(rid(a), rid(b)),
         StagedExpr::Div(a, b) => RuntimeExpr::Div(rid(a), rid(b)),
+        StagedExpr::Mod(a, b) => RuntimeExpr::Mod(rid(a), rid(b)),
         StagedExpr::Equals(a, b) => RuntimeExpr::Equals(rid(a), rid(b)),
         StagedExpr::NotEquals(a, b) => RuntimeExpr::NotEquals(rid(a), rid(b)),
         StagedExpr::Lt(a, b) => RuntimeExpr::Lt(rid(a), rid(b)),

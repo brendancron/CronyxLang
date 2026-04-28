@@ -91,6 +91,7 @@ pub fn type_check_runtime(
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
     });
     env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
+    env.bind_mono("ord",       Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
     env.bind("free", TypeScheme::PolyType {
         vars: vec![beta],
         ty: Type::Func { params: vec![Type::Var(beta)], ret: Box::new(unit_type()), effects: EffectRow::empty() },
@@ -268,7 +269,7 @@ fn infer_expr(
             tv.apply(subst)
         }
 
-        RuntimeExpr::Sub(a, b) | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b) => {
+        RuntimeExpr::Sub(a, b) | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b) | RuntimeExpr::Mod(a, b) => {
             let ta = infer_expr(ast, a, env, subst, type_map)?;
             let tb = infer_expr(ast, b, env, subst, type_map)?;
             match (ta.apply(subst), tb.apply(subst)) {

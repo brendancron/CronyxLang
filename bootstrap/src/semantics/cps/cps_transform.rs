@@ -705,7 +705,7 @@ fn collect_expr_refs(
             for a in args { collect_expr_refs(ast, a, bound, refs); }
         }
         Some(RuntimeExpr::Add(a, b) | RuntimeExpr::Sub(a, b)
-            | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b)
+            | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b) | RuntimeExpr::Mod(a, b)
             | RuntimeExpr::Lt(a, b) | RuntimeExpr::Gt(a, b)
             | RuntimeExpr::Lte(a, b) | RuntimeExpr::Gte(a, b)
             | RuntimeExpr::Equals(a, b) | RuntimeExpr::NotEquals(a, b)

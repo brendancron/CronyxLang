@@ -109,6 +109,11 @@ pub fn process_expr(
             let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_expr(staged_expr_id, StagedExpr::Div(a_id, b_id));
         }
+        MetaExpr::Mod(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Mod(a_id, b_id));
+        }
         MetaExpr::Equals(a, b) => {
             let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
@@ -851,6 +856,8 @@ fn is_exportable_stmt(ast: &MetaAst, stmt_id: MetaNodeId) -> bool {
             | Some(MetaStmt::MetaBlock(_))
             | Some(MetaStmt::TraitDecl { .. })
             | Some(MetaStmt::ImplDecl { .. })
+            | Some(MetaStmt::EffectDecl { .. })
+            | Some(MetaStmt::EnumDecl { .. })
     )
 }
 

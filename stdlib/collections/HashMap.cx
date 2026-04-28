@@ -1,0 +1,180 @@
+import "../lang/Option";
+
+struct Map<V> {
+    keys: [string];
+    value_indices: [int];
+    values: [V];
+    size: int;
+    capacity: int
+}
+
+fn new() {
+    var cap = 16;
+    var keys = [];
+    var vindices = [];
+    var i = 0;
+    while (i < cap) {
+        keys.push("");
+        vindices.push(0 - 1);
+        i += 1;
+    }
+    return Map { keys: keys, value_indices: vindices, values: [], size: 0, capacity: cap };
+}
+
+fn hm_hash(key, capacity) {
+    var h = 5381;
+    var i = 0;
+    while (i < key.len()) {
+        h = (h * 31 + ord(key[i])) % 1000000007;
+        i += 1;
+    }
+    return h % capacity;
+}
+
+fn hm_probe_insert(ks, vi, values, cap, key, value) {
+    var idx = hm_hash(key, cap);
+    var probes = 0;
+    while (probes < cap) {
+        if (vi[idx] == 0 - 1) {
+            ks[idx] = key;
+            vi[idx] = values.len();
+            values.push(value);
+            return true;
+        }
+        idx = (idx + 1) % cap;
+        probes += 1;
+    }
+    return false;
+}
+
+fn hm_resize(map) {
+    var old_keys = map.keys;
+    var old_vi = map.value_indices;
+    var old_values = map.values;
+    var old_cap = map.capacity;
+
+    var new_cap = old_cap * 2;
+    var new_keys = [];
+    var new_vi = [];
+    var i = 0;
+    while (i < new_cap) {
+        new_keys.push("");
+        new_vi.push(0 - 1);
+        i += 1;
+    }
+
+    map.keys = new_keys;
+    map.value_indices = new_vi;
+    map.values = [];
+    map.capacity = new_cap;
+    map.size = 0;
+
+    i = 0;
+    while (i < old_cap) {
+        if (old_vi[i] != 0 - 1) {
+            hm_probe_insert(map.keys, map.value_indices, map.values, new_cap, old_keys[i], old_values[old_vi[i]]);
+            map.size = map.size + 1;
+        }
+        i += 1;
+    }
+}
+
+fn hm_get(map, key) {
+    var idx = hm_hash(key, map.capacity);
+    var probes = 0;
+    var vi = map.value_indices;
+    var ks = map.keys;
+    while (probes < map.capacity) {
+        if (vi[idx] == 0 - 1) {
+            return Option::None;
+        }
+        if (ks[idx] == key) {
+            return Option::Some(map.values[vi[idx]]);
+        }
+        idx = (idx + 1) % map.capacity;
+        probes += 1;
+    }
+    return Option::None;
+}
+
+fn hm_contains(map, key) {
+    var idx = hm_hash(key, map.capacity);
+    var probes = 0;
+    var vi = map.value_indices;
+    var ks = map.keys;
+    while (probes < map.capacity) {
+        if (vi[idx] == 0 - 1) {
+            return false;
+        }
+        if (ks[idx] == key) {
+            return true;
+        }
+        idx = (idx + 1) % map.capacity;
+        probes += 1;
+    }
+    return false;
+}
+
+fn hm_set<V>(map, key, value) {
+    if (map.size * 4 >= map.capacity * 3) {
+        hm_resize(map);
+    }
+    var idx = hm_hash(key, map.capacity);
+    var probes = 0;
+    var vi = map.value_indices;
+    var ks = map.keys;
+    while (probes < map.capacity) {
+        if (vi[idx] == 0 - 1) {
+            ks[idx] = key;
+            vi[idx] = map.values.len();
+            map.values.push(value);
+            map.size = map.size + 1;
+            return;
+        }
+        if (ks[idx] == key) {
+            var vals = map.values;
+            vals[vi[idx]] = value;
+            return;
+        }
+        idx = (idx + 1) % map.capacity;
+        probes += 1;
+    }
+}
+
+fn hm_keys(map) {
+    var result = [];
+    var i = 0;
+    var vi = map.value_indices;
+    while (i < map.capacity) {
+        if (vi[i] != 0 - 1) {
+            result.push(map.keys[i]);
+        }
+        i += 1;
+    }
+    return result;
+}
+
+fn hm_size(map) {
+    return map.size;
+}
+
+impl Map {
+    fn set(self, key, value) { hm_set(self, key, value); }
+    fn get(self, key) { return hm_get(self, key); }
+    fn get_or(self, key, default) {
+        var idx = hm_hash(key, self.capacity);
+        var probes = 0;
+        var vi = self.value_indices;
+        var ks = self.keys;
+        while (probes < self.capacity) {
+            if (vi[idx] == 0 - 1) { return default; }
+            if (ks[idx] == key) { return self.values[vi[idx]]; }
+            idx = (idx + 1) % self.capacity;
+            probes += 1;
+        }
+        return default;
+    }
+    fn contains(self, key) { return hm_contains(self, key); }
+    fn keys(self) { return hm_keys(self); }
+    fn size(self) { return hm_size(self); }
+}

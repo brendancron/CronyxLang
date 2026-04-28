@@ -110,6 +110,7 @@ pub enum StagedExpr {
     Sub(StagedNodeId, StagedNodeId),
     Mult(StagedNodeId, StagedNodeId),
     Div(StagedNodeId, StagedNodeId),
+    Mod(StagedNodeId, StagedNodeId),
     Equals(StagedNodeId, StagedNodeId),
     NotEquals(StagedNodeId, StagedNodeId),
     Lt(StagedNodeId, StagedNodeId),
@@ -522,6 +523,11 @@ impl StagedAst {
 
             StagedExpr::Div(a, b) => (
                 "Div".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+
+            StagedExpr::Mod(a, b) => (
+                "Mod".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
             ),
 

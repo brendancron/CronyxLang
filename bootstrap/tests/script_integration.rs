@@ -415,5 +415,13 @@ mod script_integration {
         cx_test!(meta_fn, "tests/meta/functions", "meta_fn");
         cx_test!(meta_fib, "tests/meta/functions", "fib");
         cx_test!(reflection_typeof, "tests/meta/reflection", "typeof");
+        cx_test!(math_modulus, "tests/core/math", "modulus");
+        cx_test!(stdlib_list, "tests/stdlib/list", "list");
+        cx_test!(stdlib_hashmap, "tests/stdlib/hashmap", "hashmap");
+        cx_test!(stdlib_hashset, "tests/stdlib/hashset", "hashset");
+        cx_test!(stdlib_math, "tests/stdlib/math", "math");
+        cx_test!(stdlib_stringbuilder, "tests/stdlib/stringbuilder", "stringbuilder");
+        cx_test!(stdlib_error, "tests/stdlib/error", "error");
+        cx_test!(stdlib_fallible, "tests/stdlib/fallible", "fallible");
     }
 }

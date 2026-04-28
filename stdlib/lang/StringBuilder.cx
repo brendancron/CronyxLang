@@ -1,0 +1,46 @@
+struct StringBuilder {
+    parts: [string];
+    length: int
+}
+
+fn new() {
+    return StringBuilder { parts: [], length: 0 };
+}
+
+fn sb_build(sb) {
+    var result = "";
+    var i = 0;
+    var parts = sb.parts;
+    while (i < parts.len()) {
+        result = result + parts[i];
+        i += 1;
+    }
+    return result;
+}
+
+impl StringBuilder {
+    fn append(self, s) {
+        self.parts.push(s);
+        self.length = self.length + s.len();
+    }
+    fn append_int(self, n) {
+        var s = to_string(n);
+        self.parts.push(s);
+        self.length = self.length + s.len();
+    }
+    fn append_line(self, s) {
+        self.parts.push(s);
+        self.parts.push("\n");
+        self.length = self.length + s.len() + 1;
+    }
+    fn build(self) {
+        return sb_build(self);
+    }
+    fn len(self) {
+        return self.length;
+    }
+    fn clear(self) {
+        self.parts = [];
+        self.length = 0;
+    }
+}

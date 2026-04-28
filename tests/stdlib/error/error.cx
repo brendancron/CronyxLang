@@ -1,0 +1,26 @@
+import "../../../stdlib/lang/Error";
+
+fn safe_divide(a, b) {
+    if (b == 0) {
+        throw("division by zero");
+    }
+    return a / b;
+}
+
+run {
+    print(safe_divide(10, 2));
+    print("done");
+} handle Error {
+    ctl throw(msg) {
+        print("caught: " + msg);
+    }
+}
+
+run {
+    print(safe_divide(6, 0));
+    print("unreachable");
+} handle Error {
+    ctl throw(msg) {
+        print("error: " + msg);
+    }
+}

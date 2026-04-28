@@ -1,0 +1,3 @@
+42
+fallible: not a number: abc
+default

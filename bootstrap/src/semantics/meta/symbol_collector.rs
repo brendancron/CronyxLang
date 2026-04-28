@@ -147,7 +147,7 @@ fn collect_expr_symbols(
             }
         }
         StagedExpr::Add(a, b) | StagedExpr::Sub(a, b)
-        | StagedExpr::Mult(a, b) | StagedExpr::Div(a, b)
+        | StagedExpr::Mult(a, b) | StagedExpr::Div(a, b) | StagedExpr::Mod(a, b)
         | StagedExpr::Equals(a, b) | StagedExpr::NotEquals(a, b)
         | StagedExpr::Lt(a, b) | StagedExpr::Gt(a, b)
         | StagedExpr::Lte(a, b) | StagedExpr::Gte(a, b)

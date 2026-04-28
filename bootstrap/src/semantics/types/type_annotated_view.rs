@@ -264,6 +264,11 @@ impl<'a> TypeAnnotatedView<'a> {
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
             ),
 
+            MetaExpr::Mod(a, b) => (
+                "Mod".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+
             MetaExpr::Equals(a, b) => (
                 "Equals".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],

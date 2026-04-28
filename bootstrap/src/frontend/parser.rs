@@ -1062,6 +1062,13 @@ fn parse_term<'a>(
                 left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Div(left, right));
                 ctx.copy_span(prev, left);
             }
+            Some(TokenType::Percent) => {
+                *pos += 1;
+                let right = parse_postfix(tokens, pos, ctx)?;
+                let prev = left;
+                left = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Mod(left, right));
+                ctx.copy_span(prev, left);
+            }
             _ => return Ok(left),
         }
     }
@@ -1438,10 +1445,10 @@ fn parse_stmt<'a>(
                     |tokens, pos, _ctx| {
                         let field_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
                         consume(tokens, pos, TokenType::Colon)?;
-                        let type_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                        let type_expr = parse_type_expr(tokens, pos)?;
                         Ok(MetaFieldDecl {
                             field_name,
-                            type_name,
+                            type_name: type_expr.to_string(),
                         })
                     },
                 )?;
@@ -1787,11 +1794,19 @@ fn parse_stmt<'a>(
 
             TokenType::Impl => {
                 consume(tokens, pos, TokenType::Impl)?;
-                let trait_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
-                // optional <T> bounds after trait name
+                let first_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                // optional <T> bounds after name
                 parse_type_params(tokens, pos);
-                consume(tokens, pos, TokenType::For)?;
-                let type_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                // bare impl: `impl TypeName { ... }` — no trait
+                // trait impl: `impl TraitName for TypeName { ... }`
+                let (trait_name, type_name) = if check(tokens, *pos, TokenType::For) {
+                    *pos += 1;
+                    let type_name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    parse_type_params(tokens, pos);
+                    (first_name, type_name)
+                } else {
+                    (String::new(), first_name)
+                };
                 consume(tokens, pos, TokenType::LeftBrace)?;
                 let mut methods = Vec::new();
                 while !check(tokens, *pos, TokenType::RightBrace) {

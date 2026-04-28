@@ -206,6 +206,17 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
             }
         }
 
+        RuntimeExpr::Mod(a, b) => {
+            let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
+            match (&lhs, &rhs) {
+                (Value::Int(x), Value::Int(y)) => {
+                    if *y == 0 { return Err(EvalError::DivisionByZero); }
+                    Ok(Value::Int(x % y))
+                }
+                _ => dispatch_binop("Mod", lhs, rhs, ctx),
+            }
+        }
+
         RuntimeExpr::Equals(a, b) => {
             let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
             match (&lhs, &rhs) {
@@ -603,6 +614,15 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                         Value::String(s) => s.trim().parse::<i64>()
                             .map_err(|_| EvalError::UndefinedVariable(format!("to_int: cannot parse '{s}'")))?,
                         Value::Int(n) => n,
+                        _ => return Err(EvalError::TypeError(types::int_type())),
+                    };
+                    return Ok(Value::Int(n));
+                }
+                "ord" => {
+                    let v = eval_expr(*args.first().ok_or(EvalError::ArgumentMismatch)?, ctx)?;
+                    let n = match v {
+                        Value::String(s) => s.bytes().next()
+                            .ok_or_else(|| EvalError::UndefinedVariable("ord: empty string".to_string()))? as i64,
                         _ => return Err(EvalError::TypeError(types::int_type())),
                     };
                     return Ok(Value::Int(n));

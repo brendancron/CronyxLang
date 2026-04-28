@@ -94,6 +94,10 @@ fn resolve_type_name(name: &str) -> Type {
         "string" => string_type(),
         "bool"   => bool_type(),
         "unit"   => unit_type(),
+        other if other.starts_with('[') && other.ends_with(']') => {
+            let inner = &other[1..other.len() - 1];
+            Type::Slice(Box::new(resolve_type_name(inner)))
+        }
         other    => Type::Enum(other.into()),
     }
 }

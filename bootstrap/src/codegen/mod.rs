@@ -3380,6 +3380,10 @@ impl<'ctx> Cg<'ctx> {
                 let (lhs, rhs) = self.emit_binop_ints(*a, *b, locals)?;
                 Ok(self.builder.build_int_signed_div(lhs, rhs, "div")?.as_basic_value_enum())
             }
+            RuntimeExpr::Mod(a, b) => {
+                let (lhs, rhs) = self.emit_binop_ints(*a, *b, locals)?;
+                Ok(self.builder.build_int_signed_rem(lhs, rhs, "mod")?.as_basic_value_enum())
+            }
 
             // ── Comparisons ───────────────────────────────────────────────────
             RuntimeExpr::Lte(a, b) => self.emit_icmp(IntPredicate::SLE, *a, *b, "lte", locals),
@@ -3680,6 +3684,16 @@ impl<'ctx> Cg<'ctx> {
                     };
                 }
                 // to_int(s) → parse string as i64 via atoll
+                if callee == "ord" && args.len() == 1 {
+                    let i8_ty = self.context.i8_type();
+                    let str_ptr = match self.emit_expr(args[0], locals)? {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                    };
+                    let byte = self.builder.build_load(i8_ty, str_ptr, "ord_byte")?.into_int_value();
+                    let result = self.builder.build_int_z_extend(byte, self.i64_ty, "ord_val")?;
+                    return Ok(result.as_basic_value_enum());
+                }
                 if callee == "to_int" && args.len() == 1 {
                     let atoll_fn = self.atoll_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                     let str_ptr = match self.emit_expr(args[0], locals)? {

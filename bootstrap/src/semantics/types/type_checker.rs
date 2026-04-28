@@ -142,6 +142,7 @@ fn collect_expr_effects(
         | MetaExpr::Sub(a, b)
         | MetaExpr::Mult(a, b)
         | MetaExpr::Div(a, b)
+        | MetaExpr::Mod(a, b)
         | MetaExpr::Equals(a, b)
         | MetaExpr::NotEquals(a, b)
         | MetaExpr::Lt(a, b)
@@ -207,6 +208,7 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), Vec<TypeError>>
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
     });
     env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
+    env.bind_mono("ord",       Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
     // free(obj): unit — manually release any value; no-op until LLVM backend + GC exist
     env.bind("free", TypeScheme::PolyType {
         vars: vec![beta],
@@ -266,7 +268,7 @@ fn infer_expr_impl(
             tv.apply(subst)
         }
 
-        MetaExpr::Sub(a, b) | MetaExpr::Mult(a, b) | MetaExpr::Div(a, b) => {
+        MetaExpr::Sub(a, b) | MetaExpr::Mult(a, b) | MetaExpr::Div(a, b) | MetaExpr::Mod(a, b) => {
             let ta = infer_expr(ast, *a, env, subst, table)?;
             let tb = infer_expr(ast, *b, env, subst, table)?;
             // If LHS is a struct, the op may be dispatched to a user impl — don't

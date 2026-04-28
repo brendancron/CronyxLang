@@ -125,6 +125,7 @@ pub enum MetaExpr {
     Sub(MetaNodeId, MetaNodeId),
     Mult(MetaNodeId, MetaNodeId),
     Div(MetaNodeId, MetaNodeId),
+    Mod(MetaNodeId, MetaNodeId),
     Equals(MetaNodeId, MetaNodeId),
     NotEquals(MetaNodeId, MetaNodeId),
     Lt(MetaNodeId, MetaNodeId),
@@ -762,6 +763,11 @@ impl MetaAst {
 
             MetaExpr::Div(a, b) => (
                 "Div".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+
+            MetaExpr::Mod(a, b) => (
+                "Mod".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
             ),
 
