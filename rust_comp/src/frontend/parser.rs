@@ -504,6 +504,7 @@ fn parse_separated<T>(
 
         if check(tokens, *pos, separator) {
             consume(tokens, pos, separator)?;
+            if check(tokens, *pos, terminator) { break; } // allow trailing separator
         } else {
             break;
         }
@@ -575,20 +576,59 @@ fn parse_factor<'a>(
 
             TokenType::LeftParen => {
                 consume(tokens, pos, TokenType::LeftParen)?;
+                // Empty-param arrow lambda: `() => body`
+                if check(tokens, *pos, TokenType::RightParen) {
+                    consume(tokens, pos, TokenType::RightParen)?;
+                    if check(tokens, *pos, TokenType::FatArrow) {
+                        consume(tokens, pos, TokenType::FatArrow)?;
+                        let body = parse_arrow_body(tokens, pos, ctx)?;
+                        let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lambda { params: vec![], body });
+                        ctx.record_span(id, start_loc);
+                        return Ok(id);
+                    }
+                    // `()` with no `=>` — treat as integer 0 (unit placeholder)
+                    let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Int(0));
+                    ctx.record_span(id, start_loc);
+                    return Ok(id);
+                }
                 let first = parse_expr(tokens, pos, ctx)?;
                 if check(tokens, *pos, TokenType::Comma) {
-                    // Tuple literal: (a, b, ...)
+                    // Tuple literal or multi-param arrow lambda: (a, b, ...)
                     let mut elems = vec![first];
                     while check(tokens, *pos, TokenType::Comma) {
                         *pos += 1;
+                        if check(tokens, *pos, TokenType::RightParen) { break; }
                         elems.push(parse_expr(tokens, pos, ctx)?);
                     }
                     consume(tokens, pos, TokenType::RightParen)?;
+                    // Multi-param arrow lambda: (a, b) => body
+                    if check(tokens, *pos, TokenType::FatArrow) {
+                        let params: Option<Vec<String>> = elems.iter()
+                            .map(|&e| extract_ident(&ctx.ast, e))
+                            .collect();
+                        if let Some(params) = params {
+                            consume(tokens, pos, TokenType::FatArrow)?;
+                            let body = parse_arrow_body(tokens, pos, ctx)?;
+                            let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lambda { params, body });
+                            ctx.record_span(id, start_loc);
+                            return Ok(id);
+                        }
+                    }
                     let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Tuple(elems));
                     ctx.record_span(id, start_loc);
                     Ok(id)
                 } else {
                     consume(tokens, pos, TokenType::RightParen)?;
+                    // Single-param arrow lambda: (x) => body
+                    if check(tokens, *pos, TokenType::FatArrow) {
+                        if let Some(param) = extract_ident(&ctx.ast, first) {
+                            consume(tokens, pos, TokenType::FatArrow)?;
+                            let body = parse_arrow_body(tokens, pos, ctx)?;
+                            let id = ctx.ast.insert_expr(&mut ctx.id_provider, MetaExpr::Lambda { params: vec![param], body });
+                            ctx.record_span(id, start_loc);
+                            return Ok(id);
+                        }
+                    }
                     Ok(first)
                 }
             }
@@ -1166,6 +1206,31 @@ fn parse_or<'a>(
 }
 
 /// Entry point for expression parsing (lowest precedence = `||`).
+fn extract_ident(ast: &crate::frontend::meta_ast::MetaAst, expr_id: MetaNodeId) -> Option<String> {
+    match ast.get_expr(expr_id) {
+        Some(MetaExpr::Variable(name)) => Some(name.clone()),
+        _ => None,
+    }
+}
+
+fn parse_arrow_body<'a>(
+    tokens: &'a [Token],
+    pos: &mut usize,
+    ctx: &mut ParseCtx,
+) -> Result<MetaNodeId, ParseError> {
+    if check(tokens, *pos, TokenType::LeftBrace) {
+        consume(tokens, pos, TokenType::LeftBrace)?;
+        let body = parse_lambda_body(tokens, pos, ctx)?;
+        consume(tokens, pos, TokenType::RightBrace)?;
+        Ok(body)
+    } else {
+        let expr = parse_expr(tokens, pos, ctx)?;
+        let ret = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Return(Some(expr)));
+        let block = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::Block(vec![ret]));
+        Ok(block)
+    }
+}
+
 fn parse_expr<'a>(
     tokens: &'a [Token],
     pos: &mut usize,
@@ -1181,7 +1246,9 @@ fn parse_expr_stmt<'a>(
 ) -> Result<MetaNodeId, ParseError> {
     let start_loc = tok_loc(tokens, *pos);
     let expr = parse_expr(tokens, pos, ctx)?;
-    consume(tokens, pos, TokenType::Semicolon)?;
+    if check(tokens, *pos, TokenType::Semicolon) {
+        *pos += 1;
+    }
     let id = ctx
         .ast
         .insert_stmt(&mut ctx.id_provider, MetaStmt::ExprStmt(expr));

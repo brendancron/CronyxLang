@@ -87,6 +87,7 @@ struct StructMeta<'ctx> {
 // ── Local variable info ───────────────────────────────────────────────────────
 
 #[derive(Clone)]
+#[derive(Debug)]
 enum LocalKind {
     Int,
     StructPtr(String), // Cronyx struct type name
@@ -503,11 +504,14 @@ pub fn compile(
     };
 
     // ── Top-level variable globals ────────────────────────────────────────────
-    // Top-level vars are stored as LLVM globals so nested functions can access
-    // them directly without capturing. Only needed when there are actual nested
-    // fn decls that may reference outer-scope variables.
+    // Top-level vars are stored as LLVM globals so nested functions and lambda
+    // closures can access them directly without capturing. Needed when there are
+    // nested fn decls OR closures (lambdas) that may reference outer-scope vars.
+    // Effect handlers (with_ctl/with_fn) are separate LLVM functions that need global access too.
+    let has_effect_handlers = ast.stmts.values().any(|s| matches!(s, RuntimeStmt::WithCtl { .. } | RuntimeStmt::WithFn { .. }));
+    let needs_global_vars = has_nested_fn_decls || has_effect_handlers;
     let mut global_vars: HashMap<String, (GlobalValue<'_>, LocalKind)> = HashMap::new();
-    for (name, expr_id) in top_level_var_decls.iter().filter(|_| has_nested_fn_decls) {
+    for (name, expr_id) in top_level_var_decls.iter().filter(|_| needs_global_vars) {
         let kind = match type_map.get(expr_id) {
             Some(Type::Primitive(PrimitiveType::String)) => LocalKind::Str,
             Some(Type::Struct { name: sname, .. }) => LocalKind::StructPtr(sname.clone()),
@@ -812,6 +816,42 @@ pub fn compile(
         .map(|((type_name, _method), fn_name)| (fn_name.clone(), type_name.clone()))
         .collect();
 
+    // Build maps from call sites: fn_name → [arg_types] and fn_name → return_type.
+    // Used to resolve TypeVar params/returns in functions whose type_map entry has unresolved types
+    // (e.g. monomorphized GADT functions where arm_subst refinements don't flow back).
+    let mut call_site_arg_types: HashMap<String, Vec<Option<Type>>> = HashMap::new();
+    let mut call_site_ret_types: HashMap<String, Option<Type>> = HashMap::new();
+    for (&expr_id, expr) in &ast.exprs {
+        if let RuntimeExpr::Call { callee, args } = expr {
+            // Arg types
+            let entry = call_site_arg_types.entry(callee.clone()).or_insert_with(|| vec![None; args.len()]);
+            for (i, &arg_id) in args.iter().enumerate() {
+                if i < entry.len() && entry[i].is_none() {
+                    if let Some(ty) = type_map.get(&arg_id) {
+                        if !matches!(ty, Type::Var(_)) {
+                            entry[i] = Some(ty.clone());
+                        }
+                    }
+                    // Fallback: if arg is an EnumConstructor, use a bare App type
+                    // so the param gets ptr_ty even when type_map gives TypeVar/None.
+                    if entry[i].is_none() {
+                        if let Some(RuntimeExpr::EnumConstructor { enum_name, .. }) = ast.get_expr(arg_id) {
+                            entry[i] = Some(Type::App(enum_name.clone(), vec![]));
+                        }
+                    }
+                }
+            }
+            // Return type (from the call expression's type_map entry)
+            if !call_site_ret_types.contains_key(callee.as_str()) {
+                if let Some(ty) = type_map.get(&expr_id) {
+                    if !matches!(ty, Type::Var(_)) {
+                        call_site_ret_types.insert(callee.clone(), Some(ty.clone()));
+                    }
+                }
+            }
+        }
+    }
+
     // Build op_dispatch fn type map from actual call-site operand types.
     // For each op expression (Add/Sub/Mult/Div/Equals/NotEquals) where the LHS is a struct,
     // collect the arg types so the dispatch function gets correct LLVM signature.
@@ -842,6 +882,9 @@ pub fn compile(
         let (resolved_param_types, is_ptr_ret) = match type_map.get(stmt_id) {
             Some(Type::Func { params: pt, ret, .. }) => {
                 // Fix up Var param types using op_fn_types (call-site derived) or impl_fn_self_type.
+                // Also fall back to call_site_arg_types for functions whose params stayed as TypeVars
+                // (e.g. monomorphized GADT functions where arm_subst constraints don't flow back).
+                let call_site_types = call_site_arg_types.get(fname.as_str());
                 let pts: Vec<Option<Type>> = if let Some((call_types, _)) = op_fn_types.get(fname.as_str()) {
                     // Use actual call-site arg types, overriding Var params.
                     pt.iter().enumerate().map(|(i, t)| {
@@ -853,9 +896,14 @@ pub fn compile(
                 } else {
                     let struct_name = impl_fn_self_type.get(fname.as_str());
                     pt.iter().enumerate().map(|(i, t)| {
-                        if i == 0 {
-                            if let Some(sname) = struct_name {
-                                if matches!(t, Type::Var(_)) {
+                        if matches!(t, Type::Var(_)) {
+                            // Try call-site derived type first
+                            if let Some(cs_ty) = call_site_types.and_then(|v| v.get(i)).and_then(|o| o.as_ref()) {
+                                return Some(cs_ty.clone());
+                            }
+                            // Then impl registry self-type for the first param
+                            if i == 0 {
+                                if let Some(sname) = struct_name {
                                     return Some(Type::Struct { name: sname.clone(), fields: std::collections::BTreeMap::new() });
                                 }
                             }
@@ -864,10 +912,39 @@ pub fn compile(
                     }).collect()
                 };
                 // For op_dispatch Eq fns, the return may be Bool — don't mark as ptr.
+                // For TypeVar returns: try call-site ret types, then infer from the
+                // first type argument of the first App param (e.g. eval<T>(Expr<T>): T
+                // monomorphized — param App("Expr",[Tuple(...)]) → ret is Tuple).
+                let inferred_from_param;
+                let effective_ret: &Type = if matches!(ret.as_ref(), Type::Var(_)) {
+                    let from_calls = call_site_ret_types.get(fname.as_str())
+                        .and_then(|o| o.as_ref())
+                        .filter(|t| !matches!(*t, Type::Var(_)));
+                    if let Some(t) = from_calls {
+                        t
+                    } else {
+                        // Infer return type from first App param's inner type argument.
+                        // Only applies to single-arg App types (e.g. Expr<T>) to avoid
+                        // misidentifying multi-arg generics like Vec<Succ<N>, T>.
+                        let inner = pts.first()
+                            .and_then(|opt| opt.as_ref())
+                            .and_then(|t| if let Type::App(_, args) = t {
+                                if args.len() == 1 { args.first().cloned() } else { None }
+                            } else { None });
+                        if let Some(inner_ty) = inner.filter(|t| !matches!(t, Type::Var(_))) {
+                            inferred_from_param = inner_ty;
+                            &inferred_from_param
+                        } else {
+                            ret.as_ref()
+                        }
+                    }
+                } else {
+                    ret.as_ref()
+                };
                 let ptr_ret = if let Some((_, returns_bool)) = op_fn_types.get(fname.as_str()) {
                     !returns_bool
                 } else {
-                    matches!(ret.as_ref(),
+                    matches!(effective_ret,
                         Type::Enum(_) | Type::App(..) | Type::Struct { .. }
                         | Type::Primitive(PrimitiveType::String)
                         | Type::Slice(_)
@@ -1121,6 +1198,18 @@ pub fn compile(
         Some(g)
     } else { None };
 
+    // ── Pass 1.6b: create __ctl_outer_k global for non-resuming ctl handler continuation ──
+    // Stores the outer handle continuation at WithCtl install time so the handler
+    // function can call it after running (non-resuming effects need this to chain correctly).
+    let ctl_outer_k_global: Option<GlobalValue<'_>> = if !cps_info.ctl_ops.is_empty() {
+        if let (Some(closure_ty), Some(noop_g)) = (closure_ty, noop_k_closure_global) {
+            let g = module.add_global(closure_ty, None, "__ctl_outer_k");
+            g.set_initializer(&noop_g.get_initializer().unwrap());
+            g.set_linkage(Linkage::Private);
+            Some(g)
+        } else { None }
+    } else { None };
+
     // ── Pass 1.7: create and emit HOF wrapper functions ────────────────────────
     // For each named function used as a HOF value (Variable expr), create a wrapper
     // with closure calling convention: (ptr env, [params except __k]) → i64.
@@ -1213,6 +1302,7 @@ pub fn compile(
         str_chars_fn: None,
         str_slices: RefCell::new(std::collections::HashSet::new()),
         noop_k_closure: noop_k_closure_global,
+        ctl_outer_k_global,
     };
 
     // Pre-populate with_fn_active and with_ctl_active from top-level declarations
@@ -1238,7 +1328,7 @@ pub fn compile(
         let fn_val     = cg.user_fns[fname.as_str()];
         let arg_types  = &fn_arg_types[fname.as_str()];
         let is_ptr_ret = fn_is_ptr_return.get(fname.as_str()).copied().unwrap_or(false);
-        cg.emit_fn_body(fn_val, params, arg_types, *body_id, is_ptr_ret)?;
+        cg.emit_fn_body(fn_val, params, arg_types, *body_id, is_ptr_ret, false)?;
     }
 
     // ── Pass 2e: emit `with fn` handler bodies ───────────────────────────────
@@ -1246,7 +1336,7 @@ pub fn compile(
         let fn_val    = cg.user_fns[unique_name.as_str()];
         let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
         let arg_types = &fn_arg_types[unique_name.as_str()];
-        cg.emit_fn_body(fn_val, &param_names, arg_types, *body_id, false)?;
+        cg.emit_fn_body(fn_val, &param_names, arg_types, *body_id, false, false)?;
     }
 
     // ── Pass 2f: emit `with ctl` handler bodies ───────────────────────────────
@@ -1255,7 +1345,8 @@ pub fn compile(
         let mut param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
         param_names.push("__k".to_string());
         let arg_types = &fn_arg_types[unique_name.as_str()];
-        cg.emit_fn_body(fn_val, &param_names, arg_types, *body_id, false)?;
+        let is_resuming = body_has_resume(ast, *body_id);
+        cg.emit_fn_body(fn_val, &param_names, arg_types, *body_id, false, !is_resuming)?;
     }
 
     // ── Pass 2g: emit string method helpers (trim, split, chars) ────────────────
@@ -1759,6 +1850,9 @@ struct Cg<'ctx> {
     /// Noop terminal continuation closure: used when a CPS function is called at
     /// top-level without a continuation (e.g. `__handle_N()` from main).
     noop_k_closure: Option<GlobalValue<'ctx>>,
+    /// Global ptr to the outer handle continuation for non-resuming ctl handlers.
+    /// Written at WithCtl install time; read at end of non-resuming handler bodies.
+    ctl_outer_k_global: Option<GlobalValue<'ctx>>,
 }
 
 impl<'ctx> Cg<'ctx> {
@@ -1836,6 +1930,7 @@ impl<'ctx> Cg<'ctx> {
         arg_types: &[Option<Type>],
         body_id: RuntimeNodeId,
         is_ptr_return: bool,
+        call_outer_k: bool,
     ) -> Result<(), CodegenError> {
         let entry = self.context.append_basic_block(fn_val, "entry");
         self.builder.position_at_end(entry);
@@ -1877,6 +1972,9 @@ impl<'ctx> Cg<'ctx> {
         self.emit_stmt(body_id, &mut locals)?;
 
         if !self.cur_block_terminated() {
+            if call_outer_k {
+                let _ = self.emit_ctl_outer_k_call();
+            }
             // Unit-returning functions have no explicit `return`. Emit a typed
             // null/zero fallback so LLVM IR is valid.
             if is_ptr_return {
@@ -1887,6 +1985,43 @@ impl<'ctx> Cg<'ctx> {
         }
         Ok(())
     }
+
+    fn emit_ctl_outer_k_call(&self) -> Result<(), CodegenError> {
+        let global = match self.ctl_outer_k_global {
+            Some(g) => g,
+            None => return Ok(()),
+        };
+        let closure_ty = match self.closure_ty {
+            Some(t) => t,
+            None => return Ok(()),
+        };
+        let outer_k_ptr = self.builder
+            .build_load(self.ptr_ty, global.as_pointer_value(), "outer_k_ptr")?
+            .into_pointer_value();
+        let i32_zero = self.context.i32_type().const_int(0, false);
+        let fn_ptr_field = unsafe {
+            self.builder.build_gep(closure_ty, outer_k_ptr,
+                &[i32_zero, self.context.i32_type().const_int(0, false)], "ok_fn_field")?
+        };
+        let fn_ptr = self.builder.build_load(self.ptr_ty, fn_ptr_field, "ok_fn")?
+            .into_pointer_value();
+        let env_ptr_field = unsafe {
+            self.builder.build_gep(closure_ty, outer_k_ptr,
+                &[i32_zero, self.context.i32_type().const_int(1, false)], "ok_env_field")?
+        };
+        let env_ptr = self.builder.build_load(self.ptr_ty, env_ptr_field, "ok_env")?
+            .into_pointer_value();
+        let fn_ty = self.i64_ty.fn_type(&[
+            BasicMetadataTypeEnum::PointerType(self.ptr_ty),
+            BasicMetadataTypeEnum::IntType(self.i64_ty),
+        ], false);
+        self.builder.build_indirect_call(fn_ty, fn_ptr, &[
+            BasicMetadataValueEnum::PointerValue(env_ptr),
+            BasicMetadataValueEnum::IntValue(self.i64_ty.const_int(0, false)),
+        ], "outer_k_call")?;
+        Ok(())
+    }
+
 
     // ── Lambda body emission ──────────────────────────────────────────────────
     // Lambda LLVM signature: `i64 (ptr env, [param types...])`
@@ -2307,9 +2442,13 @@ impl<'ctx> Cg<'ctx> {
             }
 
             RuntimeStmt::Assign { name, expr } => {
-                let local = locals.get(name)
-                    .ok_or_else(|| CodegenError::UnboundVar(name.clone()))?;
-                let (slot, kind) = (local.slot, local.kind.clone());
+                let (slot, kind) = if let Some(local) = locals.get(name) {
+                    (local.slot, local.kind.clone())
+                } else if let Some((global, gkind)) = self.global_vars.get(name.as_str()) {
+                    (global.as_pointer_value(), gkind.clone())
+                } else {
+                    return Err(CodegenError::UnboundVar(name.clone()));
+                };
                 let val = self.emit_expr(*expr, locals)?;
                 match (&kind, val) {
                     (LocalKind::Int, BasicValueEnum::IntValue(iv)) => {
@@ -2754,10 +2893,18 @@ impl<'ctx> Cg<'ctx> {
             }
 
             // ── WithCtl inside a lambda/function body: update active handler ────
-            RuntimeStmt::WithCtl { op_name, .. } => {
+            RuntimeStmt::WithCtl { op_name, outer_k, .. } => {
                 let unique = format!("__handler_{op_name}_{stmt_id}");
                 if let Some(&fn_val) = self.user_fns.get(&unique) {
                     self.with_ctl_active.borrow_mut().insert(op_name.clone(), fn_val);
+                }
+                // Store the outer handle continuation so non-resuming handlers can call it.
+                if let (Some(k_name), Some(global)) = (outer_k.as_deref(), self.ctl_outer_k_global) {
+                    if let Some(k_local) = locals.get(k_name) {
+                        if let Ok(k_val) = self.builder.build_load(self.ptr_ty, k_local.slot, "outer_k_load") {
+                            let _ = self.builder.build_store(global.as_pointer_value(), k_val);
+                        }
+                    }
                 }
             }
 
@@ -3548,10 +3695,18 @@ impl<'ctx> Cg<'ctx> {
                         .basic()
                         .ok_or(CodegenError::UnsupportedExpr(expr_id));
                 }
-                // closure call: callee is a local of kind Closure
+                // closure call: callee is a local of kind Closure or Int-stored closure
+                // (Int-stored: slice element loaded as i64 ptrtoint of closure ptr)
                 if let Some(local) = locals.get(callee.as_str()) {
                     if matches!(local.kind, LocalKind::Closure) {
                         return self.emit_closure_call(local.slot, args, locals, expr_id);
+                    }
+                    if matches!(local.kind, LocalKind::Int) {
+                        let int_val = self.builder.build_load(self.i64_ty, local.slot, "int_closure_load")?.into_int_value();
+                        let ptr_val = self.builder.build_int_to_ptr(int_val, self.ptr_ty, "int_closure_ptr")?;
+                        let tmp_slot = self.builder.build_alloca(self.ptr_ty, "tmp_closure_slot")?;
+                        self.builder.build_store(tmp_slot, ptr_val)?;
+                        return self.emit_closure_call(tmp_slot, args, locals, expr_id);
                     }
                 }
                 // Unresolved callee (e.g. an effect op with no handler in dead code).
@@ -3727,7 +3882,12 @@ impl<'ctx> Cg<'ctx> {
                     let obj_is_slice = matches!(
                         self.type_map.get(object),
                         Some(Type::Slice(_))
-                    );
+                    ) || {
+                        if let Some(RuntimeExpr::Variable(vname)) = self.ast.get_expr(*object) {
+                            locals.get(vname.as_str()).map(|l| matches!(l.kind, LocalKind::Slice)).unwrap_or(false)
+                                || self.global_vars.get(vname.as_str()).map(|(_, k)| matches!(k, LocalKind::Slice)).unwrap_or(false)
+                        } else { false }
+                    };
                     if obj_is_slice {
                         let slice_ty   = self.slice_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                         let slice_ptr  = match self.emit_expr(*object, locals)? {
@@ -4098,7 +4258,49 @@ impl<'ctx> Cg<'ctx> {
                 }
             }
 
-            _ => Err(CodegenError::UnsupportedExpr(expr_id)),
+            // ── ResumeExpr: call __k continuation (resume inside a lambda body) ──
+            RuntimeExpr::ResumeExpr(opt_expr) => {
+                let closure_ty = self.closure_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                let k_slot = locals.get("__k")
+                    .ok_or_else(|| CodegenError::UnboundVar("__k".to_string()))?.slot;
+
+                let resume_val = if let Some(inner_id) = opt_expr {
+                    self.emit_int_expr(*inner_id, locals)?
+                } else {
+                    self.i64_ty.const_int(0, false)
+                };
+
+                let closure_ptr = self.builder
+                    .build_load(self.ptr_ty, k_slot, "rexpr_k_closure")?.into_pointer_value();
+                let i32_zero = self.context.i32_type().const_int(0, false);
+                let fn_ptr_field = unsafe {
+                    self.builder.build_gep(closure_ty, closure_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(0, false)], "rexpr_fn_field")?
+                };
+                let fn_ptr = self.builder.build_load(self.ptr_ty, fn_ptr_field, "rexpr_fn_ptr")?
+                    .into_pointer_value();
+                let env_ptr_field = unsafe {
+                    self.builder.build_gep(closure_ty, closure_ptr,
+                        &[i32_zero, self.context.i32_type().const_int(1, false)], "rexpr_env_field")?
+                };
+                let env_ptr = self.builder.build_load(self.ptr_ty, env_ptr_field, "rexpr_env_ptr")?
+                    .into_pointer_value();
+
+                let indirect_fn_ty = self.i64_ty.fn_type(&[
+                    BasicMetadataTypeEnum::PointerType(self.ptr_ty),
+                    BasicMetadataTypeEnum::IntType(self.i64_ty),
+                ], false);
+                self.builder.build_indirect_call(
+                    indirect_fn_ty, fn_ptr,
+                    &[
+                        BasicMetadataValueEnum::PointerValue(env_ptr),
+                        BasicMetadataValueEnum::IntValue(resume_val),
+                    ],
+                    "rexpr_resume_call",
+                )?;
+                Ok(self.i64_ty.const_int(0, false).as_basic_value_enum())
+            }
+
         }
     }
 
@@ -4153,6 +4355,24 @@ impl<'ctx> Cg<'ctx> {
 }
 
 // ── Free-standing helpers ─────────────────────────────────────────────────────
+
+fn body_has_resume(ast: &RuntimeAst, stmt_id: RuntimeNodeId) -> bool {
+    match ast.get_stmt(stmt_id) {
+        Some(RuntimeStmt::Resume(_)) => true,
+        Some(RuntimeStmt::Block(s)) => {
+            let stmts = s.clone();
+            stmts.iter().any(|&id| body_has_resume(ast, id))
+        }
+        Some(RuntimeStmt::If { body, else_branch, .. }) => {
+            body_has_resume(ast, *body)
+                || else_branch.map_or(false, |e| body_has_resume(ast, e))
+        }
+        Some(RuntimeStmt::WithCtl { body, .. }) | Some(RuntimeStmt::WithFn { body, .. }) => {
+            body_has_resume(ast, *body)
+        }
+        _ => false,
+    }
+}
 
 // ── Free-variable analysis ────────────────────────────────────────────────────
 //
@@ -4272,7 +4492,34 @@ fn collect_refs_expr(
             collect_refs_expr(ast, *b, bound, refs);
         }
         Some(RuntimeExpr::Not(a)) => collect_refs_expr(ast, *a, bound, refs),
-        Some(RuntimeExpr::ResumeExpr(Some(e))) => collect_refs_expr(ast, *e, bound, refs),
+        Some(RuntimeExpr::ResumeExpr(opt_e)) => {
+            // `resume` implicitly references the `__k` continuation from the enclosing handler.
+            if !bound.contains("__k") { refs.insert("__k".to_string()); }
+            if let Some(e) = opt_e { collect_refs_expr(ast, *e, bound, refs); }
+        }
+        Some(RuntimeExpr::DotCall { object, args, .. }) => {
+            let args = args.clone();
+            collect_refs_expr(ast, *object, bound, refs);
+            for arg in args { collect_refs_expr(ast, arg, bound, refs); }
+        }
+        Some(RuntimeExpr::Index { object, index }) => {
+            collect_refs_expr(ast, *object, bound, refs);
+            collect_refs_expr(ast, *index, bound, refs);
+        }
+        Some(RuntimeExpr::SliceRange { object, start, end }) => {
+            let (s, e) = (*start, *end);
+            collect_refs_expr(ast, *object, bound, refs);
+            if let Some(s) = s { collect_refs_expr(ast, s, bound, refs); }
+            if let Some(e) = e { collect_refs_expr(ast, e, bound, refs); }
+        }
+        Some(RuntimeExpr::Tuple(items)) | Some(RuntimeExpr::List(items)) => {
+            let items = items.clone();
+            for item in items { collect_refs_expr(ast, item, bound, refs); }
+        }
+        Some(RuntimeExpr::StructLiteral { fields, .. }) => {
+            let fields = fields.clone();
+            for (_, val) in fields { collect_refs_expr(ast, val, bound, refs); }
+        }
         _ => {}
     }
 }

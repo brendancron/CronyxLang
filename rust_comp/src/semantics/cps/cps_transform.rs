@@ -162,6 +162,64 @@ impl<'a> CpsTransform<'a> {
                 }
             }
 
+            // Fix 2: in CPS body, recurse into If branches so `return val` inside
+            // becomes `return __k(val)` without adding a spurious trailing __k(unit).
+            if is_cps_body {
+                if let Some(RuntimeStmt::If { cond, body, else_branch }) = ast.get_stmt(stmt_id).cloned() {
+                    let cond_is_cps = matches!(
+                        ast.get_expr(cond),
+                        Some(RuntimeExpr::Call { callee, .. }) if self.is_cps_callee(callee)
+                    );
+                    if !cond_is_cps {
+                        let new_body = self.transform_branch_returns(ast, body);
+                        let new_else = else_branch.map(|e| self.transform_branch_returns(ast, e));
+                        let new_if = self.fresh_stmt(ast, RuntimeStmt::If {
+                            cond, body: new_body, else_branch: new_else,
+                        });
+                        result.push(new_if);
+                        i += 1;
+                        continue;
+                    }
+                }
+            }
+
+            // Fix 3: hoist Print(cps_call) — rewrite `print(f(args))` to
+            // `return f(args, fn(r) { print(r); ...rest })`.
+            if let Some(RuntimeStmt::Print(expr_id)) = ast.get_stmt(stmt_id).cloned() {
+                if let Some(RuntimeExpr::Call { callee, args }) = ast.get_expr(expr_id).cloned() {
+                    if self.is_cps_callee(&callee) {
+                        let result_var = format!("__pr_{}", expr_id.0);
+                        let result_var_expr =
+                            self.fresh_expr(ast, RuntimeExpr::Variable(result_var.clone()));
+                        let print_stmt = self.fresh_stmt(ast, RuntimeStmt::Print(result_var_expr));
+
+                        let mut suffix_body = vec![print_stmt];
+                        suffix_body.extend_from_slice(&stmts[i + 1..]);
+                        let cont_transformed =
+                            self.transform_stmts(ast, &suffix_body, is_cps_body);
+
+                        let lambda_body =
+                            self.fresh_stmt(ast, RuntimeStmt::Block(cont_transformed));
+                        let lambda = self.fresh_expr(ast, RuntimeExpr::Lambda {
+                            params: vec![result_var],
+                            body: lambda_body,
+                        });
+
+                        let mut new_args = args;
+                        new_args.push(lambda);
+                        ast.insert_expr(expr_id, RuntimeExpr::Call { callee, args: new_args });
+
+                        let call_stmt = if is_cps_body {
+                            self.fresh_stmt(ast, RuntimeStmt::Return(Some(expr_id)))
+                        } else {
+                            self.fresh_stmt(ast, RuntimeStmt::ExprStmt(expr_id))
+                        };
+                        result.push(call_stmt);
+                        return result;
+                    }
+                }
+            }
+
             let is_handle_callee = match ast.get_stmt(stmt_id) {
                 Some(RuntimeStmt::VarDecl { expr, .. }) | Some(RuntimeStmt::ExprStmt(expr)) => {
                     matches!(ast.get_expr(*expr),
@@ -223,6 +281,19 @@ impl<'a> CpsTransform<'a> {
             RuntimeStmt::Return(opt_expr) => {
                 let val = opt_expr.unwrap_or_else(|| self.fresh_expr(ast, RuntimeExpr::Unit));
                 let k = self.current_k_name.clone();
+
+                // If the return value is a ctl/cps call, pass __k as its continuation arg
+                // rather than wrapping: `return ctl_op(args, __k)` not `return __k(ctl_op(args))`.
+                if let Some(RuntimeExpr::Call { callee, args }) = ast.get_expr(val).cloned() {
+                    if self.is_cps_callee(&callee) {
+                        let k_var = self.fresh_expr(ast, RuntimeExpr::Variable(k));
+                        let mut new_args = args;
+                        new_args.push(k_var);
+                        ast.insert_expr(val, RuntimeExpr::Call { callee, args: new_args });
+                        return Some(self.fresh_stmt(ast, RuntimeStmt::Return(Some(val))));
+                    }
+                }
+
                 let call = self.fresh_expr(
                     ast,
                     RuntimeExpr::Call { callee: k, args: vec![val] },
@@ -230,6 +301,51 @@ impl<'a> CpsTransform<'a> {
                 Some(self.fresh_stmt(ast, RuntimeStmt::Return(Some(call))))
             }
             _ => None,
+        }
+    }
+
+    /// Recursively rewrite `return val` → `return __k(val)` (or `return ctl(args, __k)`)
+    /// inside a branch body, WITHOUT appending a trailing `return __k(unit)`.
+    /// Used for if-branches in CPS function bodies where fall-through is possible.
+    fn transform_branch_returns(&mut self, ast: &mut RuntimeAst, branch_id: RuntimeNodeId) -> RuntimeNodeId {
+        match ast.get_stmt(branch_id).cloned() {
+            Some(RuntimeStmt::Return(_)) => {
+                self.try_transform_return(ast, branch_id).unwrap_or(branch_id)
+            }
+            Some(RuntimeStmt::Block(stmts)) => {
+                let new_stmts: Vec<RuntimeNodeId> =
+                    stmts.iter().map(|&s| self.transform_branch_returns(ast, s)).collect();
+                self.fresh_stmt(ast, RuntimeStmt::Block(new_stmts))
+            }
+            Some(RuntimeStmt::If { cond, body, else_branch }) => {
+                let cond_is_cps = matches!(
+                    ast.get_expr(cond),
+                    Some(RuntimeExpr::Call { callee, .. }) if self.is_cps_callee(callee)
+                );
+                if cond_is_cps {
+                    branch_id
+                } else {
+                    let new_body = self.transform_branch_returns(ast, body);
+                    let new_else = else_branch.map(|e| self.transform_branch_returns(ast, e));
+                    self.fresh_stmt(ast, RuntimeStmt::If { cond, body: new_body, else_branch: new_else })
+                }
+            }
+            // ExprStmt(cps_call) in a branch — treat as a tail call passing __k.
+            // Covers non-resuming ctl ops like `throw("msg")` that don't return.
+            Some(RuntimeStmt::ExprStmt(expr_id)) => {
+                if let Some(RuntimeExpr::Call { callee, args }) = ast.get_expr(expr_id).cloned() {
+                    if self.is_cps_callee(&callee) {
+                        let k = self.current_k_name.clone();
+                        let k_var = self.fresh_expr(ast, RuntimeExpr::Variable(k));
+                        let mut new_args = args;
+                        new_args.push(k_var);
+                        ast.insert_expr(expr_id, RuntimeExpr::Call { callee, args: new_args });
+                        return self.fresh_stmt(ast, RuntimeStmt::Return(Some(expr_id)));
+                    }
+                }
+                branch_id
+            }
+            _ => branch_id,
         }
     }
 

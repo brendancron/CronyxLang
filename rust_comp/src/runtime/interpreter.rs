@@ -48,6 +48,11 @@ pub struct CtlHandlerEntry {
     pub op_name: String,
     pub params: Vec<String>,
     pub body: RuntimeNodeId,
+    /// The outer continuation (`__k_N` of the enclosing `__handle_*` function) captured
+    /// when this handler was installed. Used when the handler doesn't call `resume` — the
+    /// computation aborts through the handler and the outer k is invoked to continue after
+    /// the `run { } handle { }` block.
+    pub outer_k: Option<Value>,
 }
 
 /// Entry in the fn handler stack installed by `with fn`.
@@ -614,9 +619,9 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
             // Check ctl handler stack before env lookup (last installed wins).
             let ctl_info = ctx.ctl_handlers.iter().rev()
                 .find(|h| h.op_name == *callee)
-                .map(|h| (h.params.clone(), h.body));
+                .map(|h| (h.params.clone(), h.body, h.outer_k.clone()));
 
-            if let Some((params, body)) = ctl_info {
+            if let Some((params, body, entry_outer_k)) = ctl_info {
                 let arg_vals: Vec<Value> = args.iter()
                     .map(|a| eval_expr(*a, ctx))
                     .collect::<Result<_, _>>()?;
@@ -650,8 +655,12 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                             Err(EvalError::EffectAborted) => Value::Unit,
                             Err(e) => return Err(e),
                         };
-                        return if let Some(outer_k) = ctx.handle_continuations.last().cloned() {
-                            call_value(outer_k, vec![handler_val], ctx)
+                        // Use the outer_k captured when this WithCtl was installed, not
+                        // handle_continuations.last() — nested CPS calls (like divide) push
+                        // their own __k continuations onto that stack, so .last() would pick
+                        // the wrong one (e.g. the divide continuation instead of __handle_N's).
+                        return if let Some(ok) = entry_outer_k {
+                            call_value(ok, vec![handler_val], ctx)
                         } else {
                             Ok(handler_val)
                         };
@@ -972,10 +981,12 @@ fn eval_stmt_inner<W: Write>(stmt_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
         // Note: WithCtl is normally intercepted before reaching here by the eval_stmts loop.
         // This arm is a fallback for any direct eval_stmt call on a WithCtl node.
         RuntimeStmt::WithCtl { op_name, params, body, .. } => {
+            let outer_k = ctx.handle_continuations.last().cloned();
             ctx.ctl_handlers.push(CtlHandlerEntry {
                 op_name: op_name.clone(),
                 params: params.iter().map(|p| p.name.clone()).collect(),
                 body: *body,
+                outer_k,
             });
             Ok(ExecResult::Continue)
         }
@@ -1182,7 +1193,8 @@ pub fn eval_stmts<W: Write>(
         };
         if let Some((op_name, param_names, body)) = with_ctl_info {
             let continuation: Vec<RuntimeNodeId> = stmts[i + 1..].to_vec();
-            ctx.ctl_handlers.push(CtlHandlerEntry { op_name, params: param_names, body });
+            let outer_k = ctx.handle_continuations.last().cloned();
+            ctx.ctl_handlers.push(CtlHandlerEntry { op_name, params: param_names, body, outer_k });
             let result = eval_stmts(&continuation, ctx);
             ctx.ctl_handlers.pop();
             return match result {

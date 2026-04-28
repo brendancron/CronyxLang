@@ -82,7 +82,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\LLVM
-          key: llvm-20.1.8-windows-7z-v1
+          key: llvm-20.1.8-windows-v2
 
       - name: Install LLVM 20 (Windows)
         if: steps.cache-llvm.outputs.cache-hit != 'true'
@@ -92,13 +92,9 @@ jobs:
           $installer = "$env:TEMP\LLVM-20.1.8-win64.exe"
           Write-Host "Downloading LLVM 20.1.8..."
           Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
-          Write-Host "Extracting with 7z to C:\LLVM..."
-          7z x $installer -o"C:\LLVM" -y
+          Write-Host "Running silent install to C:\LLVM..."
+          Start-Process $installer -ArgumentList "/S", "/D=C:\LLVM" -Wait
           if (-not (Test-Path "C:\LLVM\bin\llvm-config.exe")) {
-            Write-Host "Extraction layout (depth 2):"
-            Get-ChildItem "C:\LLVM" -Recurse -Depth 2 | Select-Object FullName
-            Write-Host "Searching for llvm-config.exe:"
-            Get-ChildItem "C:\LLVM" -Recurse -Filter "llvm-config.exe" -ErrorAction SilentlyContinue | Select-Object FullName
             throw "llvm-config.exe not found at C:\LLVM\bin\llvm-config.exe"
           }
           Write-Host "LLVM ready at C:\LLVM"

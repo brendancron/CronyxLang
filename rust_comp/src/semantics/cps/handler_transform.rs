@@ -13,7 +13,7 @@
 /// This makes fn-effect dispatch explicit and identical in interpreter and codegen.
 use std::collections::{HashMap, HashSet};
 
-use crate::frontend::meta_ast::Param;
+
 use crate::semantics::cps::effect_marker::{CpsInfo, FnEffectInfo};
 use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
 use crate::util::node_id::RuntimeNodeId;
@@ -387,70 +387,16 @@ fn rewrite_ctl_stmts(
     let mut out = Vec::new();
     for &id in stmts {
         match ast.get_stmt(id).cloned() {
-            Some(RuntimeStmt::WithCtl { op_name, params, body, .. }) => {
-                // Only transform non-resuming handlers. Resuming handlers (those
-                // containing `resume` stmts) are handled correctly by the existing
-                // codegen path that emits `WithCtl` directly; rewriting them to
-                // lambdas here would make multi-shot resumes unreachable.
-                let body_stmts_raw = match ast.get_stmt(body).cloned() {
-                    Some(RuntimeStmt::Block(s)) => s,
-                    _ => vec![body],
+            Some(RuntimeStmt::WithCtl { op_name, params, ret_ty, body, .. }) => {
+                // Keep WithCtl in place for dynamic dispatch (interpreter ctl_handlers stack /
+                // codegen with_ctl_active map), but annotate outer_k so codegen can store
+                // the handle continuation at install time and call it after non-resuming bodies.
+                let annotated = RuntimeStmt::WithCtl {
+                    op_name, params, ret_ty, body,
+                    outer_k: outer_k.map(String::from),
                 };
-                if stmt_slice_has_resume(ast, &body_stmts_raw) {
-                    out.push(id);
-                    continue;
-                }
-
-                // Lambda params: original params + __k_ctl continuation.
-                let mut lambda_params: Vec<String> =
-                    params.iter().map(|p| p.name.clone()).collect();
-                lambda_params.push("__k_ctl".to_string());
-
-                // Type hints for the original params.
-                let hints: Vec<Option<String>> = params.iter().map(|p| {
-                    p.ty.as_ref().and_then(|te| match te {
-                        crate::frontend::meta_ast::MetaTypeExpr::Named(n) => Some(n.clone()),
-                        _ => None,
-                    })
-                }).collect();
-
-                // Rewrite the body (handles nested WithCtl).
-                let mut new_body_stmts =
-                    rewrite_ctl_stmts(ast, &body_stmts_raw, ctl_ops, outer_k);
-                let has_resume = false; // guaranteed above
-
-                // Non-resuming: append call to outer continuation so execution
-                // continues after the `run { } handle { }` block.
-                if !has_resume {
-                    if let Some(k_name) = outer_k {
-                        let unit_e = fresh_expr(ast, RuntimeExpr::Unit);
-                        let k_var = fresh_expr(ast, RuntimeExpr::Variable(k_name.to_string()));
-                        let _ = k_var; // k_name goes in callee, not as expr
-                        let k_call_e = fresh_expr(ast, RuntimeExpr::Call {
-                            callee: k_name.to_string(),
-                            args: vec![unit_e],
-                        });
-                        let k_call_s = fresh_stmt(ast, RuntimeStmt::Return(Some(k_call_e)));
-                        new_body_stmts.push(k_call_s);
-                    }
-                }
-
-                let new_body = fresh_stmt(ast, RuntimeStmt::Block(new_body_stmts));
-                let lambda_id = fresh_expr(ast, RuntimeExpr::Lambda {
-                    params: lambda_params,
-                    body: new_body,
-                });
-
-                // Record type hints (excluding the added __k_ctl param).
-                if hints.iter().any(|h| h.is_some()) {
-                    ast.lambda_param_hints.insert(lambda_id, hints);
-                }
-
-                let bind = fresh_stmt(ast, RuntimeStmt::VarDecl {
-                    name: op_name,
-                    expr: lambda_id,
-                });
-                out.push(bind);
+                let new_id = fresh_stmt(ast, annotated);
+                out.push(new_id);
             }
             // Recurse into blocks so nested WithCtl is handled.
             Some(RuntimeStmt::Block(inner)) => {
@@ -464,62 +410,3 @@ fn rewrite_ctl_stmts(
     out
 }
 
-fn stmt_slice_has_resume(ast: &RuntimeAst, stmts: &[RuntimeNodeId]) -> bool {
-    stmts.iter().any(|&id| stmt_has_resume(ast, id))
-}
-
-fn stmt_has_resume(ast: &RuntimeAst, stmt_id: RuntimeNodeId) -> bool {
-    match ast.get_stmt(stmt_id) {
-        Some(RuntimeStmt::Resume(_)) => true,
-        Some(RuntimeStmt::Block(s)) => stmt_slice_has_resume(ast, &s.clone()),
-        Some(RuntimeStmt::If { body, else_branch, .. }) => {
-            stmt_has_resume(ast, *body)
-                || else_branch.map_or(false, |e| stmt_has_resume(ast, e))
-        }
-        Some(RuntimeStmt::WithCtl { body, .. }) | Some(RuntimeStmt::WithFn { body, .. }) => {
-            stmt_has_resume(ast, *body)
-        }
-        Some(RuntimeStmt::ForEach { body, .. }) | Some(RuntimeStmt::WhileLoop { body, .. }) => {
-            stmt_has_resume(ast, *body)
-        }
-        _ => false,
-    }
-}
-
-/// Rewrite `Resume(Some(val))` → `Return(Some(Call("__k_ctl", [val])))` throughout stmts.
-fn rewrite_resume_in_stmts(
-    ast: &mut RuntimeAst,
-    stmts: &[RuntimeNodeId],
-) -> Vec<RuntimeNodeId> {
-    stmts.iter().map(|&id| rewrite_resume_stmt(ast, id)).collect()
-}
-
-fn rewrite_resume_stmt(ast: &mut RuntimeAst, stmt_id: RuntimeNodeId) -> RuntimeNodeId {
-    match ast.get_stmt(stmt_id).cloned() {
-        Some(RuntimeStmt::Resume(Some(val_id))) => {
-            let call_e = fresh_expr(ast, RuntimeExpr::Call {
-                callee: "__k_ctl".to_string(),
-                args: vec![val_id],
-            });
-            fresh_stmt(ast, RuntimeStmt::Return(Some(call_e)))
-        }
-        Some(RuntimeStmt::Resume(None)) => {
-            let unit_e = fresh_expr(ast, RuntimeExpr::Unit);
-            let call_e = fresh_expr(ast, RuntimeExpr::Call {
-                callee: "__k_ctl".to_string(),
-                args: vec![unit_e],
-            });
-            fresh_stmt(ast, RuntimeStmt::Return(Some(call_e)))
-        }
-        Some(RuntimeStmt::Block(inner)) => {
-            let new_inner = rewrite_resume_in_stmts(ast, &inner);
-            fresh_stmt(ast, RuntimeStmt::Block(new_inner))
-        }
-        Some(RuntimeStmt::If { cond, body, else_branch }) => {
-            let new_body = rewrite_resume_stmt(ast, body);
-            let new_else = else_branch.map(|e| rewrite_resume_stmt(ast, e));
-            fresh_stmt(ast, RuntimeStmt::If { cond, body: new_body, else_branch: new_else })
-        }
-        _ => stmt_id,
-    }
-}

@@ -348,7 +348,14 @@ fn infer_expr_impl(
                 effects: EffectRow::empty(),
             };
 
-            unify(&callee_ty, &expected_fn, subst)?;
+            // Phase-1 is permissive for occurs-check failures: recursive GADT
+            // calls can trigger an infinite-type error here, but Phase-2 handles
+            // them correctly. Real type mismatches are still propagated.
+            match unify(&callee_ty, &expected_fn, subst) {
+                Ok(()) => {}
+                Err(ref e) if matches!(e.kind, crate::semantics::types::type_error::TypeErrorKind::Unsupported) => {}
+                Err(e) => return Err(e),
+            }
             ret_tv.apply(subst)
         }
 

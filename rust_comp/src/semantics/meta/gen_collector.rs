@@ -184,11 +184,12 @@ impl<'a> SubstCtx<'a> {
                 ret_ty: ret_ty.clone(),
                 body: self.remap_stmt(*body),
             },
-            RuntimeStmt::WithCtl { op_name, params, ret_ty, body } => RuntimeStmt::WithCtl {
+            RuntimeStmt::WithCtl { op_name, params, ret_ty, body, outer_k } => RuntimeStmt::WithCtl {
                 op_name: op_name.clone(),
                 params: params.clone(),
                 ret_ty: ret_ty.clone(),
                 body: self.remap_stmt(*body),
+                outer_k: outer_k.clone(),
             },
             RuntimeStmt::Resume(opt_expr) => {
                 RuntimeStmt::Resume(opt_expr.map(|e| self.remap_expr(e)))
