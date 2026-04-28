@@ -1284,7 +1284,7 @@ pub fn compile(
         type_map,
         lambda_ref_names,
         lambda_actual_captures: RefCell::new(HashMap::new()),
-        strlen_fn, strcpy_fn, strcat_fn, strcmp_fn, strstr_fn, memcpy_fn,
+        strlen_fn, strcpy_fn, strcat_fn, strcmp_fn, strncmp_fn: None, strstr_fn, memcpy_fn,
         sprintf_fn, fmt_int_bare, fmt_str_bare,
         bool_strs,
         cur_is_ptr_return: Cell::new(false),
@@ -1669,6 +1669,20 @@ pub fn compile(
         } // if has_split_chars
     }
 
+    // ── Pass 2h: declare strncmp for starts_with / ends_with ─────────────────
+    let has_starts_ends = has_string_ops && ast.exprs.values().any(|e| {
+        matches!(e, RuntimeExpr::DotCall { method, .. } if
+            matches!(method.as_str(), "starts_with" | "ends_with"))
+    });
+    if has_starts_ends {
+        let strncmp_ty = context.i32_type().fn_type(&[
+            BasicMetadataTypeEnum::PointerType(ptr_ty),
+            BasicMetadataTypeEnum::PointerType(ptr_ty),
+            BasicMetadataTypeEnum::IntType(i64_ty),
+        ], false);
+        cg.strncmp_fn = Some(module.add_function("strncmp", strncmp_ty, Some(Linkage::External)));
+    }
+
     // ── Pass 3: emit main() ───────────────────────────────────────────────────
     let main_ty = i32_ty.fn_type(&[], false);
     let main_fn = module.add_function("main", main_ty, None);
@@ -1800,11 +1814,12 @@ struct Cg<'ctx> {
     /// Populated at emit time: actual captures per lambda (names + kinds from locals).
     lambda_actual_captures: RefCell<HashMap<RuntimeNodeId, Vec<(String, LocalKind)>>>,
     // ── C string library functions (None when program has no strings) ─────────
-    strlen_fn:  Option<FunctionValue<'ctx>>,
-    strcpy_fn:  Option<FunctionValue<'ctx>>,
-    strcat_fn:  Option<FunctionValue<'ctx>>,
-    strcmp_fn:  Option<FunctionValue<'ctx>>,
-    strstr_fn:  Option<FunctionValue<'ctx>>,
+    strlen_fn:   Option<FunctionValue<'ctx>>,
+    strcpy_fn:   Option<FunctionValue<'ctx>>,
+    strcat_fn:   Option<FunctionValue<'ctx>>,
+    strcmp_fn:   Option<FunctionValue<'ctx>>,
+    strncmp_fn:  Option<FunctionValue<'ctx>>,
+    strstr_fn:   Option<FunctionValue<'ctx>>,
     memcpy_fn:  Option<FunctionValue<'ctx>>,
     sprintf_fn: Option<FunctionValue<'ctx>>,
     /// "%lld\0" format string (no newline) for to_string(int) and struct int field printing.
@@ -3925,6 +3940,63 @@ impl<'ctx> Cg<'ctx> {
                             self.builder.build_call(chars_fn, &[obj_ptr.into()], "chars")?
                                 .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))
                         }
+                        "starts_with" => {
+                            let strncmp_fn = self.strncmp_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                            let strlen_fn  = self.strlen_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                            let prefix_ptr = match args.first() {
+                                Some(&aid) => match self.emit_expr(aid, locals)? {
+                                    BasicValueEnum::PointerValue(p) => p,
+                                    _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                                },
+                                None => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                            };
+                            let prefix_len = self.builder.build_call(strlen_fn, &[prefix_ptr.into()], "pfx_len")?
+                                .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                                .into_int_value();
+                            let cmp = self.builder.build_call(strncmp_fn,
+                                &[obj_ptr.into(), prefix_ptr.into(), prefix_len.into()], "sw_cmp")?
+                                .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                                .into_int_value();
+                            let zero32 = self.context.i32_type().const_int(0, false);
+                            let eq = self.builder.build_int_compare(IntPredicate::EQ, cmp, zero32, "sw_eq")?;
+                            Ok(self.builder.build_int_z_extend(eq, self.i64_ty, "sw_res")?.as_basic_value_enum())
+                        }
+                        "ends_with" => {
+                            let strncmp_fn = self.strncmp_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                            let strlen_fn  = self.strlen_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                            let suffix_ptr = match args.first() {
+                                Some(&aid) => match self.emit_expr(aid, locals)? {
+                                    BasicValueEnum::PointerValue(p) => p,
+                                    _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                                },
+                                None => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                            };
+                            let str_len = self.builder.build_call(strlen_fn, &[obj_ptr.into()], "str_len")?
+                                .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                                .into_int_value();
+                            let suf_len = self.builder.build_call(strlen_fn, &[suffix_ptr.into()], "suf_len")?
+                                .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                                .into_int_value();
+                            // offset = max(0, str_len - suf_len); ptr = obj_ptr + offset
+                            let diff = self.builder.build_int_sub(str_len, suf_len, "ew_diff")?;
+                            let is_neg = self.builder.build_int_compare(
+                                IntPredicate::SLT, diff, self.i64_ty.const_int(0, false), "ew_neg")?;
+                            let offset = match self.builder.build_select(
+                                is_neg, self.i64_ty.const_int(0, false), diff, "ew_off")? {
+                                BasicValueEnum::IntValue(v) => v, _ => unreachable!(),
+                            };
+                            let i8_ty = self.context.i8_type();
+                            let tail_ptr = unsafe {
+                                self.builder.build_gep(i8_ty, obj_ptr, &[offset], "ew_tail")?
+                            };
+                            let cmp = self.builder.build_call(strncmp_fn,
+                                &[tail_ptr.into(), suffix_ptr.into(), suf_len.into()], "ew_cmp")?
+                                .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                                .into_int_value();
+                            let zero32 = self.context.i32_type().const_int(0, false);
+                            let eq = self.builder.build_int_compare(IntPredicate::EQ, cmp, zero32, "ew_eq")?;
+                            Ok(self.builder.build_int_z_extend(eq, self.i64_ty, "ew_res")?.as_basic_value_enum())
+                        }
                         _ => Err(CodegenError::UnsupportedExpr(expr_id)),
                     }
                 } else {
@@ -4107,6 +4179,49 @@ impl<'ctx> Cg<'ctx> {
 
             // ── Index access (list[i]) ────────────────────────────────────────
             RuntimeExpr::Index { object, index } => {
+                // String indexing: s[i] → heap-allocate a 2-byte buffer with char + null
+                let obj_is_str = matches!(
+                    self.type_map.get(object),
+                    Some(Type::Primitive(PrimitiveType::String))
+                ) || (if let Some(RuntimeExpr::Variable(vname)) = self.ast.get_expr(*object) {
+                    matches!(locals.get(vname.as_str()), Some(Local { kind: LocalKind::Str, .. }))
+                        || self.global_vars.get(vname.as_str()).map(|(_, k)| matches!(k, LocalKind::Str)).unwrap_or(false)
+                } else { false });
+
+                if obj_is_str {
+                    let malloc_fn = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                    let strlen_fn = self.strlen_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                    let i8_ty = self.context.i8_type();
+                    let obj_ptr = match self.emit_expr(*object, locals)? {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                    };
+                    let idx_val = self.emit_int_expr(*index, locals)?;
+                    // Support negative index: if idx < 0, use strlen(s) + idx
+                    let str_len = self.builder.build_call(strlen_fn, &[obj_ptr.into()], "si_len")?
+                        .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                        .into_int_value();
+                    let is_neg = self.builder.build_int_compare(
+                        IntPredicate::SLT, idx_val, self.i64_ty.const_int(0, false), "si_neg")?;
+                    let adj = self.builder.build_int_add(str_len, idx_val, "si_adj")?;
+                    let eff_idx = match self.builder.build_select(is_neg, adj, idx_val, "si_eff")? {
+                        BasicValueEnum::IntValue(v) => v, _ => unreachable!(),
+                    };
+                    // Load char at eff_idx
+                    let char_ptr = unsafe { self.builder.build_gep(i8_ty, obj_ptr, &[eff_idx], "si_cp")? };
+                    let ch = self.builder.build_load(i8_ty, char_ptr, "si_ch")?.into_int_value();
+                    // Allocate 2-byte buffer: [ch, '\0']
+                    let buf = self.builder.build_call(malloc_fn,
+                        &[self.i64_ty.const_int(2, false).into()], "si_buf")?
+                        .try_as_basic_value().basic().ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                        .into_pointer_value();
+                    let p0 = unsafe { self.builder.build_gep(i8_ty, buf, &[self.i64_ty.const_int(0, false)], "si_p0")? };
+                    self.builder.build_store(p0, ch)?;
+                    let p1 = unsafe { self.builder.build_gep(i8_ty, buf, &[self.i64_ty.const_int(1, false)], "si_p1")? };
+                    self.builder.build_store(p1, i8_ty.const_int(0, false))?;
+                    return Ok(buf.as_basic_value_enum());
+                }
+
                 let obj_val = self.emit_expr(*object, locals)?;
                 let idx_val = self.emit_int_expr(*index, locals)?;
                 match obj_val {
