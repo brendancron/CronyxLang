@@ -177,6 +177,8 @@ mod core {
     cx_compile_test!(string_concat,          "tests/core/strings",      "concat");
     cx_compile_test!(string_methods,         "tests/core/strings",      "string_methods");
     cx_compile_test!(string_slice,           "tests/core/strings",      "string_slice");
+    cx_compile_test!(string_index,           "tests/core/strings",      "string_index");
+    cx_compile_test!(string_starts_ends,     "tests/core/strings",      "string_starts_ends");
     cx_compile_test!(variables_variables,    "tests/core/variables",    "variables");
     cx_compile_test!(variables_reassign,     "tests/core/variables",    "reassign");
     cx_compile_test!(control_if,             "tests/core/control",      "if");
@@ -199,6 +201,7 @@ mod core {
     cx_compile_test!(list_methods,           "tests/core/lists",        "list_methods");
     cx_compile_test!(struct_struct,          "tests/core/structs",      "struct");
     cx_compile_test!(struct_struct2,         "tests/core/structs",      "struct2");
+    cx_compile_test!(struct_dot_assign,      "tests/core/structs",      "struct_dot_assign");
     cx_compile_test!(modules_import,         "tests/core/modules",      "main");
     cx_compile_test!(modules_qualified,      "tests/core/modules/qualified",   "main");
     cx_compile_test!(modules_alias,          "tests/core/modules/alias",       "main");

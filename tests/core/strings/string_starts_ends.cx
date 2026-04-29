@@ -1,0 +1,10 @@
+var s = "hello world";
+
+if (s.starts_with("hello")) { print("true"); } else { print("false"); }
+if (s.starts_with("world")) { print("true"); } else { print("false"); }
+if (s.ends_with("world"))   { print("true"); } else { print("false"); }
+if (s.ends_with("hello"))   { print("true"); } else { print("false"); }
+
+if ("abc".starts_with("abc"))  { print("true"); } else { print("false"); }
+if ("abc".ends_with("abc"))    { print("true"); } else { print("false"); }
+if ("abc".starts_with("abcd")) { print("true"); } else { print("false"); }

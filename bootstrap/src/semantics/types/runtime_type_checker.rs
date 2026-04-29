@@ -565,6 +565,10 @@ fn infer_stmt(
             infer_expr(ast, expr, env, subst, type_map)?;
         }
 
+        RuntimeStmt::DotAssign { expr, .. } => {
+            infer_expr(ast, expr, env, subst, type_map)?;
+        }
+
         RuntimeStmt::FnDecl { name, params, body, .. } => {
             let param_types: Vec<Type> = params.iter().map(|_| Type::Var(env.fresh())).collect();
             let ret_tv = Type::Var(env.fresh());

@@ -227,6 +227,11 @@ pub fn convert_to_runtime(
                 indices: indices.into_iter().map(rid).collect(),
                 expr: rid(expr),
             },
+            StagedStmt::DotAssign { object, field, expr } => RuntimeStmt::DotAssign {
+                object,
+                field,
+                expr: rid(expr),
+            },
             StagedStmt::FnDecl { name, params, type_params, body } => {
                 RuntimeStmt::FnDecl { name, params, type_params, body: rid(body) }
             }

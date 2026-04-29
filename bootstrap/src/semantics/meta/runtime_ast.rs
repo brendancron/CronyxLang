@@ -184,6 +184,11 @@ impl RuntimeAst {
                     indices: indices.iter().map(|i| remap_expr(*i)).collect(),
                     expr: remap_expr(*expr),
                 },
+                RuntimeStmt::DotAssign { object, field, expr } => RuntimeStmt::DotAssign {
+                    object: object.clone(),
+                    field: field.clone(),
+                    expr: remap_expr(*expr),
+                },
                 RuntimeStmt::FnDecl { name, params, type_params, body } => RuntimeStmt::FnDecl {
                     name: name.clone(),
                     params: params.clone(),
@@ -382,6 +387,12 @@ pub enum RuntimeStmt {
         expr: RuntimeNodeId,
     },
 
+    DotAssign {
+        object: String,
+        field: String,
+        expr: RuntimeNodeId,
+    },
+
     FnDecl {
         name: String,
         params: Vec<String>,
@@ -504,6 +515,11 @@ impl RuntimeAst {
                     .chain(indices.iter().map(|i| self.convert_expr(*i)))
                     .chain(std::iter::once(self.convert_expr(*expr)))
                     .collect(),
+            ),
+
+            RuntimeStmt::DotAssign { object, field, expr } => (
+                format!("DotAssign({object}.{field})"),
+                vec![self.convert_expr(*expr)],
             ),
 
             RuntimeStmt::FnDecl { name, params, type_params: _, body } => (

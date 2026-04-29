@@ -46,17 +46,17 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust_comp/target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
+            bootstrap/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-${{ hashFiles('bootstrap/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-llvm20-
 
       - name: Build release binary
-        working-directory: rust_comp
+        working-directory: bootstrap
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package binary
         run: |
-          BINARY=rust_comp/target/${{ matrix.target }}/release/cronyxc
+          BINARY=bootstrap/target/${{ matrix.target }}/release/cronyxc
           ARCHIVE=cronyxc-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
           tar -czf "$ARCHIVE" -C "$(dirname $BINARY)" "$(basename $BINARY)"
           shasum -a 256 "$ARCHIVE" | awk '{print $1}' > "$ARCHIVE.sha256"
@@ -115,12 +115,12 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust_comp/target
-          key: windows-x86_64-pc-windows-msvc-cargo-llvm20-${{ hashFiles('rust_comp/Cargo.lock') }}
+            bootstrap/target
+          key: windows-x86_64-pc-windows-msvc-cargo-llvm20-${{ hashFiles('bootstrap/Cargo.lock') }}
           restore-keys: windows-x86_64-pc-windows-msvc-cargo-llvm20-
 
       - name: Build release binary
-        working-directory: rust_comp
+        working-directory: bootstrap
         run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Package binary
@@ -128,7 +128,7 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}"
           $archive = "cronyxc-$version-x86_64-pc-windows-msvc.zip"
-          Compress-Archive -Path "rust_comp/target/x86_64-pc-windows-msvc/release/cronyxc.exe" -DestinationPath $archive
+          Compress-Archive -Path "bootstrap/target/x86_64-pc-windows-msvc/release/cronyxc.exe" -DestinationPath $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
           Set-Content -Path "$archive.sha256" -Value $hash
 

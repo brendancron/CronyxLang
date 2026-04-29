@@ -46,6 +46,10 @@ impl<'a> Formatter<'a> {
                 format!("{}{}{} = {};", self.pad(), name, idx_str, self.fmt_expr(expr))
             }
 
+            RuntimeStmt::DotAssign { object, field, expr } => {
+                format!("{}{}.{} = {};", self.pad(), object, field, self.fmt_expr(expr))
+            }
+
             RuntimeStmt::Print(e) => {
                 format!("{}print({});", self.pad(), self.fmt_expr(e))
             }

@@ -81,6 +81,7 @@ fn collect_body_effects(
             for &i in indices { collect_expr_effects(ast, i, ctl_ops, env, out); }
             collect_expr_effects(ast, *expr, ctl_ops, env, out);
         }
+        MetaStmt::DotAssign { expr, .. } => collect_expr_effects(ast, *expr, ctl_ops, env, out),
         MetaStmt::Return(Some(e)) => collect_expr_effects(ast, *e, ctl_ops, env, out),
         MetaStmt::Print(e) => collect_expr_effects(ast, *e, ctl_ops, env, out),
         MetaStmt::Block(stmts) => {
@@ -542,6 +543,11 @@ fn infer_stmt_impl(
             for &idx in indices {
                 infer_expr(ast, idx, env, subst, table)?;
             }
+            infer_expr(ast, *expr, env, subst, table)?;
+            unit_type()
+        }
+
+        MetaStmt::DotAssign { expr, .. } => {
             infer_expr(ast, *expr, env, subst, table)?;
             unit_type()
         }

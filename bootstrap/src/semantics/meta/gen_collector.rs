@@ -148,6 +148,11 @@ impl<'a> SubstCtx<'a> {
                 indices: indices.iter().map(|i| self.remap_expr(*i)).collect(),
                 expr: self.remap_expr(*expr),
             },
+            RuntimeStmt::DotAssign { object, field, expr } => RuntimeStmt::DotAssign {
+                object: object.clone(),
+                field: field.clone(),
+                expr: self.remap_expr(*expr),
+            },
             RuntimeStmt::FnDecl { name, params, type_params, body } => RuntimeStmt::FnDecl {
                 name: self.subst_name(name),
                 params: params.clone(),
