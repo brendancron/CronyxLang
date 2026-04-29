@@ -233,6 +233,7 @@ mod core {
     cx_compile_test!(builtins_writefile,     "tests/core/builtins",     "writefile");
     cx_compile_test!(builtins_conversions,   "tests/core/builtins",     "conversions");
     cx_compile_test!(builtins_free,          "tests/core/builtins",     "free");
+    cx_compile_test!(builtins_ord,           "tests/core/builtins",     "ord");
     cx_compile_test!(generics_generic_fn,    "tests/core/generics/generic_fn",      "main");
     cx_compile_test!(generics_generic_struct,"tests/core/generics/generic_struct",   "main");
     cx_compile_test!(generics_monomorphize,  "tests/core/generics/monomorphize",     "main");

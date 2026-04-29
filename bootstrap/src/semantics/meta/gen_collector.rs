@@ -229,6 +229,7 @@ impl<'a> SubstCtx<'a> {
             RuntimeExpr::Sub(a, b) => RuntimeExpr::Sub(self.remap_expr(*a), self.remap_expr(*b)),
             RuntimeExpr::Mult(a, b) => RuntimeExpr::Mult(self.remap_expr(*a), self.remap_expr(*b)),
             RuntimeExpr::Div(a, b) => RuntimeExpr::Div(self.remap_expr(*a), self.remap_expr(*b)),
+            RuntimeExpr::Mod(a, b) => RuntimeExpr::Mod(self.remap_expr(*a), self.remap_expr(*b)),
             RuntimeExpr::Equals(a, b) => RuntimeExpr::Equals(self.remap_expr(*a), self.remap_expr(*b)),
             RuntimeExpr::NotEquals(a, b) => RuntimeExpr::NotEquals(self.remap_expr(*a), self.remap_expr(*b)),
             RuntimeExpr::Lt(a, b) => RuntimeExpr::Lt(self.remap_expr(*a), self.remap_expr(*b)),

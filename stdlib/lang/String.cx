@@ -1,0 +1,79 @@
+import "StringBuilder";
+
+fn substring(s, start, end) {
+    var chars = s.chars();
+    var sb = StringBuilder.new();
+    var i = start;
+    while (i < end) {
+        sb.append(chars[i]);
+        i += 1;
+    }
+    return sb.build();
+}
+
+fn index_of(s, sub) {
+    var slen = s.len();
+    var sublen = sub.len();
+    var i = 0;
+    while (i <= slen - sublen) {
+        if (substring(s, i, i + sublen) == sub) {
+            return i;
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+fn repeat(s, n) {
+    var sb = StringBuilder.new();
+    var i = 0;
+    while (i < n) {
+        sb.append(s);
+        i += 1;
+    }
+    return sb.build();
+}
+
+fn pad_left(s, width, pad_char) {
+    var diff = width - s.len();
+    if (diff <= 0) {
+        return s;
+    }
+    return repeat(pad_char, diff) + s;
+}
+
+fn pad_right(s, width, pad_char) {
+    var diff = width - s.len();
+    if (diff <= 0) {
+        return s;
+    }
+    return s + repeat(pad_char, diff);
+}
+
+fn is_digit(c) {
+    var o = ord(c);
+    return o >= 48 && o <= 57;
+}
+
+fn is_upper(c) {
+    var o = ord(c);
+    return o >= 65 && o <= 90;
+}
+
+fn is_lower(c) {
+    var o = ord(c);
+    return o >= 97 && o <= 122;
+}
+
+fn is_alpha(c) {
+    return is_upper(c) || is_lower(c);
+}
+
+fn is_alphanumeric(c) {
+    return is_alpha(c) || is_digit(c);
+}
+
+fn is_whitespace(c) {
+    var o = ord(c);
+    return o == 32 || o == 9 || o == 10 || o == 13;
+}

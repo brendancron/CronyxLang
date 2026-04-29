@@ -1,0 +1,16 @@
+import "../../../stdlib/collections/HashSet";
+
+var s = HashSet.new();
+
+s.add("foo");
+s.add("bar");
+s.add("foo");
+
+print(s.size());
+print(s.contains("foo"));
+print(s.contains("bar"));
+print(s.contains("baz"));
+
+s.remove("foo");
+print(s.size());
+print(s.contains("foo"));

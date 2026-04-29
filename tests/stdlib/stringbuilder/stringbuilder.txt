@@ -1,0 +1,7 @@
+hello, world
+12
+hello, worldline1
+line2
+end
+0
+42 is the answer

@@ -227,6 +227,7 @@ impl<'a> Formatter<'a> {
             }
             RuntimeExpr::Mult(a, b) => format!("{} * {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Div(a, b) => format!("{} / {}", self.fmt_expr(a), self.fmt_expr(b)),
+            RuntimeExpr::Mod(a, b) => format!("{} % {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Equals(a, b) => format!("{} == {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::NotEquals(a, b) => format!("{} != {}", self.fmt_expr(a), self.fmt_expr(b)),
             RuntimeExpr::Lt(a, b) => format!("{} < {}", self.fmt_expr(a), self.fmt_expr(b)),

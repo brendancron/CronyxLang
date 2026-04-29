@@ -109,6 +109,11 @@ pub fn process_expr(
             let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             staged_ast.insert_expr(staged_expr_id, StagedExpr::Div(a_id, b_id));
         }
+        MetaExpr::Mod(a, b) => {
+            let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
+            staged_ast.insert_expr(staged_expr_id, StagedExpr::Mod(a_id, b_id));
+        }
         MetaExpr::Equals(a, b) => {
             let a_id = process_expr(meta_ast, *a, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
             let b_id = process_expr(meta_ast, *b, staged_ast, id_provider, dependency_set, staged_forest, type_env)?;
@@ -530,9 +535,10 @@ pub fn process_stmt(
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::Import(decl.clone()));
         }
 
-        MetaStmt::EffectDecl { name, ops } => {
+        MetaStmt::EffectDecl { name, type_params, ops } => {
             staged_ast.insert_stmt(staged_stmt_id, StagedStmt::EffectDecl {
                 name: name.clone(),
+                type_params: type_params.clone(),
                 ops: ops.clone(),
             });
         }
@@ -735,18 +741,9 @@ pub fn stage_all_files(
             continue;
         }
 
-        // Collect exported names from the MetaAst top-level decls.
-        let mut export_names: Vec<String> = Vec::new();
-        for &stmt_id in &file.ast.sem_root_stmts {
-            match file.ast.get_stmt(stmt_id) {
-                Some(MetaStmt::FnDecl { name, .. }) => export_names.push(name.clone()),
-                Some(MetaStmt::MetaFnDecl { name, .. }) => export_names.push(name.clone()),
-                Some(MetaStmt::StructDecl { name, .. }) => export_names.push(name.clone()),
-                _ => {}
-            }
-        }
-
-        // Stage exportable statements into the shared root tree.
+        // Stage exportable statements, collecting (user_name, staged_node_id) for FnDecls.
+        // Node IDs uniquely identify each function even when multiple modules use the same name.
+        let mut exports: Vec<(String, crate::util::node_id::StagedNodeId)> = Vec::new();
         for &stmt_id in &file.ast.sem_root_stmts {
             if !is_exportable_stmt(&file.ast, stmt_id) {
                 continue;
@@ -756,7 +753,17 @@ pub fn stage_all_files(
                 &mut staged_ast, id_provider,
                 &mut dependency_set, staged_forest, type_env,
             ) {
-                Ok(id) => sem_root_stmts.push(id),
+                Ok(staged_id) => {
+                    sem_root_stmts.push(staged_id);
+                    // Only FnDecls go into namespace exports (structs/effects have no Value).
+                    match file.ast.get_stmt(stmt_id) {
+                        Some(MetaStmt::FnDecl { name, .. })
+                        | Some(MetaStmt::MetaFnDecl { name, .. }) => {
+                            exports.push((name.clone(), staged_id));
+                        }
+                        _ => {}
+                    }
+                }
                 Err(e) => errors.push(e),
             }
         }
@@ -766,10 +773,10 @@ pub fn stage_all_files(
             let binding = match decl {
                 ImportDecl::Qualified { path } => {
                     let bind_name = path_stem(path);
-                    ModuleBinding::Namespace { bind_name, exports: export_names }
+                    ModuleBinding::Namespace { bind_name, exports }
                 }
                 ImportDecl::Aliased { alias, .. } => {
-                    ModuleBinding::Namespace { bind_name: alias.clone(), exports: export_names }
+                    ModuleBinding::Namespace { bind_name: alias.clone(), exports }
                 }
                 ImportDecl::Selective { names, .. } => {
                     ModuleBinding::Selective { names: names.clone() }
@@ -805,10 +812,16 @@ pub fn stage_all_files(
                     ImportDecl::Wildcard { .. } => continue,
                 };
                 if !already_bound.contains(&bind_name) {
-                    if let Some(exports) = exports_by_stem.get(&bind_name) {
-                        extra_bindings.push(ModuleBinding::Namespace {
+                    if let Some(names) = exports_by_stem.get(&bind_name) {
+                        // Transitive import (e.g. peer.cx imports main.cx): the target's
+                        // functions are hoisted globally, so look them up by name at runtime.
+                        let fn_names: Vec<String> = names.iter()
+                            .filter(|n| !n.is_empty())
+                            .cloned()
+                            .collect();
+                        extra_bindings.push(ModuleBinding::NamespaceByName {
                             bind_name: bind_name.clone(),
-                            exports: exports.clone(),
+                            names: fn_names,
                         });
                         already_bound.insert(bind_name);
                     }
@@ -851,6 +864,8 @@ fn is_exportable_stmt(ast: &MetaAst, stmt_id: MetaNodeId) -> bool {
             | Some(MetaStmt::MetaBlock(_))
             | Some(MetaStmt::TraitDecl { .. })
             | Some(MetaStmt::ImplDecl { .. })
+            | Some(MetaStmt::EffectDecl { .. })
+            | Some(MetaStmt::EnumDecl { .. })
     )
 }
 

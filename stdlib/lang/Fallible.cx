@@ -1,0 +1,3 @@
+effect Fallible<T> {
+    fn raise(msg: string): T;
+}

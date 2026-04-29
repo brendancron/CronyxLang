@@ -59,6 +59,7 @@ fn clone_expr(
         RuntimeExpr::Sub(a, b) => RuntimeExpr::Sub(ce!(a), ce!(b)),
         RuntimeExpr::Mult(a, b) => RuntimeExpr::Mult(ce!(a), ce!(b)),
         RuntimeExpr::Div(a, b) => RuntimeExpr::Div(ce!(a), ce!(b)),
+        RuntimeExpr::Mod(a, b) => RuntimeExpr::Mod(ce!(a), ce!(b)),
         RuntimeExpr::Equals(a, b) => RuntimeExpr::Equals(ce!(a), ce!(b)),
         RuntimeExpr::NotEquals(a, b) => RuntimeExpr::NotEquals(ce!(a), ce!(b)),
         RuntimeExpr::Lt(a, b) => RuntimeExpr::Lt(ce!(a), ce!(b)),

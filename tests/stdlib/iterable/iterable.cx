@@ -1,0 +1,31 @@
+import "../../../stdlib/collections/HashMap";
+import "../../../stdlib/collections/HashSet";
+
+var m = HashMap.new();
+m.set("a", 1);
+m.set("b", 2);
+m.set("c", 3);
+
+var count = 0;
+for (k in m) {
+    count += 1;
+}
+print(count);
+
+var s = HashSet.new();
+s.add("x");
+s.add("y");
+s.add("z");
+
+var total = 0;
+for (v in s) {
+    total += 1;
+}
+print(total);
+
+var nums = [10, 20, 30];
+var sum = 0;
+for (n in nums) {
+    sum += n;
+}
+print(sum);

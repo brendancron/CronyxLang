@@ -34,7 +34,7 @@ use inkwell::targets::{InitializationConfig, Target};
 use inkwell::types::{ArrayType, BasicType, BasicTypeEnum, BasicMetadataTypeEnum, IntType, PointerType, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PointerValue};
 
-use crate::frontend::meta_ast::{Param, Pattern, VariantBindings};
+use crate::frontend::meta_ast::{ForVar, Param, Pattern, VariantBindings};
 use crate::semantics::cps::effect_marker::CpsInfo;
 use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeConstructorPayload, RuntimeExpr, RuntimeStmt};
 use crate::semantics::types::enum_registry::{EnumRegistry, ResolvedPayload};
@@ -2576,6 +2576,10 @@ impl<'ctx> Cg<'ctx> {
 
             // ── ForEach loop ──────────────────────────────────────────────────
             RuntimeStmt::ForEach { var, iterable, body } => {
+                let var = match var {
+                    ForVar::Name(n) => n,
+                    ForVar::Tuple(_) => return Err(CodegenError::UnsupportedStmt(stmt_id)),
+                };
                 let slice_ty = self.slice_ty.ok_or(CodegenError::UnsupportedStmt(stmt_id))?;
 
                 // Load the slice pointer (it may be a local or a function arg)
@@ -3380,6 +3384,10 @@ impl<'ctx> Cg<'ctx> {
                 let (lhs, rhs) = self.emit_binop_ints(*a, *b, locals)?;
                 Ok(self.builder.build_int_signed_div(lhs, rhs, "div")?.as_basic_value_enum())
             }
+            RuntimeExpr::Mod(a, b) => {
+                let (lhs, rhs) = self.emit_binop_ints(*a, *b, locals)?;
+                Ok(self.builder.build_int_signed_rem(lhs, rhs, "mod")?.as_basic_value_enum())
+            }
 
             // ── Comparisons ───────────────────────────────────────────────────
             RuntimeExpr::Lte(a, b) => self.emit_icmp(IntPredicate::SLE, *a, *b, "lte", locals),
@@ -3680,6 +3688,16 @@ impl<'ctx> Cg<'ctx> {
                     };
                 }
                 // to_int(s) → parse string as i64 via atoll
+                if callee == "ord" && args.len() == 1 {
+                    let i8_ty = self.context.i8_type();
+                    let str_ptr = match self.emit_expr(args[0], locals)? {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                    };
+                    let byte = self.builder.build_load(i8_ty, str_ptr, "ord_byte")?.into_int_value();
+                    let result = self.builder.build_int_z_extend(byte, self.i64_ty, "ord_val")?;
+                    return Ok(result.as_basic_value_enum());
+                }
                 if callee == "to_int" && args.len() == 1 {
                     let atoll_fn = self.atoll_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                     let str_ptr = match self.emit_expr(args[0], locals)? {
@@ -4591,9 +4609,11 @@ fn collect_refs_stmt(
         }
         Some(RuntimeStmt::ForEach { var, iterable, body }) => {
             collect_refs_expr(ast, *iterable, bound, refs);
-            // `var` is introduced by the loop — shadow it in the body
             let mut inner_bound = bound.clone();
-            inner_bound.insert(var.clone());
+            match var {
+                ForVar::Name(n) => { inner_bound.insert(n.clone()); }
+                ForVar::Tuple(names) => { for n in names { inner_bound.insert(n.clone()); } }
+            }
             collect_refs_stmt(ast, *body, &inner_bound, refs);
         }
         Some(RuntimeStmt::Match { scrutinee, arms }) => {

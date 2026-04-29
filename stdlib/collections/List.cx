@@ -1,0 +1,111 @@
+import "../lang/Option";
+
+fn map<T, U>(xs, f) {
+    var result = [];
+    var i = 0;
+    while (i < xs.len()) {
+        result.push(f(xs[i]));
+        i += 1;
+    }
+    return result;
+}
+
+fn filter<T>(xs, f) {
+    var result = [];
+    var i = 0;
+    while (i < xs.len()) {
+        if (f(xs[i])) {
+            result.push(xs[i]);
+        }
+        i += 1;
+    }
+    return result;
+}
+
+fn fold<T, A>(xs, init, f) {
+    var acc = init;
+    var i = 0;
+    while (i < xs.len()) {
+        acc = f(acc, xs[i]);
+        i += 1;
+    }
+    return acc;
+}
+
+fn any<T>(xs, f) {
+    var i = 0;
+    while (i < xs.len()) {
+        if (f(xs[i])) { return true; }
+        i += 1;
+    }
+    return false;
+}
+
+fn all<T>(xs, f) {
+    var i = 0;
+    while (i < xs.len()) {
+        if (!f(xs[i])) { return false; }
+        i += 1;
+    }
+    return true;
+}
+
+fn find<T>(xs, f) {
+    var i = 0;
+    while (i < xs.len()) {
+        if (f(xs[i])) { return Option::Some(xs[i]); }
+        i += 1;
+    }
+    return Option::None;
+}
+
+fn concat<T>(a, b) {
+    var result = [];
+    var i = 0;
+    while (i < a.len()) {
+        result.push(a[i]);
+        i += 1;
+    }
+    i = 0;
+    while (i < b.len()) {
+        result.push(b[i]);
+        i += 1;
+    }
+    return result;
+}
+
+fn reverse<T>(xs) {
+    var result = [];
+    var i = xs.len() - 1;
+    while (i >= 0) {
+        result.push(xs[i]);
+        i -= 1;
+    }
+    return result;
+}
+
+fn flat_map<T, U>(xs, f) {
+    var result = [];
+    var i = 0;
+    while (i < xs.len()) {
+        var inner = f(xs[i]);
+        var j = 0;
+        while (j < inner.len()) {
+            result.push(inner[j]);
+            j += 1;
+        }
+        i += 1;
+    }
+    return result;
+}
+
+fn join(xs, sep) {
+    if (xs.len() == 0) { return ""; }
+    var result = xs[0];
+    var i = 1;
+    while (i < xs.len()) {
+        result = result + sep + xs[i];
+        i += 1;
+    }
+    return result;
+}

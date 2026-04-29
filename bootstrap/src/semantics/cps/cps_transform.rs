@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::semantics::cps::effect_marker::CpsInfo;
+use crate::frontend::meta_ast::ForVar;
 use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeExpr, RuntimeStmt};
 use crate::util::id_provider::IdProvider;
 use crate::util::node_id::RuntimeNodeId;
@@ -657,7 +658,10 @@ fn collect_stmt_refs(
         Some(RuntimeStmt::ForEach { var, iterable, body }) => {
             collect_expr_refs(ast, *iterable, bound, refs);
             let mut inner_bound = bound.clone();
-            inner_bound.insert(var.clone());
+            match var {
+                ForVar::Name(n) => { inner_bound.insert(n.clone()); }
+                ForVar::Tuple(names) => { for n in names { inner_bound.insert(n.clone()); } }
+            }
             collect_stmt_refs(ast, *body, &inner_bound, refs);
         }
         Some(RuntimeStmt::Match { scrutinee, arms }) => {
@@ -705,7 +709,7 @@ fn collect_expr_refs(
             for a in args { collect_expr_refs(ast, a, bound, refs); }
         }
         Some(RuntimeExpr::Add(a, b) | RuntimeExpr::Sub(a, b)
-            | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b)
+            | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b) | RuntimeExpr::Mod(a, b)
             | RuntimeExpr::Lt(a, b) | RuntimeExpr::Gt(a, b)
             | RuntimeExpr::Lte(a, b) | RuntimeExpr::Gte(a, b)
             | RuntimeExpr::Equals(a, b) | RuntimeExpr::NotEquals(a, b)
@@ -716,6 +720,33 @@ fn collect_expr_refs(
         }
         Some(RuntimeExpr::Not(e)) => collect_expr_refs(ast, *e, bound, refs),
         Some(RuntimeExpr::ResumeExpr(Some(e))) => collect_expr_refs(ast, *e, bound, refs),
+        Some(RuntimeExpr::DotCall { object, args, .. }) => {
+            let (object, args) = (*object, args.clone());
+            collect_expr_refs(ast, object, bound, refs);
+            for a in args { collect_expr_refs(ast, a, bound, refs); }
+        }
+        Some(RuntimeExpr::Index { object, index }) => {
+            let (object, index) = (*object, *index);
+            collect_expr_refs(ast, object, bound, refs);
+            collect_expr_refs(ast, index, bound, refs);
+        }
+        Some(RuntimeExpr::List(exprs)) => {
+            let exprs = exprs.clone();
+            for e in exprs { collect_expr_refs(ast, e, bound, refs); }
+        }
+        Some(RuntimeExpr::Tuple(items)) => {
+            let items = items.clone();
+            for item in items { collect_expr_refs(ast, item, bound, refs); }
+        }
+        Some(RuntimeExpr::TupleIndex { object, .. }) => {
+            collect_expr_refs(ast, *object, bound, refs);
+        }
+        Some(RuntimeExpr::Lambda { body, .. }) => {
+            collect_stmt_refs(ast, *body, bound, refs);
+        }
+        Some(RuntimeExpr::DotAccess { object, .. }) => {
+            collect_expr_refs(ast, *object, bound, refs);
+        }
         _ => {}
     }
 }

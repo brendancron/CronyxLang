@@ -1,5 +1,5 @@
 use crate::frontend::meta_ast::{
-    EffectOp, EnumVariant, ImportDecl, Param, Pattern,
+    EffectOp, EnumVariant, ForVar, ImportDecl, Param, Pattern,
 };
 use crate::util::formatters::tree_formatter::*;
 use crate::util::node_id::RuntimeNodeId;
@@ -22,6 +22,10 @@ pub struct RuntimeAst {
     /// Type hints for lambda params set by handler_transform.
     /// Maps lambda expr_id → param type name strings (parallel to Lambda.params).
     pub lambda_param_hints: HashMap<RuntimeNodeId, Vec<Option<String>>>,
+    /// Post-compact module bindings: (bind_name, [(user_name, node_id)]).
+    /// node_id is Some for explicit imports (ID-based lookup) and None for transitive
+    /// imports (name-based env lookup). Populated by meta_processor after compaction.
+    pub module_bindings: Vec<(String, Vec<(String, Option<RuntimeNodeId>)>)>,
 }
 
 impl RuntimeAst {
@@ -35,6 +39,7 @@ impl RuntimeAst {
             meta_prints: vec![],
             next_id: 0,
             lambda_param_hints: HashMap::new(),
+            module_bindings: Vec::new(),
         }
     }
 
@@ -57,7 +62,9 @@ impl RuntimeAst {
     }
 
     /// Reassigns all IDs to a single compact 0..n range with no gaps.
-    pub fn compact(&self) -> Self {
+    /// Returns the compacted AST and the stmt ID remap (old → new), so callers can
+    /// update any stored node IDs (e.g. module_bindings) to the post-compact values.
+    pub fn compact(&self) -> (Self, HashMap<RuntimeNodeId, RuntimeNodeId>) {
         let mut stmt_ids: Vec<RuntimeNodeId> = self.stmts.keys().copied().collect();
         stmt_ids.sort_unstable();
         let mut expr_ids: Vec<RuntimeNodeId> = self.exprs.keys().copied().collect();
@@ -91,6 +98,7 @@ impl RuntimeAst {
                 RuntimeExpr::Sub(a, b) => RuntimeExpr::Sub(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::Mult(a, b) => RuntimeExpr::Mult(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::Div(a, b) => RuntimeExpr::Div(remap_expr(*a), remap_expr(*b)),
+                RuntimeExpr::Mod(a, b) => RuntimeExpr::Mod(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::Equals(a, b) => RuntimeExpr::Equals(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::NotEquals(a, b) => RuntimeExpr::NotEquals(remap_expr(*a), remap_expr(*b)),
                 RuntimeExpr::Lt(a, b) => RuntimeExpr::Lt(remap_expr(*a), remap_expr(*b)),
@@ -231,7 +239,7 @@ impl RuntimeAst {
                         body: remap_stmt(arm.body),
                     }).collect(),
                 },
-                RuntimeStmt::EffectDecl { name, ops } => RuntimeStmt::EffectDecl {
+                RuntimeStmt::EffectDecl { name, ops, .. } => RuntimeStmt::EffectDecl {
                     name: name.clone(),
                     ops: ops.clone(),
                 },
@@ -261,8 +269,19 @@ impl RuntimeAst {
         out.lambda_param_hints = self.lambda_param_hints.iter()
             .map(|(old_id, hints)| (*expr_remap.get(old_id).unwrap_or(old_id), hints.clone()))
             .collect();
+        out.module_bindings = self.module_bindings.iter()
+            .map(|(bind_name, exports)| {
+                let remapped = exports.iter()
+                    .map(|(name, opt_id)| {
+                        let new_opt = opt_id.map(|id| *stmt_remap.get(&id).unwrap_or(&id));
+                        (name.clone(), new_opt)
+                    })
+                    .collect();
+                (bind_name.clone(), remapped)
+            })
+            .collect();
 
-        out
+        (out, stmt_remap)
     }
 }
 
@@ -337,6 +356,7 @@ pub enum RuntimeExpr {
     Sub(RuntimeNodeId, RuntimeNodeId),
     Mult(RuntimeNodeId, RuntimeNodeId),
     Div(RuntimeNodeId, RuntimeNodeId),
+    Mod(RuntimeNodeId, RuntimeNodeId),
     Equals(RuntimeNodeId, RuntimeNodeId),
     NotEquals(RuntimeNodeId, RuntimeNodeId),
     Lt(RuntimeNodeId, RuntimeNodeId),
@@ -428,7 +448,7 @@ pub enum RuntimeStmt {
     },
 
     ForEach {
-        var: String,
+        var: ForVar,
         iterable: RuntimeNodeId,
         body: RuntimeNodeId,
     },
@@ -614,7 +634,7 @@ impl RuntimeAst {
                     .collect(),
             ),
 
-            RuntimeStmt::EffectDecl { name, ops } => (
+            RuntimeStmt::EffectDecl { name, ops, .. } => (
                 "EffectDecl".into(),
                 std::iter::once(TreeNode::leaf(format!("Name({name})")))
                     .chain(ops.iter().map(|op| TreeNode::leaf(op.name.clone())))
@@ -672,6 +692,7 @@ impl RuntimeAst {
             RuntimeExpr::Sub(a, b) => ("Sub".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
             RuntimeExpr::Mult(a, b) => ("Mult".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
             RuntimeExpr::Div(a, b) => ("Div".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
+            RuntimeExpr::Mod(a, b) => ("Mod".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
             RuntimeExpr::Equals(a, b) => ("Equals".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
             RuntimeExpr::NotEquals(a, b) => ("NotEquals".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),
             RuntimeExpr::Lt(a, b) => ("Lt".into(), vec![self.convert_expr(*a), self.convert_expr(*b)]),

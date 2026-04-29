@@ -1,0 +1,19 @@
+import "../../../stdlib/collections/HashMap";
+
+var m = HashMap.new();
+m.set("x", 10);
+m.set("y", 20);
+m.set("z", 30);
+
+var total = 0;
+for ((k, v) in m.entries()) {
+    total += 1;
+}
+print(total);
+
+var nums = [(1, "a"), (2, "b"), (3, "c")];
+var sum = 0;
+for ((n, s) in nums) {
+    sum += n;
+}
+print(sum);

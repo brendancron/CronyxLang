@@ -1,3 +1,4 @@
+use crate::frontend::meta_ast::ForVar;
 use super::runtime_ast::*;
 use super::staged_ast::*;
 use crate::semantics::meta::gen_collector::GeneratedOutput;
@@ -52,7 +53,10 @@ fn scan_stmt(ast: &RuntimeAst, stmt_id: RuntimeNodeId, refs: &mut HashSet<String
         }
         RuntimeStmt::ForEach { var, iterable, body } => {
             scan_expr(ast, iterable, refs, bound);
-            bound.insert(var);
+            match var {
+                ForVar::Name(n) => { bound.insert(n.clone()); }
+                ForVar::Tuple(names) => { for n in names { bound.insert(n.clone()); } }
+            }
             scan_stmt(ast, body, refs, bound);
         }
         RuntimeStmt::FnDecl { name, params, body, .. } => {
@@ -273,7 +277,7 @@ pub fn convert_to_runtime(
                     body: rid(a.body),
                 }).collect(),
             },
-            StagedStmt::EffectDecl { name, ops } => RuntimeStmt::EffectDecl { name, ops },
+            StagedStmt::EffectDecl { name, ops, .. } => RuntimeStmt::EffectDecl { name, ops },
             StagedStmt::WithFn { op_name, params, ret_ty, body } => {
                 RuntimeStmt::WithFn { op_name, params, ret_ty, body: rid(body) }
             }
@@ -359,6 +363,7 @@ fn convert_expr(expr: &StagedExpr, id: StagedNodeId) -> Result<RuntimeExpr, AstC
         StagedExpr::Sub(a, b) => RuntimeExpr::Sub(rid(a), rid(b)),
         StagedExpr::Mult(a, b) => RuntimeExpr::Mult(rid(a), rid(b)),
         StagedExpr::Div(a, b) => RuntimeExpr::Div(rid(a), rid(b)),
+        StagedExpr::Mod(a, b) => RuntimeExpr::Mod(rid(a), rid(b)),
         StagedExpr::Equals(a, b) => RuntimeExpr::Equals(rid(a), rid(b)),
         StagedExpr::NotEquals(a, b) => RuntimeExpr::NotEquals(rid(a), rid(b)),
         StagedExpr::Lt(a, b) => RuntimeExpr::Lt(rid(a), rid(b)),

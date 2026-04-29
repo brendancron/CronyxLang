@@ -1,0 +1,142 @@
+import "../effects/Yield";
+
+struct HashSet {
+    keys: [string];
+    occupied: [bool];
+    size: int;
+    capacity: int
+}
+
+fn new() {
+    var cap = 16;
+    var keys = [];
+    var occupied = [];
+    var i = 0;
+    while (i < cap) {
+        keys.push("");
+        occupied.push(false);
+        i += 1;
+    }
+    return HashSet { keys: keys, occupied: occupied, size: 0, capacity: cap };
+}
+
+fn hs_hash(key, capacity) {
+    var h = 5381;
+    var i = 0;
+    while (i < key.len()) {
+        h = (h * 31 + ord(key[i])) % 1000000007;
+        i += 1;
+    }
+    return h % capacity;
+}
+
+fn hs_resize(set) {
+    var old_keys = set.keys;
+    var old_occ = set.occupied;
+    var old_cap = set.capacity;
+
+    var new_cap = old_cap * 2;
+    var new_keys = [];
+    var new_occ = [];
+    var i = 0;
+    while (i < new_cap) {
+        new_keys.push("");
+        new_occ.push(false);
+        i += 1;
+    }
+
+    set.keys = new_keys;
+    set.occupied = new_occ;
+    set.capacity = new_cap;
+    set.size = 0;
+
+    i = 0;
+    while (i < old_cap) {
+        if (old_occ[i]) {
+            hs_add(set, old_keys[i]);
+        }
+        i += 1;
+    }
+}
+
+fn hs_add(set, key) {
+    if (set.size * 4 >= set.capacity * 3) {
+        hs_resize(set);
+    }
+    var idx = hs_hash(key, set.capacity);
+    var probes = 0;
+    var occ = set.occupied;
+    var ks = set.keys;
+    while (probes < set.capacity) {
+        if (!occ[idx]) {
+            ks[idx] = key;
+            occ[idx] = true;
+            set.size = set.size + 1;
+            return;
+        }
+        if (ks[idx] == key) {
+            return;
+        }
+        idx = (idx + 1) % set.capacity;
+        probes += 1;
+    }
+}
+
+fn hs_contains(set, key) {
+    var idx = hs_hash(key, set.capacity);
+    var probes = 0;
+    var occ = set.occupied;
+    var ks = set.keys;
+    while (probes < set.capacity) {
+        if (!occ[idx]) { return false; }
+        if (ks[idx] == key) { return true; }
+        idx = (idx + 1) % set.capacity;
+        probes += 1;
+    }
+    return false;
+}
+
+fn hs_remove(set, key) {
+    var idx = hs_hash(key, set.capacity);
+    var probes = 0;
+    var occ = set.occupied;
+    var ks = set.keys;
+    while (probes < set.capacity) {
+        if (!occ[idx]) { return; }
+        if (ks[idx] == key) {
+            occ[idx] = false;
+            ks[idx] = "";
+            set.size = set.size - 1;
+            return;
+        }
+        idx = (idx + 1) % set.capacity;
+        probes += 1;
+    }
+}
+
+fn hs_values(set) {
+    var result = [];
+    var i = 0;
+    var occ = set.occupied;
+    while (i < set.capacity) {
+        if (occ[i]) { result.push(set.keys[i]); }
+        i += 1;
+    }
+    return result;
+}
+
+impl HashSet {
+    fn add(self, key) { hs_add(self, key); }
+    fn contains(self, key) { return hs_contains(self, key); }
+    fn remove(self, key) { hs_remove(self, key); }
+    fn values(self) { return hs_values(self); }
+    fn size(self) { return self.size; }
+    fn iter(self) {
+        var vs = hs_values(self);
+        var i = 0;
+        while (i < vs.len()) {
+            yield(vs[i]);
+            i += 1;
+        }
+    }
+}

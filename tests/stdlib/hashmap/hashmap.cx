@@ -1,0 +1,34 @@
+import "../../../stdlib/collections/HashMap";
+import "../../../stdlib/lang/Option";
+
+var m = HashMap.new();
+
+m.set("foo", 1);
+m.set("bar", 2);
+m.set("baz", 3);
+
+print(m.size());
+print(m.contains("foo"));
+print(m.contains("qux"));
+
+var v = m.get("bar");
+match v {
+    Option::Some(x) => { print(x); }
+    Option::None    => { print("none"); }
+}
+
+m.set("foo", 99);
+var v2 = m.get("foo");
+match v2 {
+    Option::Some(x) => { print(x); }
+    Option::None    => { print("none"); }
+}
+
+var missing = m.get("zzz");
+match missing {
+    Option::Some(x) => { print(x); }
+    Option::None    => { print("none"); }
+}
+
+print(m.get_or("foo", 0));
+print(m.get_or("zzz", 42));
