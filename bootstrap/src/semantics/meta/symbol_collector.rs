@@ -1,3 +1,4 @@
+use crate::frontend::meta_ast::ForVar;
 use super::staged_ast::*;
 use crate::util::node_id::StagedNodeId;
 use std::collections::HashSet;
@@ -79,7 +80,10 @@ fn collect_stmt_symbols(
         }
         StagedStmt::StructDecl { name, .. } => { declares.insert(name.clone()); }
         StagedStmt::ForEach { var, iterable, body } => {
-            declares.insert(var.clone());
+            match var {
+                ForVar::Name(n) => { declares.insert(n.clone()); }
+                ForVar::Tuple(names) => { for n in names { declares.insert(n.clone()); } }
+            }
             collect_expr_symbols(ast, *iterable, declares, uses, in_gen);
             collect_stmt_symbols(ast, *body, declares, uses, in_gen);
         }

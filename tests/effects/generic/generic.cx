@@ -1,0 +1,38 @@
+effect Yield<T> {
+    ctl yield(value: T): unit;
+}
+
+fn range(low, high) {
+    var i = low;
+    while (i < high) {
+        yield(i);
+        i += 1;
+    }
+}
+
+fn each_word(s) {
+    var words = s.split(" ");
+    var i = 0;
+    while (i < words.len()) {
+        yield(words[i]);
+        i += 1;
+    }
+}
+
+run {
+    range(1, 4);
+} handle Yield {
+    ctl yield(x) {
+        print(x);
+        resume;
+    }
+}
+
+run {
+    each_word("hello world foo");
+} handle Yield {
+    ctl yield(w) {
+        print(w);
+        resume;
+    }
+}

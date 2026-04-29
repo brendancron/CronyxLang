@@ -1,4 +1,4 @@
-use crate::frontend::meta_ast::{ImportDecl, MetaTypeExpr, Pattern, VariantBindings, VariantPayload};
+use crate::frontend::meta_ast::{ForVar, ImportDecl, MetaTypeExpr, Pattern, VariantBindings, VariantPayload};
 use crate::semantics::meta::runtime_ast::*;
 use crate::util::node_id::RuntimeNodeId;
 use super::type_env::TypeEnv;
@@ -647,11 +647,20 @@ fn infer_stmt(
                 Type::Slice(elem) => *elem,
                 _ => Type::Var(env.fresh()),
             };
-            // Record element type under the ForEach stmt_id so codegen knows
-            // the alloca type for the loop variable without re-scanning the AST.
             type_map.insert(stmt_id, elem_ty.clone());
             env.push_scope();
-            env.bind_mono(&var, elem_ty);
+            match var {
+                ForVar::Name(name) => env.bind_mono(name.as_str(), elem_ty),
+                ForVar::Tuple(names) => {
+                    let components = match &elem_ty {
+                        Type::Tuple(tys) => tys.clone(),
+                        _ => names.iter().map(|_| Type::Var(env.fresh())).collect(),
+                    };
+                    for (name, ty) in names.iter().zip(components) {
+                        env.bind_mono(name.as_str(), ty);
+                    }
+                }
+            }
             infer_stmt(ast, body, env, subst, ctx, type_map)?;
             env.pop_scope();
         }

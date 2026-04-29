@@ -13,7 +13,7 @@ run {
 } handle Fallible {
     fn raise(msg) {
         print("fallible: " + msg);
-        return "default";
+        return -1;
     }
 }
 
@@ -23,6 +23,6 @@ run {
 } handle Fallible {
     fn raise(msg) {
         print("fallible: " + msg);
-        return "default";
+        return -1;
     }
 }

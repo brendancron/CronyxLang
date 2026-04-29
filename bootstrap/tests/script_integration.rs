@@ -58,7 +58,6 @@ fn run_test_inner(root_path: &PathBuf, out_path: &PathBuf) {
     stage_all_files(&files, &mut staged_forest, &mut id_provider, &type_env).unwrap();
     staged_forest.resolve_symbol_deps().unwrap();
 
-    let module_bindings = staged_forest.module_bindings.clone();
     let mut eval_buf = Cursor::new(Vec::<u8>::new());
     let meta_env = Environment::new();
 
@@ -84,7 +83,7 @@ fn run_test_inner(root_path: &PathBuf, out_path: &PathBuf) {
 
     // Hoist all functions and create module namespace values before eval.
     let mut setup_env = EnvHandler::from(meta_env.clone());
-    setup_modules(&runtime_ast, &module_bindings, &mut setup_env);
+    setup_modules(&runtime_ast, &mut setup_env);
 
     eval(
         &runtime_ast,
@@ -255,6 +254,7 @@ mod script_integration {
 
         // Required features for 0.1.1
         cx_test!(control_for_c, "tests/core/control", "for_c");
+        cx_test!(core_for_tuple, "tests/core/for_tuple", "for_tuple");
         cx_test!(tuples_basic, "tests/core/tuples", "tuple_basic");
         cx_test!(ops_precedence, "tests/core/operators", "precedence");
         cx_test!(
@@ -419,9 +419,12 @@ mod script_integration {
         cx_test!(stdlib_list, "tests/stdlib/list", "list");
         cx_test!(stdlib_hashmap, "tests/stdlib/hashmap", "hashmap");
         cx_test!(stdlib_hashset, "tests/stdlib/hashset", "hashset");
+        cx_test!(stdlib_iterable, "tests/stdlib/iterable", "iterable");
         cx_test!(stdlib_math, "tests/stdlib/math", "math");
         cx_test!(stdlib_stringbuilder, "tests/stdlib/stringbuilder", "stringbuilder");
         cx_test!(stdlib_error, "tests/stdlib/error", "error");
         cx_test!(stdlib_fallible, "tests/stdlib/fallible", "fallible");
+        cx_test!(stdlib_string, "tests/stdlib/string", "string");
+        cx_test!(effect_generic, "tests/effects/generic", "generic");
     }
 }

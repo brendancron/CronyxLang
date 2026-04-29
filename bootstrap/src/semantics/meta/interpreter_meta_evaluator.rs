@@ -25,7 +25,8 @@ impl<'a, W: Write> MetaEvaluator for InterpreterMetaEvaluator<'a, W> {
     fn register_module_bindings(&mut self, bindings: &[ModuleBinding]) -> Result<(), Self::Error> {
         for binding in bindings {
             match binding {
-                ModuleBinding::Namespace { bind_name, .. } => {
+                ModuleBinding::Namespace { bind_name, .. }
+                | ModuleBinding::NamespaceByName { bind_name, .. } => {
                     let ty = Type::Var(self.type_env.fresh());
                     self.type_env.bind_mono(bind_name, ty);
                 }

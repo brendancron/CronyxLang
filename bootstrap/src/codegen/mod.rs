@@ -34,7 +34,7 @@ use inkwell::targets::{InitializationConfig, Target};
 use inkwell::types::{ArrayType, BasicType, BasicTypeEnum, BasicMetadataTypeEnum, IntType, PointerType, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PointerValue};
 
-use crate::frontend::meta_ast::{Param, Pattern, VariantBindings};
+use crate::frontend::meta_ast::{ForVar, Param, Pattern, VariantBindings};
 use crate::semantics::cps::effect_marker::CpsInfo;
 use crate::semantics::meta::runtime_ast::{RuntimeAst, RuntimeConstructorPayload, RuntimeExpr, RuntimeStmt};
 use crate::semantics::types::enum_registry::{EnumRegistry, ResolvedPayload};
@@ -2576,6 +2576,10 @@ impl<'ctx> Cg<'ctx> {
 
             // ── ForEach loop ──────────────────────────────────────────────────
             RuntimeStmt::ForEach { var, iterable, body } => {
+                let var = match var {
+                    ForVar::Name(n) => n,
+                    ForVar::Tuple(_) => return Err(CodegenError::UnsupportedStmt(stmt_id)),
+                };
                 let slice_ty = self.slice_ty.ok_or(CodegenError::UnsupportedStmt(stmt_id))?;
 
                 // Load the slice pointer (it may be a local or a function arg)
@@ -4605,9 +4609,11 @@ fn collect_refs_stmt(
         }
         Some(RuntimeStmt::ForEach { var, iterable, body }) => {
             collect_refs_expr(ast, *iterable, bound, refs);
-            // `var` is introduced by the loop — shadow it in the body
             let mut inner_bound = bound.clone();
-            inner_bound.insert(var.clone());
+            match var {
+                ForVar::Name(n) => { inner_bound.insert(n.clone()); }
+                ForVar::Tuple(names) => { for n in names { inner_bound.insert(n.clone()); } }
+            }
             collect_refs_stmt(ast, *body, &inner_bound, refs);
         }
         Some(RuntimeStmt::Match { scrutinee, arms }) => {

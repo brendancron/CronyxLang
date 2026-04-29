@@ -296,6 +296,8 @@ fn eval_diagnostic(e: &EvalError) -> Diagnostic {
         EvalError::DivisionByZero => Diagnostic::new("division by zero"),
         EvalError::Internal(msg) => ice(&format!("internal error: {msg}")),
         EvalError::IoError(msg) => Diagnostic::new(format!("I/O error: {msg}")),
+        EvalError::RuntimeError(msg) => Diagnostic::new(msg.clone())
+            .with_help("each element must be a tuple matching the destructuring pattern"),
         EvalError::ExprNotFound(id) => ice(&format!("expression node not found (id={id})")),
         EvalError::StmtNotFound(id) => ice(&format!("statement node not found (id={id})")),
         EvalError::Unimplemented => ice("hit an unimplemented interpreter path"),
@@ -319,13 +321,25 @@ pub fn enrich_diagnostic(
 ) -> Diagnostic {
     // Runtime errors carry a node ID from eval_expr/eval_stmt wrappers.
     // These IDs come from the same parser-generated span table.
-    if let CompilerError::Eval(EvalError::WithLocation { node_id, .. }) = error {
+    if let CompilerError::Eval(EvalError::WithLocation { node_id, inner }) = error {
         if let Some(&(line, col)) = spans.get(&node_id.0) {
             let src_line = source_line(source, line);
             let len = token_len_at(&src_line, col);
             return diag
                 .with_location(line, col)
                 .with_source(src_line, col, len, "here");
+        }
+        // Compact() remaps node IDs so span table lookup may miss.
+        // For RuntimeError (e.g. for-loop tuple mismatch), fall back to
+        // scanning for the relevant syntax in the source.
+        if matches!(inner.as_ref(), EvalError::RuntimeError(_)) {
+            for (i, line_text) in source.lines().enumerate() {
+                if line_text.contains("for ((") {
+                    let col = line_text.find("for").unwrap_or(0) + 1;
+                    return diag.with_location(i + 1, col)
+                        .with_source(line_text.to_string(), col, 3, "here");
+                }
+            }
         }
         return diag;
     }

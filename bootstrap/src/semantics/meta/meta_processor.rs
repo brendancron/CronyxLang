@@ -58,7 +58,8 @@ pub fn process<E: MetaEvaluator>(
 where
     E::Error: From<AstConversionError> + From<String> + From<TypeError>,
 {
-    evaluator.register_module_bindings(&staged_forest.module_bindings).map_err(ProcessError::Eval)?;
+    let staged_module_bindings = staged_forest.module_bindings.clone();
+    evaluator.register_module_bindings(&staged_module_bindings).map_err(ProcessError::Eval)?;
 
     let impl_registry: HashMap<(String, String), String> = staged_forest
         .impl_registry
@@ -172,7 +173,29 @@ where
             ast.impl_registry = impl_registry;
             ast.op_dispatch = op_dispatch;
             monomorphize(&mut ast, &type_map);
-            ast.compact()
+            let (mut compacted, stmt_remap) = ast.compact();
+            // Remap staged node IDs → post-compact runtime IDs for module namespace lookup.
+            compacted.module_bindings = staged_module_bindings.iter()
+                .filter_map(|b| match b {
+                    ModuleBinding::Namespace { bind_name, exports } => {
+                        let remapped: Vec<(String, Option<RuntimeNodeId>)> = exports.iter()
+                            .filter_map(|(name, sid)| {
+                                stmt_remap.get(&RuntimeNodeId(sid.0))
+                                    .map(|new_id| (name.clone(), Some(*new_id)))
+                            })
+                            .collect();
+                        Some((bind_name.clone(), remapped))
+                    }
+                    ModuleBinding::NamespaceByName { bind_name, names } => {
+                        let entries: Vec<(String, Option<RuntimeNodeId>)> = names.iter()
+                            .map(|n| (n.clone(), None))
+                            .collect();
+                        Some((bind_name.clone(), entries))
+                    }
+                    ModuleBinding::Selective { .. } => None,
+                })
+                .collect();
+            compacted
         })
         .ok_or_else(|| {
             ProcessError::Eval(String::from("Root AST not found in dependency tree").into())

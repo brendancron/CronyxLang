@@ -1,0 +1,29 @@
+import "../../../stdlib/lang/String";
+
+print(substring("hello world", 0, 5));
+print(substring("hello world", 6, 11));
+print(substring("abcdef", 2, 4));
+
+print(index_of("hello world", "world"));
+print(index_of("hello world", "xyz"));
+print(index_of("abcabc", "bc"));
+
+print(repeat("ab", 3));
+print(repeat("x", 0));
+
+print(pad_left("42", 5, "0"));
+print(pad_right("hi", 5, "."));
+
+print(is_digit("5"));
+print(is_digit("a"));
+print(is_alpha("z"));
+print(is_alpha("3"));
+print(is_alphanumeric("a"));
+print(is_alphanumeric("5"));
+print(is_alphanumeric("!"));
+print(is_whitespace(" "));
+print(is_whitespace("a"));
+
+print("hello".starts_with("hel"));
+print("hello".ends_with("llo"));
+print("hello".replace("ll", "rr"));

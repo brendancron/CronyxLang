@@ -16,6 +16,7 @@ fn parse_effect_decl(
 ) -> Result<MetaNodeId, ParseError> {
     consume(tokens, pos, TokenType::Effect)?;
     let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+    let type_params = parse_type_params(tokens, pos);
     consume(tokens, pos, TokenType::LeftBrace)?;
 
     let mut ops = Vec::new();
@@ -50,7 +51,7 @@ fn parse_effect_decl(
     }
     consume(tokens, pos, TokenType::RightBrace)?;
 
-    let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::EffectDecl { name, ops });
+    let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::EffectDecl { name, type_params, ops });
     Ok(id)
 }
 
@@ -1365,8 +1366,20 @@ fn parse_stmt<'a>(
                     );
                     Ok(id)
                 } else {
-                    // for-each: for (ident in iterable)
-                    let name = consume(tokens, pos, TokenType::Identifier)?.expect_str();
+                    // for-each: for (ident in iterable) or for ((a, b) in iterable)
+                    let var = if peek(tokens, *pos) == Some(TokenType::LeftParen) {
+                        // Tuple destructure: for ((a, b) in ...)
+                        consume(tokens, pos, TokenType::LeftParen)?;
+                        let mut names = vec![consume(tokens, pos, TokenType::Identifier)?.expect_str()];
+                        while peek(tokens, *pos) == Some(TokenType::Comma) {
+                            consume(tokens, pos, TokenType::Comma)?;
+                            names.push(consume(tokens, pos, TokenType::Identifier)?.expect_str());
+                        }
+                        consume(tokens, pos, TokenType::RightParen)?;
+                        ForVar::Tuple(names)
+                    } else {
+                        ForVar::Name(consume(tokens, pos, TokenType::Identifier)?.expect_str())
+                    };
                     consume(tokens, pos, TokenType::In)?;
                     let iter = parse_expr(tokens, pos, ctx)?;
                     consume(tokens, pos, TokenType::RightParen)?;
@@ -1374,7 +1387,7 @@ fn parse_stmt<'a>(
                     let inner = parse_block(tokens, pos, ctx)?;
                     consume(tokens, pos, TokenType::RightBrace)?;
                     let id = ctx.ast.insert_stmt(&mut ctx.id_provider, MetaStmt::ForEach {
-                        var: name,
+                        var,
                         iterable: iter,
                         body: inner,
                     });

@@ -1,4 +1,5 @@
 import "../lang/Option";
+import "../effects/Yield";
 
 struct Map<V> {
     keys: [string];
@@ -158,6 +159,40 @@ fn hm_size(map) {
     return map.size;
 }
 
+fn hm_remove(map, key) {
+    var save_keys = [];
+    var save_vals = [];
+    var i = 0;
+    var vi = map.value_indices;
+    var ks = map.keys;
+    while (i < map.capacity) {
+        if (vi[i] != 0 - 1 && ks[i] != key) {
+            save_keys.push(ks[i]);
+            save_vals.push(map.values[vi[i]]);
+        }
+        i += 1;
+    }
+    var cap = map.capacity;
+    map.size = 0;
+    map.values = [];
+    var new_keys = [];
+    var new_vi = [];
+    i = 0;
+    while (i < cap) {
+        new_keys.push("");
+        new_vi.push(0 - 1);
+        i += 1;
+    }
+    map.keys = new_keys;
+    map.value_indices = new_vi;
+    i = 0;
+    while (i < save_keys.len()) {
+        hm_probe_insert(map.keys, map.value_indices, map.values, cap, save_keys[i], save_vals[i]);
+        map.size = map.size + 1;
+        i += 1;
+    }
+}
+
 impl Map {
     fn set(self, key, value) { hm_set(self, key, value); }
     fn get(self, key) { return hm_get(self, key); }
@@ -174,7 +209,27 @@ impl Map {
         }
         return default;
     }
+    fn remove(self, key) { hm_remove(self, key); }
     fn contains(self, key) { return hm_contains(self, key); }
     fn keys(self) { return hm_keys(self); }
     fn size(self) { return hm_size(self); }
+    fn iter(self) {
+        var ks = hm_keys(self);
+        var i = 0;
+        while (i < ks.len()) {
+            yield(ks[i]);
+            i += 1;
+        }
+    }
+    fn entries(self) {
+        var result = [];
+        var i = 0;
+        while (i < self.capacity) {
+            if (self.value_indices[i] != 0 - 1) {
+                result.push((self.keys[i], self.values[self.value_indices[i]]));
+            }
+            i += 1;
+        }
+        return result;
+    }
 }

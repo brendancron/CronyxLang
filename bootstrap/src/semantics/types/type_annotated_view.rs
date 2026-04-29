@@ -113,7 +113,7 @@ impl<'a> TypeAnnotatedView<'a> {
             MetaStmt::ForEach { var, iterable, body } => (
                 "ForEachStmt".into(),
                 vec![
-                    TreeNode::leaf(format!("Var({var})")),
+                    TreeNode::leaf(format!("Var({var})")),  // ForVar Display handles both variants
                     TreeNode::node("Iterable", vec![self.convert_expr(*iterable)]),
                     TreeNode::node("Body", vec![self.convert_stmt(*body)]),
                 ],

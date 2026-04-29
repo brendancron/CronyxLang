@@ -1,3 +1,3 @@
-effect Fallible {
-    fn raise(msg: string): string;
+effect Fallible<T> {
+    fn raise(msg: string): T;
 }

@@ -87,7 +87,6 @@ fn run_pipeline(
         .map_err(|e| vec![CompilerError::Meta(e)])?;
     sink.dump_staged(&staged_forest);
 
-    let module_bindings = staged_forest.module_bindings.clone();
     let meta_env = Environment::new();
 
     let runtime_ast = {
@@ -147,7 +146,7 @@ fn run_pipeline(
 
     // EVALUATION — stop on first error
     let mut setup_env = EnvHandler::from(meta_env.clone());
-    setup_modules(&runtime_ast, &module_bindings, &mut setup_env);
+    setup_modules(&runtime_ast, &mut setup_env);
 
     eval(
         &runtime_ast,
