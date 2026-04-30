@@ -1,0 +1,7 @@
+trait Mul {
+    fn mul(self, other);
+}
+
+impl Mul for int {
+    fn mul(self, other) { return __mul_int(self, other); }
+}

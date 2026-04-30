@@ -1,0 +1,7 @@
+trait ModAssign {
+    fn mod_assign(self, other);
+}
+
+impl ModAssign for int {
+    fn mod_assign(self, other) { return __mod_assign_int(self, other); }
+}

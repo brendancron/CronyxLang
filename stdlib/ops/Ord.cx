@@ -1,0 +1,31 @@
+trait Lt {
+    fn lt(self, other): bool;
+}
+
+trait Gt {
+    fn gt(self, other): bool;
+}
+
+trait Le {
+    fn le(self, other): bool;
+}
+
+trait Ge {
+    fn ge(self, other): bool;
+}
+
+impl Lt for int {
+    fn lt(self, other) { return __lt_int(self, other); }
+}
+
+impl Gt for int {
+    fn gt(self, other) { return __gt_int(self, other); }
+}
+
+impl Le for int {
+    fn le(self, other) { return __le_int(self, other); }
+}
+
+impl Ge for int {
+    fn ge(self, other) { return __ge_int(self, other); }
+}

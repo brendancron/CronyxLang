@@ -1,0 +1,7 @@
+trait Dec {
+    fn dec(self);
+}
+
+impl Dec for int {
+    fn dec(self) { return __dec_int(self); }
+}

@@ -1,0 +1,15 @@
+trait Eq {
+    fn eq(self, other): bool;
+}
+
+impl Eq for int {
+    fn eq(self, other) { return __eq_int(self, other); }
+}
+
+impl Eq for bool {
+    fn eq(self, other) { return __eq_bool(self, other); }
+}
+
+impl Eq for string {
+    fn eq(self, other) { return __eq_string(self, other); }
+}

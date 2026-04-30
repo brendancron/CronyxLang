@@ -1,0 +1,11 @@
+trait AddAssign {
+    fn add_assign(self, other);
+}
+
+impl AddAssign for int {
+    fn add_assign(self, other) { return __add_assign_int(self, other); }
+}
+
+impl AddAssign for string {
+    fn add_assign(self, other) { return __add_string(self, other); }
+}

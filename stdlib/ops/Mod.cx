@@ -1,0 +1,7 @@
+trait Mod {
+    fn rem(self, other);
+}
+
+impl Mod for int {
+    fn rem(self, other) { return __mod_int(self, other); }
+}
