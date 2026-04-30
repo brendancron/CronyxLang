@@ -57,8 +57,19 @@ fn run_pipeline(
     entry_ctx: &mut Option<(String, HashMap<usize, (usize, usize)>)>,
 ) -> Result<(), Vec<CompilerError>> {
     let root_path = &args.source_path;
+    let stdlib_root = std::env::var("CRONYX_STDLIB")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let candidates = [
+                std::path::PathBuf::from("stdlib"),
+                std::path::PathBuf::from("../stdlib"),
+            ];
+            candidates.into_iter()
+                .find(|p| p.join("lang").is_dir())
+                .unwrap_or_else(|| std::path::PathBuf::from("stdlib"))
+        });
     // LOAD — stop immediately on parse/IO error
-    let files = load_compilation_unit(root_path)
+    let files = load_compilation_unit(root_path, &stdlib_root)
         .map_err(|e| vec![CompilerError::Load(e)])?;
 
     let entry = files.iter().find(|f| matches!(f.role, FileRole::Entry))

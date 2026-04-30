@@ -52,6 +52,10 @@ pub struct StagedForest {
     /// Operator dispatch registry: (op_trait, type_name) → mangled_fn_name.
     /// Populated when an ImplDecl uses a known operator trait (Add, Sub, Mul, Div, Eq).
     pub op_registry: Vec<(String, String, String)>,
+
+    /// Function names that originated from stdlib auto-imports.
+    /// Carried through to RuntimeAst so codegen can skip them.
+    pub stdlib_fn_names: std::collections::HashSet<String>,
 }
 
 impl StagedForest {
@@ -66,6 +70,7 @@ impl StagedForest {
             module_bindings: Vec::new(),
             impl_registry: Vec::new(),
             op_registry: Vec::new(),
+            stdlib_fn_names: std::collections::HashSet::new(),
         }
     }
 

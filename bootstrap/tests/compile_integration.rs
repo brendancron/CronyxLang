@@ -32,7 +32,7 @@ pub fn run_compile_test(root_path: &PathBuf, out_path: &PathBuf, expected_path: 
     let expected = read_to_string(expected_path).unwrap();
 
     // ── Pipeline (mirrors main.rs run_pipeline) ───────────────────────────────
-    let files = load_compilation_unit(root_path).expect("failed to load compilation unit");
+    let files = load_compilation_unit(root_path, &std::path::PathBuf::from("../stdlib")).expect("failed to load compilation unit");
 
     let entry_ast = files
         .iter()

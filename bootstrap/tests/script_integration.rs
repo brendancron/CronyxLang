@@ -36,7 +36,7 @@ fn run_test_inner(root_path: &PathBuf, out_path: &PathBuf) {
     let expected_out = read_to_string(out_path).unwrap();
 
     // Load the compilation unit (entry file + explicit imports).
-    let files = load_compilation_unit(root_path).expect("failed to load compilation unit");
+    let files = load_compilation_unit(root_path, &std::path::PathBuf::from("../stdlib")).expect("failed to load compilation unit");
 
     // Type-check the entry file.
     let entry_ast = files
@@ -111,7 +111,7 @@ pub fn run_err_test(root_path: &PathBuf, expected_op: &str) {
     eprintln!("input : {}", root_path.display());
     eprintln!("expect error for op: {expected_op}");
 
-    let files = load_compilation_unit(root_path).expect("failed to load compilation unit");
+    let files = load_compilation_unit(root_path, &std::path::PathBuf::from("../stdlib")).expect("failed to load compilation unit");
     let entry_ast = files
         .iter()
         .find(|f| matches!(f.role, FileRole::Entry))

@@ -12,6 +12,8 @@ pub enum FileRole {
     Entry,
     /// Explicitly imported via an `import` statement; carries the original decl for binding.
     Explicit(ImportDecl),
+    /// Auto-loaded from stdlib (no explicit import needed).
+    StdLib(ImportDecl),
 }
 
 #[derive(Debug)]
@@ -31,8 +33,9 @@ pub enum LoadError {
 }
 
 /// Load all files reachable from `entry` via explicit imports (including `import "dir/*"`).
-/// The entry file is always first.
-pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError> {
+/// Files in `stdlib_root/lang/` are automatically loaded first (no import needed).
+/// The entry file is always first in the result.
+pub fn load_compilation_unit(entry: &Path, stdlib_root: &Path) -> Result<Vec<LoadedFile>, LoadError> {
     let entry_canonical = fs::canonicalize(entry)
         .map_err(|e| LoadError::Io { path: entry.to_path_buf(), error: e })?;
     let entry_dir = entry_canonical.parent().unwrap().to_path_buf();
@@ -55,14 +58,31 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
         span_table: entry_spans,
     });
 
-    // BFS over explicit imports with cycle detection
-    let mut queue: VecDeque<(ImportDecl, PathBuf)> = VecDeque::new();
-    for decl in explicit_imports {
-        let path = resolve_import(&entry_dir, decl.path());
-        queue.push_back((decl, path));
+    // BFS over explicit imports with cycle detection.
+    // bool = is_stdlib (true → FileRole::StdLib, false → FileRole::Explicit).
+    let mut queue: VecDeque<(ImportDecl, PathBuf, bool)> = VecDeque::new();
+
+    // Seed queue with stdlib prelude auto-imports (before user imports).
+    // Only core files with no heavy transitive deps are auto-loaded; files like
+    // Regex and Toml import automata/parser libs that define conflicting globals.
+    const PRELUDE: &[&str] = &["Error", "Fallible", "Math", "Option", "String", "StringBuilder"];
+    let lang_dir = stdlib_root.join("lang");
+    if lang_dir.is_dir() {
+        for &name in PRELUDE {
+            let file = lang_dir.join(format!("{name}.cx"));
+            if file.exists() {
+                let decl = ImportDecl::Qualified { path: format!("lang/{name}") };
+                queue.push_back((decl, file, true));
+            }
+        }
     }
 
-    while let Some((decl, import_path)) = queue.pop_front() {
+    for decl in explicit_imports {
+        let path = resolve_import(&entry_dir, decl.path());
+        queue.push_back((decl, path, false));
+    }
+
+    while let Some((decl, import_path, is_stdlib)) = queue.pop_front() {
         let canonical = fs::canonicalize(&import_path)
             .map_err(|e| LoadError::Io { path: import_path.clone(), error: e })?;
 
@@ -79,10 +99,11 @@ pub fn load_compilation_unit(entry: &Path) -> Result<Vec<LoadedFile>, LoadError>
 
         for tdecl in transitive {
             let tpath = resolve_import(&file_dir, tdecl.path());
-            queue.push_back((tdecl, tpath));
+            queue.push_back((tdecl, tpath, is_stdlib));
         }
 
-        result.push(LoadedFile { path: canonical, source, ast, role: FileRole::Explicit(decl), span_table });
+        let role = if is_stdlib { FileRole::StdLib(decl) } else { FileRole::Explicit(decl) };
+        result.push(LoadedFile { path: canonical, source, ast, role, span_table });
     }
 
     Ok(result)

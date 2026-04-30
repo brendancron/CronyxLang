@@ -172,7 +172,17 @@ where
             ast.meta_prints = meta_captures;
             ast.impl_registry = impl_registry;
             ast.op_dispatch = op_dispatch;
+            ast.stdlib_fn_names = staged_forest.stdlib_fn_names.clone();
             monomorphize(&mut ast, &type_map);
+            // After monomorphize, mangled copies like `fn__int` also exist — mark them stdlib.
+            let orig_stdlib = ast.stdlib_fn_names.clone();
+            for stmt in ast.stmts.values() {
+                if let crate::semantics::meta::runtime_ast::RuntimeStmt::FnDecl { name, .. } = stmt {
+                    if orig_stdlib.iter().any(|s| name == s || name.starts_with(&format!("{s}__"))) {
+                        ast.stdlib_fn_names.insert(name.clone());
+                    }
+                }
+            }
             let (mut compacted, stmt_remap) = ast.compact();
             // Remap staged node IDs → post-compact runtime IDs for module namespace lookup.
             compacted.module_bindings = staged_module_bindings.iter()

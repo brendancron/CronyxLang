@@ -26,7 +26,7 @@ pub fn run_compile_test(root_path: &PathBuf, out_path: &PathBuf, expected_path: 
 
     let expected = read_to_string(expected_path).unwrap();
 
-    let files = load_compilation_unit(root_path).expect("failed to load compilation unit");
+    let files = load_compilation_unit(root_path, &std::path::PathBuf::from("../stdlib")).expect("failed to load compilation unit");
 
     let entry_ast = files
         .iter()
@@ -94,7 +94,7 @@ pub fn run_err_test(root_path: &PathBuf, expected_op: &str) {
     eprintln!("input : {}", root_path.display());
     eprintln!("expect error for op: {expected_op}");
 
-    let files = load_compilation_unit(root_path).expect("failed to load compilation unit");
+    let files = load_compilation_unit(root_path, &std::path::PathBuf::from("../stdlib")).expect("failed to load compilation unit");
     let entry_ast = files
         .iter()
         .find(|f| matches!(f.role, FileRole::Entry))

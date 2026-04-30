@@ -760,6 +760,17 @@ pub fn stage_all_files(
                         Some(MetaStmt::FnDecl { name, .. })
                         | Some(MetaStmt::MetaFnDecl { name, .. }) => {
                             exports.push((name.clone(), staged_id));
+                            if matches!(file.role, FileRole::StdLib(_)) {
+                                staged_forest.stdlib_fn_names.insert(name.clone());
+                            }
+                        }
+                        Some(MetaStmt::ImplDecl { type_name, methods, .. }) => {
+                            if matches!(file.role, FileRole::StdLib(_)) {
+                                for method in methods {
+                                    let mangled = format!("{}__{}", type_name, method.name);
+                                    staged_forest.stdlib_fn_names.insert(mangled);
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -769,7 +780,11 @@ pub fn stage_all_files(
         }
 
         // Record module binding for explicit imports.
-        if let FileRole::Explicit(ref decl) = file.role {
+        let explicit_decl = match &file.role {
+            FileRole::Explicit(d) | FileRole::StdLib(d) => Some(d),
+            _ => None,
+        };
+        if let Some(decl) = explicit_decl {
             let binding = match decl {
                 ImportDecl::Qualified { path } => {
                     let bind_name = path_stem(path);

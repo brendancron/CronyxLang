@@ -138,6 +138,10 @@ pub fn type_check_runtime(
             }
             let ret_type = resolved.get(&expr_id).cloned().unwrap_or_else(|| Type::Var(env.fresh()));
             let new_concrete = arg_types.iter().all(|t| !t.contains_var());
+            // Skip stdlib functions — they may be polymorphic by design.
+            if ast.stdlib_fn_names.contains(callee.as_str()) {
+                continue;
+            }
             if let Some((existing_args, existing_ret)) = fn_call_types.get(callee.as_str()).cloned() {
                 let existing_len = existing_args.len();
                 if existing_len != arg_types.len() {

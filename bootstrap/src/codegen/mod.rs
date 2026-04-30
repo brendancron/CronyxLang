@@ -151,12 +151,100 @@ pub fn compile(
     fmt_global.set_constant(true);
     fmt_global.set_linkage(Linkage::Private);
 
+    // ── Collect user-reachable node IDs (exclude stdlib function bodies) ─────────
+    // Feature detection must not trigger on stdlib-only constructs (e.g., Regex .chars)
+    // or simple programs would gain unnecessary malloc/strlen declarations.
+    let (user_expr_ids, user_stmt_ids): (std::collections::HashSet<RuntimeNodeId>, std::collections::HashSet<RuntimeNodeId>) = {
+        fn add_expr(ast: &RuntimeAst, id: RuntimeNodeId,
+                    eout: &mut std::collections::HashSet<RuntimeNodeId>,
+                    sout: &mut std::collections::HashSet<RuntimeNodeId>,
+                    stk: &mut Vec<RuntimeNodeId>) {
+            if eout.insert(id) {
+                match ast.get_expr(id) {
+                    Some(RuntimeExpr::List(items))                 => stk.extend(items),
+                    Some(RuntimeExpr::Tuple(items))                => stk.extend(items),
+                    Some(RuntimeExpr::Call { args, .. })           => stk.extend(args),
+                    Some(RuntimeExpr::DotCall { object, args, .. })=> { stk.push(*object); stk.extend(args); }
+                    Some(RuntimeExpr::DotAccess { object, .. })    => stk.push(*object),
+                    Some(RuntimeExpr::Index { object, index })     => { stk.push(*object); stk.push(*index); }
+                    Some(RuntimeExpr::Add(a,b)|RuntimeExpr::Sub(a,b)|RuntimeExpr::Mult(a,b)
+                        |RuntimeExpr::Div(a,b)|RuntimeExpr::Mod(a,b)|RuntimeExpr::Equals(a,b)
+                        |RuntimeExpr::NotEquals(a,b)|RuntimeExpr::Lt(a,b)|RuntimeExpr::Gt(a,b)
+                        |RuntimeExpr::Lte(a,b)|RuntimeExpr::Gte(a,b)|RuntimeExpr::And(a,b)
+                        |RuntimeExpr::Or(a,b))                     => { stk.push(*a); stk.push(*b); }
+                    Some(RuntimeExpr::Not(a)|RuntimeExpr::ResumeExpr(Some(a))) => stk.push(*a),
+                    Some(RuntimeExpr::StructLiteral { fields, .. })=> stk.extend(fields.iter().map(|(_, id)| *id)),
+                    Some(RuntimeExpr::SliceRange { object, start, end }) => {
+                        stk.push(*object);
+                        if let Some(s) = start { stk.push(*s); }
+                        if let Some(e) = end   { stk.push(*e); }
+                    }
+                    Some(RuntimeExpr::Lambda { body, .. })         => add_stmt(ast, *body, eout, sout, stk),
+                    Some(RuntimeExpr::TupleIndex { object, .. })   => stk.push(*object),
+                    Some(RuntimeExpr::EnumConstructor { payload, .. }) => match payload {
+                        RuntimeConstructorPayload::Tuple(ids) => stk.extend(ids),
+                        RuntimeConstructorPayload::Struct(fs) => stk.extend(fs.iter().map(|(_, id)| *id)),
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+        fn add_stmt(ast: &RuntimeAst, id: RuntimeNodeId,
+                    eout: &mut std::collections::HashSet<RuntimeNodeId>,
+                    sout: &mut std::collections::HashSet<RuntimeNodeId>,
+                    stk: &mut Vec<RuntimeNodeId>) {
+            if !sout.insert(id) { return; }
+            match ast.get_stmt(id) {
+                Some(RuntimeStmt::FnDecl { name, body, .. }) => {
+                    if !ast.stdlib_fn_names.contains(name) { add_stmt(ast, *body, eout, sout, stk); }
+                }
+                Some(RuntimeStmt::Block(children))                   => for c in children.clone() { add_stmt(ast, c, eout, sout, stk); }
+                Some(RuntimeStmt::ExprStmt(e))                       => stk.push(*e),
+                Some(RuntimeStmt::VarDecl { expr, .. })              => stk.push(*expr),
+                Some(RuntimeStmt::Assign { expr, .. })               => stk.push(*expr),
+                Some(RuntimeStmt::IndexAssign { indices, expr, .. }) => { stk.push(*expr); stk.extend(indices.clone()); }
+                Some(RuntimeStmt::DotAssign { expr, .. })            => stk.push(*expr),
+                Some(RuntimeStmt::Print(e))                          => stk.push(*e),
+                Some(RuntimeStmt::Return(Some(e)))                   => stk.push(*e),
+                Some(RuntimeStmt::If { cond, body, else_branch })    => {
+                    stk.push(*cond);
+                    let (b, eb) = (*body, *else_branch);
+                    add_stmt(ast, b, eout, sout, stk);
+                    if let Some(eb) = eb { add_stmt(ast, eb, eout, sout, stk); }
+                }
+                Some(RuntimeStmt::WhileLoop { cond, body })          => { stk.push(*cond); let b = *body; add_stmt(ast, b, eout, sout, stk); }
+                Some(RuntimeStmt::ForEach { iterable, body, .. })    => { stk.push(*iterable); let b = *body; add_stmt(ast, b, eout, sout, stk); }
+                Some(RuntimeStmt::Match { scrutinee, arms })         => {
+                    stk.push(*scrutinee);
+                    let bodies: Vec<_> = arms.iter().map(|a| a.body).collect();
+                    for b in bodies { add_stmt(ast, b, eout, sout, stk); }
+                }
+                Some(RuntimeStmt::WithFn { body, .. }
+                    | RuntimeStmt::WithCtl { body, .. })             => { let b = *body; add_stmt(ast, b, eout, sout, stk); }
+                Some(RuntimeStmt::Gen(ids))                          => for c in ids.clone() { add_stmt(ast, c, eout, sout, stk); }
+                Some(RuntimeStmt::Resume(Some(e)))                   => stk.push(*e),
+                _ => {}
+            }
+        }
+        let mut eout = std::collections::HashSet::new();
+        let mut sout = std::collections::HashSet::new();
+        let mut estk: Vec<RuntimeNodeId> = Vec::new();
+        for &id in &ast.sem_root_stmts {
+            add_stmt(ast, id, &mut eout, &mut sout, &mut estk);
+        }
+        while let Some(eid) = estk.pop() {
+            add_expr(ast, eid, &mut eout, &mut sout, &mut estk);
+        }
+        (eout, sout)
+    };
+
     // fmt_str is only emitted when the program uses string or boolean values
     // (keeps IR for int-only milestones identical to their regression baselines).
-    let has_strings = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::String(_)));
-    let has_bools   = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::Bool(_)))
-        || ast.stmts.values().any(|s| {
-            if let RuntimeStmt::Print(inner) = s {
+    let has_strings = user_expr_ids.iter().any(|id| matches!(ast.get_expr(*id), Some(RuntimeExpr::String(_))));
+    let has_bools   = user_expr_ids.iter().any(|id| matches!(ast.get_expr(*id), Some(RuntimeExpr::Bool(_))))
+        || user_stmt_ids.iter().any(|id| {
+            if let Some(RuntimeStmt::Print(inner)) = ast.get_stmt(*id) {
                 matches!(type_map.get(inner), Some(Type::Primitive(PrimitiveType::Bool)))
             } else { false }
         });
@@ -179,8 +267,11 @@ pub fn compile(
     fn collect_fn_decls(ast: &RuntimeAst, ids: &[RuntimeNodeId], out: &mut Vec<(RuntimeNodeId, String, Vec<String>, RuntimeNodeId)>) {
         for &id in ids {
             match ast.get_stmt(id) {
-                Some(RuntimeStmt::FnDecl { name, params, body, .. }) =>
-                    out.push((id, name.clone(), params.clone(), *body)),
+                Some(RuntimeStmt::FnDecl { name, params, body, .. }) => {
+                    if !ast.stdlib_fn_names.contains(name) {
+                        out.push((id, name.clone(), params.clone(), *body));
+                    }
+                }
                 Some(RuntimeStmt::Block(children)) =>
                     collect_fn_decls(ast, children, out),
                 _ => {}
@@ -214,17 +305,19 @@ pub fn compile(
         .collect();
 
     // ── Pass 0a: check for struct/slice/closure/enum usage (gate malloc/free) ──
-    let has_structs   = ast.stmts.values()
-        .any(|s| matches!(s, RuntimeStmt::StructDecl { .. })) ||
-        ast.exprs.values().any(|e| matches!(e, RuntimeExpr::StructLiteral { .. }));
-    let has_slices    = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::List(_)))
-        || ast.exprs.values().any(|e| matches!(e, RuntimeExpr::DotCall { method, .. }
+    // Scan only user-reachable nodes to avoid triggering on stdlib-only constructs.
+    let user_exprs_iter = || ast.exprs.iter().filter(|(id, _)| user_expr_ids.contains(id)).map(|(_, e)| e);
+    let user_stmts_iter = || ast.stmts.iter().filter(|(id, _)| user_stmt_ids.contains(id)).map(|(_, s)| s);
+    // StructDecl alone doesn't require malloc — only StructLiteral (heap allocation) does.
+    let has_structs   = user_exprs_iter().any(|e| matches!(e, RuntimeExpr::StructLiteral { .. }));
+    let has_slices    = user_exprs_iter().any(|e| matches!(e, RuntimeExpr::List(_)))
+        || user_exprs_iter().any(|e| matches!(e, RuntimeExpr::DotCall { method, .. }
             if matches!(method.as_str(), "split" | "chars")));
     // Single pass to detect lambda and HOF usage simultaneously.
     let (has_lambdas, has_hof_fns) = {
         let mut lam = false;
         let mut hof = false;
-        for e in ast.exprs.values() {
+        for e in user_exprs_iter() {
             if !lam && matches!(e, RuntimeExpr::Lambda { .. }) { lam = true; }
             if !hof { if let RuntimeExpr::Variable(n) = e { if fn_decl_name_set.contains(n) { hof = true; } } }
             if lam && hof { break; }
@@ -232,8 +325,8 @@ pub fn compile(
         (lam, hof)
     };
     let has_closures  = has_lambdas || has_nested_fn_decls || has_hof_fns;
-    let has_enums     = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::EnumConstructor { .. }));
-    let has_tuples    = ast.exprs.values().any(|e| matches!(e, RuntimeExpr::Tuple(_)));
+    let has_enums     = user_exprs_iter().any(|e| matches!(e, RuntimeExpr::EnumConstructor { .. }));
+    let has_tuples    = user_exprs_iter().any(|e| matches!(e, RuntimeExpr::Tuple(_)));
     // Detect string operations that need C string library calls + heap allocation.
     // We conservatively check for Add with at least one String child (concat),
     // SliceRange (substring), DotCall (string methods), or to_string() calls.
@@ -256,19 +349,19 @@ pub fn compile(
         }
         set
     };
-    let has_to_string = ast.exprs.iter().any(|(&id, e)| matches!(e,
-        RuntimeExpr::Call { callee, .. } if callee == "to_string")
-        && !print_unwrapped_to_string_ids.contains(&id));
+    let has_to_string = user_expr_ids.iter().any(|id|
+        matches!(ast.get_expr(*id), Some(RuntimeExpr::Call { callee, .. }) if callee == "to_string")
+        && !print_unwrapped_to_string_ids.contains(id));
     // Conservatively declare string library (strlen, strcpy, etc.) whenever
     // there are string values. This covers cases where string operands come
     // from function parameters whose types may be TypeVars in type_map
     // (the runtime type checker doesn't propagate call-site constraints into
     // function body expression-level types).
-    let has_string_ops = has_to_string || has_strings || (ast.exprs.values().any(|e|
+    let has_string_ops = has_to_string || has_strings || (user_exprs_iter().any(|e|
         matches!(e, RuntimeExpr::DotCall { .. } | RuntimeExpr::SliceRange { .. })
     ));
     // Detect print(struct_var) — needs bare format strings for multi-field formatting.
-    let has_struct_print = ast.stmts.values().any(|s| {
+    let has_struct_print = user_stmts_iter().any(|s| {
         if let RuntimeStmt::Print(inner) = s {
             matches!(type_map.get(inner), Some(Type::Struct { .. }))
         } else { false }
@@ -361,7 +454,7 @@ pub fn compile(
     } else { None };
 
     // ── File I/O for readfile() builtin ──────────────────────────────────────
-    let has_readfile = ast.exprs.values().any(|e| {
+    let has_readfile = user_exprs_iter().any(|e| {
         matches!(e, RuntimeExpr::Call { callee, .. } if callee == "readfile")
     });
     let readfile_fn: Option<FunctionValue<'_>> = if has_readfile {
@@ -671,7 +764,7 @@ pub fn compile(
     // ── Pass 0c: create LLVM globals for all string literals ─────────────────
     let mut string_globals: HashMap<String, GlobalValue<'_>> = HashMap::new();
     let mut str_counter = 0usize;
-    for expr in ast.exprs.values() {
+    for expr in user_exprs_iter() {
         if let RuntimeExpr::String(s) = expr {
             if !string_globals.contains_key(s.as_str()) {
                 let bytes = s.as_bytes();
@@ -725,7 +818,7 @@ pub fn compile(
     // own bodies are emitted.
     let mut lambda_exprs: Vec<(RuntimeNodeId, Vec<String>)> = ast.exprs.iter()
         .filter_map(|(&id, expr)| match expr {
-            RuntimeExpr::Lambda { params, .. } => Some((id, params.clone())),
+            RuntimeExpr::Lambda { params, .. } if user_expr_ids.contains(&id) => Some((id, params.clone())),
             _ => None,
         })
         .collect();
@@ -1350,10 +1443,10 @@ pub fn compile(
     }
 
     // ── Pass 2g: emit string method helpers (trim, split, chars) ────────────────
-    let has_trim = has_string_ops && ast.exprs.values().any(|e| {
+    let has_trim = has_string_ops && user_exprs_iter().any(|e| {
         matches!(e, RuntimeExpr::DotCall { method, .. } if method == "trim")
     });
-    let has_split_chars = has_string_ops && has_slices && ast.exprs.values().any(|e| {
+    let has_split_chars = has_string_ops && has_slices && user_exprs_iter().any(|e| {
         matches!(e, RuntimeExpr::DotCall { method, .. } if
             matches!(method.as_str(), "split" | "chars"))
     });

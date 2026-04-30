@@ -13,7 +13,7 @@ declare void @free(ptr)
 
 declare void @abort()
 
-define i64 @__lambda_9(ptr %0, i64 %1) {
+define i64 @__lambda_351(ptr %0, i64 %1) {
 entry:
   %x = alloca i64, align 8
   store i64 %1, ptr %x, align 4
@@ -42,7 +42,7 @@ define i32 @main() {
 entry:
   %closure_malloc = call ptr @malloc(i64 ptrtoint (ptr getelementptr (%__closure, ptr null, i32 1) to i64))
   %fn_ptr_field = getelementptr %__closure, ptr %closure_malloc, i32 0, i32 0
-  store ptr @__lambda_9, ptr %fn_ptr_field, align 8
+  store ptr @__lambda_351, ptr %fn_ptr_field, align 8
   %env_ptr_field = getelementptr %__closure, ptr %closure_malloc, i32 0, i32 1
   store ptr null, ptr %env_ptr_field, align 8
   %double = alloca ptr, align 8

@@ -26,6 +26,9 @@ pub struct RuntimeAst {
     /// node_id is Some for explicit imports (ID-based lookup) and None for transitive
     /// imports (name-based env lookup). Populated by meta_processor after compaction.
     pub module_bindings: Vec<(String, Vec<(String, Option<RuntimeNodeId>)>)>,
+    /// Function names that originated from stdlib auto-imports (FileRole::StdLib).
+    /// Codegen skips these since they may use constructs codegen doesn't yet support.
+    pub stdlib_fn_names: std::collections::HashSet<String>,
 }
 
 impl RuntimeAst {
@@ -40,6 +43,7 @@ impl RuntimeAst {
             next_id: 0,
             lambda_param_hints: HashMap::new(),
             module_bindings: Vec::new(),
+            stdlib_fn_names: std::collections::HashSet::new(),
         }
     }
 
@@ -266,6 +270,7 @@ impl RuntimeAst {
         out.impl_registry = self.impl_registry.clone();
         out.op_dispatch = self.op_dispatch.clone();
         out.meta_prints = self.meta_prints.clone();
+        out.stdlib_fn_names = self.stdlib_fn_names.clone();
         out.lambda_param_hints = self.lambda_param_hints.iter()
             .map(|(old_id, hints)| (*expr_remap.get(old_id).unwrap_or(old_id), hints.clone()))
             .collect();
