@@ -129,33 +129,34 @@ fn run_pipeline(
             .map_err(|e| vec![CompilerError::TypeCheck(e)])?;
         // Polymorphic-call warnings are non-fatal for the interpreter (runtime
         // dispatch handles them correctly) but block codegen (which would emit
-        // wrong types). Surface them as errors only on the --compile path.
-        if args.compile && !rt_warnings.is_empty() {
+        // wrong types). Surface them as errors only on the compile path.
+        if !args.interpret && !rt_warnings.is_empty() {
             return Err(rt_warnings.into_iter().map(CompilerError::TypeCheck).collect());
         }
         map
     };
 
-    // COMPILE — emit native binary via LLVM when --compile is set.
-    if args.compile {
-        let out_path = args.out_path.clone().unwrap_or_else(|| PathBuf::from("a.out"));
-        codegen_compile(&runtime_ast, &type_map, &cps_info, &out_path)
-            .map_err(|e| vec![CompilerError::Codegen(e.to_string())])?;
+    // INTERPRET — tree-walking interpreter when --interpret is set.
+    if args.interpret {
+        let mut setup_env = EnvHandler::from(meta_env.clone());
+        setup_modules(&runtime_ast, &mut setup_env);
+
+        eval(
+            &runtime_ast,
+            &runtime_ast.sem_root_stmts,
+            meta_env,
+            &mut io::stdout(),
+            None,
+            root_path.parent().map(|p| p.to_path_buf()),
+        ).map_err(|e| vec![CompilerError::Eval(e)])?;
+
         return Ok(());
     }
 
-    // EVALUATION — stop on first error
-    let mut setup_env = EnvHandler::from(meta_env.clone());
-    setup_modules(&runtime_ast, &mut setup_env);
-
-    eval(
-        &runtime_ast,
-        &runtime_ast.sem_root_stmts,
-        meta_env,
-        &mut io::stdout(),
-        None,
-        root_path.parent().map(|p| p.to_path_buf()),
-    ).map_err(|e| vec![CompilerError::Eval(e)])?;
+    // COMPILE — emit native binary via LLVM (default).
+    let out_path = args.out_path.clone().unwrap_or_else(|| PathBuf::from("a.out"));
+    codegen_compile(&runtime_ast, &type_map, &cps_info, &out_path)
+        .map_err(|e| vec![CompilerError::Codegen(e.to_string())])?;
 
     Ok(())
 }
