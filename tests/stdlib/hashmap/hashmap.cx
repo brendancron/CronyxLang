@@ -32,3 +32,15 @@ match missing {
 
 print(m.get_or("foo", 0));
 print(m.get_or("zzz", 42));
+
+// int keys
+var n = HashMap.new();
+n.set(1, "one");
+n.set(2, "two");
+n.set(1, "ONE");
+print(n.size());
+print(n.contains(2));
+match (n.get(1)) {
+    Option::Some(v) => { print(v); }
+    Option::None    => { print("none"); }
+}

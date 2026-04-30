@@ -6,3 +6,6 @@ false
 none
 99
 42
+2
+true
+ONE

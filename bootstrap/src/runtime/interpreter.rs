@@ -473,6 +473,37 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                 }
             }
 
+            // Trait method dispatch for primitive types via impl_registry
+            let primitive_type_name: Option<&str> = match &obj {
+                Value::Int(_) => Some("int"),
+                Value::String(_) => Some("string"),
+                Value::Bool(_) => Some("bool"),
+                _ => None,
+            };
+            if let Some(tn) = primitive_type_name {
+                if let Some(fn_name) = ctx.ast.impl_registry.get(&(tn.to_string(), method.clone())).cloned() {
+                    let func = match ctx.env.get(&fn_name).map_err(EvalError::UndefinedVariable)? {
+                        Value::Function(f) => f,
+                        _ => return Err(EvalError::NonFunctionCall),
+                    };
+                    if func.params.len() != arg_vals.len() + 1 {
+                        return Err(EvalError::ArgumentMismatch);
+                    }
+                    ctx.env.push_scope();
+                    ctx.env.define(func.params[0].clone(), obj.clone());
+                    for (param, value) in func.params[1..].iter().zip(arg_vals) {
+                        ctx.env.define(param.clone(), value);
+                    }
+                    let result = match eval_stmt(func.body, ctx)? {
+                        ExecResult::Return(v) => v,
+                        ExecResult::Continue => Value::Unit,
+                        ExecResult::Resumed(v) => v,
+                    };
+                    ctx.env.pop_scope();
+                    return Ok(result);
+                }
+            }
+
             // Trait method dispatch: struct value + impl_registry lookup
             if let Value::Struct { ref type_name, .. } = obj {
                 if let Some(fn_name) = ctx.ast.impl_registry.get(&(type_name.clone(), method.clone())).cloned() {

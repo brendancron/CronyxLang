@@ -1,45 +1,67 @@
 import "../lang/Option";
 import "../effects/Yield";
+import "../ops/Hash";
 
-struct Map<V> {
-    keys: [string];
-    value_indices: [int];
-    values: [V];
-    size: int;
+// Open-addressing hash map with linear probing.
+// `slots` is a [cap] array of ints: -1 = empty, else = index into `keys`/`vals`.
+// `keys` and `vals` are compact append-only arrays; deletion rebuilds.
+// K must implement Hash (key.hash() -> int) and support == for equality.
+
+struct Map<K, V> {
+    slots: [int];
+    keys:  [K];
+    vals:  [V];
+    size:  int;
     capacity: int
 }
 
 fn new() {
     var cap = 16;
-    var keys = [];
-    var vindices = [];
+    var slots = [];
     var i = 0;
     while (i < cap) {
-        keys.push("");
-        vindices.push(0 - 1);
+        slots.push(0 - 1);
         i += 1;
     }
-    return Map { keys: keys, value_indices: vindices, values: [], size: 0, capacity: cap };
+    return Map { slots: slots, keys: [], vals: [], size: 0, capacity: cap };
 }
 
-fn hm_hash(key, capacity) {
-    var h = 5381;
-    var i = 0;
-    while (i < key.len()) {
-        h = (h * 31 + ord(key[i])) % 1000000007;
-        i += 1;
-    }
-    return h % capacity;
+fn hm_start_idx(key, cap) {
+    var h = key.hash() % cap;
+    if (h < 0) { h = 0 - h; }
+    return h;
 }
 
-fn hm_probe_insert(ks, vi, values, cap, key, value) {
-    var idx = hm_hash(key, cap);
+fn hm_find_slot(map, key) {
+    var cap = map.capacity;
+    var idx = hm_start_idx(key, cap);
     var probes = 0;
     while (probes < cap) {
-        if (vi[idx] == 0 - 1) {
-            ks[idx] = key;
-            vi[idx] = values.len();
-            values.push(value);
+        var s = map.slots[idx];
+        if (s == 0 - 1) {
+            return 0 - 1;
+        }
+        if (map.keys[s] == key) {
+            return idx;
+        }
+        idx = (idx + 1) % cap;
+        probes += 1;
+    }
+    return 0 - 1;
+}
+
+fn hm_probe_insert(slots, keys, vals, cap, key, value) {
+    var idx = hm_start_idx(key, cap);
+    var probes = 0;
+    while (probes < cap) {
+        if (slots[idx] == 0 - 1) {
+            slots[idx] = keys.len();
+            keys.push(key);
+            vals.push(value);
+            return true;
+        }
+        if (keys[slots[idx]] == key) {
+            vals[slots[idx]] = value;
             return true;
         }
         idx = (idx + 1) % cap;
@@ -49,172 +71,108 @@ fn hm_probe_insert(ks, vi, values, cap, key, value) {
 }
 
 fn hm_resize(map) {
-    var old_keys = map.keys;
-    var old_vi = map.value_indices;
-    var old_values = map.values;
-    var old_cap = map.capacity;
+    var old_slots = map.slots;
+    var old_keys  = map.keys;
+    var old_vals  = map.vals;
+    var old_cap   = map.capacity;
+    var new_cap   = old_cap * 2;
 
-    var new_cap = old_cap * 2;
-    var new_keys = [];
-    var new_vi = [];
+    var new_slots = [];
     var i = 0;
     while (i < new_cap) {
-        new_keys.push("");
-        new_vi.push(0 - 1);
+        new_slots.push(0 - 1);
         i += 1;
     }
 
-    map.keys = new_keys;
-    map.value_indices = new_vi;
-    map.values = [];
-    map.capacity = new_cap;
-    map.size = 0;
+    var new_keys = [];
+    var new_vals = [];
 
     i = 0;
     while (i < old_cap) {
-        if (old_vi[i] != 0 - 1) {
-            hm_probe_insert(map.keys, map.value_indices, map.values, new_cap, old_keys[i], old_values[old_vi[i]]);
-            map.size = map.size + 1;
+        var s = old_slots[i];
+        if (s != 0 - 1) {
+            hm_probe_insert(new_slots, new_keys, new_vals, new_cap, old_keys[s], old_vals[s]);
         }
         i += 1;
+    }
+
+    map.slots    = new_slots;
+    map.keys     = new_keys;
+    map.vals     = new_vals;
+    map.capacity = new_cap;
+}
+
+fn hm_set(map, key, value) {
+    if (map.size * 4 >= map.capacity * 3) {
+        hm_resize(map);
+        map.size = map.keys.len();
+    }
+    var before = map.keys.len();
+    hm_probe_insert(map.slots, map.keys, map.vals, map.capacity, key, value);
+    if (map.keys.len() > before) {
+        map.size = map.size + 1;
     }
 }
 
 fn hm_get(map, key) {
-    var idx = hm_hash(key, map.capacity);
-    var probes = 0;
-    var vi = map.value_indices;
-    var ks = map.keys;
-    while (probes < map.capacity) {
-        if (vi[idx] == 0 - 1) {
-            return Option::None;
-        }
-        if (ks[idx] == key) {
-            return Option::Some(map.values[vi[idx]]);
-        }
-        idx = (idx + 1) % map.capacity;
-        probes += 1;
-    }
-    return Option::None;
+    var slot = hm_find_slot(map, key);
+    if (slot == 0 - 1) { return Option::None; }
+    return Option::Some(map.vals[map.slots[slot]]);
+}
+
+fn hm_get_or(map, key, default) {
+    var slot = hm_find_slot(map, key);
+    if (slot == 0 - 1) { return default; }
+    return map.vals[map.slots[slot]];
 }
 
 fn hm_contains(map, key) {
-    var idx = hm_hash(key, map.capacity);
-    var probes = 0;
-    var vi = map.value_indices;
-    var ks = map.keys;
-    while (probes < map.capacity) {
-        if (vi[idx] == 0 - 1) {
-            return false;
-        }
-        if (ks[idx] == key) {
-            return true;
-        }
-        idx = (idx + 1) % map.capacity;
-        probes += 1;
-    }
-    return false;
+    return hm_find_slot(map, key) != 0 - 1;
 }
 
-fn hm_set<V>(map, key, value) {
-    if (map.size * 4 >= map.capacity * 3) {
-        hm_resize(map);
-    }
-    var idx = hm_hash(key, map.capacity);
-    var probes = 0;
-    var vi = map.value_indices;
-    var ks = map.keys;
-    while (probes < map.capacity) {
-        if (vi[idx] == 0 - 1) {
-            ks[idx] = key;
-            vi[idx] = map.values.len();
-            map.values.push(value);
-            map.size = map.size + 1;
-            return;
-        }
-        if (ks[idx] == key) {
-            var vals = map.values;
-            vals[vi[idx]] = value;
-            return;
-        }
-        idx = (idx + 1) % map.capacity;
-        probes += 1;
-    }
-}
-
-fn hm_keys(map) {
-    var result = [];
+fn hm_remove(map, key) {
+    var cap = map.capacity;
+    var new_slots = [];
     var i = 0;
-    var vi = map.value_indices;
-    while (i < map.capacity) {
-        if (vi[i] != 0 - 1) {
-            result.push(map.keys[i]);
+    while (i < cap) {
+        new_slots.push(0 - 1);
+        i += 1;
+    }
+    var new_keys = [];
+    var new_vals = [];
+
+    i = 0;
+    while (i < cap) {
+        var s = map.slots[i];
+        if (s != 0 - 1 && map.keys[s] != key) {
+            hm_probe_insert(new_slots, new_keys, new_vals, cap, map.keys[s], map.vals[s]);
         }
         i += 1;
     }
-    return result;
+    map.slots = new_slots;
+    map.keys  = new_keys;
+    map.vals  = new_vals;
+    map.size  = new_keys.len();
+}
+
+fn hm_keys(map) {
+    return map.keys;
 }
 
 fn hm_size(map) {
     return map.size;
 }
 
-fn hm_remove(map, key) {
-    var save_keys = [];
-    var save_vals = [];
-    var i = 0;
-    var vi = map.value_indices;
-    var ks = map.keys;
-    while (i < map.capacity) {
-        if (vi[i] != 0 - 1 && ks[i] != key) {
-            save_keys.push(ks[i]);
-            save_vals.push(map.values[vi[i]]);
-        }
-        i += 1;
-    }
-    var cap = map.capacity;
-    map.size = 0;
-    map.values = [];
-    var new_keys = [];
-    var new_vi = [];
-    i = 0;
-    while (i < cap) {
-        new_keys.push("");
-        new_vi.push(0 - 1);
-        i += 1;
-    }
-    map.keys = new_keys;
-    map.value_indices = new_vi;
-    i = 0;
-    while (i < save_keys.len()) {
-        hm_probe_insert(map.keys, map.value_indices, map.values, cap, save_keys[i], save_vals[i]);
-        map.size = map.size + 1;
-        i += 1;
-    }
-}
-
 impl Map {
-    fn set(self, key, value) { hm_set(self, key, value); }
-    fn get(self, key) { return hm_get(self, key); }
-    fn get_or(self, key, default) {
-        var idx = hm_hash(key, self.capacity);
-        var probes = 0;
-        var vi = self.value_indices;
-        var ks = self.keys;
-        while (probes < self.capacity) {
-            if (vi[idx] == 0 - 1) { return default; }
-            if (ks[idx] == key) { return self.values[vi[idx]]; }
-            idx = (idx + 1) % self.capacity;
-            probes += 1;
-        }
-        return default;
-    }
-    fn remove(self, key) { hm_remove(self, key); }
-    fn contains(self, key) { return hm_contains(self, key); }
-    fn keys(self) { return hm_keys(self); }
-    fn size(self) { return hm_size(self); }
+    fn set(self, key, value)        { hm_set(self, key, value); }
+    fn get(self, key)               { return hm_get(self, key); }
+    fn get_or(self, key, default)   { return hm_get_or(self, key, default); }
+    fn remove(self, key)            { hm_remove(self, key); }
+    fn contains(self, key)          { return hm_contains(self, key); }
+    fn keys(self)                   { return hm_keys(self); }
+    fn size(self)                   { return hm_size(self); }
     fn iter(self) {
-        var ks = hm_keys(self);
+        var ks = self.keys;
         var i = 0;
         while (i < ks.len()) {
             yield(ks[i]);
@@ -224,10 +182,8 @@ impl Map {
     fn entries(self) {
         var result = [];
         var i = 0;
-        while (i < self.capacity) {
-            if (self.value_indices[i] != 0 - 1) {
-                result.push((self.keys[i], self.values[self.value_indices[i]]));
-            }
+        while (i < self.keys.len()) {
+            result.push((self.keys[i], self.vals[i]));
             i += 1;
         }
         return result;
