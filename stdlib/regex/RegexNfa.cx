@@ -1,0 +1,171 @@
+import "../automata/Nfa";
+import "RegexAst";
+
+struct Fragment {
+    start: int;
+    end: int;
+}
+
+// Build an NFA from a RegexAst via Thompson's construction.
+// Returns Nfa<int> where symbols are Unicode codepoints.
+// Dot expands to printable ASCII 32-126 at build time.
+fn build(ast) {
+    var states      = [];
+    var alphabet    = [];
+    var transitions = [];
+    var counter     = [0]; // mutable state id counter
+
+    var frag = build_node(states, alphabet, transitions, counter, ast, ast.root);
+
+    return Nfa {
+        states:      states,
+        alphabet:    alphabet,
+        transitions: transitions,
+        start:       frag.start,
+        accept:      [frag.end],
+    };
+}
+
+fn fresh(states, counter) {
+    var id = counter[0];
+    counter[0] = counter[0] + 1;
+    states.push(id);
+    return id;
+}
+
+fn nfa_add_cp(alphabet, cp: int) {
+    var i = 0;
+    while (i < alphabet.len()) {
+        if (alphabet[i] == cp) { return; }
+        i += 1;
+    }
+    alphabet.push(cp);
+}
+
+fn add_trans(transitions, src: int, cp: int, to: int) {
+    transitions.push(Transition { src: src, on: cp, to: to });
+}
+
+fn add_eps(transitions, src: int, to: int) {
+    transitions.push(Transition { src: src, on: -1, to: to });
+}
+
+fn build_node(states, alphabet, transitions, counter, ast, node_id) {
+    var n = ast.nodes[node_id];
+
+    if (n.kind == 0) { return build_literal(states, alphabet, transitions, counter, n.value); }
+    if (n.kind == 1) { return build_concat(states, alphabet, transitions, counter, ast, n.left, n.right); }
+    if (n.kind == 2) { return build_alt(states, alphabet, transitions, counter, ast, n.left, n.right); }
+    if (n.kind == 3) { return build_star(states, alphabet, transitions, counter, ast, n.left); }
+    if (n.kind == 4) { return build_plus(states, alphabet, transitions, counter, ast, n.left); }
+    if (n.kind == 5) { return build_quest(states, alphabet, transitions, counter, ast, n.left); }
+    if (n.kind == 6) { return build_dot(states, alphabet, transitions, counter); }
+    if (n.kind == 7) { return build_class(states, alphabet, transitions, counter, n.chars, n.negated); }
+
+    // Empty — single state, accepts empty string
+    var s = fresh(states, counter);
+    return Fragment { start: s, end: s };
+}
+
+fn build_literal(states, alphabet, transitions, counter, cp: int) {
+    var s = fresh(states, counter);
+    var e = fresh(states, counter);
+    add_trans(transitions, s, cp, e);
+    nfa_add_cp(alphabet, cp);
+    return Fragment { start: s, end: e };
+}
+
+fn build_dot(states, alphabet, transitions, counter) {
+    var s = fresh(states, counter);
+    var e = fresh(states, counter);
+    var c = 32;
+    while (c <= 126) {
+        add_trans(transitions, s, c, e);
+        nfa_add_cp(alphabet, c);
+        c += 1;
+    }
+    return Fragment { start: s, end: e };
+}
+
+fn build_class(states, alphabet, transitions, counter, chars, negated) {
+    var s = fresh(states, counter);
+    var e = fresh(states, counter);
+
+    if (!negated) {
+        var i = 0;
+        while (i < chars.len()) {
+            add_trans(transitions, s, chars[i], e);
+            nfa_add_cp(alphabet, chars[i]);
+            i += 1;
+        }
+    }
+    if (negated) {
+        var c = 32;
+        while (c <= 126) {
+            if (!int_contains(chars, c)) {
+                add_trans(transitions, s, c, e);
+                nfa_add_cp(alphabet, c);
+            }
+            c += 1;
+        }
+    }
+
+    return Fragment { start: s, end: e };
+}
+
+fn build_concat(states, alphabet, transitions, counter, ast, left_id, right_id) {
+    var l = build_node(states, alphabet, transitions, counter, ast, left_id);
+    var r = build_node(states, alphabet, transitions, counter, ast, right_id);
+    add_eps(transitions, l.end, r.start);
+    return Fragment { start: l.start, end: r.end };
+}
+
+fn build_alt(states, alphabet, transitions, counter, ast, left_id, right_id) {
+    var s = fresh(states, counter);
+    var e = fresh(states, counter);
+    var l = build_node(states, alphabet, transitions, counter, ast, left_id);
+    var r = build_node(states, alphabet, transitions, counter, ast, right_id);
+    add_eps(transitions, s, l.start);
+    add_eps(transitions, s, r.start);
+    add_eps(transitions, l.end, e);
+    add_eps(transitions, r.end, e);
+    return Fragment { start: s, end: e };
+}
+
+fn build_star(states, alphabet, transitions, counter, ast, child_id) {
+    var s = fresh(states, counter);
+    var e = fresh(states, counter);
+    var c = build_node(states, alphabet, transitions, counter, ast, child_id);
+    add_eps(transitions, s, c.start);
+    add_eps(transitions, s, e);
+    add_eps(transitions, c.end, c.start);
+    add_eps(transitions, c.end, e);
+    return Fragment { start: s, end: e };
+}
+
+fn build_plus(states, alphabet, transitions, counter, ast, child_id) {
+    var e = fresh(states, counter);
+    var c = build_node(states, alphabet, transitions, counter, ast, child_id);
+    add_eps(transitions, c.end, c.start);
+    add_eps(transitions, c.end, e);
+    return Fragment { start: c.start, end: e };
+}
+
+fn build_quest(states, alphabet, transitions, counter, ast, child_id) {
+    var s = fresh(states, counter);
+    var e = fresh(states, counter);
+    var c = build_node(states, alphabet, transitions, counter, ast, child_id);
+    add_eps(transitions, s, c.start);
+    add_eps(transitions, s, e);
+    add_eps(transitions, c.end, e);
+    return Fragment { start: s, end: e };
+}
+
+fn int_contains(arr, val: int) {
+    var i = 0;
+    while (i < arr.len()) {
+        if (arr[i] == val) { return true; }
+        i += 1;
+    }
+    return false;
+}

@@ -1,0 +1,62 @@
+// Node kinds
+// 0=Literal  1=Concat  2=Alt  3=Star  4=Plus  5=Quest  6=Dot  7=Class  8=Empty
+
+struct RegexNode {
+    kind: int;
+    value: int;   // Literal: codepoint
+    left: int;    // child index, -1 if none
+    right: int;   // child index, -1 if none
+    chars: [int]; // Class: allowed codepoints
+    negated: bool; // Class: true if [^...]
+}
+
+struct RegexAst {
+    nodes: [RegexNode];
+    root: int;
+}
+
+fn make() {
+    return RegexAst { nodes: [], root: 0 };
+}
+
+fn push(ast, node) {
+    var id = ast.nodes.len();
+    ast.nodes.push(node);
+    return id;
+}
+
+fn literal(ast, cp: int) {
+    return push(ast, RegexNode { kind: 0, value: cp, left: -1, right: -1, chars: [], negated: false });
+}
+
+fn concat(ast, left: int, right: int) {
+    return push(ast, RegexNode { kind: 1, value: 0, left: left, right: right, chars: [], negated: false });
+}
+
+fn alt(ast, left: int, right: int) {
+    return push(ast, RegexNode { kind: 2, value: 0, left: left, right: right, chars: [], negated: false });
+}
+
+fn star(ast, child: int) {
+    return push(ast, RegexNode { kind: 3, value: 0, left: child, right: -1, chars: [], negated: false });
+}
+
+fn plus(ast, child: int) {
+    return push(ast, RegexNode { kind: 4, value: 0, left: child, right: -1, chars: [], negated: false });
+}
+
+fn quest(ast, child: int) {
+    return push(ast, RegexNode { kind: 5, value: 0, left: child, right: -1, chars: [], negated: false });
+}
+
+fn dot(ast) {
+    return push(ast, RegexNode { kind: 6, value: 0, left: -1, right: -1, chars: [], negated: false });
+}
+
+fn class(ast, chars: [int], negated: bool) {
+    return push(ast, RegexNode { kind: 7, value: 0, left: -1, right: -1, chars: chars, negated: negated });
+}
+
+fn empty(ast) {
+    return push(ast, RegexNode { kind: 8, value: 0, left: -1, right: -1, chars: [], negated: false });
+}

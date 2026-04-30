@@ -425,6 +425,10 @@ mod script_integration {
         cx_test!(stdlib_error, "tests/stdlib/error", "error");
         cx_test!(stdlib_fallible, "tests/stdlib/fallible", "fallible");
         cx_test!(stdlib_string, "tests/stdlib/string", "string");
+        cx_test!(stdlib_regex, "tests/stdlib/regex/regex", "regex");
+        cx_test!(stdlib_toml, "tests/stdlib/toml/toml", "toml");
+        cx_test!(stdlib_automata_dfa, "tests/stdlib/automata/dfa", "dfa");
+        cx_test!(stdlib_automata_nfa, "tests/stdlib/automata/nfa", "nfa");
         cx_test!(effect_generic, "tests/effects/generic", "generic");
     }
 }

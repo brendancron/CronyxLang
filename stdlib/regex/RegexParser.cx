@@ -1,0 +1,194 @@
+import "RegexAst";
+
+struct ParseResult {
+    node: int;
+    pos: int;
+}
+
+fn parse(pattern: string) {
+    var chars = pattern.chars();
+    var cps = [];
+    var i = 0;
+    while (i < chars.len()) {
+        cps.push(ord(chars[i]));
+        i += 1;
+    }
+    var ast = RegexAst.make();
+    var r = parse_expr(ast, cps, 0);
+    ast.root = r.node;
+    return ast;
+}
+
+fn parse_expr(ast, cps, pos) {
+    var left = parse_term(ast, cps, pos);
+    var cur = left.pos;
+    var node = left.node;
+
+    while (cur < cps.len() && cps[cur] == 124) { // '|'
+        cur += 1;
+        var right = parse_term(ast, cps, cur);
+        cur = right.pos;
+        node = RegexAst.alt(ast, node, right.node);
+    }
+
+    return ParseResult { node: node, pos: cur };
+}
+
+fn parse_term(ast, cps, pos) {
+    var cur = pos;
+    var node = -1;
+
+    var going = true;
+    while (going && cur < cps.len() && cps[cur] != 124 && cps[cur] != 41) { // '|' ')'
+        var prev = cur;
+        var f = parse_factor(ast, cps, cur);
+        if (f.pos == prev) { going = false; }
+        if (going) {
+            cur = f.pos;
+            if (node == -1) { node = f.node; }
+            else { node = RegexAst.concat(ast, node, f.node); }
+        }
+    }
+
+    if (node == -1) {
+        node = RegexAst.empty(ast);
+    }
+
+    return ParseResult { node: node, pos: cur };
+}
+
+fn parse_factor(ast, cps, pos) {
+    var a = parse_atom(ast, cps, pos);
+    var cur = a.pos;
+    var node = a.node;
+
+    if (cur < cps.len()) {
+        var c = cps[cur];
+        if (c == 42) { node = RegexAst.star(ast, node);  cur += 1; }
+        else if (c == 43) { node = RegexAst.plus(ast, node);  cur += 1; }
+        else if (c == 63) { node = RegexAst.quest(ast, node); cur += 1; }
+    }
+
+    return ParseResult { node: node, pos: cur };
+}
+
+fn parse_atom(ast, cps, pos) {
+    if (pos >= cps.len()) {
+        return ParseResult { node: RegexAst.empty(ast), pos: pos };
+    }
+
+    var c = cps[pos];
+
+    if (c == 40) { // '('
+        var inner = parse_expr(ast, cps, pos + 1);
+        var end = inner.pos;
+        if (end < cps.len() && cps[end] == 41) { end += 1; } // consume ')'
+        return ParseResult { node: inner.node, pos: end };
+    }
+
+    if (c == 91) { // '['
+        return parse_class(ast, cps, pos + 1);
+    }
+
+    if (c == 46) { // '.'
+        return ParseResult { node: RegexAst.dot(ast), pos: pos + 1 };
+    }
+
+    if (c == 92) { // '\\'
+        return parse_escape(ast, cps, pos + 1);
+    }
+
+    // Reject chars that belong to outer grammar levels
+    if (c == 124 || c == 41 || c == 42 || c == 43 || c == 63) { // | ) * + ?
+        return ParseResult { node: RegexAst.empty(ast), pos: pos };
+    }
+
+    return ParseResult { node: RegexAst.literal(ast, c), pos: pos + 1 };
+}
+
+fn parse_escape(ast, cps, pos) {
+    if (pos >= cps.len()) {
+        return ParseResult { node: RegexAst.literal(ast, 92), pos: pos };
+    }
+
+    var c = cps[pos];
+
+    if (c == 110) { return ParseResult { node: RegexAst.literal(ast, 10),  pos: pos + 1 }; } // \n
+    if (c == 116) { return ParseResult { node: RegexAst.literal(ast, 9),   pos: pos + 1 }; } // \t
+    if (c == 114) { return ParseResult { node: RegexAst.literal(ast, 13),  pos: pos + 1 }; } // \r
+
+    if (c == 100) { // \d  [0-9]
+        return ParseResult { node: RegexAst.class(ast, int_range(48, 57), false), pos: pos + 1 };
+    }
+    if (c == 115) { // \s  [ \t\n\r]
+        return ParseResult { node: RegexAst.class(ast, [32, 9, 10, 13], false), pos: pos + 1 };
+    }
+    if (c == 119) { // \w  [a-zA-Z0-9_]
+        var wc = int_range(65, 90);
+        append_range(wc, 97, 122);
+        append_range(wc, 48, 57);
+        wc.push(95);
+        return ParseResult { node: RegexAst.class(ast, wc, false), pos: pos + 1 };
+    }
+
+    return ParseResult { node: RegexAst.literal(ast, c), pos: pos + 1 };
+}
+
+fn parse_class(ast, cps, pos) {
+    var cur = pos;
+    var negated = false;
+
+    if (cur < cps.len() && cps[cur] == 94) { // '^'
+        negated = true;
+        cur += 1;
+    }
+
+    var chars = [];
+
+    while (cur < cps.len() && cps[cur] != 93) { // ']'
+        var c = cps[cur];
+
+        var handled = false;
+        if (c == 92 && cur + 1 < cps.len()) { // escape inside class
+            chars.push(unescape(cps[cur + 1]));
+            cur += 2;
+            handled = true;
+        }
+        if (!handled && cur + 2 < cps.len() && cps[cur + 1] == 45 && cps[cur + 2] != 93) { // a-z range
+            append_range(chars, c, cps[cur + 2]);
+            cur += 3;
+            handled = true;
+        }
+        if (!handled) { chars.push(c); }
+        if (!handled) { cur += 1; }
+    }
+
+    if (cur < cps.len()) { cur += 1; } // consume ']'
+
+    return ParseResult { node: RegexAst.class(ast, chars, negated), pos: cur };
+}
+
+fn int_range(lo: int, to: int) {
+    var out = [];
+    var i = lo;
+    while (i <= to) {
+        out.push(i);
+        i += 1;
+    }
+    return out;
+}
+
+fn append_range(arr, lo: int, to: int) {
+    var i = lo;
+    while (i <= to) {
+        arr.push(i);
+        i += 1;
+    }
+}
+
+fn unescape(c: int) {
+    if (c == 110) { return 10; }  // n → \n
+    if (c == 116) { return 9; }   // t → \t
+    if (c == 114) { return 13; }  // r → \r
+    return c;
+}

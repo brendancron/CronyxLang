@@ -1,0 +1,112 @@
+import "../../../../stdlib/lang/Toml";
+import "../../../../stdlib/lang/Option";
+
+var src = "[alpha]\nfoo = \"hello\"\nbar = true\nbaz = 42\n\n[beta]\nx = { key = \"val\", flag = false }\ny = \"world\"\n";
+
+var doc = Toml.parse(src);
+
+// ── section names ─────────────────────────────────────────────────────────────
+var names = Toml.section_names(doc);
+print(names.len());    // 2
+print(names[0]);       // alpha
+print(names[1]);       // beta
+
+// ── string value ──────────────────────────────────────────────────────────────
+match (Toml.get_section(doc, "alpha")) {
+    Option::Some(sec) => {
+        match (Toml.get_entry(sec, "foo")) {
+            Option::Some(e) => {
+                print(Toml.is_string(e.val));   // true
+                print(Toml.as_string(e.val));   // hello
+            }
+            Option::None => { print("missing foo"); }
+        }
+        match (Toml.get_entry(sec, "bar")) {
+            Option::Some(e) => {
+                print(Toml.is_bool(e.val));     // true
+                print(Toml.as_bool(e.val));     // true
+            }
+            Option::None => { print("missing bar"); }
+        }
+        match (Toml.get_entry(sec, "baz")) {
+            Option::Some(e) => {
+                print(Toml.is_int(e.val));      // true
+                print(Toml.as_int_val(e.val));  // 42
+            }
+            Option::None => { print("missing baz"); }
+        }
+    }
+    Option::None => { print("missing alpha"); }
+}
+
+// ── inline table ──────────────────────────────────────────────────────────────
+match (Toml.get_section(doc, "beta")) {
+    Option::Some(sec) => {
+        match (Toml.get_entry(sec, "x")) {
+            Option::Some(e) => {
+                print(Toml.is_table(e.val));    // true
+                var tbl = Toml.as_table(e.val);
+                print(tbl.len());               // 2
+                match (Toml.get_inline(tbl, "key")) {
+                    Option::Some(p) => { print(p.s); }   // val
+                    Option::None    => { print("missing key"); }
+                }
+                match (Toml.get_inline(tbl, "flag")) {
+                    Option::Some(p) => { print(p.b); }   // false
+                    Option::None    => { print("missing flag"); }
+                }
+            }
+            Option::None => { print("missing x"); }
+        }
+        match (Toml.get_entry(sec, "y")) {
+            Option::Some(e) => { print(Toml.as_string(e.val)); }  // world
+            Option::None    => { print("missing y"); }
+        }
+    }
+    Option::None => { print("missing beta"); }
+}
+
+// ── missing lookups ───────────────────────────────────────────────────────────
+match (Toml.get_section(doc, "nope")) {
+    Option::Some(_) => { print("found"); }
+    Option::None    => { print("none"); }  // none
+}
+
+match (Toml.get_section(doc, "alpha")) {
+    Option::Some(sec) => {
+        match (Toml.get_entry(sec, "nope")) {
+            Option::Some(_) => { print("found"); }
+            Option::None    => { print("none"); }  // none
+        }
+    }
+    Option::None => {}
+}
+
+// ── escape sequences in strings ───────────────────────────────────────────────
+var src2 = "[esc]\nval = \"line1\\nline2\"\n";
+var doc2 = Toml.parse(src2);
+match (Toml.get_section(doc2, "esc")) {
+    Option::Some(sec) => {
+        match (Toml.get_entry(sec, "val")) {
+            Option::Some(e) => { print(Toml.as_string(e.val)); }  // line1\nline2 (with actual newline)
+            Option::None    => { print("missing val"); }
+        }
+    }
+    Option::None => { print("missing esc"); }
+}
+
+// ── comments and blank lines ──────────────────────────────────────────────────
+var src3 = "# top comment\n\n[sec]\n# inline comment\nk = \"v\"\n\nk2 = false\n";
+var doc3 = Toml.parse(src3);
+var names3 = Toml.section_names(doc3);
+print(names3.len());  // 1
+print(names3[0]);     // sec
+match (Toml.get_section(doc3, "sec")) {
+    Option::Some(sec) => {
+        var ks = Toml.section_entry_keys(sec);
+        print(ks.len());   // 2
+        print(ks[0]);      // k
+        print(ks[1]);      // k2
+    }
+    Option::None => { print("missing sec"); }
+}

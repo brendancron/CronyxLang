@@ -1,0 +1,77 @@
+import "../lang/Toml";
+import "Lexer";
+
+fn from_toml(doc) {
+    var def = LexerDef { states: HashMap.new() };
+
+    var si = 0;
+    while (si < doc.sections.len()) {
+        var section = doc.sections[si];
+        var state = LexState { name: section.name, rules: [] };
+
+        var ei = 0;
+        while (ei < section.entries.len()) {
+            state.rules.push(entry_to_rule(section.entries[ei]));
+            ei += 1;
+        }
+
+        def.states.set(section.name, state);
+        si += 1;
+    }
+
+    return def;
+}
+
+fn entry_to_rule(entry) {
+    var val = entry.val;
+
+    if (val.kind == 0) {
+        return LexRule {
+            name:       entry.key,
+            pattern:    LexPattern::Literal(val.prim.s),
+            skip:       false,
+            next_state: Option::None,
+            action:     Option::None,
+        };
+    }
+
+    return LexRule {
+        name:       entry.key,
+        pattern:    find_pattern(val.table),
+        skip:       find_bool(val.table, "skip"),
+        next_state: find_str(val.table, "state"),
+        action:     find_str(val.table, "action"),
+    };
+}
+
+fn find_pattern(table) {
+    var i = 0;
+    while (i < table.len()) {
+        var e = table[i];
+        if (e.key == "regex")   { return LexPattern::Regex(e.val.s); }
+        if (e.key == "literal") { return LexPattern::Literal(e.val.s); }
+        if (e.key == "match")   { return LexPattern::Literal(e.val.s); }
+        i += 1;
+    }
+    return LexPattern::Literal("");
+}
+
+fn find_str(table, key: string) {
+    var i = 0;
+    while (i < table.len()) {
+        var e = table[i];
+        if (e.key == key) { return Option::Some(e.val.s); }
+        i += 1;
+    }
+    return Option::None;
+}
+
+fn find_bool(table, key: string) {
+    var i = 0;
+    while (i < table.len()) {
+        var e = table[i];
+        if (e.key == key) { return e.val.b; }
+        i += 1;
+    }
+    return false;
+}

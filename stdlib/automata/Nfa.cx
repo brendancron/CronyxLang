@@ -1,0 +1,146 @@
+struct Nfa {
+    states: [int];
+    alphabet: [int];
+    transitions: [Transition];
+    start: int;
+    accept: [int];
+}
+
+// on == -1 means epsilon transition
+struct Transition {
+    src: int;
+    on: int;
+    to: int;
+}
+
+fn nfa_new(start: int) {
+    return Nfa {
+        states: [start],
+        alphabet: [],
+        transitions: [],
+        start: start,
+        accept: [],
+    };
+}
+
+fn add_state(nfa, id: int) {
+    nfa.states.push(id);
+    return nfa;
+}
+
+fn add_symbol(nfa, symbol) {
+    nfa.alphabet.push(symbol);
+    return nfa;
+}
+
+fn add_transition(nfa, src: int, on: int, to: int) {
+    nfa.transitions.push(Transition { src: src, on: on, to: to });
+    return nfa;
+}
+
+fn add_epsilon(nfa, src: int, to: int) {
+    nfa.transitions.push(Transition { src: src, on: -1, to: to });
+    return nfa;
+}
+
+fn add_accept(nfa, id: int) {
+    nfa.accept.push(id);
+    return nfa;
+}
+
+fn is_accept(nfa, id: int) {
+    var i = 0;
+    while (i < nfa.accept.len()) {
+        if (nfa.accept[i] == id) {
+            return true;
+        }
+        i += 1;
+    }
+    return false;
+}
+
+// Compute epsilon closure of a set of states
+fn epsilon_closure(nfa, states: [int]) {
+    var closure = states;
+    var worklist = states;
+
+    while (worklist.len() > 0) {
+        var state = worklist[0];
+        worklist = worklist[1:];
+
+        var i = 0;
+        while (i < nfa.transitions.len()) {
+            var t = nfa.transitions[i];
+            if (t.src == state && t.on == -1) {
+                if (!set_contains(closure, t.to)) {
+                    closure.push(t.to);
+                    worklist.push(t.to);
+                }
+            }
+            i += 1;
+        }
+    }
+
+    return closure;
+}
+
+// Compute the set of states reachable from a set of states on a symbol
+fn step(nfa, states: [int], symbol) {
+    var reached = [];
+    var i = 0;
+    while (i < states.len()) {
+        var state = states[i];
+        var j = 0;
+        while (j < nfa.transitions.len()) {
+            var t = nfa.transitions[j];
+            if (t.src == state && t.on != -1 && t.on == symbol) {
+                if (!set_contains(reached, t.to)) {
+                    reached.push(t.to);
+                }
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+    return reached;
+}
+
+// Simulate the NFA on an input sequence — returns true if accepted
+fn simulate(nfa, input: [int]) {
+    var current = epsilon_closure(nfa, [nfa.start]);
+    var i = 0;
+    while (i < input.len()) {
+        current = epsilon_closure(nfa, step(nfa, current, input[i]));
+        i += 1;
+    }
+    var j = 0;
+    while (j < current.len()) {
+        if (is_accept(nfa, current[j])) { return true; }
+        j += 1;
+    }
+    return false;
+}
+
+fn set_contains(set: [int], val: int) {
+    var i = 0;
+    while (i < set.len()) {
+        if (set[i] == val) {
+            return true;
+        }
+        i += 1;
+    }
+    return false;
+}
+
+impl Nfa {
+    fn add_state(self, id: int) { self.states.push(id); }
+    fn add_symbol(self, symbol) { self.alphabet.push(symbol); }
+    fn add_transition(self, src: int, on: int, to: int) {
+        self.transitions.push(Transition { src: src, on: on, to: to });
+    }
+    fn add_epsilon(self, src: int, to: int) {
+        self.transitions.push(Transition { src: src, on: -1, to: to });
+    }
+    fn add_accept(self, id: int) { self.accept.push(id); }
+    fn accepts(self, input: [int]) { return simulate(self, input); }
+}

@@ -1,0 +1,24 @@
+import std.collections.HashMap;
+import std.lang.Option;
+
+enum LexPattern {
+    Literal(string),
+    Regex(string),
+}
+
+struct LexRule {
+    name:       string;
+    pattern:    LexPattern;
+    skip:       bool;
+    next_state: Option<string>;
+    action:     Option<string>;
+}
+
+struct LexState {
+    name:  string;
+    rules: [LexRule];
+}
+
+struct LexerDef {
+    states: Map<LexState>;
+}
