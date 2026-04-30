@@ -425,6 +425,7 @@ mod script_integration {
         cx_test!(stdlib_error, "tests/stdlib/error", "error");
         cx_test!(stdlib_fallible, "tests/stdlib/fallible", "fallible");
         cx_test!(stdlib_string, "tests/stdlib/string", "string");
+        cx_test!(stdlib_tostring, "tests/stdlib/tostring", "tostring");
         cx_test!(stdlib_regex, "tests/stdlib/regex/regex", "regex");
         cx_test!(stdlib_toml, "tests/stdlib/toml/toml", "toml");
         cx_test!(stdlib_automata_dfa, "tests/stdlib/automata/dfa", "dfa");

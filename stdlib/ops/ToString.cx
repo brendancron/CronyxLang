@@ -1,0 +1,15 @@
+trait ToString {
+    fn to_string(self) -> string;
+}
+
+impl ToString for int {
+    fn to_string(self) -> string { return to_string(self); }
+}
+
+impl ToString for bool {
+    fn to_string(self) -> string { return to_string(self); }
+}
+
+impl ToString for string {
+    fn to_string(self) -> string { return self; }
+}
