@@ -196,8 +196,8 @@ pub fn compile(
                     stk: &mut Vec<RuntimeNodeId>) {
             if !sout.insert(id) { return; }
             match ast.get_stmt(id) {
-                Some(RuntimeStmt::FnDecl { name, body, .. }) => {
-                    if !ast.stdlib_fn_names.contains(name) { add_stmt(ast, *body, eout, sout, stk); }
+                Some(RuntimeStmt::FnDecl { name: _, body, .. }) => {
+                    add_stmt(ast, *body, eout, sout, stk);
                 }
                 Some(RuntimeStmt::Block(children))                   => for c in children.clone() { add_stmt(ast, c, eout, sout, stk); }
                 Some(RuntimeStmt::ExprStmt(e))                       => stk.push(*e),
@@ -268,9 +268,7 @@ pub fn compile(
         for &id in ids {
             match ast.get_stmt(id) {
                 Some(RuntimeStmt::FnDecl { name, params, body, .. }) => {
-                    if !ast.stdlib_fn_names.contains(name) {
-                        out.push((id, name.clone(), params.clone(), *body));
-                    }
+                    out.push((id, name.clone(), params.clone(), *body));
                 }
                 Some(RuntimeStmt::Block(children)) =>
                     collect_fn_decls(ast, children, out),
@@ -762,24 +760,27 @@ pub fn compile(
     let struct_decls: Vec<(String, Vec<(String, String)>)> = struct_decl_map.into_iter().collect();
 
     // ── Pass 0c: create LLVM globals for all string literals ─────────────────
+    // Collect unique strings and sort for deterministic @.str.N numbering.
     let mut string_globals: HashMap<String, GlobalValue<'_>> = HashMap::new();
     let mut str_counter = 0usize;
-    for expr in user_exprs_iter() {
-        if let RuntimeExpr::String(s) = expr {
-            if !string_globals.contains_key(s.as_str()) {
-                let bytes = s.as_bytes();
-                let const_str = context.const_string(bytes, true);
-                let str_ty = context.i8_type().array_type((bytes.len() + 1) as u32);
-                let global = module.add_global(
-                    str_ty, Some(AddressSpace::default()), &format!(".str.{str_counter}"),
-                );
-                global.set_initializer(&const_str);
-                global.set_constant(true);
-                global.set_linkage(Linkage::Private);
-                string_globals.insert(s.clone(), global);
-                str_counter += 1;
-            }
-        }
+    let mut unique_strs: Vec<String> = user_exprs_iter()
+        .filter_map(|e| if let RuntimeExpr::String(s) = e { Some(s.clone()) } else { None })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    unique_strs.sort();
+    for s in &unique_strs {
+        let bytes = s.as_bytes();
+        let const_str = context.const_string(bytes, true);
+        let str_ty = context.i8_type().array_type((bytes.len() + 1) as u32);
+        let global = module.add_global(
+            str_ty, Some(AddressSpace::default()), &format!(".str.{str_counter}"),
+        );
+        global.set_initializer(&const_str);
+        global.set_constant(true);
+        global.set_linkage(Linkage::Private);
+        string_globals.insert(s.clone(), global);
+        str_counter += 1;
     }
 
     // ── Pass 0c2: add struct-printing string literals to string_globals ─────────
@@ -939,6 +940,25 @@ pub fn compile(
                 if let Some(ty) = type_map.get(&expr_id) {
                     if !matches!(ty, Type::Var(_)) {
                         call_site_ret_types.insert(callee.clone(), Some(ty.clone()));
+                    }
+                }
+            }
+        }
+        // Also scan DotCall nodes for namespace calls (e.g. List.join, List.map).
+        // For namespace DotCalls, args map directly to function params 0..n.
+        // This lets stdlib function params (like `sep` in join) get correct types
+        // even though the type checker couldn't infer them from the generic body.
+        if let RuntimeExpr::DotCall { object, method, args } = expr {
+            if let Some(RuntimeExpr::Variable(_ns)) = ast.get_expr(*object) {
+                let entry = call_site_arg_types.entry(method.clone())
+                    .or_insert_with(|| vec![None; args.len()]);
+                for (i, &arg_id) in args.iter().enumerate() {
+                    if i < entry.len() && entry[i].is_none() {
+                        if let Some(ty) = type_map.get(&arg_id) {
+                            if !matches!(ty, Type::Var(_)) {
+                                entry[i] = Some(ty.clone());
+                            }
+                        }
                     }
                 }
             }
@@ -1415,6 +1435,290 @@ pub fn compile(
         }
     }
 
+    // ── Pass 2g: emit string method helpers (trim, split, chars) ────────────────
+    // Must run BEFORE Pass 2 so helpers are defined when stdlib fn bodies reference them.
+    {
+    let has_trim_pre = has_string_ops && user_exprs_iter().any(|e| {
+        matches!(e, RuntimeExpr::DotCall { method, .. } if method == "trim")
+    });
+    let has_split_chars_pre = has_string_ops && has_slices && user_exprs_iter().any(|e| {
+        matches!(e, RuntimeExpr::DotCall { method, .. } if
+            matches!(method.as_str(), "split" | "chars"))
+    });
+    if has_trim_pre || has_split_chars_pre {
+        let sl_ty = cg.slice_ty;
+        let ml_fn = cg.malloc_fn.expect("malloc needed for string methods");
+        let mc_fn = cg.memcpy_fn.expect("memcpy needed for string methods");
+        let sl_fn = cg.strlen_fn.expect("strlen needed for string methods");
+        let ss_fn = cg.strstr_fn;
+        let i8_ty = context.i8_type();
+
+        let trim_ty = ptr_ty.fn_type(&[BasicMetadataTypeEnum::PointerType(ptr_ty)], false);
+        let trim_fn = module.add_function("__cronyx_trim", trim_ty, Some(Linkage::Private));
+        {
+            let bb_entry   = context.append_basic_block(trim_fn, "entry");
+            let bb_fwd     = context.append_basic_block(trim_fn, "fwd");
+            let bb_fwd_chk = context.append_basic_block(trim_fn, "fwd_chk");
+            let bb_fwd_inc = context.append_basic_block(trim_fn, "fwd_inc");
+            let bb_rev_ini = context.append_basic_block(trim_fn, "rev_ini");
+            let bb_rev     = context.append_basic_block(trim_fn, "rev");
+            let bb_rev_chk = context.append_basic_block(trim_fn, "rev_chk");
+            let bb_rev_dec = context.append_basic_block(trim_fn, "rev_dec");
+            let bb_alloc   = context.append_basic_block(trim_fn, "alloc");
+            let bb_empty   = context.append_basic_block(trim_fn, "empty");
+            let str_arg = trim_fn.get_nth_param(0).unwrap().into_pointer_value();
+            builder.position_at_end(bb_entry);
+            let len = builder.build_call(sl_fn, &[str_arg.into()], "slen")?
+                .try_as_basic_value().basic().unwrap().into_int_value();
+            let start_slot = builder.build_alloca(i64_ty, "start")?;
+            builder.build_store(start_slot, i64_ty.const_int(0, false))?;
+            builder.build_unconditional_branch(bb_fwd)?;
+            builder.position_at_end(bb_fwd);
+            let fwd_i = builder.build_load(i64_ty, start_slot, "fwd_i")?.into_int_value();
+            let fwd_cmp = builder.build_int_compare(IntPredicate::SLT, fwd_i, len, "fwd_cmp")?;
+            builder.build_conditional_branch(fwd_cmp, bb_fwd_chk, bb_rev_ini)?;
+            builder.position_at_end(bb_fwd_chk);
+            let fwd_ptr = unsafe { builder.build_gep(i8_ty, str_arg, &[fwd_i], "fwd_ptr")? };
+            let fwd_c = builder.build_load(i8_ty, fwd_ptr, "fwd_c")?.into_int_value();
+            let is_sp  = builder.build_int_compare(IntPredicate::EQ, fwd_c, i8_ty.const_int(b' ' as u64, false), "sp")?;
+            let is_tab = builder.build_int_compare(IntPredicate::EQ, fwd_c, i8_ty.const_int(b'\t' as u64, false), "tab")?;
+            let is_cr  = builder.build_int_compare(IntPredicate::EQ, fwd_c, i8_ty.const_int(b'\r' as u64, false), "cr")?;
+            let is_nl  = builder.build_int_compare(IntPredicate::EQ, fwd_c, i8_ty.const_int(b'\n' as u64, false), "nl")?;
+            let ws1 = builder.build_or(is_sp, is_tab, "ws1")?;
+            let ws2 = builder.build_or(ws1, is_cr, "ws2")?;
+            let ws3 = builder.build_or(ws2, is_nl, "ws3")?;
+            builder.build_conditional_branch(ws3, bb_fwd_inc, bb_rev_ini)?;
+            builder.position_at_end(bb_fwd_inc);
+            let fwd_next = builder.build_int_add(fwd_i, i64_ty.const_int(1, false), "fwd_next")?;
+            builder.build_store(start_slot, fwd_next)?;
+            builder.build_unconditional_branch(bb_fwd)?;
+            builder.position_at_end(bb_rev_ini);
+            let start_val = builder.build_load(i64_ty, start_slot, "start_val")?.into_int_value();
+            let end_slot = builder.build_alloca(i64_ty, "end_slot")?;
+            let last = builder.build_int_sub(len, i64_ty.const_int(1, false), "last")?;
+            builder.build_store(end_slot, last)?;
+            builder.build_unconditional_branch(bb_rev)?;
+            builder.position_at_end(bb_rev);
+            let rev_e = builder.build_load(i64_ty, end_slot, "rev_e")?.into_int_value();
+            let rev_cmp = builder.build_int_compare(IntPredicate::SGE, rev_e, start_val, "rev_cmp")?;
+            builder.build_conditional_branch(rev_cmp, bb_rev_chk, bb_empty)?;
+            builder.position_at_end(bb_rev_chk);
+            let rev_ptr = unsafe { builder.build_gep(i8_ty, str_arg, &[rev_e], "rev_ptr")? };
+            let rev_c = builder.build_load(i8_ty, rev_ptr, "rev_c")?.into_int_value();
+            let r_sp  = builder.build_int_compare(IntPredicate::EQ, rev_c, i8_ty.const_int(b' ' as u64, false), "rsp")?;
+            let r_tab = builder.build_int_compare(IntPredicate::EQ, rev_c, i8_ty.const_int(b'\t' as u64, false), "rtab")?;
+            let r_cr  = builder.build_int_compare(IntPredicate::EQ, rev_c, i8_ty.const_int(b'\r' as u64, false), "rcr")?;
+            let r_nl  = builder.build_int_compare(IntPredicate::EQ, rev_c, i8_ty.const_int(b'\n' as u64, false), "rnl")?;
+            let rws1 = builder.build_or(r_sp, r_tab, "rws1")?;
+            let rws2 = builder.build_or(rws1, r_cr, "rws2")?;
+            let rws3 = builder.build_or(rws2, r_nl, "rws3")?;
+            builder.build_conditional_branch(rws3, bb_rev_dec, bb_alloc)?;
+            builder.position_at_end(bb_rev_dec);
+            let rev_dec = builder.build_int_sub(rev_e, i64_ty.const_int(1, false), "rev_dec")?;
+            builder.build_store(end_slot, rev_dec)?;
+            builder.build_unconditional_branch(bb_rev)?;
+            builder.position_at_end(bb_alloc);
+            let s_val = builder.build_load(i64_ty, start_slot, "s_val")?.into_int_value();
+            let e_val = builder.build_load(i64_ty, end_slot, "e_val")?.into_int_value();
+            let new_len = builder.build_int_sub(e_val, s_val, "new_len0")?;
+            let new_len = builder.build_int_add(new_len, i64_ty.const_int(1, false), "new_len1")?;
+            let buf_sz  = builder.build_int_add(new_len, i64_ty.const_int(1, false), "buf_sz")?;
+            let buf = builder.build_call(ml_fn, &[buf_sz.into()], "buf")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let src = unsafe { builder.build_gep(i8_ty, str_arg, &[s_val], "src")? };
+            builder.build_call(mc_fn, &[buf.into(), src.into(), new_len.into()], "mc")?;
+            let null_pos = unsafe { builder.build_gep(i8_ty, buf, &[new_len], "null_pos")? };
+            builder.build_store(null_pos, i8_ty.const_int(0, false))?;
+            builder.build_return(Some(&buf.as_basic_value_enum()))?;
+            builder.position_at_end(bb_empty);
+            let ebuf = builder.build_call(ml_fn, &[i64_ty.const_int(1, false).into()], "ebuf")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let enull = unsafe { builder.build_gep(i8_ty, ebuf, &[i64_ty.const_int(0, false)], "enull")? };
+            builder.build_store(enull, i8_ty.const_int(0, false))?;
+            builder.build_return(Some(&ebuf.as_basic_value_enum()))?;
+        }
+        cg.str_trim_fn = Some(trim_fn);
+
+        if has_split_chars_pre {
+        let sl_ty2 = sl_ty.expect("slice_ty needed for split/chars");
+        let ss_fn2 = ss_fn.expect("strstr needed for split");
+
+        let chars_ty = ptr_ty.fn_type(&[BasicMetadataTypeEnum::PointerType(ptr_ty)], false);
+        let chars_fn = module.add_function("__cronyx_chars", chars_ty, Some(Linkage::Private));
+        {
+            let bb_entry   = context.append_basic_block(chars_fn, "entry");
+            let bb_loop    = context.append_basic_block(chars_fn, "loop");
+            let bb_body    = context.append_basic_block(chars_fn, "body");
+            let bb_exit    = context.append_basic_block(chars_fn, "exit");
+            let str_arg = chars_fn.get_nth_param(0).unwrap().into_pointer_value();
+            let i8_ty2 = context.i8_type();
+            let ptr_size = i64_ty.const_int(8, false);
+            builder.position_at_end(bb_entry);
+            let n = builder.build_call(sl_fn, &[str_arg.into()], "n")?
+                .try_as_basic_value().basic().unwrap().into_int_value();
+            let data_sz = builder.build_int_mul(n, ptr_size, "data_sz")?;
+            let data_buf = builder.build_call(ml_fn, &[data_sz.into()], "data_buf")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let slice_size = i64_ty.const_int(24, false);
+            let slice_ptr = builder.build_call(ml_fn, &[slice_size.into()], "slice_ptr")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let i32_zero = context.i32_type().const_int(0, false);
+            let lp = unsafe { builder.build_gep(sl_ty2, slice_ptr, &[i32_zero, i32_zero], "lp")? };
+            builder.build_store(lp, n)?;
+            let cp = unsafe { builder.build_gep(sl_ty2, slice_ptr, &[i32_zero, context.i32_type().const_int(1, false)], "cp")? };
+            builder.build_store(cp, n)?;
+            let dp = unsafe { builder.build_gep(sl_ty2, slice_ptr, &[i32_zero, context.i32_type().const_int(2, false)], "dp")? };
+            builder.build_store(dp, data_buf)?;
+            let i_slot = builder.build_alloca(i64_ty, "i")?;
+            builder.build_store(i_slot, i64_ty.const_int(0, false))?;
+            builder.build_unconditional_branch(bb_loop)?;
+            builder.position_at_end(bb_loop);
+            let ci = builder.build_load(i64_ty, i_slot, "ci")?.into_int_value();
+            let cond = builder.build_int_compare(IntPredicate::SLT, ci, n, "cond")?;
+            builder.build_conditional_branch(cond, bb_body, bb_exit)?;
+            builder.position_at_end(bb_body);
+            let cp_i = unsafe { builder.build_gep(i8_ty2, str_arg, &[ci], "cp_i")? };
+            let ch = builder.build_load(i8_ty2, cp_i, "ch")?.into_int_value();
+            let ch_buf = builder.build_call(ml_fn, &[i64_ty.const_int(2, false).into()], "ch_buf")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let ch_p0 = unsafe { builder.build_gep(i8_ty2, ch_buf, &[i64_ty.const_int(0, false)], "p0")? };
+            builder.build_store(ch_p0, ch)?;
+            let ch_p1 = unsafe { builder.build_gep(i8_ty2, ch_buf, &[i64_ty.const_int(1, false)], "p1")? };
+            builder.build_store(ch_p1, i8_ty2.const_int(0, false))?;
+            let elem_ptr = unsafe { builder.build_gep(ptr_ty, data_buf, &[ci], "elem_ptr")? };
+            builder.build_store(elem_ptr, ch_buf)?;
+            let ci_next = builder.build_int_add(ci, i64_ty.const_int(1, false), "ci_next")?;
+            builder.build_store(i_slot, ci_next)?;
+            builder.build_unconditional_branch(bb_loop)?;
+            builder.position_at_end(bb_exit);
+            builder.build_return(Some(&slice_ptr.as_basic_value_enum()))?;
+        }
+        cg.str_chars_fn = Some(chars_fn);
+
+        let split_ty = ptr_ty.fn_type(&[
+            BasicMetadataTypeEnum::PointerType(ptr_ty),
+            BasicMetadataTypeEnum::PointerType(ptr_ty),
+        ], false);
+        let split_fn = module.add_function("__cronyx_split", split_ty, Some(Linkage::Private));
+        {
+            let bb_entry   = context.append_basic_block(split_fn, "entry");
+            let bb_cnt     = context.append_basic_block(split_fn, "cnt");
+            let bb_cnt_b   = context.append_basic_block(split_fn, "cnt_b");
+            let bb_alloc   = context.append_basic_block(split_fn, "alloc");
+            let bb_fill    = context.append_basic_block(split_fn, "fill");
+            let bb_fill_b  = context.append_basic_block(split_fn, "fill_b");
+            let bb_fill_e  = context.append_basic_block(split_fn, "fill_e");
+            let bb_last    = context.append_basic_block(split_fn, "last");
+            let bb_done    = context.append_basic_block(split_fn, "done");
+            let i8_ty3 = context.i8_type();
+            let ptr_size2 = i64_ty.const_int(8, false);
+            let str_arg   = split_fn.get_nth_param(0).unwrap().into_pointer_value();
+            let delim_arg = split_fn.get_nth_param(1).unwrap().into_pointer_value();
+            builder.position_at_end(bb_entry);
+            let dlen = builder.build_call(sl_fn, &[delim_arg.into()], "dlen")?
+                .try_as_basic_value().basic().unwrap().into_int_value();
+            let cnt_slot = builder.build_alloca(i64_ty, "cnt")?;
+            builder.build_store(cnt_slot, i64_ty.const_int(0, false))?;
+            let pos_slot = builder.build_alloca(ptr_ty, "pos")?;
+            builder.build_store(pos_slot, str_arg)?;
+            builder.build_unconditional_branch(bb_cnt)?;
+            builder.position_at_end(bb_cnt);
+            let cur_pos = builder.build_load(ptr_ty, pos_slot, "cur")?.into_pointer_value();
+            let found = builder.build_call(ss_fn2, &[cur_pos.into(), delim_arg.into()], "found")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let found_int = builder.build_ptr_to_int(found, i64_ty, "fi")?;
+            let not_null = builder.build_int_compare(IntPredicate::NE, found_int, i64_ty.const_int(0, false), "nn")?;
+            builder.build_conditional_branch(not_null, bb_cnt_b, bb_alloc)?;
+            builder.position_at_end(bb_cnt_b);
+            let old_cnt = builder.build_load(i64_ty, cnt_slot, "oc")?.into_int_value();
+            let new_cnt = builder.build_int_add(old_cnt, i64_ty.const_int(1, false), "nc")?;
+            builder.build_store(cnt_slot, new_cnt)?;
+            let next_pos = unsafe { builder.build_gep(i8_ty3, found, &[dlen], "next_pos")? };
+            builder.build_store(pos_slot, next_pos)?;
+            builder.build_unconditional_branch(bb_cnt)?;
+            builder.position_at_end(bb_alloc);
+            let cnt = builder.build_load(i64_ty, cnt_slot, "cnt")?.into_int_value();
+            let n_parts = builder.build_int_add(cnt, i64_ty.const_int(1, false), "n_parts")?;
+            let data_sz2 = builder.build_int_mul(n_parts, ptr_size2, "dsz")?;
+            let data_buf2 = builder.build_call(ml_fn, &[data_sz2.into()], "dbuf")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let sl_sz = i64_ty.const_int(24, false);
+            let slice_ptr2 = builder.build_call(ml_fn, &[sl_sz.into()], "sptr")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let i32_z = context.i32_type().const_int(0, false);
+            let lp2 = unsafe { builder.build_gep(sl_ty2, slice_ptr2, &[i32_z, i32_z], "slp")? };
+            builder.build_store(lp2, n_parts)?;
+            let cp2 = unsafe { builder.build_gep(sl_ty2, slice_ptr2, &[i32_z, context.i32_type().const_int(1, false)], "scp")? };
+            builder.build_store(cp2, n_parts)?;
+            let dp2 = unsafe { builder.build_gep(sl_ty2, slice_ptr2, &[i32_z, context.i32_type().const_int(2, false)], "sdp")? };
+            builder.build_store(dp2, data_buf2)?;
+            let idx_slot = builder.build_alloca(i64_ty, "idx")?;
+            builder.build_store(idx_slot, i64_ty.const_int(0, false))?;
+            builder.build_store(pos_slot, str_arg)?;
+            builder.build_unconditional_branch(bb_fill)?;
+            builder.position_at_end(bb_fill);
+            let fp = builder.build_load(ptr_ty, pos_slot, "fp")?.into_pointer_value();
+            let fnxt = builder.build_call(ss_fn2, &[fp.into(), delim_arg.into()], "fnxt")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            let fnxt_int = builder.build_ptr_to_int(fnxt, i64_ty, "fi2")?;
+            let fnn = builder.build_int_compare(IntPredicate::NE, fnxt_int, i64_ty.const_int(0, false), "fnn")?;
+            builder.build_conditional_branch(fnn, bb_fill_b, bb_last)?;
+            builder.position_at_end(bb_fill_b);
+            let fp_int   = builder.build_ptr_to_int(fp, i64_ty, "fpi")?;
+            let fnxt_int2 = builder.build_ptr_to_int(fnxt, i64_ty, "fni")?;
+            let seg_len   = builder.build_int_sub(fnxt_int2, fp_int, "slen")?;
+            let seg_sz = builder.build_int_add(seg_len, i64_ty.const_int(1, false), "ssz")?;
+            let seg_buf = builder.build_call(ml_fn, &[seg_sz.into()], "sbuf")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            builder.build_call(mc_fn, &[seg_buf.into(), fp.into(), seg_len.into()], "mcp")?;
+            let null_p = unsafe { builder.build_gep(i8_ty3, seg_buf, &[seg_len], "np")? };
+            builder.build_store(null_p, i8_ty3.const_int(0, false))?;
+            let fi = builder.build_load(i64_ty, idx_slot, "fi3")?.into_int_value();
+            let ep = unsafe { builder.build_gep(ptr_ty, data_buf2, &[fi], "ep")? };
+            builder.build_store(ep, seg_buf)?;
+            let fi_next = builder.build_int_add(fi, i64_ty.const_int(1, false), "fin")?;
+            builder.build_store(idx_slot, fi_next)?;
+            let nxt_p = unsafe { builder.build_gep(i8_ty3, fnxt, &[dlen], "nxtp")? };
+            builder.build_store(pos_slot, nxt_p)?;
+            builder.build_unconditional_branch(bb_fill)?;
+            builder.position_at_end(bb_fill_e);
+            builder.build_unconditional_branch(bb_done)?;
+            builder.position_at_end(bb_last);
+            let lp3 = builder.build_load(ptr_ty, pos_slot, "lp2")?.into_pointer_value();
+            let rem_len = builder.build_call(sl_fn, &[lp3.into()], "rem")?
+                .try_as_basic_value().basic().unwrap().into_int_value();
+            let rem_sz = builder.build_int_add(rem_len, i64_ty.const_int(1, false), "remsz")?;
+            let rem_buf = builder.build_call(ml_fn, &[rem_sz.into()], "rbuf")?
+                .try_as_basic_value().basic().unwrap().into_pointer_value();
+            builder.build_call(mc_fn, &[rem_buf.into(), lp3.into(), rem_len.into()], "rmcp")?;
+            let rnull = unsafe { builder.build_gep(i8_ty3, rem_buf, &[rem_len], "rnull")? };
+            builder.build_store(rnull, i8_ty3.const_int(0, false))?;
+            let ri = builder.build_load(i64_ty, idx_slot, "ri")?.into_int_value();
+            let rep = unsafe { builder.build_gep(ptr_ty, data_buf2, &[ri], "rep")? };
+            builder.build_store(rep, rem_buf)?;
+            builder.build_unconditional_branch(bb_done)?;
+            builder.position_at_end(bb_done);
+            builder.build_return(Some(&slice_ptr2.as_basic_value_enum()))?;
+        }
+        cg.str_split_fn = Some(split_fn);
+        } // if has_split_chars_pre
+    }
+
+    // ── Pass 2h: declare strncmp for starts_with / ends_with ─────────────────
+    let has_starts_ends_pre = has_string_ops && ast.exprs.values().any(|e| {
+        matches!(e, RuntimeExpr::DotCall { method, .. } if
+            matches!(method.as_str(), "starts_with" | "ends_with"))
+    });
+    if has_starts_ends_pre {
+        let strncmp_ty = context.i32_type().fn_type(&[
+            BasicMetadataTypeEnum::PointerType(ptr_ty),
+            BasicMetadataTypeEnum::PointerType(ptr_ty),
+            BasicMetadataTypeEnum::IntType(i64_ty),
+        ], false);
+        cg.strncmp_fn = Some(module.add_function("strncmp", strncmp_ty, Some(Linkage::External)));
+    }
+    } // end pre-pass 2g/2h block
+
     // ── Pass 2: emit function bodies ──────────────────────────────────────────
     // `params` already includes `__k` for CPS functions (added by cps_transform).
     for (_stmt_id, fname, params, body_id) in &fn_decls {
@@ -1442,21 +1746,17 @@ pub fn compile(
         cg.emit_fn_body(fn_val, &param_names, arg_types, *body_id, false, !is_resuming)?;
     }
 
-    // ── Pass 2g: emit string method helpers (trim, split, chars) ────────────────
-    let has_trim = has_string_ops && user_exprs_iter().any(|e| {
-        matches!(e, RuntimeExpr::DotCall { method, .. } if method == "trim")
-    });
-    let has_split_chars = has_string_ops && has_slices && user_exprs_iter().any(|e| {
-        matches!(e, RuntimeExpr::DotCall { method, .. } if
-            matches!(method.as_str(), "split" | "chars"))
-    });
-    if has_trim || has_split_chars {
-        let sl_ty = cg.slice_ty; // May be None if has_slices is false
-        let ml_fn = cg.malloc_fn.expect("malloc needed for string methods");
-        let mc_fn = cg.memcpy_fn.expect("memcpy needed for string methods");
-        let sl_fn = cg.strlen_fn.expect("strlen needed for string methods");
+    // ── (Pass 2g and 2h moved above Pass 2 — see earlier block) ─────────────────
+    #[allow(unreachable_code)]
+    if false {
+        #[allow(unused_variables)]
+        let sl_ty = cg.slice_ty;
+        let ml_fn = cg.malloc_fn.expect("malloc");
+        let mc_fn = cg.memcpy_fn.expect("memcpy");
+        let sl_fn = cg.strlen_fn.expect("strlen");
         let ss_fn = cg.strstr_fn;
         let i8_ty = context.i8_type();
+        let has_split_chars = false;
 
         // ── __cronyx_trim(ptr str) → ptr ──────────────────────────────────────
         // Only emit when the program actually uses .trim()
@@ -1762,20 +2062,6 @@ pub fn compile(
         } // if has_split_chars
     }
 
-    // ── Pass 2h: declare strncmp for starts_with / ends_with ─────────────────
-    let has_starts_ends = has_string_ops && ast.exprs.values().any(|e| {
-        matches!(e, RuntimeExpr::DotCall { method, .. } if
-            matches!(method.as_str(), "starts_with" | "ends_with"))
-    });
-    if has_starts_ends {
-        let strncmp_ty = context.i32_type().fn_type(&[
-            BasicMetadataTypeEnum::PointerType(ptr_ty),
-            BasicMetadataTypeEnum::PointerType(ptr_ty),
-            BasicMetadataTypeEnum::IntType(i64_ty),
-        ], false);
-        cg.strncmp_fn = Some(module.add_function("strncmp", strncmp_ty, Some(Linkage::External)));
-    }
-
     // ── Pass 3: emit main() ───────────────────────────────────────────────────
     let main_ty = i32_ty.fn_type(&[], false);
     let main_fn = module.add_function("main", main_ty, None);
@@ -2060,8 +2346,13 @@ impl<'ctx> Cg<'ctx> {
                             LocalKind::StructPtr(sname.clone()),
                         Some(Some(Type::Primitive(PrimitiveType::String))) =>
                             LocalKind::Str,
-                        Some(Some(Type::Slice(_))) =>
-                            LocalKind::Slice,
+                        Some(Some(Type::Slice(inner))) => {
+                            // If it's a string slice, track it so Index knows elements are ptrs.
+                            if matches!(inner.as_ref(), Type::Primitive(PrimitiveType::String)) {
+                                self.str_slices.borrow_mut().insert(name.clone());
+                            }
+                            LocalKind::Slice
+                        }
                         Some(Some(Type::Func { .. })) =>
                             LocalKind::Closure,
                         Some(Some(Type::Tuple(_))) =>
@@ -2146,6 +2437,9 @@ impl<'ctx> Cg<'ctx> {
     ) -> Result<(), CodegenError> {
         let entry = self.context.append_basic_block(fn_val, "entry");
         self.builder.position_at_end(entry);
+        // Lambdas always have i64 return type in LLVM; reset flag to avoid
+        // inheriting is_ptr_return from the enclosing function body.
+        self.cur_is_ptr_return.set(false);
 
         let mut locals: Locals<'ctx> = HashMap::new();
 
@@ -2232,6 +2526,33 @@ impl<'ctx> Cg<'ctx> {
     // ── Indirect closure call ─────────────────────────────────────────────────
     // Extracts fn_ptr and env_ptr from the closure struct and calls indirectly.
     // The function type is built from the arg values: i64(ptr env, [arg types]).
+
+    /// Coerce call args to match the LLVM param types of `fn_val`:
+    /// ptr→i64 (ptrtoint) or i64→ptr (inttoptr) as needed.
+    fn coerce_args(
+        &self,
+        fn_val: FunctionValue<'ctx>,
+        mut args: Vec<BasicMetadataValueEnum<'ctx>>,
+    ) -> Result<Vec<BasicMetadataValueEnum<'ctx>>, CodegenError> {
+        for (i, arg) in args.iter_mut().enumerate() {
+            if let Some(param) = fn_val.get_nth_param(i as u32) {
+                *arg = match (*arg, param.get_type()) {
+                    (BasicMetadataValueEnum::PointerValue(pv),
+                     BasicTypeEnum::IntType(_)) => {
+                        BasicMetadataValueEnum::IntValue(
+                            self.builder.build_ptr_to_int(pv, self.i64_ty, "arg_p2i")?)
+                    }
+                    (BasicMetadataValueEnum::IntValue(iv),
+                     BasicTypeEnum::PointerType(_)) => {
+                        BasicMetadataValueEnum::PointerValue(
+                            self.builder.build_int_to_ptr(iv, self.ptr_ty, "arg_i2p")?)
+                    }
+                    _ => *arg,
+                };
+            }
+        }
+        Ok(args)
+    }
 
     fn emit_closure_call(
         &self,
@@ -2416,6 +2737,10 @@ impl<'ctx> Cg<'ctx> {
                 let is_bool = matches!(
                     self.type_map.get(&inner_id),
                     Some(Type::Primitive(PrimitiveType::Bool))
+                ) || matches!(
+                    self.ast.get_expr(inner_id),
+                    Some(RuntimeExpr::DotCall { method, .. })
+                    if matches!(method.as_str(), "any" | "all" | "contains" | "is_empty" | "starts_with" | "ends_with")
                 );
                 match self.emit_expr(inner_id, locals)? {
                     BasicValueEnum::IntValue(iv) if is_bool => {
@@ -2522,10 +2847,9 @@ impl<'ctx> Cg<'ctx> {
                                 Some(Type::Tuple(_)) =>
                                     LocalKind::Tuple,
                                 _ => {
-                                    // type_map has Var/None — try to infer from op dispatch.
-                                    // Check if the expr is a binop (Add/Sub/Mult/Div) with a
-                                    // struct LHS that has a registered op dispatch impl.
-                                    let op_dispatch_kind = match self.ast.get_expr(*expr) {
+                                    // type_map has Var/None — try multiple inference strategies.
+                                    let inferred = match self.ast.get_expr(*expr) {
+                                        // binop: check struct LHS via op dispatch
                                         Some(RuntimeExpr::Add(a, _))
                                         | Some(RuntimeExpr::Sub(a, _))
                                         | Some(RuntimeExpr::Mult(a, _))
@@ -2534,9 +2858,28 @@ impl<'ctx> Cg<'ctx> {
                                                 Some(LocalKind::StructPtr(tn.clone()))
                                             } else { None }
                                         }
+                                        Some(RuntimeExpr::DotCall { method, object, .. }) => {
+                                            // Methods returning a new slice (list/collection):
+                                            if matches!(method.as_str(),
+                                                "map" | "filter" | "flat_map" | "reverse" |
+                                                "concat" | "take" | "drop" | "zip" | "sort" |
+                                                "keys" | "values" | "entries" | "to_list"
+                                            ) {
+                                                Some(LocalKind::Slice)
+                                            // Methods returning an Option enum:
+                                            } else if matches!(method.as_str(), "find" | "get" | "first" | "last") {
+                                                Some(LocalKind::EnumPtr)
+                                            // Namespace call constructing/returning that struct:
+                                            } else if let Some(RuntimeExpr::Variable(ns)) = self.ast.get_expr(*object) {
+                                                let ns = ns.clone();
+                                                if self.ast.impl_registry.keys().any(|(t, _)| t == &ns) {
+                                                    Some(LocalKind::StructPtr(ns))
+                                                } else { None }
+                                            } else { None }
+                                        }
                                         _ => None,
                                     };
-                                    op_dispatch_kind.unwrap_or(LocalKind::Str)
+                                    inferred.unwrap_or(LocalKind::Str)
                                 }
                             }
                         };
@@ -2562,7 +2905,17 @@ impl<'ctx> Cg<'ctx> {
                     (LocalKind::Int, BasicValueEnum::IntValue(iv)) => {
                         self.builder.build_store(slot, iv)?;
                     }
+                    // Pointer stored into an Int slot (e.g. string ptr held as i64 in generic slice var)
+                    (LocalKind::Int, BasicValueEnum::PointerValue(pv)) => {
+                        let iv = self.builder.build_ptr_to_int(pv, self.i64_ty, "assign_p2i")?;
+                        self.builder.build_store(slot, iv)?;
+                    }
                     (LocalKind::StructPtr(_) | LocalKind::Str | LocalKind::Slice | LocalKind::Closure | LocalKind::EnumPtr | LocalKind::Tuple, BasicValueEnum::PointerValue(pv)) => {
+                        self.builder.build_store(slot, pv)?;
+                    }
+                    // Int stored into a Str slot (string ptr coming back as i64)
+                    (LocalKind::Str, BasicValueEnum::IntValue(iv)) => {
+                        let pv = self.builder.build_int_to_ptr(iv, self.ptr_ty, "assign_i2p")?;
                         self.builder.build_store(slot, pv)?;
                     }
                     _ => return Err(CodegenError::UnsupportedStmt(stmt_id)),
@@ -2811,11 +3164,30 @@ impl<'ctx> Cg<'ctx> {
                             let resolved_variant = self.enum_registry.get(enum_name)
                                 .and_then(|vs| vs.iter().find(|v| &v.name == variant));
                             let tag = resolved_variant.map(|v| v.tag as u64).unwrap_or(0);
-                            let payload_types: Vec<Type> = match resolved_variant.map(|v| &v.payload) {
+                            // Raw payload types from registry (may contain Type::Enum("T") for type params)
+                            let raw_payload_types: Vec<Type> = match resolved_variant.map(|v| &v.payload) {
                                 Some(ResolvedPayload::Tuple(tys)) => tys.clone(),
                                 Some(ResolvedPayload::Struct(fields)) => fields.iter().map(|(_, t)| t.clone()).collect(),
                                 _ => vec![],
                             };
+                            // Resolve generic type parameters using the scrutinee's concrete App type.
+                            // e.g. Option::Some(T) with scrutinee type Option<Int> → payload = [Int]
+                            let scrutinee_app_args: Vec<Type> = match self.type_map.get(scrutinee) {
+                                Some(Type::App(_, args)) => args.clone(),
+                                _ => vec![],
+                            };
+                            let payload_types: Vec<Type> = raw_payload_types.iter().map(|ty| {
+                                // If the registry type is Type::Enum("T") it's a type parameter placeholder.
+                                // Try to resolve it from the scrutinee's concrete App args.
+                                if let Type::Enum(_param_name) = ty {
+                                    // Use first concrete App arg as a best-effort substitution.
+                                    // This is correct for single-param generics (Option<T>, Box<T>, etc.)
+                                    if let Some(concrete) = scrutinee_app_args.first() {
+                                        return concrete.clone();
+                                    }
+                                }
+                                ty.clone()
+                            }).collect();
                             let arm_bb = self.context.append_basic_block(cur_fn, &format!("arm_{variant}"));
                             let tag_const = self.i64_ty.const_int(tag, false);
                             let binding_names: Vec<String> = match bindings {
@@ -2843,12 +3215,16 @@ impl<'ctx> Cg<'ctx> {
                         };
                         let payload_val = self.builder.build_load(self.i64_ty, payload_ptr, "payload")?.into_int_value();
                         // Helper: is the payload type a heap pointer (enum, string, slice, etc.)?
-                        let is_ptr_ty = |ty: &Type| matches!(
-                            ty,
-                            Type::Enum(_) | Type::App(..) | Type::Struct { .. }
-                            | Type::Slice(_) | Type::Tuple(_) | Type::Func { .. }
-                            | Type::Primitive(PrimitiveType::String)
-                        );
+                        // Note: Type::Enum(name) where name is NOT in the registry means it's
+                        // a generic type parameter (e.g. T, U) — treat as non-pointer (Int).
+                        let is_ptr_ty = |ty: &Type| match ty {
+                            Type::App(..) | Type::Struct { .. } | Type::Slice(_)
+                            | Type::Tuple(_) | Type::Func { .. }
+                            | Type::Primitive(PrimitiveType::String) => true,
+                            // Only treat as ptr if it's a real registered enum, not a type param.
+                            Type::Enum(name) => self.enum_registry.get(name.as_str()).is_some(),
+                            _ => false,
+                        };
                         if binding_names.len() == 1 {
                             // Single binding: payload is the value (int) or ptrtoint (ptr) directly
                             let var_name = &binding_names[0];
@@ -3398,6 +3774,25 @@ impl<'ctx> Cg<'ctx> {
                             return true;
                         }
                     }
+                    // If this node is an Add, check children — handles (str + str) + x cases
+                    if let Some(RuntimeExpr::Add(ia, ib)) = self.ast.get_expr(id) {
+                        let (ia, ib) = (*ia, *ib);
+                        if matches!(self.type_map.get(&ia), Some(Type::Primitive(PrimitiveType::String)))
+                            || matches!(self.type_map.get(&ib), Some(Type::Primitive(PrimitiveType::String)))
+                        {
+                            return true;
+                        }
+                        if let Some(RuntimeExpr::Variable(name)) = self.ast.get_expr(ia) {
+                            if matches!(locals.get(name).map(|l| &l.kind), Some(LocalKind::Str)) {
+                                return true;
+                            }
+                        }
+                        if let Some(RuntimeExpr::Variable(name)) = self.ast.get_expr(ib) {
+                            if matches!(locals.get(name).map(|l| &l.kind), Some(LocalKind::Str)) {
+                                return true;
+                            }
+                        }
+                    }
                     false
                 };
                 let a_is_str = operand_is_str(*a);
@@ -3407,12 +3802,20 @@ impl<'ctx> Cg<'ctx> {
                     let malloc_fn = self.malloc_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                     let strcpy_fn = self.strcpy_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                     let strcat_fn = self.strcat_fn.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
+                    // Coerce i64 to ptr: happens when a string is stored as LocalKind::Int
+                    // (e.g. loaded from a generic slice where element type is unknown).
                     let lhs = match self.emit_expr(*a, locals)? {
                         BasicValueEnum::PointerValue(p) => p,
+                        BasicValueEnum::IntValue(iv) =>
+                            self.builder.build_int_to_ptr(iv, self.ptr_ty, "str_i2p")
+                                .map_err(|_| CodegenError::UnsupportedExpr(expr_id))?,
                         _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
                     };
                     let rhs = match self.emit_expr(*b, locals)? {
                         BasicValueEnum::PointerValue(p) => p,
+                        BasicValueEnum::IntValue(iv) =>
+                            self.builder.build_int_to_ptr(iv, self.ptr_ty, "str_i2p")
+                                .map_err(|_| CodegenError::UnsupportedExpr(expr_id))?,
                         _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
                     };
                     let len_l = self.builder.build_call(strlen_fn, &[lhs.into()], "len_l")?
@@ -3594,14 +3997,23 @@ impl<'ctx> Cg<'ctx> {
 
             // ── Dot access → getelementptr + load ─────────────────────────────
             RuntimeExpr::DotAccess { object, field } => {
-                // Resolve the struct name: prefer type_map (now reliable after the
-                // type-checker fix), fall back to locals for Variable objects.
+                // Resolve the struct name: prefer type_map, then LocalKind, then
+                // search all registered structs by field name (handles i64-typed stdlib params).
+                let mut obj_is_int_ptr = false;
                 let struct_name = match self.type_map.get(object) {
                     Some(Type::Struct { name, .. }) => name.clone(),
                     _ => {
                         if let Some(RuntimeExpr::Variable(vname)) = self.ast.get_expr(*object) {
                             match locals.get(vname.as_str()) {
                                 Some(Local { kind: LocalKind::StructPtr(sname), .. }) => sname.clone(),
+                                Some(Local { kind: LocalKind::Int, .. }) => {
+                                    // Untyped param passed as ptrtoint. Search structs by field name.
+                                    obj_is_int_ptr = true;
+                                    self.structs.iter()
+                                        .find(|(_, meta)| meta.field_names.iter().any(|n| n == field))
+                                        .map(|(sname, _)| sname.clone())
+                                        .ok_or(CodegenError::UnsupportedExpr(expr_id))?
+                                }
                                 _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
                             }
                         } else {
@@ -3614,23 +4026,33 @@ impl<'ctx> Cg<'ctx> {
                     .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                 let fidx = meta.field_names.iter().position(|n| n == field)
                     .ok_or(CodegenError::UnsupportedExpr(expr_id))?;
-                // Use type_map for the DotAccess expr itself to determine if the
-                // result is a pointer (String, Struct, Slice, Tuple, Func).
-                // Fallback to field_type_names only when type_map has no entry.
+                // Determine if the field value is a pointer type.
+                // Type::Var (from unresolved inference) is treated as non-ptr to avoid
+                // incorrect inttoptr — the field_type_names fallback is more reliable here.
                 let field_is_ptr = match self.type_map.get(&expr_id) {
-                    Some(ty) => matches!(ty,
+                    Some(ty) if !matches!(ty, Type::Var(_)) => matches!(ty,
                         Type::Enum(_) | Type::App(..) | Type::Struct { .. }
                         | Type::Primitive(PrimitiveType::String)
                         | Type::Slice(_) | Type::Tuple(_) | Type::Func { .. }),
-                    None => {
+                    _ => {
                         let field_type_name = meta.field_type_names.get(fidx).map(|s| s.as_str()).unwrap_or("int");
                         field_type_name != "int" && field_type_name != "bool" && field_type_name != "i64"
                     }
                 };
 
-                let obj_ptr = match self.emit_expr(*object, locals)? {
-                    BasicValueEnum::PointerValue(p) => p,
-                    _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                let obj_ptr = if obj_is_int_ptr {
+                    let raw = self.emit_expr(*object, locals)?;
+                    match raw {
+                        BasicValueEnum::IntValue(iv) =>
+                            self.builder.build_int_to_ptr(iv, self.ptr_ty, "int_to_struct_ptr")?,
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                    }
+                } else {
+                    match self.emit_expr(*object, locals)? {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
+                    }
                 };
                 let fptr = unsafe {
                     self.builder.build_gep(
@@ -3847,9 +4269,10 @@ impl<'ctx> Cg<'ctx> {
                 // with-fn takes priority over with-ctl; both take priority over user_fns
                 let fn_val_opt = wf_fn.or(wc_fn).or_else(|| self.user_fns.get(callee.as_str()).copied());
                 if let Some(fn_val) = fn_val_opt {
-                    let mut arg_vals: Vec<BasicMetadataValueEnum<'ctx>> = args.iter()
+                    let raw_arg_vals: Vec<BasicMetadataValueEnum<'ctx>> = args.iter()
                         .map(|&a| self.emit_expr(a, locals).map(basic_to_meta))
                         .collect::<Result<_, _>>()?;
+                    let mut arg_vals = self.coerce_args(fn_val, raw_arg_vals)?;
                     // CPS functions called without their terminal continuation (e.g. __handle_N()
                     // at top level) need a noop __k injected — mirrors the interpreter's
                     // HOF __k injection (interpreter.rs lines 622–629).
@@ -3962,6 +4385,45 @@ impl<'ctx> Cg<'ctx> {
             // ── String / List method calls ────────────────────────────────────
             RuntimeExpr::DotCall { object, method, args } => {
                 // ── Trait method dispatch on structs ──────────────────────────
+                // ── Namespace call: List.map(...), HashMap.get(...) etc. ──────────
+                if let Some(RuntimeExpr::Variable(ns_name)) = self.ast.get_expr(*object) {
+                    let ns_name = ns_name.clone();
+                    let binding = self.ast.module_bindings.iter()
+                        .find(|(bind_name, _)| bind_name.as_str() == ns_name.as_str());
+                    if let Some((_, exports)) = binding {
+                        let fn_entry = exports.iter().find(|(name, _)| name.as_str() == method.as_str());
+                        if let Some((_, opt_id)) = fn_entry {
+                            let fn_val = match opt_id {
+                                Some(stmt_id) => match self.ast.get_stmt(*stmt_id) {
+                                    Some(RuntimeStmt::FnDecl { name: fn_name, .. }) =>
+                                        self.user_fns.get(fn_name.as_str()).copied(),
+                                    _ => None,
+                                },
+                                None => self.user_fns.get(method.as_str()).copied(),
+                            };
+                            if let Some(fn_val) = fn_val {
+                                let raw_args: Vec<BasicMetadataValueEnum<'ctx>> = args.iter()
+                                    .map(|&a| self.emit_expr(a, locals).map(basic_to_meta))
+                                    .collect::<Result<_, _>>()?;
+                                let mut call_args = self.coerce_args(fn_val, raw_args)?;
+                                // Inject noop continuation if CPS function called without one.
+                                if call_args.len() + 1 == fn_val.count_params() as usize {
+                                    let last_is_ptr = fn_val.get_nth_param(fn_val.count_params() - 1)
+                                        .map(|p| p.is_pointer_value()).unwrap_or(false);
+                                    if last_is_ptr {
+                                        if let Some(noop) = self.noop_k_closure {
+                                            call_args.push(BasicMetadataValueEnum::PointerValue(noop.as_pointer_value()));
+                                        }
+                                    }
+                                }
+                                let call_site = self.builder.build_call(fn_val, &call_args, "ns_call")?;
+                                return call_site.try_as_basic_value().basic()
+                                    .ok_or(CodegenError::UnsupportedExpr(expr_id));
+                            }
+                        }
+                    }
+                }
+
                 // Resolve struct type name: prefer type_map, fall back to locals kind.
                 let struct_type_name: Option<String> = match self.type_map.get(object) {
                     Some(Type::Struct { name, .. }) => Some(name.clone()),
@@ -3993,15 +4455,22 @@ impl<'ctx> Cg<'ctx> {
                         }
                     }
                 }
+                let is_str_only_method = matches!(method.as_str(),
+                    "chars" | "trim" | "split" | "starts_with" | "ends_with" | "replace");
                 let obj_is_str = matches!(
                     self.type_map.get(object),
                     Some(Type::Primitive(PrimitiveType::String))
                 ) || (if let Some(RuntimeExpr::Variable(vname)) = self.ast.get_expr(*object) {
-                    matches!(locals.get(vname.as_str()), Some(Local { kind: LocalKind::Str, .. }))
+                    let l = locals.get(vname.as_str());
+                    matches!(l, Some(Local { kind: LocalKind::Str, .. }))
+                        // String params passed as i64 (untyped) in stdlib fns: inttoptr fallback.
+                        || (is_str_only_method && matches!(l, Some(Local { kind: LocalKind::Int, .. })))
                 } else { false });
                 if obj_is_str {
                     let obj_ptr = match self.emit_expr(*object, locals)? {
                         BasicValueEnum::PointerValue(p) => p,
+                        BasicValueEnum::IntValue(iv) =>
+                            self.builder.build_int_to_ptr(iv, self.ptr_ty, "int_to_str_ptr")?,
                         _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
                     };
                     match method.as_str() {
@@ -4112,19 +4581,50 @@ impl<'ctx> Cg<'ctx> {
                     }
                 } else {
                     // ── Slice (list) methods ──────────────────────────────────
+                    let is_list_method = matches!(method.as_str(), "len" | "push" | "pop" | "contains");
                     let obj_is_slice = matches!(
                         self.type_map.get(object),
                         Some(Type::Slice(_))
                     ) || {
                         if let Some(RuntimeExpr::Variable(vname)) = self.ast.get_expr(*object) {
-                            locals.get(vname.as_str()).map(|l| matches!(l.kind, LocalKind::Slice)).unwrap_or(false)
-                                || self.global_vars.get(vname.as_str()).map(|(_, k)| matches!(k, LocalKind::Slice)).unwrap_or(false)
+                            let l = locals.get(vname.as_str());
+                            let g = self.global_vars.get(vname.as_str());
+                            l.map(|l| matches!(l.kind, LocalKind::Slice)).unwrap_or(false)
+                                || g.map(|(_, k)| matches!(k, LocalKind::Slice)).unwrap_or(false)
+                                // Closure calls return i64 even for ptr results; if it's
+                                // a list method, treat an Int-kind local as a ptr-as-int.
+                                || (is_list_method && l.map(|l| matches!(l.kind, LocalKind::Int)).unwrap_or(false))
+                        } else if is_list_method {
+                            // Handle DotAccess(.field) as object, e.g. `self.parts.push(s)`.
+                            // Check if the parent struct's field is known to be a slice type.
+                            if let Some(RuntimeExpr::DotAccess { object: inner_obj, field: inner_field }) =
+                                self.ast.get_expr(*object)
+                            {
+                                let parent_struct = match self.type_map.get(inner_obj) {
+                                    Some(Type::Struct { name, .. }) => Some(name.clone()),
+                                    _ => if let Some(RuntimeExpr::Variable(vn)) = self.ast.get_expr(*inner_obj) {
+                                        match locals.get(vn.as_str()) {
+                                            Some(Local { kind: LocalKind::StructPtr(sn), .. }) => Some(sn.clone()),
+                                            _ => None,
+                                        }
+                                    } else { None }
+                                };
+                                parent_struct.and_then(|sn| {
+                                    let meta = self.structs.get(&sn)?;
+                                    let fidx = meta.field_names.iter().position(|n| n == inner_field)?;
+                                    let ftype = meta.field_type_names.get(fidx).map(|s| s.as_str()).unwrap_or("int");
+                                    // Slice fields: type starts with "[" (e.g. "[string]", "[int]")
+                                    if ftype.starts_with('[') { Some(true) } else { None }
+                                }).unwrap_or(false)
+                            } else { false }
                         } else { false }
                     };
                     if obj_is_slice {
                         let slice_ty   = self.slice_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;
                         let slice_ptr  = match self.emit_expr(*object, locals)? {
                             BasicValueEnum::PointerValue(p) => p,
+                            BasicValueEnum::IntValue(iv) =>
+                                self.builder.build_int_to_ptr(iv, self.ptr_ty, "int_to_slice_ptr")?,
                             _ => return Err(CodegenError::UnsupportedExpr(expr_id)),
                         };
                         let i32_zero   = self.context.i32_type().const_int(0, false);
@@ -4264,10 +4764,10 @@ impl<'ctx> Cg<'ctx> {
                         // If object is a Variable bound to an imported namespace, call
                         // `method` directly as a user function.
                         if let Some(&fn_val) = self.user_fns.get(method.as_str()) {
-                            let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
-                            for &a in args.iter() {
-                                call_args.push(basic_to_meta(self.emit_expr(a, locals)?));
-                            }
+                            let raw_args: Vec<BasicMetadataValueEnum<'ctx>> = args.iter()
+                                .map(|&a| self.emit_expr(a, locals).map(basic_to_meta))
+                                .collect::<Result<_, _>>()?;
+                            let call_args = self.coerce_args(fn_val, raw_args)?;
                             let call_site = self.builder.build_call(fn_val, &call_args, "ns_call")?;
                             let result = call_site.try_as_basic_value().basic();
                             let is_ptr = matches!(
@@ -4333,8 +4833,16 @@ impl<'ctx> Cg<'ctx> {
                     return Ok(buf.as_basic_value_enum());
                 }
 
-                let obj_val = self.emit_expr(*object, locals)?;
+                let obj_raw = self.emit_expr(*object, locals)?;
                 let idx_val = self.emit_int_expr(*index, locals)?;
+                // If the object is an i64 that stores a slice ptr (e.g. from a closure call),
+                // convert to ptr before indexing.
+                let obj_val = match obj_raw {
+                    BasicValueEnum::IntValue(iv) =>
+                        BasicValueEnum::PointerValue(
+                            self.builder.build_int_to_ptr(iv, self.ptr_ty, "idx_int_to_ptr")?),
+                    other => other,
+                };
                 match obj_val {
                     BasicValueEnum::PointerValue(slice_ptr) => {
                         let slice_ty = self.slice_ty.ok_or(CodegenError::UnsupportedExpr(expr_id))?;

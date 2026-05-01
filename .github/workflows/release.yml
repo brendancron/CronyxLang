@@ -13,10 +13,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-latest  # Apple Silicon
+          - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-13      # Intel (last Intel runner)
-            target: x86_64-apple-darwin
 
     steps:
       - uses: actions/checkout@v4
@@ -173,7 +171,6 @@ jobs:
             | Platform | File |
             |----------|------|
             | macOS (Apple Silicon) | `cronyxc-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` |
-            | macOS (Intel) | `cronyxc-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` |
             | Windows (x64) | `cronyxc-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip` |
 
           files: artifacts/*
