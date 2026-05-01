@@ -57,8 +57,19 @@ fn run_pipeline(
     entry_ctx: &mut Option<(String, HashMap<usize, (usize, usize)>)>,
 ) -> Result<(), Vec<CompilerError>> {
     let root_path = &args.source_path;
+    let stdlib_root = std::env::var("CRONYX_STDLIB")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let candidates = [
+                std::path::PathBuf::from("stdlib"),
+                std::path::PathBuf::from("../stdlib"),
+            ];
+            candidates.into_iter()
+                .find(|p| p.join("lang").is_dir())
+                .unwrap_or_else(|| std::path::PathBuf::from("stdlib"))
+        });
     // LOAD — stop immediately on parse/IO error
-    let files = load_compilation_unit(root_path)
+    let files = load_compilation_unit(root_path, &stdlib_root)
         .map_err(|e| vec![CompilerError::Load(e)])?;
 
     let entry = files.iter().find(|f| matches!(f.role, FileRole::Entry))
@@ -87,7 +98,6 @@ fn run_pipeline(
         .map_err(|e| vec![CompilerError::Meta(e)])?;
     sink.dump_staged(&staged_forest);
 
-    let module_bindings = staged_forest.module_bindings.clone();
     let meta_env = Environment::new();
 
     let runtime_ast = {
@@ -130,33 +140,34 @@ fn run_pipeline(
             .map_err(|e| vec![CompilerError::TypeCheck(e)])?;
         // Polymorphic-call warnings are non-fatal for the interpreter (runtime
         // dispatch handles them correctly) but block codegen (which would emit
-        // wrong types). Surface them as errors only on the --compile path.
-        if args.compile && !rt_warnings.is_empty() {
+        // wrong types). Surface them as errors only on the compile path.
+        if !args.interpret && !rt_warnings.is_empty() {
             return Err(rt_warnings.into_iter().map(CompilerError::TypeCheck).collect());
         }
         map
     };
 
-    // COMPILE — emit native binary via LLVM when --compile is set.
-    if args.compile {
-        let out_path = args.out_path.clone().unwrap_or_else(|| PathBuf::from("a.out"));
-        codegen_compile(&runtime_ast, &type_map, &cps_info, &out_path)
-            .map_err(|e| vec![CompilerError::Codegen(e.to_string())])?;
+    // INTERPRET — tree-walking interpreter when --interpret is set.
+    if args.interpret {
+        let mut setup_env = EnvHandler::from(meta_env.clone());
+        setup_modules(&runtime_ast, &mut setup_env);
+
+        eval(
+            &runtime_ast,
+            &runtime_ast.sem_root_stmts,
+            meta_env,
+            &mut io::stdout(),
+            None,
+            root_path.parent().map(|p| p.to_path_buf()),
+        ).map_err(|e| vec![CompilerError::Eval(e)])?;
+
         return Ok(());
     }
 
-    // EVALUATION — stop on first error
-    let mut setup_env = EnvHandler::from(meta_env.clone());
-    setup_modules(&runtime_ast, &module_bindings, &mut setup_env);
-
-    eval(
-        &runtime_ast,
-        &runtime_ast.sem_root_stmts,
-        meta_env,
-        &mut io::stdout(),
-        None,
-        root_path.parent().map(|p| p.to_path_buf()),
-    ).map_err(|e| vec![CompilerError::Eval(e)])?;
+    // COMPILE — emit native binary via LLVM (default).
+    let out_path = args.out_path.clone().unwrap_or_else(|| PathBuf::from("a.out"));
+    codegen_compile(&runtime_ast, &type_map, &cps_info, &out_path)
+        .map_err(|e| vec![CompilerError::Codegen(e.to_string())])?;
 
     Ok(())
 }

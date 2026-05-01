@@ -1,0 +1,191 @@
+import "../lang/Option";
+import "../effects/Yield";
+import "../ops/Hash";
+
+// Open-addressing hash map with linear probing.
+// `slots` is a [cap] array of ints: -1 = empty, else = index into `keys`/`vals`.
+// `keys` and `vals` are compact append-only arrays; deletion rebuilds.
+// K must implement Hash (key.hash() -> int) and support == for equality.
+
+struct Map<K, V> {
+    slots: [int];
+    keys:  [K];
+    vals:  [V];
+    size:  int;
+    capacity: int
+}
+
+fn new() {
+    var cap = 16;
+    var slots = [];
+    var i = 0;
+    while (i < cap) {
+        slots.push(0 - 1);
+        i += 1;
+    }
+    return Map { slots: slots, keys: [], vals: [], size: 0, capacity: cap };
+}
+
+fn hm_start_idx(key, cap) {
+    var h = key.hash() % cap;
+    if (h < 0) { h = 0 - h; }
+    return h;
+}
+
+fn hm_find_slot(map, key) {
+    var cap = map.capacity;
+    var idx = hm_start_idx(key, cap);
+    var probes = 0;
+    while (probes < cap) {
+        var s = map.slots[idx];
+        if (s == 0 - 1) {
+            return 0 - 1;
+        }
+        if (map.keys[s] == key) {
+            return idx;
+        }
+        idx = (idx + 1) % cap;
+        probes += 1;
+    }
+    return 0 - 1;
+}
+
+fn hm_probe_insert(slots, keys, vals, cap, key, value) {
+    var idx = hm_start_idx(key, cap);
+    var probes = 0;
+    while (probes < cap) {
+        if (slots[idx] == 0 - 1) {
+            slots[idx] = keys.len();
+            keys.push(key);
+            vals.push(value);
+            return true;
+        }
+        if (keys[slots[idx]] == key) {
+            vals[slots[idx]] = value;
+            return true;
+        }
+        idx = (idx + 1) % cap;
+        probes += 1;
+    }
+    return false;
+}
+
+fn hm_resize(map) {
+    var old_slots = map.slots;
+    var old_keys  = map.keys;
+    var old_vals  = map.vals;
+    var old_cap   = map.capacity;
+    var new_cap   = old_cap * 2;
+
+    var new_slots = [];
+    var i = 0;
+    while (i < new_cap) {
+        new_slots.push(0 - 1);
+        i += 1;
+    }
+
+    var new_keys = [];
+    var new_vals = [];
+
+    i = 0;
+    while (i < old_cap) {
+        var s = old_slots[i];
+        if (s != 0 - 1) {
+            hm_probe_insert(new_slots, new_keys, new_vals, new_cap, old_keys[s], old_vals[s]);
+        }
+        i += 1;
+    }
+
+    map.slots    = new_slots;
+    map.keys     = new_keys;
+    map.vals     = new_vals;
+    map.capacity = new_cap;
+}
+
+fn hm_set(map, key, value) {
+    if (map.size * 4 >= map.capacity * 3) {
+        hm_resize(map);
+        map.size = map.keys.len();
+    }
+    var before = map.keys.len();
+    hm_probe_insert(map.slots, map.keys, map.vals, map.capacity, key, value);
+    if (map.keys.len() > before) {
+        map.size = map.size + 1;
+    }
+}
+
+fn hm_get(map, key) {
+    var slot = hm_find_slot(map, key);
+    if (slot == 0 - 1) { return Option::None; }
+    return Option::Some(map.vals[map.slots[slot]]);
+}
+
+fn hm_get_or(map, key, default) {
+    var slot = hm_find_slot(map, key);
+    if (slot == 0 - 1) { return default; }
+    return map.vals[map.slots[slot]];
+}
+
+fn hm_contains(map, key) {
+    return hm_find_slot(map, key) != 0 - 1;
+}
+
+fn hm_remove(map, key) {
+    var cap = map.capacity;
+    var new_slots = [];
+    var i = 0;
+    while (i < cap) {
+        new_slots.push(0 - 1);
+        i += 1;
+    }
+    var new_keys = [];
+    var new_vals = [];
+
+    i = 0;
+    while (i < cap) {
+        var s = map.slots[i];
+        if (s != 0 - 1 && map.keys[s] != key) {
+            hm_probe_insert(new_slots, new_keys, new_vals, cap, map.keys[s], map.vals[s]);
+        }
+        i += 1;
+    }
+    map.slots = new_slots;
+    map.keys  = new_keys;
+    map.vals  = new_vals;
+    map.size  = new_keys.len();
+}
+
+fn hm_keys(map) {
+    return map.keys;
+}
+
+fn hm_size(map) {
+    return map.size;
+}
+
+impl Map {
+    fn set(self, key, value)        { hm_set(self, key, value); }
+    fn get(self, key)               { return hm_get(self, key); }
+    fn get_or(self, key, default)   { return hm_get_or(self, key, default); }
+    fn remove(self, key)            { hm_remove(self, key); }
+    fn contains(self, key)          { return hm_contains(self, key); }
+    fn keys(self)                   { return hm_keys(self); }
+    fn size(self)                   { return hm_size(self); }
+    fn iter(self) {
+        var ks = self.keys;
+        var i = 0;
+        while (i < ks.len()) {
+            yield(ks[i]);
+            i += 1;
+        }
+    }
+    fn entries(self) {
+        var result = [];
+        var i = 0;
+        while (i < self.keys.len()) {
+            result.push((self.keys[i], self.vals[i]));
+            i += 1;
+        }
+        return result;
+    }
+}

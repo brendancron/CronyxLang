@@ -1,0 +1,7 @@
+trait SubAssign {
+    fn sub_assign(self, other);
+}
+
+impl SubAssign for int {
+    fn sub_assign(self, other) { return __sub_assign_int(self, other); }
+}

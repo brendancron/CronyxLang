@@ -1,0 +1,13 @@
+trait Add {
+    fn add(self, other);
+}
+
+impl Add for int {
+    fn add(self, other) {
+        return __add_int(self, other);
+    }
+}
+
+impl Add for string {
+    fn add(self, other) { return __add_string(self, other); }
+}

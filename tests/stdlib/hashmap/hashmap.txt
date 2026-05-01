@@ -1,0 +1,11 @@
+3
+true
+false
+2
+99
+none
+99
+42
+2
+true
+ONE

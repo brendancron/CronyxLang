@@ -1,0 +1,214 @@
+import "Nfa";
+
+struct Dfa {
+    states: [int];
+    alphabet: [int];
+    transitions: [DfaTransition];
+    start: int;
+    accept: [int];
+}
+
+struct DfaTransition {
+    src: int;
+    on: int;
+    to: int;
+}
+
+fn dfa_new(start: int) {
+    return Dfa {
+        states: [start],
+        alphabet: [],
+        transitions: [],
+        start: start,
+        accept: [],
+    };
+}
+
+fn add_state(dfa, id: int) {
+    dfa.states.push(id);
+    return dfa;
+}
+
+fn add_symbol(dfa, symbol) {
+    dfa.alphabet.push(symbol);
+    return dfa;
+}
+
+fn add_transition(dfa, src: int, on, to: int) {
+    dfa.transitions.push(DfaTransition { src: src, on: on, to: to });
+    return dfa;
+}
+
+fn add_accept(dfa, id: int) {
+    dfa.accept.push(id);
+    return dfa;
+}
+
+fn dfa_is_accept(dfa, id: int) {
+    var i = 0;
+    while (i < dfa.accept.len()) {
+        if (dfa.accept[i] == id) {
+            return true;
+        }
+        i += 1;
+    }
+    return false;
+}
+
+// Step from a single state on a symbol — returns next state or -1 if no transition
+fn dfa_step(dfa, state: int, symbol) {
+    var i = 0;
+    while (i < dfa.transitions.len()) {
+        var t = dfa.transitions[i];
+        if (t.src == state && t.on == symbol) {
+            return t.to;
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+// Simulate the DFA on an input sequence — returns true if accepted
+fn simulate(dfa, input) {
+    var current = dfa.start;
+    var i = 0;
+    while (i < input.len()) {
+        var next = dfa_step(dfa, current, input[i]);
+        if (next == -1) { return false; }
+        current = next;
+        i += 1;
+    }
+    return dfa_is_accept(dfa, current);
+}
+
+// ── Subset construction (NFA → DFA) ──────────────────────────────────────────
+
+struct SubsetState {
+    id: int;
+    nfa_states: [int];
+}
+
+fn subset_construction(nfa) {
+    var start_closure = Nfa.epsilon_closure(nfa, [nfa.start]);
+    var start_id = 0;
+    var next_id = 1;
+
+    var dfa = dfa_new(start_id);
+    dfa = add_alphabet_from_nfa(dfa, nfa);
+
+    var state_map = [SubsetState { id: start_id, nfa_states: start_closure }];
+    var worklist = [start_id];
+
+    if (any_accept(nfa, start_closure)) {
+        dfa = add_accept(dfa, start_id);
+    }
+
+    while (worklist.len() > 0) {
+        var current_id = worklist[0];
+        worklist = worklist[1:];
+
+        var current_nfa_states = lookup_nfa_states(state_map, current_id);
+
+        var si = 0;
+        while (si < dfa.alphabet.len()) {
+            var symbol = dfa.alphabet[si];
+
+            var reached = Nfa.step(nfa, current_nfa_states, symbol);
+            var closure = Nfa.epsilon_closure(nfa, reached);
+
+            if (closure.len() > 0) {
+                var existing = find_state(state_map, closure);
+                var target_id = 0;
+
+                if (existing != -1) {
+                    target_id = existing;
+                }
+                if (existing == -1) {
+                    target_id = next_id;
+                    next_id += 1;
+                    dfa = add_state(dfa, target_id);
+                    state_map.push(SubsetState { id: target_id, nfa_states: closure });
+                    worklist.push(target_id);
+
+                    if (any_accept(nfa, closure)) {
+                        dfa = add_accept(dfa, target_id);
+                    }
+                }
+
+                dfa = add_transition(dfa, current_id, symbol, target_id);
+            }
+            si += 1;
+        }
+    }
+
+    return dfa;
+}
+
+fn add_alphabet_from_nfa(dfa, nfa) {
+    var i = 0;
+    while (i < nfa.alphabet.len()) {
+        dfa = add_symbol(dfa, nfa.alphabet[i]);
+        i += 1;
+    }
+    return dfa;
+}
+
+fn lookup_nfa_states(state_map, id: int) {
+    var i = 0;
+    while (i < state_map.len()) {
+        if (state_map[i].id == id) {
+            return state_map[i].nfa_states;
+        }
+        i += 1;
+    }
+    return [];
+}
+
+// Find a SubsetState whose nfa_states matches the given set — returns id or -1
+fn find_state(state_map, nfa_states: [int]) {
+    var i = 0;
+    while (i < state_map.len()) {
+        if (sets_equal(state_map[i].nfa_states, nfa_states)) {
+            return state_map[i].id;
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+fn any_accept(nfa, states: [int]) {
+    var i = 0;
+    while (i < states.len()) {
+        if (Nfa.is_accept(nfa, states[i])) {
+            return true;
+        }
+        i += 1;
+    }
+    return false;
+}
+
+fn sets_equal(a: [int], b: [int]) {
+    if (a.len() != b.len()) {
+        return false;
+    }
+    var i = 0;
+    while (i < a.len()) {
+        if (!Nfa.set_contains(b, a[i])) {
+            return false;
+        }
+        i += 1;
+    }
+    return true;
+}
+
+impl Dfa {
+    fn add_state(self, id: int) { self.states.push(id); }
+    fn add_symbol(self, symbol) { self.alphabet.push(symbol); }
+    fn add_transition(self, src: int, on, to: int) {
+        self.transitions.push(DfaTransition { src: src, on: on, to: to });
+    }
+    fn add_accept(self, id: int) { self.accept.push(id); }
+    fn step(self, state: int, symbol) { return dfa_step(self, state, symbol); }
+    fn accepts(self, input) { return simulate(self, input); }
+    fn is_accept(self, id: int) { return dfa_is_accept(self, id); }
+}

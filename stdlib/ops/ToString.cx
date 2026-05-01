@@ -1,0 +1,32 @@
+trait ToString {
+    fn to_string(self) -> string;
+}
+
+fn int_to_string(n) {
+    if (n == 0) { return "0"; }
+    var neg = n < 0;
+    if (neg) { n = 0 - n; }
+    var digits = "0123456789";
+    var s = "";
+    while (n > 0) {
+        s = digits[n % 10] + s;
+        n = n / 10;
+    }
+    if (neg) { s = "-" + s; }
+    return s;
+}
+
+impl ToString for int {
+    fn to_string(self) -> string { return int_to_string(self); }
+}
+
+impl ToString for bool {
+    fn to_string(self) -> string {
+        if (self) { return "true"; }
+        return "false";
+    }
+}
+
+impl ToString for string {
+    fn to_string(self) -> string { return self; }
+}

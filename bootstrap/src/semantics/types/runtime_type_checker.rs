@@ -1,4 +1,4 @@
-use crate::frontend::meta_ast::{ImportDecl, MetaTypeExpr, Pattern, VariantBindings, VariantPayload};
+use crate::frontend::meta_ast::{ForVar, ImportDecl, MetaTypeExpr, Pattern, VariantBindings, VariantPayload};
 use crate::semantics::meta::runtime_ast::*;
 use crate::util::node_id::RuntimeNodeId;
 use super::type_env::TypeEnv;
@@ -91,6 +91,7 @@ pub fn type_check_runtime(
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
     });
     env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
+    env.bind_mono("ord",       Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
     env.bind("free", TypeScheme::PolyType {
         vars: vec![beta],
         ty: Type::Func { params: vec![Type::Var(beta)], ret: Box::new(unit_type()), effects: EffectRow::empty() },
@@ -137,6 +138,10 @@ pub fn type_check_runtime(
             }
             let ret_type = resolved.get(&expr_id).cloned().unwrap_or_else(|| Type::Var(env.fresh()));
             let new_concrete = arg_types.iter().all(|t| !t.contains_var());
+            // Skip stdlib functions — they may be polymorphic by design.
+            if ast.stdlib_fn_names.contains(callee.as_str()) {
+                continue;
+            }
             if let Some((existing_args, existing_ret)) = fn_call_types.get(callee.as_str()).cloned() {
                 let existing_len = existing_args.len();
                 if existing_len != arg_types.len() {
@@ -268,7 +273,7 @@ fn infer_expr(
             tv.apply(subst)
         }
 
-        RuntimeExpr::Sub(a, b) | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b) => {
+        RuntimeExpr::Sub(a, b) | RuntimeExpr::Mult(a, b) | RuntimeExpr::Div(a, b) | RuntimeExpr::Mod(a, b) => {
             let ta = infer_expr(ast, a, env, subst, type_map)?;
             let tb = infer_expr(ast, b, env, subst, type_map)?;
             match (ta.apply(subst), tb.apply(subst)) {
@@ -646,11 +651,20 @@ fn infer_stmt(
                 Type::Slice(elem) => *elem,
                 _ => Type::Var(env.fresh()),
             };
-            // Record element type under the ForEach stmt_id so codegen knows
-            // the alloca type for the loop variable without re-scanning the AST.
             type_map.insert(stmt_id, elem_ty.clone());
             env.push_scope();
-            env.bind_mono(&var, elem_ty);
+            match var {
+                ForVar::Name(name) => env.bind_mono(name.as_str(), elem_ty),
+                ForVar::Tuple(names) => {
+                    let components = match &elem_ty {
+                        Type::Tuple(tys) => tys.clone(),
+                        _ => names.iter().map(|_| Type::Var(env.fresh())).collect(),
+                    };
+                    for (name, ty) in names.iter().zip(components) {
+                        env.bind_mono(name.as_str(), ty);
+                    }
+                }
+            }
             infer_stmt(ast, body, env, subst, ctx, type_map)?;
             env.pop_scope();
         }

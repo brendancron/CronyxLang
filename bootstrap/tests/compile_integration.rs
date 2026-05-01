@@ -32,7 +32,7 @@ pub fn run_compile_test(root_path: &PathBuf, out_path: &PathBuf, expected_path: 
     let expected = read_to_string(expected_path).unwrap();
 
     // ── Pipeline (mirrors main.rs run_pipeline) ───────────────────────────────
-    let files = load_compilation_unit(root_path).expect("failed to load compilation unit");
+    let files = load_compilation_unit(root_path, &std::path::PathBuf::from("../stdlib")).expect("failed to load compilation unit");
 
     let entry_ast = files
         .iter()
@@ -233,6 +233,7 @@ mod core {
     cx_compile_test!(builtins_writefile,     "tests/core/builtins",     "writefile");
     cx_compile_test!(builtins_conversions,   "tests/core/builtins",     "conversions");
     cx_compile_test!(builtins_free,          "tests/core/builtins",     "free");
+    cx_compile_test!(builtins_ord,           "tests/core/builtins",     "ord");
     cx_compile_test!(generics_generic_fn,    "tests/core/generics/generic_fn",      "main");
     cx_compile_test!(generics_generic_struct,"tests/core/generics/generic_struct",   "main");
     cx_compile_test!(generics_monomorphize,  "tests/core/generics/monomorphize",     "main");

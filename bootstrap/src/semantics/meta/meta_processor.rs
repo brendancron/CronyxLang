@@ -58,7 +58,8 @@ pub fn process<E: MetaEvaluator>(
 where
     E::Error: From<AstConversionError> + From<String> + From<TypeError>,
 {
-    evaluator.register_module_bindings(&staged_forest.module_bindings).map_err(ProcessError::Eval)?;
+    let staged_module_bindings = staged_forest.module_bindings.clone();
+    evaluator.register_module_bindings(&staged_module_bindings).map_err(ProcessError::Eval)?;
 
     let impl_registry: HashMap<(String, String), String> = staged_forest
         .impl_registry
@@ -171,8 +172,40 @@ where
             ast.meta_prints = meta_captures;
             ast.impl_registry = impl_registry;
             ast.op_dispatch = op_dispatch;
+            ast.stdlib_fn_names = staged_forest.stdlib_fn_names.clone();
             monomorphize(&mut ast, &type_map);
-            ast.compact()
+            // After monomorphize, mangled copies like `fn__int` also exist — mark them stdlib.
+            let orig_stdlib = ast.stdlib_fn_names.clone();
+            for stmt in ast.stmts.values() {
+                if let crate::semantics::meta::runtime_ast::RuntimeStmt::FnDecl { name, .. } = stmt {
+                    if orig_stdlib.iter().any(|s| name == s || name.starts_with(&format!("{s}__"))) {
+                        ast.stdlib_fn_names.insert(name.clone());
+                    }
+                }
+            }
+            let (mut compacted, stmt_remap) = ast.compact();
+            // Remap staged node IDs → post-compact runtime IDs for module namespace lookup.
+            compacted.module_bindings = staged_module_bindings.iter()
+                .filter_map(|b| match b {
+                    ModuleBinding::Namespace { bind_name, exports } => {
+                        let remapped: Vec<(String, Option<RuntimeNodeId>)> = exports.iter()
+                            .filter_map(|(name, sid)| {
+                                stmt_remap.get(&RuntimeNodeId(sid.0))
+                                    .map(|new_id| (name.clone(), Some(*new_id)))
+                            })
+                            .collect();
+                        Some((bind_name.clone(), remapped))
+                    }
+                    ModuleBinding::NamespaceByName { bind_name, names } => {
+                        let entries: Vec<(String, Option<RuntimeNodeId>)> = names.iter()
+                            .map(|n| (n.clone(), None))
+                            .collect();
+                        Some((bind_name.clone(), entries))
+                    }
+                    ModuleBinding::Selective { .. } => None,
+                })
+                .collect();
+            compacted
         })
         .ok_or_else(|| {
             ProcessError::Eval(String::from("Root AST not found in dependency tree").into())

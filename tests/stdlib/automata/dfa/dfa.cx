@@ -1,0 +1,84 @@
+import "../../../../stdlib/automata/Dfa";
+import "../../../../stdlib/automata/Nfa";
+
+// Test 1: accepts exactly [1]
+var dfa1 = Dfa.dfa_new(0);
+dfa1.add_state(1);
+dfa1.add_symbol(1);
+dfa1.add_transition(0, 1, 1);
+dfa1.add_accept(1);
+print(dfa1.accepts([1]));      // true
+print(dfa1.accepts([]));        // false
+print(dfa1.accepts([2]));      // false
+print(dfa1.accepts([1, 1]));   // false
+
+// Test 2: accepts sequence [1, 2, 3]
+var dfa2 = Dfa.dfa_new(0);
+dfa2.add_state(1);
+dfa2.add_state(2);
+dfa2.add_state(3);
+dfa2.add_symbol(1);
+dfa2.add_symbol(2);
+dfa2.add_symbol(3);
+dfa2.add_transition(0, 1, 1);
+dfa2.add_transition(1, 2, 2);
+dfa2.add_transition(2, 3, 3);
+dfa2.add_accept(3);
+print(dfa2.accepts([1, 2, 3]));    // true
+print(dfa2.accepts([1, 2]));        // false
+print(dfa2.accepts([1]));           // false
+print(dfa2.accepts([]));             // false
+print(dfa2.accepts([3, 2, 1]));    // false
+
+// Test 3: step — next state on hit, -1 on miss
+var dfa3 = Dfa.dfa_new(0);
+dfa3.add_state(1);
+dfa3.add_symbol(1);
+dfa3.add_transition(0, 1, 1);
+print(dfa3.step(0, 1));    // 1
+print(dfa3.step(0, 99));   // -1
+
+// Test 4: multiple accept states
+var dfa4 = Dfa.dfa_new(0);
+dfa4.add_state(1);
+dfa4.add_state(2);
+dfa4.add_symbol(1);
+dfa4.add_symbol(2);
+dfa4.add_transition(0, 1, 1);
+dfa4.add_transition(0, 2, 2);
+dfa4.add_accept(1);
+dfa4.add_accept(2);
+print(dfa4.accepts([1]));   // true
+print(dfa4.accepts([2]));   // true
+print(dfa4.accepts([3]));   // false
+print(dfa4.accepts([]));     // false
+
+// Test 5: subset_construction — NFA accepting [1] or [2]
+var nfa5 = Nfa.nfa_new(0);
+nfa5.add_state(1);
+nfa5.add_state(2);
+nfa5.add_symbol(1);
+nfa5.add_symbol(2);
+nfa5.add_transition(0, 1, 1);
+nfa5.add_transition(0, 2, 2);
+nfa5.add_accept(1);
+nfa5.add_accept(2);
+var dfa5 = Dfa.subset_construction(nfa5);
+print(dfa5.accepts([1]));      // true
+print(dfa5.accepts([2]));      // true
+print(dfa5.accepts([3]));      // false
+print(dfa5.accepts([]));        // false
+print(dfa5.accepts([1, 2]));   // false
+
+// Test 6: subset_construction — NFA with epsilon transitions (0 -ε-> 1 -42-> 2)
+var nfa6 = Nfa.nfa_new(0);
+nfa6.add_state(1);
+nfa6.add_state(2);
+nfa6.add_symbol(42);
+nfa6.add_epsilon(0, 1);
+nfa6.add_transition(1, 42, 2);
+nfa6.add_accept(2);
+var dfa6 = Dfa.subset_construction(nfa6);
+print(dfa6.accepts([42]));   // true
+print(dfa6.accepts([]));      // false
+print(dfa6.accepts([1]));    // false

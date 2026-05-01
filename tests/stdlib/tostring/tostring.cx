@@ -1,0 +1,22 @@
+import "../../../stdlib/ops/ToString";
+
+print(0.to_string());
+print(42.to_string());
+print((-7).to_string());
+print(true.to_string());
+print(false.to_string());
+print("hello".to_string());
+
+struct Point {
+    x: int;
+    y: int
+}
+
+impl ToString for Point {
+    fn to_string(self) -> string {
+        return "(" + self.x.to_string() + ", " + self.y.to_string() + ")";
+    }
+}
+
+var p = Point { x: 3, y: 4 };
+print(p.to_string());

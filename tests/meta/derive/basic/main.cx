@@ -1,0 +1,21 @@
+trait Named {
+    fn type_name(self) -> string;
+
+    meta fn derive(T) {
+        gen fn type_name(self) -> string {
+            return T.name;
+        }
+    }
+}
+
+struct Dog { age: int }
+struct Cat { lives: int }
+
+derive Named for Dog;
+derive Named for Cat;
+
+var d = Dog { age: 3 };
+var c = Cat { lives: 9 };
+
+print(d.type_name());
+print(c.type_name());

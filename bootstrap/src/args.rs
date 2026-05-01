@@ -9,9 +9,9 @@ pub struct CliArgs {
     pub dump_runtime_ast: bool,
     pub dump_runtime_code: bool,
     pub dump_cps: bool,
-    /// Compile to native binary via LLVM instead of interpreting.
-    pub compile: bool,
-    /// Output binary path when --compile is set (default: a.out).
+    /// Interpret instead of compiling to a native binary.
+    pub interpret: bool,
+    /// Output binary path for compilation (default: a.out).
     pub out_path: Option<PathBuf>,
 }
 
@@ -27,7 +27,7 @@ impl CliArgs {
         let mut dump_runtime_ast = false;
         let mut dump_runtime_code = false;
         let mut dump_cps = false;
-        let mut compile = false;
+        let mut interpret = false;
         let mut out_path: Option<PathBuf> = None;
 
         while let Some(arg) = args.next() {
@@ -38,7 +38,7 @@ impl CliArgs {
                 "--dump-runtime-ast"  => dump_runtime_ast = true,
                 "--dump-runtime-code" => dump_runtime_code = true,
                 "--dump-cps" => dump_cps = true,
-                "--compile" => compile = true,
+                "--interpret" => interpret = true,
                 "--out" => {
                     let path = args.next()
                         .ok_or_else(|| "--out requires a path argument".to_string())?;
@@ -89,7 +89,7 @@ impl CliArgs {
             dump_runtime_ast,
             dump_runtime_code,
             dump_cps,
-            compile,
+            interpret,
             out_path,
         })
     }
@@ -110,8 +110,8 @@ impl CliArgs {
             "    --dump-cps            Write cps_info.txt + cps_code.cx (after CPS transform)\n",
             "    --dump-all            Enable all --dump-* flags\n",
             "    --out-dir <path>      Output directory for debug files (default: ./out)\n",
-            "    --compile             Compile to a native binary via LLVM\n",
-            "    --out <path>          Output binary path when --compile is set (default: a.out)\n",
+            "    --interpret           Run via tree-walking interpreter instead of compiling\n",
+            "    --out <path>          Output binary path (default: a.out)\n",
             "    -V, --version         Print version and exit\n",
             "    -h, --help            Print this help and exit\n",
         )

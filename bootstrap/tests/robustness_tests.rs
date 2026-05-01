@@ -57,7 +57,6 @@ fn run_source(src: &str) -> Result<String, String> {
         .resolve_symbol_deps()
         .map_err(|e| format!("dep error: {e:?}"))?;
 
-    let module_bindings = staged_forest.module_bindings.clone();
     let mut eval_buf = Cursor::new(Vec::<u8>::new());
     let meta_env = Environment::new();
 
@@ -73,7 +72,7 @@ fn run_source(src: &str) -> Result<String, String> {
 
     let mut out_buf = Cursor::new(Vec::<u8>::new());
     let mut setup_env = cronyx::runtime::environment::EnvHandler::from(meta_env.clone());
-    setup_modules(&runtime_ast, &module_bindings, &mut setup_env);
+    setup_modules(&runtime_ast, &mut setup_env);
 
     eval(
         &runtime_ast,

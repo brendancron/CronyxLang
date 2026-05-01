@@ -1,0 +1,26 @@
+trait Hash {
+    fn hash(self) -> int;
+}
+
+impl Hash for int {
+    fn hash(self) -> int { return self; }
+}
+
+impl Hash for bool {
+    fn hash(self) -> int {
+        if (self) { return 1; }
+        return 0;
+    }
+}
+
+impl Hash for string {
+    fn hash(self) -> int {
+        var h = 5381;
+        var i = 0;
+        while (i < self.len()) {
+            h = (h * 31 + ord(self[i])) % 1000000007;
+            i += 1;
+        }
+        return h;
+    }
+}

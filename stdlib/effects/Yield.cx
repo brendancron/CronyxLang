@@ -1,0 +1,3 @@
+effect Yield<T> {
+    ctl yield(value: T): unit;
+}

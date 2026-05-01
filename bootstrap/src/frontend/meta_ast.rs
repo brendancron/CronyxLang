@@ -3,6 +3,32 @@ use crate::util::formatters::tree_formatter::*;
 use crate::util::node_id::MetaNodeId;
 use std::collections::HashMap;
 
+/// Loop variable binding in a `for` statement.
+#[derive(Debug, Clone)]
+pub enum ForVar {
+    /// `for (x in ...)` — binds a single name.
+    Name(String),
+    /// `for ((a, b) in ...)` — destructures a tuple element.
+    Tuple(Vec<String>),
+}
+
+impl std::fmt::Display for ForVar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForVar::Name(n) => write!(f, "{n}"),
+            ForVar::Tuple(names) => write!(f, "({})", names.join(", ")),
+        }
+    }
+}
+
+impl From<String> for ForVar {
+    fn from(s: String) -> Self { ForVar::Name(s) }
+}
+
+impl From<&str> for ForVar {
+    fn from(s: &str) -> Self { ForVar::Name(s.to_string()) }
+}
+
 /// Structured representation of a type expression in source position.
 /// Used in GADT variant payloads and return-type annotations.
 #[derive(Debug, Clone)]
@@ -125,6 +151,7 @@ pub enum MetaExpr {
     Sub(MetaNodeId, MetaNodeId),
     Mult(MetaNodeId, MetaNodeId),
     Div(MetaNodeId, MetaNodeId),
+    Mod(MetaNodeId, MetaNodeId),
     Equals(MetaNodeId, MetaNodeId),
     NotEquals(MetaNodeId, MetaNodeId),
     Lt(MetaNodeId, MetaNodeId),
@@ -249,7 +276,7 @@ pub enum MetaStmt {
     },
 
     ForEach {
-        var: String,
+        var: ForVar,
         iterable: MetaNodeId,
         body: MetaNodeId,
     },
@@ -273,6 +300,7 @@ pub enum MetaStmt {
     // EFFECTS
     EffectDecl {
         name: String,
+        type_params: Vec<String>,
         ops: Vec<EffectOp>,
     },
 
@@ -621,7 +649,7 @@ impl MetaAst {
                     .collect(),
             ),
 
-            MetaStmt::EffectDecl { name, ops } => (
+            MetaStmt::EffectDecl { name, ops, .. } => (
                 "EffectDecl".into(),
                 std::iter::once(TreeNode::leaf(format!("Name({name})")))
                     .chain(ops.iter().map(|op| TreeNode::leaf(format!(
@@ -762,6 +790,11 @@ impl MetaAst {
 
             MetaExpr::Div(a, b) => (
                 "Div".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+
+            MetaExpr::Mod(a, b) => (
+                "Mod".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
             ),
 

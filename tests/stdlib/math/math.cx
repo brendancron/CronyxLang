@@ -1,0 +1,9 @@
+import "../../../stdlib/lang/Math";
+
+print(Math.min(3, 7));
+print(Math.min(7, 3));
+print(Math.max(3, 7));
+print(Math.max(7, 3));
+print(Math.abs(5));
+print(Math.abs(0 - 5));
+print(Math.abs(0));

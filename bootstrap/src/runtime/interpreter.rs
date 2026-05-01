@@ -1,10 +1,9 @@
 use super::environment::{EnvHandler, EnvRef};
 use super::result::ExecResult;
 use super::value::{EnumValuePayload, Function, NativeFunction, Value};
-use crate::frontend::meta_ast::{Pattern, VariantBindings};
+use crate::frontend::meta_ast::{ForVar, Pattern, VariantBindings};
 use crate::semantics::meta::conversion::AstConversionError;
 use crate::semantics::meta::runtime_ast::*;
-use crate::semantics::meta::staged_forest::ModuleBinding;
 use crate::semantics::types::type_error::TypeError;
 use crate::semantics::types::types::{self, Type};
 use crate::semantics::meta::gen_collector::{collect_and_subst, GeneratedCollector};
@@ -36,6 +35,7 @@ pub enum EvalError {
     /// `eval_stmts` so it can replay the suffix stmts for each value.
     CtlSuspend { op_name: String, resume_values: Vec<Value> },
     IoError(String),
+    RuntimeError(String),
     /// Wraps another error with the AST node ID of the expression or statement
     /// where it originated, enabling source-span enrichment in diagnostics.
     /// Innermost location wins — outer eval_expr/eval_stmt calls keep the first
@@ -48,11 +48,13 @@ pub struct CtlHandlerEntry {
     pub op_name: String,
     pub params: Vec<String>,
     pub body: RuntimeNodeId,
-    /// The outer continuation (`__k_N` of the enclosing `__handle_*` function) captured
-    /// when this handler was installed. Used when the handler doesn't call `resume` — the
-    /// computation aborts through the handler and the outer k is invoked to continue after
-    /// the `run { } handle { }` block.
+    /// The outer continuation captured when this handler was installed.
     pub outer_k: Option<Value>,
+    /// If true, automatically resume with unit after the body runs (used by for-in/iter()).
+    pub auto_resume: bool,
+    /// For tuple-destructuring for-each: names to bind from tuple components.
+    /// When set, params[0] is a synthetic placeholder; this overrides the binding.
+    pub tuple_binding: Option<Vec<String>>,
 }
 
 /// Entry in the fn handler stack installed by `with fn`.
@@ -203,6 +205,17 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                     Ok(Value::Int(x / y))
                 }
                 _ => dispatch_binop("Div", lhs, rhs, ctx),
+            }
+        }
+
+        RuntimeExpr::Mod(a, b) => {
+            let (lhs, rhs) = (eval_expr(*a, ctx)?, eval_expr(*b, ctx)?);
+            match (&lhs, &rhs) {
+                (Value::Int(x), Value::Int(y)) => {
+                    if *y == 0 { return Err(EvalError::DivisionByZero); }
+                    Ok(Value::Int(x % y))
+                }
+                _ => dispatch_binop("Mod", lhs, rhs, ctx),
             }
         }
 
@@ -413,6 +426,27 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                         };
                         return Ok(Value::Bool(s.contains(sub.as_str())));
                     }
+                    "starts_with" => {
+                        let prefix = match arg_vals.first() {
+                            Some(Value::String(d)) => d.clone(),
+                            _ => return Err(EvalError::ArgumentMismatch),
+                        };
+                        return Ok(Value::Bool(s.starts_with(prefix.as_str())));
+                    }
+                    "ends_with" => {
+                        let suffix = match arg_vals.first() {
+                            Some(Value::String(d)) => d.clone(),
+                            _ => return Err(EvalError::ArgumentMismatch),
+                        };
+                        return Ok(Value::Bool(s.ends_with(suffix.as_str())));
+                    }
+                    "replace" => {
+                        let (from, to) = match (arg_vals.first(), arg_vals.get(1)) {
+                            (Some(Value::String(f)), Some(Value::String(t))) => (f.clone(), t.clone()),
+                            _ => return Err(EvalError::ArgumentMismatch),
+                        };
+                        return Ok(Value::String(s.replace(from.as_str(), to.as_str())));
+                    }
                     _ => {}
                 }
             }
@@ -436,6 +470,37 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                         return Ok(Value::Bool(found));
                     }
                     _ => {}
+                }
+            }
+
+            // Trait method dispatch for primitive types via impl_registry
+            let primitive_type_name: Option<&str> = match &obj {
+                Value::Int(_) => Some("int"),
+                Value::String(_) => Some("string"),
+                Value::Bool(_) => Some("bool"),
+                _ => None,
+            };
+            if let Some(tn) = primitive_type_name {
+                if let Some(fn_name) = ctx.ast.impl_registry.get(&(tn.to_string(), method.clone())).cloned() {
+                    let func = match ctx.env.get(&fn_name).map_err(EvalError::UndefinedVariable)? {
+                        Value::Function(f) => f,
+                        _ => return Err(EvalError::NonFunctionCall),
+                    };
+                    if func.params.len() != arg_vals.len() + 1 {
+                        return Err(EvalError::ArgumentMismatch);
+                    }
+                    ctx.env.push_scope();
+                    ctx.env.define(func.params[0].clone(), obj.clone());
+                    for (param, value) in func.params[1..].iter().zip(arg_vals) {
+                        ctx.env.define(param.clone(), value);
+                    }
+                    let result = match eval_stmt(func.body, ctx)? {
+                        ExecResult::Return(v) => v,
+                        ExecResult::Continue => Value::Unit,
+                        ExecResult::Resumed(v) => v,
+                    };
+                    ctx.env.pop_scope();
+                    return Ok(result);
                 }
             }
 
@@ -607,6 +672,15 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                     };
                     return Ok(Value::Int(n));
                 }
+                "ord" => {
+                    let v = eval_expr(*args.first().ok_or(EvalError::ArgumentMismatch)?, ctx)?;
+                    let n = match v {
+                        Value::String(s) => s.bytes().next()
+                            .ok_or_else(|| EvalError::UndefinedVariable("ord: empty string".to_string()))? as i64,
+                        _ => return Err(EvalError::TypeError(types::int_type())),
+                    };
+                    return Ok(Value::Int(n));
+                }
                 // free(obj): unit — no-op at interpreter level; Rust's Rc handles cleanup.
                 // At LLVM time this will dispatch to the active allocator's dealloc.
                 "free" => {
@@ -619,9 +693,9 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
             // Check ctl handler stack before env lookup (last installed wins).
             let ctl_info = ctx.ctl_handlers.iter().rev()
                 .find(|h| h.op_name == *callee)
-                .map(|h| (h.params.clone(), h.body, h.outer_k.clone()));
+                .map(|h| (h.params.clone(), h.body, h.outer_k.clone(), h.auto_resume, h.tuple_binding.clone()));
 
-            if let Some((params, body, entry_outer_k)) = ctl_info {
+            if let Some((params, body, entry_outer_k, auto_resume, tuple_binding)) = ctl_info {
                 let arg_vals: Vec<Value> = args.iter()
                     .map(|a| eval_expr(*a, ctx))
                     .collect::<Result<_, _>>()?;
@@ -633,32 +707,29 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                     let continuation = arg_vals.last().unwrap().clone();
                     let handler_args = &arg_vals[..params.len()];
                     ctx.env.push_scope();
-                    for (param, val) in params.iter().zip(handler_args) {
-                        ctx.env.define(param.clone(), val.clone());
-                    }
+                    bind_handler_params(&params, handler_args, &tuple_binding, ctx);
                     ctx.cps_continuations.push(continuation.clone());
                     // Inject __resume__ so lambdas created in the handler body can capture it.
-                    ctx.env.define("__resume__".to_string(), continuation);
+                    ctx.env.define("__resume__".to_string(), continuation.clone());
                     let resume_count_before = ctx.cps_resume_count;
                     let handler_result = eval_stmt(body, ctx);
                     let resume_was_called = ctx.cps_resume_count > resume_count_before;
                     ctx.cps_continuations.pop();
                     ctx.env.pop_scope();
-                    // If the handler did not call resume, the run-block continuation chain
-                    // was never invoked.  Call the outer continuation (`__k_N` of the
-                    // enclosing `__handle_*` function) so that execution continues after
-                    // the `run { } handle { }` expression.
+                    // If the handler did not call resume:
                     if !resume_was_called {
+                        // For for-in/iter(): auto-resume by calling the yield continuation
+                        // with unit so iter() continues to its next yield.
+                        if auto_resume {
+                            let _ = handler_result;
+                            return call_value(continuation, vec![Value::Unit], ctx);
+                        }
                         let handler_val = match handler_result {
                             Ok(ExecResult::Return(v)) => v,
                             Ok(_) => Value::Unit,
                             Err(EvalError::EffectAborted) => Value::Unit,
                             Err(e) => return Err(e),
                         };
-                        // Use the outer_k captured when this WithCtl was installed, not
-                        // handle_continuations.last() — nested CPS calls (like divide) push
-                        // their own __k continuations onto that stack, so .last() would pick
-                        // the wrong one (e.g. the divide continuation instead of __handle_N's).
                         return if let Some(ok) = entry_outer_k {
                             call_value(ok, vec![handler_val], ctx)
                         } else {
@@ -677,9 +748,7 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                     return Err(EvalError::ArgumentMismatch);
                 }
                 ctx.env.push_scope();
-                for (param, val) in params.iter().zip(arg_vals) {
-                    ctx.env.define(param.clone(), val);
-                }
+                bind_handler_params(&params, &arg_vals, &tuple_binding, ctx);
 
                 // Run handler body in collection mode to capture all resume calls.
                 let old_collecting = ctx.collecting_resumes;
@@ -691,6 +760,9 @@ fn eval_expr_inner<W: Write>(expr_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                 ctx.env.pop_scope();
 
                 if resume_values.is_empty() {
+                    if auto_resume {
+                        return Ok(Value::Unit);
+                    }
                     return Err(EvalError::EffectAborted);
                 }
                 if resume_values.len() == 1 {
@@ -825,29 +897,71 @@ fn eval_stmt_inner<W: Write>(stmt_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
             Ok(ExecResult::Continue)
         }
 
-        RuntimeStmt::ForEach {
-            var,
-            iterable,
-            body,
-        } => {
-            let value = eval_expr(*iterable, ctx);
+        RuntimeStmt::ForEach { var, iterable, body } => {
+            let mut value = eval_expr(*iterable, ctx)?;
 
-            for elem in value?.enumerate()?.iter() {
+            // Struct iteration: dispatch to the appropriate method.
+            // ForVar::Name → use iter() with yield-based iteration.
+            // ForVar::Tuple → use entries() which returns a list; fall through to enumerate.
+            if let Value::Struct { ref type_name, .. } = value {
+                let method = match var {
+                    ForVar::Name(_) => "iter",
+                    ForVar::Tuple(_) => "entries",
+                };
+                let fn_opt = ctx.ast.impl_registry
+                    .get(&(type_name.clone(), method.to_string()))
+                    .cloned();
+                if let Some(fn_name) = fn_opt {
+                    if let Ok(method_func) = ctx.env.get(&fn_name) {
+                        match var {
+                            ForVar::Name(n) => {
+                                ctx.ctl_handlers.push(CtlHandlerEntry {
+                                    op_name: "yield".to_string(),
+                                    params: vec![n.clone()],
+                                    body: *body,
+                                    outer_k: None,
+                                    auto_resume: true,
+                                    tuple_binding: None,
+                                });
+                                let result = call_value(method_func, vec![value], ctx);
+                                ctx.ctl_handlers.pop();
+                                return match result {
+                                    Ok(_) | Err(EvalError::EffectAborted) => Ok(ExecResult::Continue),
+                                    Err(e) => Err(e),
+                                };
+                            }
+                            ForVar::Tuple(_) => {
+                                value = call_value(method_func, vec![value], ctx)?;
+                                // Fall through to list enumeration below.
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback: native list/string enumeration.
+            for elem in value.enumerate()?.iter() {
                 ctx.env.push_scope();
-                ctx.env.define(var.clone(), elem.clone());
-
+                match var {
+                    ForVar::Name(n) => ctx.env.define(n.clone(), elem.clone()),
+                    ForVar::Tuple(names) => {
+                        if let Value::Tuple(parts) = elem {
+                            for (n, v) in names.iter().zip(parts.iter()) {
+                                ctx.env.define(n.clone(), v.clone());
+                            }
+                        } else {
+                            ctx.env.pop_scope();
+                            return Err(EvalError::RuntimeError(
+                                format!("for loop: expected tuple to destructure, got {elem}")
+                            ));
+                        }
+                    }
+                }
                 match eval_stmt(*body, ctx)? {
-                    ExecResult::Return(v) => {
-                        ctx.env.pop_scope();
-                        return Ok(ExecResult::Return(v));
-                    }
-                    ExecResult::Resumed(v) => {
-                        ctx.env.pop_scope();
-                        return Ok(ExecResult::Resumed(v));
-                    }
+                    ExecResult::Return(v) => { ctx.env.pop_scope(); return Ok(ExecResult::Return(v)); }
+                    ExecResult::Resumed(v) => { ctx.env.pop_scope(); return Ok(ExecResult::Resumed(v)); }
                     ExecResult::Continue => {}
                 }
-
                 ctx.env.pop_scope();
             }
 
@@ -1004,6 +1118,8 @@ fn eval_stmt_inner<W: Write>(stmt_id: RuntimeNodeId, ctx: &mut EvalCtx<W>) -> Re
                 params: params.iter().map(|p| p.name.clone()).collect(),
                 body: *body,
                 outer_k,
+                auto_resume: false,
+                tuple_binding: None,
             });
             Ok(ExecResult::Continue)
         }
@@ -1149,6 +1265,14 @@ pub fn call_value<W: Write>(func: Value, args: Vec<Value>, ctx: &mut EvalCtx<W>)
         Value::Function(f) => f,
         _ => return Err(EvalError::NonFunctionCall),
     };
+    let mut args = args;
+    if f.params.len() == args.len() + 1
+        && f.params.last().map(|p| p.starts_with("__k")).unwrap_or(false)
+    {
+        args.push(Value::NativeFunction(NativeFunction(Rc::new(|a| {
+            a.into_iter().next().unwrap_or(Value::Unit)
+        }))));
+    }
     if f.params.len() != args.len() {
         return Err(EvalError::ArgumentMismatch);
     }
@@ -1211,7 +1335,7 @@ pub fn eval_stmts<W: Write>(
         if let Some((op_name, param_names, body)) = with_ctl_info {
             let continuation: Vec<RuntimeNodeId> = stmts[i + 1..].to_vec();
             let outer_k = ctx.handle_continuations.last().cloned();
-            ctx.ctl_handlers.push(CtlHandlerEntry { op_name, params: param_names, body, outer_k });
+            ctx.ctl_handlers.push(CtlHandlerEntry { op_name, params: param_names, body, outer_k, auto_resume: false, tuple_binding: None });
             let result = eval_stmts(&continuation, ctx);
             ctx.ctl_handlers.pop();
             return match result {
@@ -1252,11 +1376,27 @@ pub fn eval_stmts<W: Write>(
     Ok(ExecResult::Continue)
 }
 
+/// Bind handler params into the current env scope.
+/// If `tuple_binding` is set, destructure the first arg as a tuple instead of binding by name.
+fn bind_handler_params<W>(params: &[String], args: &[Value], tuple_binding: &Option<Vec<String>>, ctx: &mut EvalCtx<'_, W>) {
+    if let Some(names) = tuple_binding {
+        if let Some(Value::Tuple(parts)) = args.first() {
+            for (name, val) in names.iter().zip(parts.iter()) {
+                ctx.env.define(name.clone(), val.clone());
+            }
+            return;
+        }
+    }
+    for (param, val) in params.iter().zip(args.iter()) {
+        ctx.env.define(param.clone(), val.clone());
+    }
+}
+
 /// Pre-hoist all FnDecls in the entire RuntimeAst into the env, then create Module namespace
 /// values for each explicit import binding.
 ///
 /// Call this once before `eval` when running a multi-file compilation.
-pub fn setup_modules(ast: &RuntimeAst, bindings: &[ModuleBinding], env: &mut EnvHandler) {
+pub fn setup_modules(ast: &RuntimeAst, env: &mut EnvHandler) {
     // Hoist every FnDecl in the AST (regardless of which tree it came from).
     for stmt in ast.stmts.values() {
         if let RuntimeStmt::FnDecl { name, params, body, .. } = stmt {
@@ -1271,20 +1411,32 @@ pub fn setup_modules(ast: &RuntimeAst, bindings: &[ModuleBinding], env: &mut Env
     }
 
     // Create namespace Module values for explicit imports.
-    for binding in bindings {
-        match binding {
-            ModuleBinding::Namespace { bind_name, exports } => {
-                let map: HashMap<String, Value> = exports
-                    .iter()
-                    .filter_map(|name| env.get(name).ok().map(|v| (name.clone(), v)))
-                    .collect();
-                env.define(bind_name.clone(), Value::Module(Rc::new(map)));
-            }
-            ModuleBinding::Selective { names } => {
-                // Selective imports are already in the env from hoisting; nothing to do.
-                let _ = names;
+    // Some(id): post-compact node ID lookup (avoids name-collision bugs).
+    // None: name-based env lookup (for transitive/circular imports).
+    for (bind_name, exports) in &ast.module_bindings {
+        let mut map: HashMap<String, Value> = HashMap::new();
+        for (display_name, opt_id) in exports {
+            let func_val = match opt_id {
+                Some(runtime_id) => {
+                    if let Some(RuntimeStmt::FnDecl { params, body, .. }) = ast.get_stmt(*runtime_id) {
+                        let func = Rc::new(Function {
+                            params: params.clone(),
+                            body: *body,
+                            env: env.env_ref(),
+                            is_closure: true,
+                        });
+                        Some(Value::Function(func))
+                    } else {
+                        None
+                    }
+                }
+                None => env.get(display_name).ok(),
+            };
+            if let Some(v) = func_val {
+                map.insert(display_name.clone(), v);
             }
         }
+        env.define(bind_name.clone(), Value::Module(Rc::new(map)));
     }
 }
 

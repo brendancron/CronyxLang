@@ -229,6 +229,16 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, ScanError> {
                 i += 1;
             }
 
+            '%' => {
+                tokens.push(Token {
+                    token_type: TokenType::Percent,
+                    line_number: line_number,
+                    col,
+                    metadata: None,
+                });
+                i += 1;
+            }
+
             '!' => {
                 if i + 1 < len && chars[i + 1] == '=' {
                     tokens.push(Token {

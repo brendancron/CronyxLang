@@ -1,0 +1,19 @@
+import "../../../stdlib/lang/StringBuilder";
+
+var sb = StringBuilder.new();
+sb.append("hello");
+sb.append(", ");
+sb.append("world");
+print(sb.build());
+print(sb.len());
+
+sb.append_line("line1");
+sb.append_line("line2");
+sb.append("end");
+print(sb.build());
+
+sb.clear();
+print(sb.len());
+sb.append_int(42);
+sb.append(" is the answer");
+print(sb.build());

@@ -1,0 +1,310 @@
+import "Option";
+
+// Minimal TOML parser: [sections], string/bool/int values, inline tables.
+// Sufficient for lex.toml (no arrays, no multi-line strings, no dotted keys).
+
+// ── Token kinds ───────────────────────────────────────────────────────────────
+// 0=LBracket 1=RBracket 2=LBrace 3=RBrace 4=Equals 5=Comma
+// 6=Newline  7=Ident    8=String 9=Bool   10=Int   11=EOF
+
+struct Token {
+    kind: int;
+    s:    string;
+    b:    bool;
+    i:    int;
+}
+
+// ── Value types ───────────────────────────────────────────────────────────────
+// TomlPrimitive.kind: 0=string, 1=int, 2=bool
+
+struct TomlPrimitive {
+    kind: int;
+    s:    string;
+    i:    int;
+    b:    bool;
+}
+
+// Inline-table entry (one level deep — no nested tables)
+struct TomlInlineEntry {
+    key: string;
+    val: TomlPrimitive;
+}
+
+// TomlValue.kind: 0=primitive, 1=inline_table
+struct TomlValue {
+    kind:  int;
+    prim:  TomlPrimitive;
+    table: [TomlInlineEntry];
+}
+
+struct TomlEntry {
+    key: string;
+    val: TomlValue;
+}
+
+struct TomlSection {
+    name:    string;
+    entries: [TomlEntry];
+}
+
+struct TomlDoc {
+    sections: [TomlSection];
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn mk_tok(kind: int, s: string, b: bool, i: int) {
+    return Token { kind: kind, s: s, b: b, i: i };
+}
+
+fn is_ident_start(cp: int) {
+    return (cp >= 97 && cp <= 122) || (cp >= 65 && cp <= 90) || cp == 95;
+}
+
+fn is_ident_char(cp: int) {
+    return is_ident_start(cp) || (cp >= 48 && cp <= 57) || cp == 45;
+}
+
+fn is_digit_cp(cp: int) {
+    return cp >= 48 && cp <= 57;
+}
+
+fn null_prim() {
+    return TomlPrimitive { kind: 0, s: "", i: 0, b: false };
+}
+
+// ── Tokenizer ─────────────────────────────────────────────────────────────────
+
+fn tokenize(input: string) {
+    var chars = input.chars();
+    var n     = chars.len();
+    var tokens = [];
+    var i = 0;
+
+    while (i < n) {
+        var cp = ord(chars[i]);
+
+        if (cp == 32 || cp == 9 || cp == 13) { // space / tab / CR
+            i += 1;
+        } else if (cp == 10) { // LF
+            tokens.push(mk_tok(6, "", false, 0));
+            i += 1;
+        } else if (cp == 35) { // '#' comment — skip to EOL
+            while (i < n && ord(chars[i]) != 10) { i += 1; }
+        } else if (cp == 91) { // '['
+            tokens.push(mk_tok(0, "", false, 0));
+            i += 1;
+        } else if (cp == 93) { // ']'
+            tokens.push(mk_tok(1, "", false, 0));
+            i += 1;
+        } else if (cp == 123) { // '{'
+            tokens.push(mk_tok(2, "", false, 0));
+            i += 1;
+        } else if (cp == 125) { // '}'
+            tokens.push(mk_tok(3, "", false, 0));
+            i += 1;
+        } else if (cp == 61) { // '='
+            tokens.push(mk_tok(4, "", false, 0));
+            i += 1;
+        } else if (cp == 44) { // ','
+            tokens.push(mk_tok(5, "", false, 0));
+            i += 1;
+        } else if (cp == 34) { // '"' string
+            i += 1;
+            var sb = "";
+            var done = false;
+            while (i < n && !done) {
+                var sc = ord(chars[i]);
+                var consumed = false;
+                if (sc == 34) {
+                    i += 1;
+                    done = true;
+                    consumed = true;
+                }
+                if (!consumed && sc == 92 && i + 1 < n) {
+                    var nc = ord(chars[i + 1]);
+                    var esc = chars[i + 1];
+                    if (nc == 110)      { esc = "\n"; }
+                    else if (nc == 116) { esc = "\t"; }
+                    else if (nc == 114) { esc = "\r"; }
+                    else if (nc == 92)  { esc = "\\"; }
+                    else if (nc == 34)  { esc = "\""; }
+                    sb = sb + esc;
+                    i += 2;
+                    consumed = true;
+                }
+                if (!consumed) { sb = sb + chars[i]; }
+                if (!consumed) { i += 1; }
+            }
+            tokens.push(mk_tok(8, sb, false, 0));
+        } else if (is_ident_start(cp)) { // identifier / keyword
+            var word = "";
+            while (i < n && is_ident_char(ord(chars[i]))) {
+                word = word + chars[i];
+                i += 1;
+            }
+            if (word == "true")       { tokens.push(mk_tok(9, "", true,  0)); }
+            else if (word == "false") { tokens.push(mk_tok(9, "", false, 0)); }
+            else                      { tokens.push(mk_tok(7, word, false, 0)); }
+        } else if (is_digit_cp(cp)) { // integer
+            var num = 0;
+            while (i < n && is_digit_cp(ord(chars[i]))) {
+                num = num * 10 + (ord(chars[i]) - 48);
+                i += 1;
+            }
+            tokens.push(mk_tok(10, "", false, num));
+        } else {
+            i += 1;
+        }
+    }
+
+    tokens.push(mk_tok(11, "", false, 0)); // EOF
+    return tokens;
+}
+
+// ── Parser ────────────────────────────────────────────────────────────────────
+
+fn skip_newlines(tokens, pos) {
+    while (tokens[pos[0]].kind == 6) { pos[0] = pos[0] + 1; }
+}
+
+fn parse_primitive(tokens, pos) {
+    var t = tokens[pos[0]];
+    pos[0] = pos[0] + 1;
+    if (t.kind == 8)  { return TomlPrimitive { kind: 0, s: t.s, i: 0,   b: false }; }
+    if (t.kind == 9)  { return TomlPrimitive { kind: 2, s: "",  i: 0,   b: t.b   }; }
+    if (t.kind == 10) { return TomlPrimitive { kind: 1, s: "",  i: t.i, b: false }; }
+    return null_prim();
+}
+
+fn parse_value(tokens, pos) {
+    var t = tokens[pos[0]];
+
+    if (t.kind == 2) { // '{' inline table
+        pos[0] = pos[0] + 1;
+        var entries = [];
+        while (tokens[pos[0]].kind != 3 && tokens[pos[0]].kind != 11) {
+            var tk = tokens[pos[0]];
+            if (tk.kind == 6 || tk.kind == 5) { // newline or comma — skip
+                pos[0] = pos[0] + 1;
+            } else if (tk.kind == 7) { // key
+                var ikey = tk.s;
+                pos[0] = pos[0] + 1; // consume key
+                pos[0] = pos[0] + 1; // consume '='
+                var ival = parse_primitive(tokens, pos);
+                entries.push(TomlInlineEntry { key: ikey, val: ival });
+            } else {
+                pos[0] = pos[0] + 1;
+            }
+        }
+        if (tokens[pos[0]].kind == 3) { pos[0] = pos[0] + 1; } // consume '}'
+        return TomlValue { kind: 1, prim: null_prim(), table: entries };
+    }
+
+    var prim = parse_primitive(tokens, pos);
+    return TomlValue { kind: 0, prim: prim, table: [] };
+}
+
+fn parse_entry(tokens, pos) {
+    var key = tokens[pos[0]].s;
+    pos[0] = pos[0] + 1; // consume key
+    pos[0] = pos[0] + 1; // consume '='
+    var val = parse_value(tokens, pos);
+    return TomlEntry { key: key, val: val };
+}
+
+fn parse(input: string) {
+    var tokens    = tokenize(input);
+    var pos       = [0];
+    var doc       = TomlDoc { sections: [] };
+    var cur_name  = "";
+    var cur_entries = [];
+
+    skip_newlines(tokens, pos);
+
+    while (tokens[pos[0]].kind != 11) {
+        var tk = tokens[pos[0]];
+
+        if (tk.kind == 0) { // '[' — new section
+            doc.sections.push(TomlSection { name: cur_name, entries: cur_entries });
+            pos[0] = pos[0] + 1; // consume '['
+            cur_name    = tokens[pos[0]].s;
+            pos[0] = pos[0] + 1; // consume section name
+            pos[0] = pos[0] + 1; // consume ']'
+            cur_entries = [];
+            skip_newlines(tokens, pos);
+        } else if (tk.kind == 7) { // key = value
+            var entry = parse_entry(tokens, pos);
+            cur_entries.push(entry);
+            skip_newlines(tokens, pos);
+        } else if (tk.kind == 6) {
+            pos[0] = pos[0] + 1;
+        } else {
+            pos[0] = pos[0] + 1;
+        }
+    }
+
+    doc.sections.push(TomlSection { name: cur_name, entries: cur_entries }); // final section
+    return doc;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+fn section_names(doc) {
+    var names = [];
+    var i = 0;
+    while (i < doc.sections.len()) {
+        if (doc.sections[i].name != "") { names.push(doc.sections[i].name); }
+        i += 1;
+    }
+    return names;
+}
+
+fn get_section(doc, name: string) {
+    var i = 0;
+    while (i < doc.sections.len()) {
+        if (doc.sections[i].name == name) { return Option::Some(doc.sections[i]); }
+        i += 1;
+    }
+    return Option::None;
+}
+
+fn section_entry_keys(section) {
+    var keys = [];
+    var i = 0;
+    while (i < section.entries.len()) {
+        keys.push(section.entries[i].key);
+        i += 1;
+    }
+    return keys;
+}
+
+fn get_entry(section, key: string) {
+    var i = 0;
+    while (i < section.entries.len()) {
+        if (section.entries[i].key == key) { return Option::Some(section.entries[i]); }
+        i += 1;
+    }
+    return Option::None;
+}
+
+fn get_inline(entries, key: string) {
+    var i = 0;
+    while (i < entries.len()) {
+        if (entries[i].key == key) { return Option::Some(entries[i].val); }
+        i += 1;
+    }
+    return Option::None;
+}
+
+// Value predicates
+fn is_string(val) { return val.kind == 0 && val.prim.kind == 0; }
+fn is_bool(val)   { return val.kind == 0 && val.prim.kind == 2; }
+fn is_int(val)    { return val.kind == 0 && val.prim.kind == 1; }
+fn is_table(val)  { return val.kind == 1; }
+
+// Value accessors (call after checking kind)
+fn as_string(val) { return val.prim.s; }
+fn as_bool(val)   { return val.prim.b; }
+fn as_int_val(val){ return val.prim.i; }
+fn as_table(val)  { return val.table; }

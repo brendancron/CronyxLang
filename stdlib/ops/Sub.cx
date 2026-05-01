@@ -1,0 +1,7 @@
+trait Sub {
+    fn sub(self, other);
+}
+
+impl Sub for int {
+    fn sub(self, other) { return __sub_int(self, other); }
+}

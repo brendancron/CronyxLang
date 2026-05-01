@@ -1,0 +1,8 @@
+print(ord("a"));
+print(ord("A"));
+print(ord("0"));
+print(ord(" "));
+
+var s = "hello";
+print(ord(s[0]));
+print(ord(s[1]));

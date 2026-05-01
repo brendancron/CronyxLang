@@ -3,6 +3,7 @@ use super::process_dependency::*;
 use super::staged_ast::*;
 use super::symbol_collector::*;
 use crate::util::id_provider::IdProvider;
+use crate::util::node_id::StagedNodeId;
 use crate::util::formatters::tree_formatter::{AsTree, TreeNode};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -11,9 +12,17 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub enum ModuleBinding {
     /// `import "path"` or `import "path" as alias` — wrap exports in a Module value.
+    /// Uses node IDs to avoid name-collision bugs when multiple modules export the same name.
     Namespace {
-        bind_name: String,     // "util" or alias
-        exports: Vec<String>,  // exported function/struct names
+        bind_name: String,
+        /// (user-facing name, staged node ID of the FnDecl).
+        exports: Vec<(String, StagedNodeId)>,
+    },
+    /// Transitive / circular import: the imported file's functions are already hoisted
+    /// globally, so we build the namespace by name lookup rather than node ID.
+    NamespaceByName {
+        bind_name: String,
+        names: Vec<String>,
     },
     /// `import { name1, name2 } from "path"` — bind each export directly into scope.
     Selective {
@@ -43,6 +52,10 @@ pub struct StagedForest {
     /// Operator dispatch registry: (op_trait, type_name) → mangled_fn_name.
     /// Populated when an ImplDecl uses a known operator trait (Add, Sub, Mul, Div, Eq).
     pub op_registry: Vec<(String, String, String)>,
+
+    /// Function names that originated from stdlib auto-imports.
+    /// Carried through to RuntimeAst so codegen can skip them.
+    pub stdlib_fn_names: std::collections::HashSet<String>,
 }
 
 impl StagedForest {
@@ -57,6 +70,7 @@ impl StagedForest {
             module_bindings: Vec::new(),
             impl_registry: Vec::new(),
             op_registry: Vec::new(),
+            stdlib_fn_names: std::collections::HashSet::new(),
         }
     }
 

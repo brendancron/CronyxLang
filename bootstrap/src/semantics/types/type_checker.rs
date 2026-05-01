@@ -142,6 +142,7 @@ fn collect_expr_effects(
         | MetaExpr::Sub(a, b)
         | MetaExpr::Mult(a, b)
         | MetaExpr::Div(a, b)
+        | MetaExpr::Mod(a, b)
         | MetaExpr::Equals(a, b)
         | MetaExpr::NotEquals(a, b)
         | MetaExpr::Lt(a, b)
@@ -207,6 +208,7 @@ pub fn type_check(ast: &MetaAst) -> Result<(TypeTable, TypeEnv), Vec<TypeError>>
         ty: Type::Func { params: vec![Type::Var(alpha)], ret: Box::new(string_type()), effects: EffectRow::empty() },
     });
     env.bind_mono("to_int",    Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
+    env.bind_mono("ord",       Type::Func { params: vec![string_type()], ret: Box::new(int_type()), effects: EffectRow::empty()    });
     // free(obj): unit — manually release any value; no-op until LLVM backend + GC exist
     env.bind("free", TypeScheme::PolyType {
         vars: vec![beta],
@@ -266,7 +268,7 @@ fn infer_expr_impl(
             tv.apply(subst)
         }
 
-        MetaExpr::Sub(a, b) | MetaExpr::Mult(a, b) | MetaExpr::Div(a, b) => {
+        MetaExpr::Sub(a, b) | MetaExpr::Mult(a, b) | MetaExpr::Div(a, b) | MetaExpr::Mod(a, b) => {
             let ta = infer_expr(ast, *a, env, subst, table)?;
             let tb = infer_expr(ast, *b, env, subst, table)?;
             // If LHS is a struct, the op may be dispatched to a user impl — don't
@@ -661,11 +663,20 @@ fn infer_stmt_impl(
 
         MetaStmt::ForEach { var, iterable, body } => {
             let iter_ty = infer_expr(ast, *iterable, env, subst, table)?;
-            let elem_tv = Type::Var(env.fresh());
-            // iterable must be a list of elem_tv
-            unify(&iter_ty, &elem_tv, subst)?;
+            let elem_ty = match iter_ty.apply(subst) {
+                Type::Slice(elem) => *elem,
+                _ => Type::Var(env.fresh()),
+            };
             env.push_scope();
-            env.bind_mono(var, elem_tv.apply(subst));
+            match var {
+                ForVar::Name(name) => env.bind_mono(name, elem_ty),
+                ForVar::Tuple(names) => {
+                    let tvs: Vec<_> = names.iter().map(|_| Type::Var(env.fresh())).collect();
+                    for (name, tv) in names.iter().zip(tvs) {
+                        env.bind_mono(name, tv);
+                    }
+                }
+            }
             infer_stmt(ast, *body, env, subst, ctx, table)?;
             env.pop_scope();
             unit_type()
@@ -776,27 +787,30 @@ fn infer_stmt_impl(
             unit_type()
         }
 
-        MetaStmt::EffectDecl { ops, .. } => {
+        MetaStmt::EffectDecl { ops, type_params, .. } => {
+            // Build a type-var map for generic type parameters (e.g. T in Yield<T>).
+            let tp_map: HashMap<String, Type> = type_params.iter()
+                .map(|tp| (tp.clone(), Type::Var(env.fresh())))
+                .collect();
             for op in ops {
-                // Track ctl ops for effect inference.
                 if matches!(op.kind, EffectOpKind::Ctl) {
                     ctx.ctl_ops.insert(op.name.clone());
                 }
-                // Register the op as callable so call sites type-check.
                 let param_types: Vec<Type> = op.params.iter()
                     .map(|p| match &p.ty {
-                        Some(te) => meta_type_expr_to_type(te, &HashMap::new(), env),
+                        Some(te) => meta_type_expr_to_type(te, &tp_map, env),
                         None => Type::Var(env.fresh()),
                     })
                     .collect();
                 let ret_ty = op.ret_ty.as_deref()
-                    .and_then(resolve_annotation)
+                    .and_then(|s| tp_map.get(s).cloned().or_else(|| resolve_annotation(s)))
                     .unwrap_or_else(|| Type::Var(env.fresh()));
-                env.bind_mono(&op.name, Type::Func {
+                let fn_ty = Type::Func {
                     params: param_types,
                     ret: Box::new(ret_ty),
                     effects: EffectRow::empty(),
-                });
+                };
+                env.bind_mono(&op.name, fn_ty);
             }
             unit_type()
         }

@@ -1,0 +1,91 @@
+import "Option";
+import "String";
+import "../automata/Nfa";
+import "../automata/Dfa";
+import "../regex/RegexParser";
+import "../regex/RegexNfa";
+
+// Compile a regex pattern string to a DFA (codepoint alphabet).
+// Pipeline: pattern → RegexAst → NFA → DFA (subset construction)
+fn compile(pattern: string) {
+    var ast = RegexParser.parse(pattern);
+    var nfa = RegexNfa.build(ast);
+    return Dfa.subset_construction(nfa);
+}
+
+// Returns true if the entire input matches the pattern (full-string match).
+fn test(dfa, input: string) {
+    var chars = input.chars();
+    var state = dfa.start;
+    var i = 0;
+    var dead = false;
+    while (i < chars.len() && !dead) {
+        var cp = ord(chars[i]);
+        var next = Dfa.dfa_step(dfa, state, cp);
+        if (next == -1) { dead = true; }
+        if (!dead) { state = next; }
+        if (!dead) { i += 1; }
+    }
+    if (dead) { return false; }
+    return Dfa.dfa_is_accept(dfa, state);
+}
+
+// Returns the first matching substring, or None.
+// Leftmost-longest: at each start position, extend as far as the DFA accepts.
+fn find(dfa, input: string) {
+    var chars = input.chars();
+    var n = chars.len();
+    var i = 0;
+    while (i < n) {
+        var state = dfa.start;
+        var last_accept = -1;
+        var j = i;
+        var dead = false;
+        while (j < n && !dead) {
+            var cp = ord(chars[j]);
+            var next = Dfa.dfa_step(dfa, state, cp);
+            if (next == -1) { dead = true; }
+            if (!dead) {
+                state = next;
+                if (Dfa.dfa_is_accept(dfa, state)) { last_accept = j + 1; }
+                j += 1;
+            }
+        }
+        if (last_accept != -1) {
+            return Option::Some(substring(input, i, last_accept));
+        }
+        i += 1;
+    }
+    return Option::None;
+}
+
+// Returns all non-overlapping matches, greedy left-to-right.
+fn find_all(dfa, input: string) {
+    var chars = input.chars();
+    var n = chars.len();
+    var results = [];
+    var i = 0;
+    while (i < n) {
+        var state = dfa.start;
+        var last_accept = -1;
+        var j = i;
+        var dead = false;
+        while (j < n && !dead) {
+            var cp = ord(chars[j]);
+            var next = Dfa.dfa_step(dfa, state, cp);
+            if (next == -1) { dead = true; }
+            if (!dead) {
+                state = next;
+                if (Dfa.dfa_is_accept(dfa, state)) { last_accept = j + 1; }
+                j += 1;
+            }
+        }
+        if (last_accept != -1) {
+            results.push(substring(input, i, last_accept));
+            i = last_accept;
+        } else {
+            i += 1;
+        }
+    }
+    return results;
+}

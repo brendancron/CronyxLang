@@ -1,0 +1,7 @@
+0
+42
+-7
+true
+false
+hello
+(3, 4)

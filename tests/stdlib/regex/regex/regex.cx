@@ -1,0 +1,127 @@
+import "../../../../stdlib/lang/Regex";
+import "../../../../stdlib/lang/Option";
+
+// ── test: literal ─────────────────────────────────────────────────────────────
+var lit = Regex.compile("abc");
+print(Regex.test(lit, "abc"));    // true
+print(Regex.test(lit, "ab"));     // false
+print(Regex.test(lit, "abcd"));   // false
+print(Regex.test(lit, ""));       // false
+
+// ── test: alternation ─────────────────────────────────────────────────────────
+var alt = Regex.compile("cat|dog");
+print(Regex.test(alt, "cat"));    // true
+print(Regex.test(alt, "dog"));    // true
+print(Regex.test(alt, "bird"));   // false
+print(Regex.test(alt, "catdog")); // false
+
+// ── test: star ────────────────────────────────────────────────────────────────
+var star = Regex.compile("a*b");
+print(Regex.test(star, "b"));     // true
+print(Regex.test(star, "ab"));    // true
+print(Regex.test(star, "aaab"));  // true
+print(Regex.test(star, ""));      // false
+print(Regex.test(star, "aa"));    // false
+
+// ── test: plus ────────────────────────────────────────────────────────────────
+var plus = Regex.compile("a+");
+print(Regex.test(plus, ""));      // false
+print(Regex.test(plus, "a"));     // true
+print(Regex.test(plus, "aaa"));   // true
+print(Regex.test(plus, "b"));     // false
+
+// ── test: quest ───────────────────────────────────────────────────────────────
+var quest = Regex.compile("ab?c");
+print(Regex.test(quest, "ac"));   // true
+print(Regex.test(quest, "abc"));  // true
+print(Regex.test(quest, "abbc")); // false
+print(Regex.test(quest, ""));     // false
+
+// ── test: groups ──────────────────────────────────────────────────────────────
+var grp = Regex.compile("(ab)+");
+print(Regex.test(grp, "ab"));     // true
+print(Regex.test(grp, "abab"));   // true
+print(Regex.test(grp, "ababab")); // true
+print(Regex.test(grp, "a"));      // false
+print(Regex.test(grp, "b"));      // false
+
+// ── test: character class ─────────────────────────────────────────────────────
+var cls = Regex.compile("[a-z]+");
+print(Regex.test(cls, "hello"));  // true
+print(Regex.test(cls, "Hello"));  // false
+print(Regex.test(cls, ""));       // false
+print(Regex.test(cls, "abc123")); // false
+
+// ── test: negated class ───────────────────────────────────────────────────────
+var neg = Regex.compile("[^0-9]+");
+print(Regex.test(neg, "hello"));  // true
+print(Regex.test(neg, "123"));    // false
+print(Regex.test(neg, "abc"));    // true
+print(Regex.test(neg, "a1b"));    // false
+
+// ── test: dot ─────────────────────────────────────────────────────────────────
+var dot = Regex.compile("a.c");
+print(Regex.test(dot, "abc"));    // true
+print(Regex.test(dot, "axc"));    // true
+print(Regex.test(dot, "aXc"));    // true
+print(Regex.test(dot, "ac"));     // false
+
+// ── test: \d escape ───────────────────────────────────────────────────────────
+var dig = Regex.compile("\\d+");
+print(Regex.test(dig, "123"));    // true
+print(Regex.test(dig, "0"));      // true
+print(Regex.test(dig, "abc"));    // false
+print(Regex.test(dig, "12a"));    // false
+
+// ── test: \w escape ───────────────────────────────────────────────────────────
+var word = Regex.compile("\\w+");
+print(Regex.test(word, "hello"));      // true
+print(Regex.test(word, "foo_bar"));    // true
+print(Regex.test(word, "hello world")); // false
+print(Regex.test(word, ""));           // false
+
+// ── test: \s escape ───────────────────────────────────────────────────────────
+var ws = Regex.compile("\\s+");
+print(Regex.test(ws, " "));       // true
+print(Regex.test(ws, "\t\t"));    // true
+print(Regex.test(ws, ""));        // false
+print(Regex.test(ws, " a"));      // false
+
+// ── test: identifier pattern ──────────────────────────────────────────────────
+var ident = Regex.compile("[a-zA-Z_][a-zA-Z0-9_]*");
+print(Regex.test(ident, "hello"));   // true
+print(Regex.test(ident, "_foo"));    // true
+print(Regex.test(ident, "foo123"));  // true
+print(Regex.test(ident, "123foo"));  // false
+print(Regex.test(ident, ""));        // false
+
+// ── test: find ────────────────────────────────────────────────────────────────
+var num = Regex.compile("[0-9]+");
+match (Regex.find(num, "abc123def")) {
+    Option::Some(s) => { print(s); }   // 123
+    Option::None    => { print("none"); }
+}
+match (Regex.find(num, "nope")) {
+    Option::Some(s) => { print(s); }
+    Option::None    => { print("none"); }  // none
+}
+match (Regex.find(num, "42")) {
+    Option::Some(s) => { print(s); }   // 42
+    Option::None    => { print("none"); }
+}
+
+// ── test: find_all ────────────────────────────────────────────────────────────
+var ms = Regex.find_all(num, "abc123def456ghi789");
+print(ms.len());   // 3
+print(ms[0]);      // 123
+print(ms[1]);      // 456
+print(ms[2]);      // 789
+
+var ms2 = Regex.find_all(word, "hello world foo");
+print(ms2.len());  // 3
+print(ms2[0]);     // hello
+print(ms2[1]);     // world
+print(ms2[2]);     // foo
+
+var empty_ms = Regex.find_all(num, "nope");
+print(empty_ms.len()); // 0

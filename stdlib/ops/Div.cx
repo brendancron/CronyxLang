@@ -1,0 +1,7 @@
+trait Div {
+    fn div(self, other);
+}
+
+impl Div for int {
+    fn div(self, other) { return __div_int(self, other); }
+}

@@ -1,4 +1,4 @@
-use crate::frontend::meta_ast::{EffectOp, EnumVariant, ImportDecl, Param, Pattern};
+use crate::frontend::meta_ast::{EffectOp, EnumVariant, ForVar, ImportDecl, Param, Pattern};
 use crate::util::formatters::tree_formatter::*;
 use crate::util::node_id::StagedNodeId;
 use std::collections::HashMap;
@@ -110,6 +110,7 @@ pub enum StagedExpr {
     Sub(StagedNodeId, StagedNodeId),
     Mult(StagedNodeId, StagedNodeId),
     Div(StagedNodeId, StagedNodeId),
+    Mod(StagedNodeId, StagedNodeId),
     Equals(StagedNodeId, StagedNodeId),
     NotEquals(StagedNodeId, StagedNodeId),
     Lt(StagedNodeId, StagedNodeId),
@@ -219,7 +220,7 @@ pub enum StagedStmt {
     },
 
     ForEach {
-        var: String,
+        var: ForVar,
         iterable: StagedNodeId,
         body: StagedNodeId,
     },
@@ -238,6 +239,7 @@ pub enum StagedStmt {
     // EFFECTS
     EffectDecl {
         name: String,
+        type_params: Vec<String>,
         ops: Vec<EffectOp>,
     },
 
@@ -426,7 +428,7 @@ impl StagedAst {
 
             StagedStmt::Print(e) => ("PrintStmt".into(), vec![self.convert_expr(*e)]),
 
-            StagedStmt::EffectDecl { name, ops } => (
+            StagedStmt::EffectDecl { name, ops, .. } => (
                 "EffectDecl".into(),
                 std::iter::once(TreeNode::leaf(format!("Name({name})")))
                     .chain(ops.iter().map(|op| TreeNode::leaf(op.name.clone())))
@@ -522,6 +524,11 @@ impl StagedAst {
 
             StagedExpr::Div(a, b) => (
                 "Div".into(),
+                vec![self.convert_expr(*a), self.convert_expr(*b)],
+            ),
+
+            StagedExpr::Mod(a, b) => (
+                "Mod".into(),
                 vec![self.convert_expr(*a), self.convert_expr(*b)],
             ),
 
