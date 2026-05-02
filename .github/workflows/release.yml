@@ -79,28 +79,41 @@ jobs:
         id: cache-llvm
         uses: actions/cache@v4
         with:
-          path: C:\LLVM
-          key: llvm-20.1.8-windows-v2
+          path: D:\llvm20
+          key: llvm-20.1.8-windows-msvc-tarxz-v1
 
       - name: Install LLVM 20 (Windows)
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/LLVM-20.1.8-win64.exe"
-          $installer = "$env:TEMP\LLVM-20.1.8-win64.exe"
-          Write-Host "Downloading LLVM 20.1.8..."
-          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
-          Write-Host "Running silent install to C:\LLVM..."
-          Start-Process $installer -ArgumentList "/S", "/D=C:\LLVM" -Wait
-          if (-not (Test-Path "C:\LLVM\bin\llvm-config.exe")) {
-            throw "llvm-config.exe not found at C:\LLVM\bin\llvm-config.exe"
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz"
+          $xz  = "$env:TEMP\llvm.tar.xz"
+          $tar = "$env:TEMP\llvm.tar"
+          Write-Host "Downloading LLVM 20.1.8 pre-built binary..."
+          Invoke-WebRequest -Uri $url -OutFile $xz -UseBasicParsing
+          Write-Host "Decompressing .xz..."
+          & 7z e "$xz" "-o$env:TEMP" -y | Out-Null
+          Write-Host "Extracting .tar to D:\..."
+          & 7z x "$tar" "-oD:\" -y | Out-Null
+          Rename-Item "D:\clang+llvm-20.1.8-x86_64-pc-windows-msvc" "llvm20"
+          if (-not (Test-Path "D:\llvm20\bin\llvm-config.exe")) {
+            Get-ChildItem "D:\llvm20" -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "llvm-config.exe not found at D:\llvm20\bin\"
           }
-          Write-Host "LLVM ready at C:\LLVM"
+          Write-Host "Installing libxml2 via vcpkg..."
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg" install libxml2:x64-windows-static --no-print-usage
+          $xmllib = Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib" `
+                      -Filter "libxml2*.lib" |
+                    Where-Object { $_.Name -notmatch "d\.lib$" } |
+                    Select-Object -First 1
+          if (-not $xmllib) { throw "libxml2 lib not found after vcpkg install" }
+          Copy-Item $xmllib.FullName "D:\llvm20\lib\libxml2s.lib"
+          Write-Host "LLVM 20.1.8 ready at D:\llvm20"
 
       - name: Set LLVM env (Windows)
         shell: pwsh
         run: |
-          "LLVM_SYS_201_PREFIX=C:\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_SYS_201_PREFIX=D:\llvm20" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
