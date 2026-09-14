@@ -73,16 +73,28 @@ let synchronize s =
   in
   loop ()
 
-(* A trailing comma is not accepted: [item] would run again and fail on
-   whatever closes the list. *)
-let rec comma_separated s item =
+(* [closer] is what a trailing comma may be followed by; without it [item]
+   would run again and fail on whatever closes the list. [ends] is a list that
+   has no closing token to stand behind, so a comma before it is reported as
+   the comma rather than as whatever was expected in the item's place. *)
+let rec comma_separated ?closer ?ends s item =
   let first = item s in
-  match matches s [ Token.Comma ] with
-  | Some _ -> first :: comma_separated s item
-  | None -> [ first ]
+  let continues =
+    match matches s [ Token.Comma ] with
+    | None -> false
+    | Some comma ->
+      (match closer, ends with
+       | Some closer, _ when check s closer -> false
+       | _, Some (ends, written) when check s ends ->
+         ignore (error s comma (Printf.sprintf "A trailing comma is not allowed before '%s'." written));
+         false
+       | _ -> true)
+  in
+  if continues then first :: comma_separated ?closer ?ends s item else [ first ]
 
 (* Neither consumes the closer; every caller has its own message for it. *)
-let listed_until s closer item = if check s closer then [] else comma_separated s item
+let listed_until s closer item =
+  if check s closer then [] else comma_separated ~closer s item
 
 (* ---- type annotations ---- *)
 
@@ -110,7 +122,7 @@ let rec type_expr s : Ast.type_expr =
       if check s Token.Less
       then (
         ignore (advance s);
-        let args = comma_separated s type_argument in
+        let args = comma_separated ~closer:Token.Greater s type_argument in
         ignore (consume s Token.Greater "Expected '>' after type arguments.");
         Ast.at sp (Ast.Ty_app (name, args)))
       else Ast.at sp (Ast.Ty_name name)
@@ -175,7 +187,7 @@ let comptime_params s : Ast.comptime_param list =
   | None -> []
   | Some _ ->
     let params =
-      comma_separated s (fun s ->
+      comma_separated ~closer:Token.Greater s (fun s ->
         let name = consume_identifier s "Expected a comptime parameter name." in
         { Ast.cp_name = name; cp_ty = type_annotation s })
     in
@@ -370,7 +382,7 @@ and comptime_arguments s : Ast.expr Ast.comptime_arg list option =
   match
     ignore (advance s);
     let args =
-      comma_separated s (fun s ->
+      comma_separated ~closer:Token.Greater s (fun s ->
         let start = s.current
         and errors = s.errors in
         let as_value () =
@@ -607,7 +619,7 @@ and primary s : Ast.expr =
            same thing. *)
         | Token.Left_paren ->
           ignore (advance s);
-          let items = comma_separated s expression in
+          let items = comma_separated ~closer:Token.Right_paren s expression in
           ignore (consume s Token.Right_paren "Expected ')' after arguments.");
           Ast.P_tuple items
         | Token.Left_brace when not s.no_brace ->
@@ -648,10 +660,10 @@ and primary s : Ast.expr =
     then (
       let rec rest () =
         match matches s [ Token.Comma ] with
-        | Some _ ->
+        | Some _ when not (check s Token.Right_paren) ->
           let item = expression s in
           item :: rest ()
-        | None -> []
+        | _ -> []
       in
       let items = first :: rest () in
       ignore (consume s Token.Right_paren "Expected ')' after tuple.");
@@ -716,7 +728,8 @@ and declaration s : Ast.stmt option =
     | Token.Derive ->
       ignore (advance s);
       let traits =
-        comma_separated s (fun s -> consume_identifier s "Expected a trait name.")
+        comma_separated ~ends:(Token.For, "for") s (fun s ->
+          consume_identifier s "Expected a trait name.")
       in
       ignore (consume s Token.For "Expected 'for' after the traits to derive.");
       let target = consume_identifier s "Expected the type to derive for." in
@@ -769,7 +782,7 @@ and type_arguments s : Ast.type_expr list =
   match matches s [ Token.Less ] with
   | None -> []
   | Some _ ->
-    let args = comma_separated s type_argument in
+    let args = comma_separated ~closer:Token.Greater s type_argument in
     ignore (consume s Token.Greater "Expected '>' after type arguments.");
     args
 
@@ -853,7 +866,9 @@ and binder s message : Ast.binder =
   match matches s [ Token.Left_paren ] with
   | None -> [ consume_identifier s message ]
   | Some _ ->
-    let names = comma_separated s (fun s -> consume_identifier s message) in
+    let names =
+      comma_separated ~closer:Token.Right_paren s (fun s -> consume_identifier s message)
+    in
     ignore (consume s Token.Right_paren "Expected ')' after the names.");
     if List.length names < 2
     then raise (error s (peek s) "A destructuring binder takes two names or more.");
@@ -990,7 +1005,8 @@ and import_decl s sp : Ast.stmt =
     then (
       ignore (advance s);
       let names =
-        comma_separated s (fun s -> consume_identifier s "Expected an imported name.")
+        comma_separated ~closer:Token.Right_brace s (fun s ->
+          consume_identifier s "Expected an imported name.")
       in
       ignore (consume s Token.Right_brace "Expected '}' after the imported names.");
       (match (peek s).Token.token_type with
@@ -1169,7 +1185,9 @@ and attributes s =
         | None -> []
         | Some _ ->
           let args =
-            if check s Token.Right_paren then [] else comma_separated s attribute_arg
+            if check s Token.Right_paren
+            then []
+            else comma_separated ~closer:Token.Right_paren s attribute_arg
           in
           ignore (consume s Token.Right_paren "Expected ')' after attribute arguments.");
           args
@@ -1235,7 +1253,7 @@ and type_decl s sp : Ast.stmt =
           match (peek s).Token.token_type with
           | Token.Left_paren ->
             ignore (advance s);
-            let items = comma_separated s type_expr in
+            let items = comma_separated ~closer:Token.Right_paren s type_expr in
             ignore (consume s Token.Right_paren "Expected ')' after variant payload.");
             Ast.P_tuple items
           | Token.Left_brace ->
@@ -1405,7 +1423,7 @@ and match_stmt s sp : Ast.stmt =
             | Token.Left_paren ->
               ignore (advance s);
               let items =
-                comma_separated s (fun s ->
+                comma_separated ~closer:Token.Right_paren s (fun s ->
                   consume_identifier s "Expected a binding name.")
               in
               ignore (consume s Token.Right_paren "Expected ')' after bindings.");

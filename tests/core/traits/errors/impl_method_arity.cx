@@ -1,0 +1,8 @@
+trait Describe {
+    fn describe(self, prefix: string): string;
+}
+type Circle { radius: int }
+impl Describe for Circle {
+    fn describe(self): string { return "circle"; }
+}
+print(new Circle { radius: 1 });

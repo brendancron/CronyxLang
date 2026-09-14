@@ -1,0 +1,2 @@
+[5:1] 'Convert' for 'Tag' declares 'convert' as (self, int): int but defines (self, string): string.
+[11:7] Expected Convert, got Tag.

@@ -1,0 +1,30 @@
+type Pair<A, B,> {
+    xs: List<int,>,
+    a: A,
+    b: B,
+}
+
+type Shape {
+    Circle(int, int,),
+    Square { w: int, },
+}
+
+fn add(a: int, b: int,): int {
+    return a + b;
+}
+
+fn pair(): (int, int,) {
+    return (1, 2,);
+}
+
+var p = new Pair<int, string,> { xs: [1, 2,], a: 3, b: "s", };
+var (left, right,) = pair();
+
+print(add(left, right,));
+print(p.xs);
+print(p.b);
+
+match (new Shape::Circle(4, 5,)) {
+    Shape::Circle(w, h,) => { print(add(w, h,)); }
+    Shape::Square { w, } => { print(w); }
+}

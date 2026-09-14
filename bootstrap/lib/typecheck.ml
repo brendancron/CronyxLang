@@ -1533,10 +1533,18 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
             impl.Ast.ib_assoc);
         (match trait with
          | None -> ()
-         | Some trait ->
-           (match Hashtbl.find_opt ctx_traits (fst trait) with
-            | None -> fail span "Unknown trait '%s'." (fst trait)
-            | Some (_, required) ->
+         | Some (trait_name, trait_args) ->
+           (match Hashtbl.find_opt ctx_traits trait_name with
+            | None -> fail span "Unknown trait '%s'." trait_name
+            | Some (trait_params, required) ->
+              if List.length trait_args <> List.length trait_params
+              then
+                fail
+                  span
+                  "Trait '%s' takes %d type argument(s) but %d were given."
+                  trait_name
+                  (List.length trait_params)
+                  (List.length trait_args);
               List.iter
                 (fun name ->
                   if not (List.mem_assoc name impl.Ast.ib_assoc)
@@ -1544,7 +1552,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                     fail
                       span
                       "'%s' for '%s' is missing associated type '%s'."
-                      (fst trait)
+                      trait_name
                       type_name
                       name)
                 required.Ast.tb_assoc;
@@ -1555,10 +1563,20 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                     fail
                       span
                       "'%s' for '%s' is missing method '%s'."
-                      (fst trait)
+                      trait_name
                       type_name
                       r.Ast.ms_name)
-                required.Ast.tb_methods));
+                required.Ast.tb_methods;
+              conforms
+                span
+                ~trait:trait_name
+                ~args:trait_args
+                ~params:trait_params
+                ~required
+                ~type_name
+                ~type_params
+                ~decl_params:params
+                impl));
         List.iter
           (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
             (match m.Ast.md_params with
@@ -1732,6 +1750,105 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
              body.Ast.tb_super)
       | _ -> ())
     body
+
+and associated_names trait =
+  List.sort_uniq
+    String.compare
+    (List.concat_map
+       (fun t ->
+         match Hashtbl.find_opt ctx_traits t with
+         | Some (_, body) -> body.Ast.tb_assoc
+         | None -> [])
+       (trait_closure trait))
+
+and conforms span ~trait ~args ~params ~required ~type_name ~type_params ~decl_params impl =
+  let in_scope =
+    with_type_params type_params (fun () ->
+      ("Self", self_ty span type_name decl_params)
+      :: List.map
+           (fun name ->
+             ( name
+             , match List.assoc_opt name impl.Ast.ib_assoc with
+               | Some bound -> infer_ty_of_annotation bound
+               (* A supertrait's, bound by the impl that supplied it. *)
+               | None ->
+                 (match Hashtbl.find_opt ctx_assoc (type_name, name) with
+                  | Some ty -> ty
+                  | None -> Types.fresh ()) ))
+           (associated_names trait)
+      @ List.combine params (List.map infer_ty_of_annotation args))
+  in
+  with_type_params (type_params @ in_scope) (fun () ->
+    List.iter
+      (fun (r : Ast.method_sig) ->
+        match
+          List.find_opt
+            (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+              String.equal m.Ast.md_name r.Ast.ms_name)
+            impl.Ast.ib_methods
+        with
+        | None -> ()
+        | Some m -> conforming_method span ~trait ~type_name r m)
+      required.Ast.tb_methods)
+
+and conforming_method
+  span
+  ~trait
+  ~type_name
+  (r : Ast.method_sig)
+  (m : (Ast.desugared_stmt, unit) Ast.method_def)
+  =
+  let without_self = function
+    | { Ast.name = "self"; _ } :: rest -> rest
+    | all -> all
+  in
+  let declared_params = without_self r.Ast.ms_params
+  and defined_params = without_self m.Ast.md_params in
+  if List.length declared_params <> List.length defined_params
+  then
+    fail
+      span
+      "'%s' for '%s' declares '%s' with %d parameter(s) but it is defined with %d."
+      trait
+      type_name
+      r.Ast.ms_name
+      (List.length declared_params)
+      (List.length defined_params);
+  (* The two sides share a name for the same parameter, so binding both lists
+     leaves one variable standing for it and the signatures can meet. *)
+  let own =
+    type_params_of span r.Ast.ms_signature.Ast.comptime
+    @ type_params_of span m.Ast.md_signature.Ast.comptime
+  in
+  with_type_params own (fun () ->
+    let types params = List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) params in
+    let declared = types declared_params
+    and declared_ret = annotated_or_fresh r.Ast.ms_signature.Ast.ret in
+    let defined = types defined_params
+    and defined_ret = annotated_or_fresh m.Ast.md_signature.Ast.ret in
+    let shown params ret =
+      Printf.sprintf
+        "(self%s): %s"
+        (String.concat "" (List.map (fun t -> ", " ^ Types.string_of_infer_ty t) params))
+        (Types.string_of_infer_ty ret)
+    in
+    (* Read before unifying: a link the first mismatch leaves behind would
+       otherwise be printed as what was written. *)
+    let declared_text = shown declared declared_ret
+    and defined_text = shown defined defined_ret in
+    try
+      List.iter2 Types.unify declared defined;
+      Types.unify declared_ret defined_ret
+    with
+    | Types.Type_error _ ->
+      fail
+        span
+        "'%s' for '%s' declares '%s' as %s but defines %s."
+        trait
+        type_name
+        r.Ast.ms_name
+        declared_text
+        defined_text)
 
 and self_ty span type_name params =
   if params = []
