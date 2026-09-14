@@ -118,10 +118,21 @@ let declared_params : (int, unit) Hashtbl.t = Hashtbl.create 8
    call through the first is contained; through the second it is tied. *)
 let declared_row_params : (int, unit) Hashtbl.t = Hashtbl.create 8
 
+(* What the author called a parameter. An id is a counter, so printing one would
+   make a signature read differently for a variable allocated somewhere else
+   entirely. *)
+let param_names : (int, string) Hashtbl.t = Hashtbl.create 8
+
+let name_param name (t : infer_ty) =
+  match t with
+  | IVar { contents = Unbound (id, _) } -> Hashtbl.replace param_names id name
+  | _ -> ()
+
 let reset () =
   counter := 0;
   Hashtbl.reset declared_params;
-  Hashtbl.reset declared_row_params
+  Hashtbl.reset declared_row_params;
+  Hashtbl.reset param_names
 
 (* An equation holding only inside a match arm is taken back when the arm ends.
    Recording is off unless asked for, so every other unification pays nothing. *)
@@ -267,12 +278,33 @@ let entry render (label, args) =
   | [] -> label
   | args -> Printf.sprintf "%s<%s>" label (String.concat ", " (List.map render args))
 
-let rec string_of_infer_args (args : infer_ty list) =
+let letter n =
+  let single = String.make 1 (Char.chr (Char.code 'a' + (n mod 26))) in
+  if n < 26 then single else single ^ string_of_int (n / 26)
+
+(* Named where it was declared, or after where it first appears in what is
+   being printed. *)
+let var_name seen id =
+  match Hashtbl.find_opt param_names id with
+  | Some name -> name
+  | None ->
+    (match Hashtbl.find_opt seen id with
+     | Some name -> name
+     | None ->
+       let name = "'" ^ letter (Hashtbl.length seen) in
+       Hashtbl.add seen id name;
+       name)
+
+let rec string_of_infer_args seen (args : infer_ty list) =
   match args with
   | [] -> ""
-  | args -> Printf.sprintf "<%s>" (String.concat ", " (List.map string_of_infer_ty args))
+  | args ->
+    Printf.sprintf "<%s>" (String.concat ", " (List.map (string_of_infer_ty seen) args))
 
-and string_of_infer_ty (t : infer_ty) : string =
+and string_of_infer_ty seen (t : infer_ty) : string =
+  let string_of_infer_args = string_of_infer_args seen in
+  let string_of_infer_row = string_of_infer_row seen in
+  let string_of_infer_ty = string_of_infer_ty seen in
   match repr t with
   | IInt -> "int"
   | IFloat -> "float"
@@ -302,32 +334,35 @@ and string_of_infer_ty (t : infer_ty) : string =
       (String.concat ", " (List.map string_of_infer_ty params))
       (string_of_infer_row row)
       (string_of_infer_ty ret)
-  | IVar { contents = Unbound (id, _) } -> Printf.sprintf "'%d" id
+  | IVar { contents = Unbound (id, _) } -> var_name seen id
   | IVar { contents = Link _ } -> assert false (* repr collapsed these *)
 
-and string_of_infer_row (r : infer_row) =
+and string_of_infer_row seen (r : infer_row) =
   match labels_of_infer_row r with
   | [], false -> ""
   | labels, open_ ->
     Printf.sprintf
       " <%s%s>"
-      (String.concat ", " (List.map (entry string_of_infer_ty) labels))
+      (String.concat ", " (List.map (entry (string_of_infer_ty seen)) labels))
       (if open_ then "|_" else "")
 
-let rec string_of_args (args : ty list) =
+let rec string_of_args seen (args : ty list) =
   match args with
   | [] -> ""
-  | args -> Printf.sprintf "<%s>" (String.concat ", " (List.map string_of_ty args))
+  | args -> Printf.sprintf "<%s>" (String.concat ", " (List.map (string_of_ty seen) args))
 
 (* The tail is not printed: what a row is open in says nothing about what the
    function performs. *)
-and string_of_row (r : row) =
+and string_of_row seen (r : row) =
   match r.labels with
   | [] -> ""
   | labels ->
-    Printf.sprintf " <%s>" (String.concat ", " (List.map (entry string_of_ty) labels))
+    Printf.sprintf " <%s>" (String.concat ", " (List.map (entry (string_of_ty seen)) labels))
 
-and string_of_ty (t : ty) : string =
+and string_of_ty seen (t : ty) : string =
+  let string_of_args = string_of_args seen in
+  let string_of_row = string_of_row seen in
+  let string_of_ty = string_of_ty seen in
   match t with
   | Int -> "int"
   | Float -> "float"
@@ -353,7 +388,15 @@ and string_of_ty (t : ty) : string =
       (String.concat ", " (List.map string_of_ty params))
       (string_of_row row)
       (string_of_ty ret)
-  | Generic id -> Printf.sprintf "'%d" id
+  | Generic id -> var_name seen id
+
+(* Each rendering numbers what it met, so a name means the same thing across one
+   message and nothing more. *)
+let string_of_infer_ty t = string_of_infer_ty (Hashtbl.create 4) t
+let string_of_infer_row r = string_of_infer_row (Hashtbl.create 4) r
+let string_of_ty t = string_of_ty (Hashtbl.create 4) t
+let string_of_row r = string_of_row (Hashtbl.create 4) r
+let string_of_args args = string_of_args (Hashtbl.create 4) args
 
 let type_name (t : ty) : string option =
   match t with
@@ -393,7 +436,10 @@ let rec subst_generic ?(rows = []) mapping (t : ty) : ty =
     (match List.assoc_opt id mapping with
      | Some replacement -> replacement
      | None -> t)
-  | Tuple items -> Tuple (List.map (subst_generic mapping) items)
+  | Tuple items ->
+    (match expand_ty (List.map (subst_generic mapping) items) with
+     | [] -> Unit
+     | items -> Tuple items)
   | Pack items -> Pack (List.map (subst_generic mapping) items)
   | Spread inner -> Spread (subst_generic mapping inner)
   | Record fields -> Record (List.map (fun (l, t) -> l, subst_generic mapping t) fields)
@@ -422,16 +468,24 @@ let rec match_generic_fields a b acc =
 and match_generic (general : ty) (concrete : ty) acc =
   match general, concrete with
   | Generic id, _ -> if List.mem_assoc id acc then acc else (id, concrete) :: acc
-  | Tuple a, Tuple b when List.length a = List.length b ->
-    List.fold_left2 (fun acc a b -> match_generic a b acc) acc a b
+  | Tuple a, Tuple b -> match_generic_list a b acc
+  | Tuple a, Unit -> match_generic_list a [] acc
   | Record a, Record b -> match_generic_fields a b acc
   | Named (_, ga, a), Named (_, gb, b) when List.length ga = List.length gb ->
     match_generic_fields a b (List.fold_left2 (fun acc x y -> match_generic x y acc) acc ga gb)
   | Named (_, _, a), Named (_, _, b) -> match_generic_fields a b acc
   | Sum (_, a), Sum (_, b) when List.length a = List.length b ->
     List.fold_left2 (fun acc a b -> match_generic a b acc) acc a b
-  | Fn (pa, ra, _), Fn (pb, rb, _) when List.length pa = List.length pb ->
-    match_generic ra rb (List.fold_left2 (fun acc a b -> match_generic a b acc) acc pa pb)
+  | Fn (pa, ra, _), Fn (pb, rb, _) -> match_generic ra rb (match_generic_list pa pb acc)
+  | _ -> acc
+
+(* A spread is what the copy settles, so it takes however many the concrete
+   list has left rather than pairing off against one. *)
+and match_generic_list (general : ty list) (concrete : ty list) acc =
+  match general, concrete with
+  | [ Spread (Generic id) ], rest ->
+    if List.mem_assoc id acc then acc else (id, Pack rest) :: acc
+  | a :: general, b :: concrete -> match_generic_list general concrete (match_generic a b acc)
   | _ -> acc
 
 (* What the template left open, read off an instantiation of it. Any difference
@@ -748,13 +802,17 @@ and unify (a : infer_ty) (b : infer_ty) : unit =
   | ISum (a, xs), ISum (b, ys)
     when String.equal a b && List.length xs = List.length ys -> List.iter2 unify xs ys
   | ITuple a, ITuple b ->
-    if List.length a <> List.length b
-    then
-      error
-        "Expected a tuple of %d element(s), got one of %d."
-        (List.length a)
-        (List.length b);
-    List.iter2 unify a b
+    unify_list
+      ~mismatch:(fun m n -> error "Expected a tuple of %d element(s), got one of %d." m n)
+      a
+      b
+  (* A pack that holds nothing spliced into a tuple leaves no elements, and a
+     product of none is what `unit` already is. *)
+  | ITuple items, IUnit | IUnit, ITuple items ->
+    unify_list
+      ~mismatch:(fun m n -> error "Expected a tuple of %d element(s), got one of %d." m n)
+      items
+      []
   | IPack a, IPack b ->
     if List.length a <> List.length b
     then
@@ -764,14 +822,18 @@ and unify (a : infer_ty) (b : infer_ty) : unit =
         (List.length b);
     List.iter2 unify a b
   | IFn (p1, r1, e1), IFn (p2, r2, e2) ->
-    unify_params p1 p2;
+    unify_list
+      ~mismatch:
+        (fun m n -> error "Expected a function of %d argument(s), got one of %d." m n)
+      p1
+      p2;
     unify r1 r2;
     unify_row e1 e2
   | _ -> error "Expected %s, got %s." (string_of_infer_ty a) (string_of_infer_ty b)
 
 (* A spread takes however many the other side has left, which is the only place
    a pack is ever settled: everywhere else it is already one type. *)
-and unify_params (a : infer_ty list) (b : infer_ty list) : unit =
+and unify_list ~mismatch (a : infer_ty list) (b : infer_ty list) : unit =
   let spread t =
     match repr t with
     | ISpread inner -> Some inner
@@ -779,12 +841,7 @@ and unify_params (a : infer_ty list) (b : infer_ty list) : unit =
   in
   let a = expand a
   and b = expand b in
-  let mismatch () =
-    error
-      "Expected a function of %d argument(s), got one of %d."
-      (List.length a)
-      (List.length b)
-  in
+  let mismatch () = mismatch (List.length a) (List.length b) in
   let rec go a b =
     match a, b with
     | [], [] -> ()
@@ -957,6 +1014,9 @@ let instantiate ?(bound = []) (s : scheme) : infer_ty =
                the variable being copied. *)
             let copy = fresh () in
             Hashtbl.add types id copy;
+            (* A copy of a declared parameter is still that parameter, so what
+               the author called it survives instantiation. *)
+            Option.iter (fun name -> name_param name copy) (Hashtbl.find_opt param_names id);
             (match copy with
              | IVar cell ->
                let copied =
@@ -1161,8 +1221,11 @@ and concrete (t : infer_ty) : ty option =
     let* fields = collect f in
     Some (Record (List.sort compare fields))
   | ITuple items ->
-    let* items = concrete_all items in
-    Some (Tuple items)
+    (match expand items with
+     | [] -> Some Unit
+     | items ->
+       let* items = concrete_all items in
+       Some (Tuple items))
   | IPack items ->
     let* items = concrete_all items in
     Some (Pack items)
@@ -1239,7 +1302,10 @@ and resolve (t : infer_ty) : ty =
   | IChr -> Chr
   | IBool -> Bool
   | IUnit -> Unit
-  | ITuple items -> Tuple (List.map resolve items)
+  | ITuple items ->
+    (match expand items with
+     | [] -> Unit
+     | items -> Tuple (List.map resolve items))
   | IPack items -> Pack (List.map resolve items)
   | ISpread inner -> Spread (resolve inner)
   | ISum (name, args) -> Sum (name, List.map resolve args)

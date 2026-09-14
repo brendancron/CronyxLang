@@ -1,13 +1,17 @@
-type Slot<...Args> {
-    use: (...Args) -> unit
+fn fire<T, ...Args>(f: (...Args) -> T, args: (...Args)): T {
+    return f(...args);
 }
 
-fn fire<...Args>(s: Slot<...Args>, args: (...Args)) {
-    s.use(...args);
+fn two(a: int, b: string) {
+    print(str(a) + b);
 }
 
-var two = new Slot { use: (a: int, b: string) => { print(str(a) + b); } };
-var none = new Slot { use: () => { print("none"); } };
+fn none() {
+    print("none");
+}
 
-fire(two, (1, "x"));
+two(3, "x");
+none();
+
+fire(two, (4, "y"));
 fire(none, ());

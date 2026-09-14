@@ -7,8 +7,16 @@ fn tag_of<...Args>(s: Slot<...Args>): string {
     return s.tag;
 }
 
-var two = new Slot { tag: "two", use: (a: int, b: int) => { print(a + b); } };
-var none = new Slot { tag: "none", use: () => { print(0); } };
+fn add(a: int, b: int) {
+    print(a + b);
+}
+
+fn nothing() {
+    print(0);
+}
+
+var two = new Slot { tag: "two", use: add };
+var none = new Slot { tag: "none", use: nothing };
 
 print(tag_of(two));
 print(tag_of(none));

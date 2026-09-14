@@ -47,6 +47,8 @@ let cases =
   ; "tests/reflection/typeof_exprs"
   ; "tests/reflection/typeof_primitives"
   ; "tests/reflection/typeof_fn"
+  ; "tests/reflection/typeof_generic"
+  ; "tests/reflection/typeof_pack"
   ; "tests/effects/rows/inferred_rows"
   ; "tests/effects/rows/builtin_in_effectful_fn"
   ; "tests/effects/rows/inferred_polymorphic"
@@ -148,6 +150,14 @@ let cases =
   ; "tests/core/variadic/packs/through_fn"
   ; "tests/core/variadic/packs/written"
   ; "tests/core/variadic/packs/erased"
+  ; "tests/core/variadic/packs/tuple"
+  ; "tests/core/variadic/packs/tuple_empty"
+  ; "tests/core/variadic/packs/collect"
+  ; "tests/core/variadic/packs/collect_generic"
+  ; "tests/core/variadic/packs/spread"
+  ; "tests/core/variadic/packs/spread_roundtrip"
+  ; "tests/core/variadic/packs/spread_method"
+  ; "tests/core/variadic/packs/action"
   ; "tests/reflection/typeof_effect_transitive"
   ; "tests/reflection/typeof_effect_multi"
   ; "tests/reflection/typeof_effect_fn_vs_ctl"
@@ -300,6 +310,10 @@ let error_cases =
   ; "tests/core/variadic/packs/errors/mixed_pool"
   ; "tests/core/variadic/packs/errors/empty_arguments"
   ; "tests/core/variadic/packs/errors/bare_pack"
+  ; "tests/core/variadic/packs/errors/spread_array"
+  ; "tests/core/variadic/packs/errors/spread_arity"
+  ; "tests/core/variadic/packs/errors/spread_not_last"
+  ; "tests/core/variadic/packs/errors/tuple_not_pack"
   ; "tests/core/lambdas/errors/unnamed_pair"
   ; "tests/core/lambdas/errors/naked_arrow"
   ; "tests/core/type_annotations/errors/arrow_return"
@@ -452,17 +466,6 @@ let expected_failing : (string * blocker) list =
   ; "tests/compile/m6/apply", Parked
   ; "tests/compile/m7/safe_div", Parked
   ; "tests/compile/m8/gadt", Parked
-  ; "tests/core/variadic/packs/tuple", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/tuple_empty", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/collect", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/collect_generic", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/spread", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/spread_roundtrip", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/action", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/errors/spread_array", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/errors/spread_arity", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/errors/spread_not_last", Waiting "tuple splice, collect and spread"
-  ; "tests/core/variadic/packs/errors/tuple_not_pack", Waiting "tuple splice, collect and spread"
   ]
 
 (* Ought to be rejected and are not, paired with the `.err` they should

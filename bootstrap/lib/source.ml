@@ -30,6 +30,8 @@ let rec type_expr (t : Ast.type_expr) =
   | Ast.Ty_name name -> name
   | Ast.Ty_assoc (owner, member) -> type_expr owner ^ "." ^ member
   | Ast.Ty_bind (bound, t) -> bound ^ " = " ^ type_expr t
+  (* The pack already carries the dots. *)
+  | Ast.Ty_variadic ({ Ast.it = Ast.Ty_spread _; _ } as held) -> type_expr held
   | Ast.Ty_variadic inner -> "..." ^ type_expr inner
   | Ast.Ty_spread inner -> "..." ^ type_expr inner
   | Ast.Ty_app (name, args) ->
@@ -105,6 +107,7 @@ let rec expr (e : Ast.expr) : string =
     Printf.sprintf "%s[%s] = %s" (expr target) (expr index) (expr v)
   | `Tuple items -> Printf.sprintf "(%s)" (arguments items)
   | `Tuple_get (target, at) -> Printf.sprintf "%s.%d" (expr target) at
+  | `Spread inner -> "..." ^ expr inner
   | `Record_lit fields -> Printf.sprintf "{ %s }" (labelled fields)
   | `Field (target, label) -> Printf.sprintf "%s.%s" (expr target) label
   | `Field_assign (target, label, v) ->

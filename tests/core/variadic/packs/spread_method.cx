@@ -1,0 +1,12 @@
+type Counter {
+    n: int
+}
+
+impl Counter {
+    fn add(self, a: int, b: int): int { return self.n + a + b; }
+}
+
+var c = new Counter { n: 1 };
+var pair = (2, 3);
+
+print(c.add(...pair));

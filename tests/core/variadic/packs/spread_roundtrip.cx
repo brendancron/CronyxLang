@@ -2,6 +2,18 @@ fn apply_all<...Args>(f: (...Args) -> unit, args: ...Args) {
     f(...args);
 }
 
-apply_all((a: int, b: string) => { print(str(a) + b); }, 1, "x");
-apply_all((a: bool) => { print(a); }, true);
-apply_all(() => { print("none"); });
+fn pair(a: int, b: string) {
+    print(str(a) + b);
+}
+
+fn flag(a: bool) {
+    print(a);
+}
+
+fn nothing() {
+    print("none");
+}
+
+apply_all(pair, 1, "x");
+apply_all(flag, true);
+apply_all(nothing);

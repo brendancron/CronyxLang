@@ -2,8 +2,16 @@ type Slot<...Args> {
     use: (...Args) -> unit
 }
 
-var two = new Slot { use: (a: int, b: string) => { print(str(a) + b); } };
-var one = new Slot { use: (a: bool) => { print(a); } };
+fn pair(a: int, b: string) {
+    print(str(a) + b);
+}
+
+fn flag(a: bool) {
+    print(a);
+}
+
+var two = new Slot { use: pair };
+var one = new Slot { use: flag };
 
 two.use(1, "x");
 one.use(true);

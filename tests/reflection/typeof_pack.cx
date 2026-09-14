@@ -1,0 +1,30 @@
+type Slot<...Args> {
+    use: (...Args) -> unit
+}
+
+fn hold<...Args>(f: (...Args) -> unit, args: ...Args): (...Args) {
+    return args;
+}
+
+fn call<T, ...Args>(f: (...Args) -> T, args: (...Args)): T {
+    return f(...args);
+}
+
+fn pair(a: int, b: string) {
+    print(str(a) + b);
+}
+
+fn nothing() {
+}
+
+var two = new Slot { use: pair };
+var none = new Slot { use: nothing };
+
+print(typeof(hold).name);
+print(typeof(call).name);
+print(typeof(two).name);
+print(typeof(none).name);
+print(typeof(two.use).name);
+print(typeof(none.use).name);
+print(typeof(hold(pair, 1, "x")).name);
+print(typeof(hold(nothing)).name);

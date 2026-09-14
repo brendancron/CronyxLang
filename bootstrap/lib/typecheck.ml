@@ -19,6 +19,7 @@ and checked_expr_kind =
   | checked_expr Ast.compound
   | checked_expr Ast.indexing
   | checked_expr Ast.tuple
+  | checked_expr Ast.spread
   | checked_expr Ast.record
   | checked_expr Ast.nominal
   | checked_expr Ast.collection
@@ -137,6 +138,7 @@ let with_type_params assoc f =
   List.iter
     (fun (name, var) ->
       Hashtbl.replace ctx_type_params name var;
+      Types.name_param name var;
       let row = Types.fresh_row () in
       Types.declare_row row;
       Hashtbl.replace ctx_row_params name row)
@@ -484,9 +486,22 @@ let primitive = function
 
 let rec infer_ty_of_annotation (t : Ast.type_expr) : Types.infer_ty =
   match t.Ast.it with
+  (* What the call site collected into: a pack's tuple, or an array. *)
+  | Ast.Ty_variadic ({ Ast.it = Ast.Ty_spread _; _ } as held) ->
+    Types.ITuple [ infer_ty_of_annotation held ]
   | Ast.Ty_variadic element -> Types.iarray (infer_ty_of_annotation element)
-  | Ast.Ty_spread inner -> Types.ISpread (infer_ty_of_annotation inner)
+  | Ast.Ty_spread inner ->
+    let held = infer_ty_of_annotation inner in
+    (match Types.repr held with
+     | Types.IVar _ | Types.IPack _ -> ()
+     | _ ->
+       fail
+         t.Ast.span
+         "'%s' is a type, not a pack, so there is nothing to spread."
+         (Printer.string_of_type_expr inner));
+    Types.ISpread held
   | Ast.Ty_name name when primitive name <> None -> Option.get (primitive name)
+  | Ast.Ty_tuple [] -> Types.IUnit
   | Ast.Ty_tuple items -> Types.ITuple (List.map infer_ty_of_annotation items)
   | Ast.Ty_record fields ->
     Types.IRecord
@@ -616,6 +631,7 @@ let type_params_of span (comptime : Ast.comptime_param list) =
           | None | Some { Ast.it = Ast.Ty_name _ | Ast.Ty_app _; _ } ->
             let var = Types.fresh () in
             Types.declare_param var;
+            Types.name_param p.Ast.cp_name var;
             Hashtbl.replace ctx_type_params p.Ast.cp_name var;
             p, var
           | Some _ ->
@@ -682,7 +698,7 @@ let rec assigned_in_expr (e : Ast.desugared_expr) acc =
     assigned_in_expr c (assigned_in_expr b (assigned_in_expr a acc))
   | `Collection_lit items | `Tuple items ->
     List.fold_left (fun acc i -> assigned_in_expr i acc) acc items
-  | `Tuple_get (t, _) | `Field (t, _) -> assigned_in_expr t acc
+  | `Tuple_get (t, _) | `Field (t, _) | `Spread t -> assigned_in_expr t acc
   | `Record_lit fields ->
     List.fold_left (fun acc (_, v) -> assigned_in_expr v acc) acc fields
   | `Field_assign (r, _, v) -> assigned_in_expr v (assigned_in_expr r acc)
@@ -1020,7 +1036,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
   | `Call (callee, args) ->
     let callee_node = infer_expr env ctx callee in
     let args = name_implicit_params callee_node.Ast.ann args in
-    let args = List.map (infer_expr env ctx) args in
+    let args = List.map (argument env ctx) args in
     (* The name has to still mean the entry, not merely be spelled like it. *)
     let variadic =
       match callee.Ast.it with
@@ -1161,7 +1177,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          | None -> [])
       | _ -> []
     in
-    let args = List.map (infer_expr env ctx) (name_implicit_params_from expected args) in
+    let args = List.map (argument env ctx) (name_implicit_params_from expected args) in
     (* No method of the name exists, so a field holding a function is what the
        call means. *)
     let via_field () =
@@ -1199,7 +1215,8 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
           receiver.Ast.ann :: List.map (fun (a : checked_expr) -> a.Ast.ann) args
         in
         (match Types.repr fn with
-         | Types.IFn (params, _, _) when List.length params <> List.length passed ->
+         | Types.IFn (params, _, _)
+           when List.length (Types.expand params) <> List.length (Types.expand passed) ->
            fail
              span
              "'%s' takes %d argument(s) but %d were passed, counting the receiver."
@@ -1265,7 +1282,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
             | { Ast.name = "self"; _ } :: rest -> rest
             | all -> all
           in
-          if List.length rest <> List.length args
+          if List.length rest <> spread_arity args
           then
             fail
               span
@@ -1336,14 +1353,16 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
            if associated then given else receiver.Ast.ann :: given
          in
          (match Types.repr fn with
-          | Types.IFn (params, _, _) when List.length params <> List.length passed ->
+          | Types.IFn (params, _, _)
+            when List.length (Types.expand params) <> List.length (Types.expand passed) ->
+            let params = Types.expand params in
             fail
               span
               "%s '%s' takes %d argument(s) but %d were passed."
               (if associated then "Associated function" else "Method")
               name
               (if associated then List.length params else List.length params - 1)
-              (List.length args)
+              (spread_arity args)
           | _ -> ());
          let ret = Types.fresh () in
          let row = Types.fresh_row () in
@@ -1353,6 +1372,9 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
            row
            ctx.row;
          node ret (`Method_call (receiver, name, as_function, args)))))
+  (* A spread stands for however many its tuple holds, so it is read where an
+     argument list is and nowhere else. *)
+  | `Spread _ -> fail span "A spread is an argument, so it belongs in a call."
   | `Lambda (params, signature, body) ->
     let param_types = List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) params in
     let declared_ret = annotated_or_fresh signature.Ast.ret in
@@ -1518,6 +1540,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     let target = infer_expr env ctx target in
     (match Types.repr target.Ast.ann with
      | Types.ITuple items ->
+       let items = Types.expand items in
        (match List.nth_opt items index with
         | Some ty -> node ty (`Tuple_get (target, index))
         | None ->
@@ -1553,6 +1576,36 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     unify_at index.Ast.span Types.IInt index.Ast.ann;
     unify_at v.Ast.span (element_of ctx.registry target) v.Ast.ann;
     node v.Ast.ann (`Index_assign (target, index, v))
+
+(* What an argument contributes to the callee's parameter list: one type, or
+   however many a spread's tuple holds. *)
+(* How many arguments a list is once its spreads are taken apart. *)
+and spread_arity (args : checked_expr list) =
+  List.length (Types.expand (List.map (fun (a : checked_expr) -> a.Ast.ann) args))
+
+and argument env ctx (a : Ast.desugared_expr) : checked_expr =
+  match a.Ast.it with
+  | `Spread inner ->
+    let inner = infer_expr env ctx inner in
+    let held =
+      match Types.repr inner.Ast.ann with
+      | Types.IUnit -> Types.IPack []
+      | Types.ITuple items -> Types.IPack items
+      | Types.IVar { contents = Types.Unbound (_, Types.Collection elem) } ->
+        fail
+          a.Ast.span
+          "A spread takes a tuple, not Array<%s>: an argument list's length has to be \
+           known at compile time."
+          (Types.string_of_infer_ty elem)
+      | other ->
+        fail
+          a.Ast.span
+          "A spread takes a tuple, not %s: an argument list's length has to be known at \
+           compile time."
+          (Types.string_of_infer_ty other)
+    in
+    Ast.annotated a.Ast.span (Types.ISpread held) (`Spread inner)
+  | _ -> infer_expr env ctx a
 
 and declare_traits (body : Ast.desugared_stmt list) =
   List.iter
@@ -2696,6 +2749,7 @@ let rec resolve_expr (e : checked_expr) : Ast.typed_expr =
     | #Ast.compound as c -> (Ast.map_compound resolve_expr c :> Ast.typed_expr_kind)
     | #Ast.indexing as i -> (Ast.map_indexing resolve_expr i :> Ast.typed_expr_kind)
     | #Ast.tuple as t -> (Ast.map_tuple resolve_expr t :> Ast.typed_expr_kind)
+    | #Ast.spread as s -> (Ast.map_spread resolve_expr s :> Ast.typed_expr_kind)
     | #Ast.record as r -> (Ast.map_record resolve_expr r :> Ast.typed_expr_kind)
     | #Ast.nominal as n -> (Ast.map_nominal resolve_expr n :> Ast.typed_expr_kind)
     | #Ast.collection as c ->

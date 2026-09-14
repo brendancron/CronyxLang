@@ -128,7 +128,7 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
        | Some { Registry.emit = Registry.Primitive; _ } | None -> `Binop (op, a, b))
     | `Method_call (receiver, name, _, args) ->
       let receiver = expr registry receiver in
-      let args = List.map (expr registry) args in
+      let args = arguments registry args in
       let owner =
         match Types.type_name receiver.Ast.ann with
         | Some owner -> owner
@@ -199,6 +199,10 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
     | #Ast.arrays as a -> (Ast.map_arrays (expr registry) a :> Ast.resolved_expr_kind)
     | #Ast.strings as s -> (Ast.map_strings (expr registry) s :> Ast.resolved_expr_kind)
     | #Ast.vars as v -> (Ast.map_vars (expr registry) v :> Ast.resolved_expr_kind)
+    | `Call (callee, args) -> `Call (expr registry callee, arguments registry args)
+    (* Only an argument list holds one, and [arguments] is what takes it
+       apart. *)
+    | `Spread _ -> assert false
     | #Ast.ops as o -> (Ast.map_ops (expr registry) o :> Ast.resolved_expr_kind)
     | #Ast.logic as l -> (Ast.map_logic (expr registry) l :> Ast.resolved_expr_kind)
     | #Ast.tuple as t -> (Ast.map_tuple (expr registry) t :> Ast.resolved_expr_kind)
@@ -322,6 +326,36 @@ and fn_ref span name args result : Ast.resolved_expr =
         , result
         , Option.value ~default:(Types.closed_row []) (Hashtbl.find_opt declared_rows name) )
   }
+
+(* A tuple spread into an argument list is as many arguments as it holds, and
+   [Type_mono] has already settled how many. *)
+and arguments registry (args : Ast.typed_expr list) : Ast.resolved_expr list =
+  List.concat_map
+    (fun (a : Ast.typed_expr) ->
+      match a.Ast.it with
+      | `Spread inner ->
+        let held =
+          match inner.Ast.ann with
+          | Types.Tuple items -> List.length (Types.expand_ty items)
+          | Types.Unit -> 0
+          | other ->
+            fail
+              inner.Ast.span
+              "A spread takes a tuple, not %s."
+              (Types.string_of_ty other)
+        in
+        let inner = expr registry inner in
+        List.init
+          held
+          (fun index ->
+            let ann =
+              match inner.Ast.ann with
+              | Types.Tuple items -> List.nth (Types.expand_ty items) index
+              | _ -> assert false
+            in
+            { Ast.it = `Tuple_get (inner, index); span = a.Ast.span; ann })
+      | _ -> [ expr registry a ])
+    args
 
 and stmt registry (s : Ast.typed_stmt) : Ast.resolved_stmt list =
   let saved = !hoisted in

@@ -12,13 +12,21 @@ fn queue<...Args>(m: Move<...Args>, args: ...Args): MoveAction<...Args> {
     return new MoveAction { move: m, intent: args };
 }
 
-fn run<...Args>(a: MoveAction<...Args>) {
+fn perform<...Args>(a: MoveAction<...Args>) {
     a.move.apply(...a.intent);
 }
 
-var burn = new Move { name: "burn", apply: (user: int, target: int) => { print(user + target); } };
-var wait = new Move { name: "wait", apply: () => { print("wait"); } };
+fn burn(user: int, target: int) {
+    print(user + target);
+}
 
-run(queue(burn, 1, 2));
-run(queue(wait));
-print(typeof(queue(burn, 1, 2)).name);
+fn wait() {
+    print("wait");
+}
+
+var fire = new Move { name: "burn", apply: burn };
+var rest = new Move { name: "wait", apply: wait };
+
+perform(queue(fire, 1, 2));
+perform(queue(rest));
+print(typeof(queue(fire, 1, 2)).name);

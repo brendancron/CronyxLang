@@ -33,6 +33,9 @@ let rec type_directed_expr self (e : Ast.typed_expr) =
   | `Str_get (a, b) -> type_directed_expr a || type_directed_expr b
   | `Unop (_, a) | `Tuple_get (a, _) | `Field (a, _) | `Typeof a | `Assign (_, a) ->
     type_directed_expr a
+  (* How many arguments the call has is what the pack holds, so a body is owed
+     a copy per pack even when nothing else in it is. *)
+  | `Spread a -> Types.has_generic a.Ast.ann || type_directed_expr a
   | `And (a, b) | `Or (a, b) | `Index (a, b) | `Field_assign (a, _, b) ->
     type_directed_expr a || type_directed_expr b
   | `Index_assign (a, b, c) ->
@@ -101,6 +104,7 @@ let rec subst_expr ?(rows = []) mapping (e : Ast.typed_expr) : Ast.typed_expr =
     | #Ast.compound as c -> (Ast.map_compound (subst_expr mapping) c :> Ast.typed_expr_kind)
     | #Ast.indexing as i -> (Ast.map_indexing (subst_expr mapping) i :> Ast.typed_expr_kind)
     | #Ast.tuple as t -> (Ast.map_tuple (subst_expr mapping) t :> Ast.typed_expr_kind)
+    | #Ast.spread as s -> (Ast.map_spread (subst_expr mapping) s :> Ast.typed_expr_kind)
     | #Ast.record as r -> (Ast.map_record (subst_expr mapping) r :> Ast.typed_expr_kind)
     | #Ast.nominal as n -> (Ast.map_nominal (subst_expr mapping) n :> Ast.typed_expr_kind)
     | #Ast.collection as c ->
@@ -226,6 +230,7 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
     | #Ast.compound as c -> (Ast.map_compound (rewrite state) c :> Ast.typed_expr_kind)
     | #Ast.indexing as i -> (Ast.map_indexing (rewrite state) i :> Ast.typed_expr_kind)
     | #Ast.tuple as t -> (Ast.map_tuple (rewrite state) t :> Ast.typed_expr_kind)
+    | #Ast.spread as s -> (Ast.map_spread (rewrite state) s :> Ast.typed_expr_kind)
     | #Ast.record as r -> (Ast.map_record (rewrite state) r :> Ast.typed_expr_kind)
     | #Ast.nominal as n -> (Ast.map_nominal (rewrite state) n :> Ast.typed_expr_kind)
     | #Ast.collection as c ->
