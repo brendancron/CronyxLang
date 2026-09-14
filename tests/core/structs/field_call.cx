@@ -1,0 +1,7 @@
+type Handler {
+    apply: (int) -> unit
+}
+
+var h = new Handler { apply: (n: int) => { print(n * 2); } };
+
+h.apply(21);

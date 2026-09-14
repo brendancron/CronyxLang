@@ -16,6 +16,7 @@ let rec string_of_type_expr (t : Ast.type_expr) : string =
   | Ast.Ty_assoc (owner, member) -> string_of_type_expr owner ^ "." ^ member
   | Ast.Ty_bind (bound, t) -> bound ^ " = " ^ string_of_type_expr t
   | Ast.Ty_variadic t -> "..." ^ string_of_type_expr t
+  | Ast.Ty_spread t -> "..." ^ string_of_type_expr t
   | Ast.Ty_app (name, args) ->
     Printf.sprintf "%s<%s>" name (String.concat ", " (List.map string_of_type_expr args))
   | Ast.Ty_tuple items ->
@@ -232,7 +233,15 @@ let rec write_stmt buf indent (s : Ast.stmt) =
       name
       (match params with
        | [] -> ""
-       | params -> Printf.sprintf "<%s>" (String.concat ", " params))
+       | params ->
+         Printf.sprintf
+           "<%s>"
+           (String.concat
+              ", "
+              (List.map
+                 (fun (p : Ast.type_param) ->
+                   (if p.Ast.tp_pack then "..." else "") ^ p.Ast.tp_name)
+                 params)))
       (match body with
        | Ast.T_fields fields ->
          String.concat "" (List.map (fun (f : Ast.field) -> " " ^ f.Ast.f_name) fields)

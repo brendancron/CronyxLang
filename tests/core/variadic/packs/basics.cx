@@ -1,0 +1,11 @@
+type Slot<...Args> {
+    use: (...Args) -> unit
+}
+
+var two = new Slot { use: (a: int, b: string) => { print(str(a) + b); } };
+var one = new Slot { use: (a: bool) => { print(a); } };
+
+two.use(1, "x");
+one.use(true);
+print(typeof(two).name);
+print(typeof(one).name);

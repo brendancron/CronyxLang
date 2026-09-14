@@ -127,6 +127,82 @@ The same monomorphization story applies. `new Pair { first: 1, second: "one" }` 
 
 That means you can't accidentally pass a `Pair<int, string>` where a `Pair<bool, int>` was expected — they're as distinct to the type system as `int` and `string` are, even though they came from the same generic declaration.
 
+## Type packs: a parameter list as a parameter
+
+A type parameter stands for one type. Sometimes what varies isn't a type but *how many* — a struct holding a function whose parameters differ from value to value. Declare that with `...`:
+
+```cronyx
+type Command<...Args> {
+    name: string,
+    apply: (...Args) -> unit
+}
+
+var rename = new Command {
+    name: "rename",
+    apply: (from: string, to: string) => { print(from + " -> " + to); }
+};
+
+var quit = new Command {
+    name: "quit",
+    apply: () => { print("bye"); }
+};
+
+rename.apply("a.txt", "b.txt");
+quit.apply();
+
+print(typeof(rename).name);
+print(typeof(quit).name);
+```
+
+```
+a.txt -> b.txt
+bye
+Command<string, string>
+Command<>
+```
+
+`<...Args>` declares a **type pack** — a parameter that stands for a whole parameter list rather than for one type. `(...Args) -> unit` splices that list where it stands, so `rename` has an `apply` of two `string` parameters and `quit` has one of none. Both came from the same declaration, and neither had to be written out: the lambda you supplied is what settled the pack.
+
+The monomorphization story is unchanged. `Command<string, string>` and `Command<>` are different concrete types, exactly as `Pair<int, string>` and `Pair<bool, int>` are, so calling `rename.apply("a.txt")` is an error at the call site:
+
+```
+Expected a function of 2 argument(s), got one of 1.
+```
+
+And for the same reason, `[rename, quit]` isn't an array — two commands of different arity are no more one element type than `int` and `string` are. When you need a collection of commands, give them a shared shape: one context struct they all take, or a sum type over the forms you support.
+
+### Writing a pack out
+
+Inference from the literal covers most uses, but a pack is a type like any other and can be written down. The arguments you write are collected into it:
+
+```cronyx
+fn label<...Args>(c: Command<...Args>): string {
+    return "<" + c.name + ">";
+}
+
+var rename: Command<string, string> = new Command {
+    name: "rename",
+    apply: (from: string, to: string) => { print(from + " -> " + to); }
+};
+
+var quit: Command<> = new Command {
+    name: "quit",
+    apply: () => { print("bye"); }
+};
+
+print(label(rename));
+print(label(quit));
+```
+
+```
+<rename>
+<quit>
+```
+
+`Command<>` is the empty pack, `Command<string>` a pack of one, `Command<string, string>` a pack of two. In a generic function, `Command<...Args>` names the pack that's already in scope — `label` works for a command of any arity, and doesn't care what it is.
+
+`Command<>` is deliberately not `Command<unit>`. A parameter list is a *sequence*, while `unit` is the type with one value, so the two differ where you can see it: `() -> unit` takes no argument and `(unit) -> unit` takes one. `Command<unit>` is a real, different type — a command whose `apply` takes a single unit argument.
+
 ## Beyond types: value parameters
 
 A comptime parameter doesn't have to be a type. It can be any value the compiler knows at meta time:

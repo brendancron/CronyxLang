@@ -122,7 +122,7 @@ let rec type_expr s : Ast.type_expr =
       if check s Token.Less
       then (
         ignore (advance s);
-        let args = comma_separated ~closer:Token.Greater s type_argument in
+        let args = listed_until s Token.Greater type_argument in
         ignore (consume s Token.Greater "Expected '>' after type arguments.");
         Ast.at sp (Ast.Ty_app (name, args)))
       else Ast.at sp (Ast.Ty_name name)
@@ -138,7 +138,7 @@ let rec type_expr s : Ast.type_expr =
     projected head
   | Token.Left_paren ->
     ignore (advance s);
-    let items = listed_until s Token.Right_paren type_expr in
+    let items = listed_until s Token.Right_paren spreadable in
     ignore (consume s Token.Right_paren "Expected ')' after type list.");
     if check s Token.Arrow
     then (
@@ -148,6 +148,14 @@ let rec type_expr s : Ast.type_expr =
       Ast.at sp (Ast.Ty_fn (items, type_expr s, row)))
     else Ast.at sp (Ast.Ty_tuple items)
   | _ -> raise (error s tok "Expected a type.")
+
+(* A pack stands for a parameter list, so it is written where a type is and
+   read as however many the pack holds. *)
+and spreadable s : Ast.type_expr =
+  let sp = Ast.span_of_token (peek s) in
+  match matches s [ Token.Dot_dot_dot ] with
+  | None -> type_expr s
+  | Some _ -> Ast.at sp (Ast.Ty_spread (type_expr s))
 
 (* `Output = T` says what the impl a bound reaches must have bound; anything
    else is an ordinary argument. *)
@@ -159,7 +167,7 @@ and type_argument s : Ast.type_expr =
     ignore (advance s);
     ignore (advance s);
     Ast.at sp (Ast.Ty_bind (bound, type_expr s))
-  | _ -> type_expr s
+  | _ -> spreadable s
 
 and typed_field s =
   let label = consume_identifier s "Expected a field name." in
@@ -188,14 +196,29 @@ let comptime_params s : Ast.comptime_param list =
   | Some _ ->
     let params =
       comma_separated ~closer:Token.Greater s (fun s ->
+        let starts = peek s in
+        let pack = matches s [ Token.Dot_dot_dot ] <> None in
         let name = consume_identifier s "Expected a comptime parameter name." in
-        { Ast.cp_name = name; cp_ty = type_annotation s })
+        ({ Ast.cp_name = name; cp_ty = type_annotation s; cp_pack = pack }, pack, starts))
     in
+    let rec check_last = function
+      | (_, pack, _) :: (((_, _, after) :: _) as rest) ->
+        if pack then ignore (error s after "A type pack must be the last parameter.");
+        check_last rest
+      | _ -> ()
+    in
+    check_last params;
     ignore (consume s Token.Greater "Expected '>' after comptime parameters.");
-    params
+    List.map (fun (p, _, _) -> p) params
 
 let type_params s : string list =
   List.map (fun (p : Ast.comptime_param) -> p.Ast.cp_name) (comptime_params s)
+
+let declared_type_params s : Ast.type_param list =
+  List.map
+    (fun (p : Ast.comptime_param) ->
+      { Ast.tp_name = p.Ast.cp_name; tp_pack = p.Ast.cp_pack })
+    (comptime_params s)
 
 let signature ?(comptime = []) s : Ast.signature =
   let returning () =
@@ -782,7 +805,7 @@ and type_arguments s : Ast.type_expr list =
   match matches s [ Token.Less ] with
   | None -> []
   | Some _ ->
-    let args = comma_separated ~closer:Token.Greater s type_argument in
+    let args = listed_until s Token.Greater type_argument in
     ignore (consume s Token.Greater "Expected '>' after type arguments.");
     args
 
@@ -1229,7 +1252,7 @@ and attribute_arg s =
 
 and type_decl s sp : Ast.stmt =
   let name = consume_identifier s "Expected a type name." in
-  let params = type_params s in
+  let params = declared_type_params s in
   ignore (consume s Token.Left_brace "Expected '{' after type name.");
   let rec loop fields variants =
     if check s Token.Right_brace || is_at_end s

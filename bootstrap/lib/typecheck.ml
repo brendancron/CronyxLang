@@ -99,6 +99,10 @@ let attrs_of name label =
 
 let ctx_type_params : (string, Types.infer_ty) Hashtbl.t = Hashtbl.create 8
 
+(* Whose last parameter is a pack, so a written argument list is collected into
+   it rather than matched one for one. *)
+let ctx_type_packs : (string, unit) Hashtbl.t = Hashtbl.create 8
+
 let decl_params = function
   | Opaque vars | Product (vars, _) | Sum (vars, _) -> vars
 
@@ -222,6 +226,7 @@ let reset_effects () =
   Hashtbl.reset ctx_effects.declared;
   Hashtbl.reset ctx_op_owner;
   Hashtbl.reset ctx_types;
+  Hashtbl.reset ctx_type_packs;
   Hashtbl.reset ctx_attrs;
   Hashtbl.reset ctx_effect_params;
   Hashtbl.reset ctx_traits;
@@ -480,6 +485,7 @@ let primitive = function
 let rec infer_ty_of_annotation (t : Ast.type_expr) : Types.infer_ty =
   match t.Ast.it with
   | Ast.Ty_variadic element -> Types.iarray (infer_ty_of_annotation element)
+  | Ast.Ty_spread inner -> Types.ISpread (infer_ty_of_annotation inner)
   | Ast.Ty_name name when primitive name <> None -> Option.get (primitive name)
   | Ast.Ty_tuple items -> Types.ITuple (List.map infer_ty_of_annotation items)
   | Ast.Ty_record fields ->
@@ -489,11 +495,11 @@ let rec infer_ty_of_annotation (t : Ast.type_expr) : Types.infer_ty =
          fields
          Types.FEmpty)
   | Ast.Ty_app (name, args) ->
-    named_type t.Ast.span name (List.map infer_ty_of_annotation args)
+    named_type ~written:true t.Ast.span name (List.map infer_ty_of_annotation args)
   | Ast.Ty_name other ->
     (match Hashtbl.find_opt ctx_type_params other with
      | Some var -> var
-     | None -> named_type t.Ast.span other [])
+     | None -> named_type ~written:false t.Ast.span other [])
   (* The copy [Type_mono] makes has a concrete owner; this one may not. *)
   | Ast.Ty_assoc (owner, member) ->
     Types.project (infer_ty_of_annotation owner) member
@@ -505,7 +511,29 @@ let rec infer_ty_of_annotation (t : Ast.type_expr) : Types.infer_ty =
       , infer_ty_of_annotation ret
       , row_of_labels row )
 
-and named_type span name args =
+(* A pack takes the arguments a use wrote past the parameters before it, so
+   `Slot<>` is the empty one and `Slot<int, string>` holds two. Written as a
+   pack already — `Slot<...Args>` — it is what it stands for. *)
+and collect_pack name vars args =
+  if not (Hashtbl.mem ctx_type_packs name)
+  then args
+  else (
+    let fixed = List.length vars - 1 in
+    let rec split n = function
+      | rest when n = 0 -> [], rest
+      | [] -> [], []
+      | a :: rest ->
+        let before, after = split (n - 1) rest in
+        a :: before, after
+    in
+    let before, held = split fixed args in
+    before
+    @ [ (match held with
+         | [ Types.ISpread inner ] -> inner
+         | held -> Types.IPack held)
+      ])
+
+and named_type ?(written = true) span name args =
   if String.equal name Types.reflection_name && args = []
   then Types.ireflected
   else if String.equal name Types.code_name && args = []
@@ -527,14 +555,18 @@ and named_type span name args =
     | None -> fail span "Unknown type '%s'." name
     | Some decl ->
       let vars = decl_params decl in
-      if List.length vars <> List.length args
+      let packed = Hashtbl.mem ctx_type_packs name && written in
+      if (not packed) || List.length args < List.length vars - 1
       then
-        fail
-          span
-          "Type '%s' takes %d argument(s) but %d were given."
-          name
-          (List.length vars)
-          (List.length args);
+        if List.length vars <> List.length args
+        then
+          fail
+            span
+            "Type '%s' takes %d argument(s) but %d were given."
+            name
+            (List.length vars)
+            (List.length args);
+      let args = if packed then collect_pack name vars args else args in
       (match decl with
        | Opaque _ -> Types.INamed (name, args, Types.FEmpty)
        | Product (_, fields) ->
@@ -1130,6 +1162,33 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       | _ -> []
     in
     let args = List.map (infer_expr env ctx) (name_implicit_params_from expected args) in
+    (* No method of the name exists, so a field holding a function is what the
+       call means. *)
+    let via_field () =
+      let field =
+        match Types.repr receiver.Ast.ann with
+        | Types.INamed (_, _, fields) ->
+          let rec find f =
+            match Types.repr_fields f with
+            | Types.FCons (l, ty, _) when String.equal l name -> Some ty
+            | Types.FCons (_, _, rest) -> find rest
+            | _ -> None
+          in
+          find fields
+        | _ -> None
+      in
+      match Option.map (fun ty -> ty, Types.repr ty) field with
+      | Some (ty, (Types.IFn _ | Types.IVar { contents = Types.Unbound _ })) ->
+        let ret = Types.fresh () in
+        let row = Types.fresh_row () in
+        unify_at
+          span
+          ty
+          (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
+        Types.unify_row row ctx.row;
+        Some (node ret (`Call (Ast.annotated span ty (`Field (receiver, name)), args)))
+      | _ -> None
+    in
     (* An `impl` wins, or a free function could shadow a method. *)
     let via_function () =
       match lookup env as_function with
@@ -1160,7 +1219,10 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
      | Error e ->
        (match via_function () with
         | Some call -> call
-        | None -> raise e)
+        | None ->
+          (match via_field () with
+           | Some call -> call
+           | None -> raise e))
      | Ok found ->
        (match found with
      (* The trait declares the signature; which type supplies the body is
@@ -1258,7 +1320,10 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        then (
          match via_function () with
          | Some call -> call
-         | None -> missing ())
+         | None ->
+           (match via_field () with
+            | Some call -> call
+            | None -> missing ()))
        else (
          let fn =
            match lookup env (Registry.entry_for_method ctx.registry owner name) with
@@ -1879,7 +1944,11 @@ and declare_types (body : Ast.desugared_stmt list) =
          | Some _ -> fail s.Ast.span "Type '%s' is already declared." name
          | None -> if Hashtbl.mem ctx_types name then fail s.Ast.span "Type '%s' is already declared." name);
         Hashtbl.replace ctx_type_spans name s.Ast.span;
-        let type_params = List.map (fun name -> name, Types.fresh ()) params in
+        let type_params =
+          List.map (fun (p : Ast.type_param) -> p.Ast.tp_name, Types.fresh ()) params
+        in
+        if List.exists (fun (p : Ast.type_param) -> p.Ast.tp_pack) params
+        then Hashtbl.replace ctx_type_packs name ();
         let vars = List.map snd type_params in
         (* Already the right shape, or `Add(Expr<int>, …)` reads `Expr` as a
            product. *)

@@ -1,0 +1,7 @@
+type Slot<...Args> {
+    use: (...Args) -> unit
+}
+
+var two = new Slot { use: (a: int, b: string) => { print(str(a) + b); } };
+
+two.use(1, true);
