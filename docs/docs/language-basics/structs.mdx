@@ -66,6 +66,30 @@ print(p.y);
 
 The compiler knows `p` is a `Point` and that `Point` has fields `x` and `y`, so `p.z` would be a type error — the typo gets caught before your program runs.
 
+A field can hold a function, and you call it where it stands — there's no separate step to get the function out first:
+
+```cronyx
+type Handler {
+    label: string,
+    apply: (int) -> unit
+}
+
+var double = new Handler {
+    label: "double",
+    apply: (n: int) => { print(n * 2); }
+};
+
+double.apply(21);
+print(double.label);
+```
+
+```
+42
+double
+```
+
+`double.apply(21)` reads the `apply` field and calls what it found. If the type also had a method named `apply` — from an `impl` block, which you'll meet in [Traits](./traits.mdx) — the method would win; the field is what the call means when no method of that name exists.
+
 ## Structs in function signatures
 
 Once `Point` is a type, it works in function parameters and return types like any other:
