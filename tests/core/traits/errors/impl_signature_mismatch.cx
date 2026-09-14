@@ -1,0 +1,11 @@
+trait Convert<A> {
+    fn convert(self, x: A): A;
+}
+type Tag { name: string }
+impl Convert<int> for Tag {
+    fn convert(self, x: string): string { return x + self.name; }
+}
+fn twice<X: Convert<int>>(v: X): int {
+    return v.convert(3) + 1;
+}
+print(twice(new Tag { name: "a" }));

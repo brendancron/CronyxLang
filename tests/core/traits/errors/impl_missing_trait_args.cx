@@ -1,0 +1,8 @@
+trait Pair<A, B> {
+    fn first(self): A;
+}
+type Holder { n: int }
+impl Pair for Holder {
+    fn first(self): int { return self.n; }
+}
+print(new Holder { n: 1 });

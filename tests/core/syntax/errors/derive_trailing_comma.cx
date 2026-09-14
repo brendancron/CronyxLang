@@ -1,0 +1,2 @@
+type Point { x: int }
+derive Eq, for Point;
