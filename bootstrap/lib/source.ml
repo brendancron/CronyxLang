@@ -31,6 +31,7 @@ let rec type_expr (t : Ast.type_expr) =
   | Ast.Ty_assoc (owner, member) -> type_expr owner ^ "." ^ member
   | Ast.Ty_bind (bound, t) -> bound ^ " = " ^ type_expr t
   | Ast.Ty_variadic inner -> "..." ^ type_expr inner
+  | Ast.Ty_spread inner -> "..." ^ type_expr inner
   | Ast.Ty_app (name, args) ->
     Printf.sprintf "%s<%s>" name (String.concat ", " (List.map type_expr args))
   | Ast.Ty_tuple items -> Printf.sprintf "(%s)" (String.concat ", " (List.map type_expr items))
@@ -61,7 +62,10 @@ let comptime_params (cs : Ast.comptime_param list) =
       "<%s>"
       (String.concat
          ", "
-         (List.map (fun (c : Ast.comptime_param) -> c.Ast.cp_name ^ annotation c.Ast.cp_ty) cs))
+         (List.map
+            (fun (c : Ast.comptime_param) ->
+              (if c.Ast.cp_pack then "..." else "") ^ c.Ast.cp_name ^ annotation c.Ast.cp_ty)
+            cs))
 
 let signature (sg : Ast.signature) =
   match sg.Ast.ret with
@@ -395,7 +399,15 @@ and type_decl depth name params body =
       name
       (match params with
        | [] -> ""
-       | ps -> Printf.sprintf "<%s>" (String.concat ", " ps))
+       | ps ->
+         Printf.sprintf
+           "<%s>"
+           (String.concat
+              ", "
+              (List.map
+                 (fun (p : Ast.type_param) ->
+                   (if p.Ast.tp_pack then "..." else "") ^ p.Ast.tp_name)
+                 ps)))
   in
   line head
   ^ (match body with

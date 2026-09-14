@@ -1,0 +1,8 @@
+type Slot<...Args> {
+    use: (...Args) -> unit
+}
+
+var none = new Slot { use: () => { print("none"); } };
+
+none.use();
+print(typeof(none).name);

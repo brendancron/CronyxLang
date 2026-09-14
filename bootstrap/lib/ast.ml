@@ -59,6 +59,8 @@ and type_expr_kind =
   | Ty_fn of type_expr list * type_expr * string list
   (* The callee takes an `Array<T>`; the call site fills it. *)
   | Ty_variadic of type_expr
+  (* `...Args`: the parameter list a pack stands for, spliced where it stands. *)
+  | Ty_spread of type_expr
   (* `T.Item`: which impl bound it is not known until the owner is. *)
   | Ty_assoc of type_expr * string
   (* `Output = T`: what the impl the bound reaches must have bound. *)
@@ -75,6 +77,14 @@ type param =
 type comptime_param =
   { cp_name : string
   ; cp_ty : type_expr option
+  (* The one a written argument list is collected into, rather than one of
+     them. *)
+  ; cp_pack : bool
+  }
+
+type type_param =
+  { tp_name : string
+  ; tp_pack : bool
   }
 
 (* [row = None] leaves the effect row to inference; [Some labels] closes it. *)
@@ -207,7 +217,7 @@ type type_body =
   | T_fields of field list
   | T_variants of variant list
 
-type type_defs = [ `Type_decl of string * string list * type_body ]
+type type_defs = [ `Type_decl of string * type_param list * type_body ]
 
 (* Only [stmt_kind] carries this, so `Desugar` unwrapping one is what erases
    every declaration attribute: no later stage's type can hold one, and a pass

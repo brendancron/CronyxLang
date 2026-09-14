@@ -1,0 +1,5 @@
+type Slot<...Args> {
+    use: (...Args) -> unit
+}
+
+var s: Slot = new Slot { use: () => { print("none"); } };

@@ -307,6 +307,7 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
     let it : Ast.type_expr_kind =
       match t.Ast.it with
       | Ast.Ty_variadic t -> Ast.Ty_variadic (type_expr t)
+      | Ast.Ty_spread t -> Ast.Ty_spread (type_expr t)
       | Ast.Ty_name name -> Ast.Ty_name (resolve_type name)
       | Ast.Ty_assoc ({ Ast.it = Ast.Ty_name namespace; _ }, member)
         when Hashtbl.mem aliases namespace ->

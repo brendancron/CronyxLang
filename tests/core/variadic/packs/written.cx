@@ -1,0 +1,11 @@
+type Slot<...Args> {
+    use: (...Args) -> unit
+}
+
+var none: Slot<> = new Slot { use: () => { print("none"); } };
+var one: Slot<int> = new Slot { use: (a: int) => { print(a); } };
+var two: Slot<int, string> = new Slot { use: (a: int, b: string) => { print(str(a) + b); } };
+
+none.use();
+one.use(1);
+two.use(2, "x");
