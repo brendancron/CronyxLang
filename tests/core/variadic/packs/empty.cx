@@ -2,7 +2,11 @@ type Slot<...Args> {
     use: (...Args) -> unit
 }
 
-var none = new Slot { use: () => { print("none"); } };
+fn nothing() {
+    print("none");
+}
+
+var none = new Slot { use: nothing };
 
 none.use();
 print(typeof(none).name);

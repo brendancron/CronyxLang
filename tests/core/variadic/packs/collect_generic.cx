@@ -1,0 +1,13 @@
+fn hold<...Args>(f: (...Args) -> unit, args: ...Args): (...Args) {
+    return args;
+}
+
+fn pair(a: int, b: string) {
+    print(str(a) + b);
+}
+
+var held = hold(pair, 1, "x");
+
+print(held.0);
+print(held.1);
+print(typeof(held).name);

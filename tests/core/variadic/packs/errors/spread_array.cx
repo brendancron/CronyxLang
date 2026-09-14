@@ -1,0 +1,6 @@
+fn show(a: int, b: int) {
+    print(a + b);
+}
+
+var xs = [1, 2];
+show(...xs);

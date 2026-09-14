@@ -15,6 +15,7 @@ let rec string_of_type_expr (t : Ast.type_expr) : string =
   | Ast.Ty_name name -> name
   | Ast.Ty_assoc (owner, member) -> string_of_type_expr owner ^ "." ^ member
   | Ast.Ty_bind (bound, t) -> bound ^ " = " ^ string_of_type_expr t
+  | Ast.Ty_variadic ({ Ast.it = Ast.Ty_spread _; _ } as held) -> string_of_type_expr held
   | Ast.Ty_variadic t -> "..." ^ string_of_type_expr t
   | Ast.Ty_spread t -> "..." ^ string_of_type_expr t
   | Ast.Ty_app (name, args) ->
@@ -103,6 +104,7 @@ let rec string_of_expr (e : Ast.expr) : string =
   | `Tuple items ->
     Printf.sprintf "(tuple %s)" (String.concat " " (List.map string_of_expr items))
   | `Tuple_get (t, i) -> Printf.sprintf "(get %s %d)" (string_of_expr t) i
+  | `Spread inner -> Printf.sprintf "(spread %s)" (string_of_expr inner)
   | `Record_lit fields ->
     Printf.sprintf
       "{%s}"
@@ -335,6 +337,7 @@ let rec string_of_typed_expr (e : Ast.typed_expr) : string =
         "(tuple %s)"
         (String.concat " " (List.map string_of_typed_expr items))
     | `Tuple_get (t, i) -> Printf.sprintf "(get %s %d)" (string_of_typed_expr t) i
+    | `Spread inner -> Printf.sprintf "(spread %s)" (string_of_typed_expr inner)
     | `Record_lit fields ->
       Printf.sprintf
         "{%s}"

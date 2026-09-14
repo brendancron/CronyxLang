@@ -1,0 +1,8 @@
+type Bundle<...Args> {
+    items: (...Args)
+}
+
+var none = new Bundle { items: () };
+
+print(typeof(none).name);
+print(typeof(none.items).name);

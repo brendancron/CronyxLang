@@ -1,0 +1,21 @@
+type Move<...Args> {
+    name: string,
+    apply: (...Args) -> unit
+}
+
+fn burn(a: int, b: int) {
+    print(a + b);
+}
+
+fn wait() {
+    print("wait");
+}
+
+var fire = new Move { name: "burn", apply: burn };
+var rest = new Move { name: "wait", apply: wait };
+
+var queue = [];
+queue.push(() => { fire.apply(1, 2); });
+queue.push(() => { rest.apply(); });
+
+for (step in queue) { step(); }

@@ -1,0 +1,8 @@
+((...Args) -> unit, (...Args)) -> (...Args)
+((...Args) -> T, (...Args)) -> T
+Slot<int, string>
+Slot<>
+(int, string) -> unit
+() -> unit
+(int, string)
+unit

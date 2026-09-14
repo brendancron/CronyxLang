@@ -1,0 +1,12 @@
+type Bundle<...Args> {
+    items: (...Args)
+}
+
+var two = new Bundle { items: (1, "x") };
+var three = new Bundle { items: (true, 2, "y") };
+
+print(two.items.0);
+print(two.items.1);
+print(three.items.2);
+print(typeof(two).name);
+print(typeof(three).name);

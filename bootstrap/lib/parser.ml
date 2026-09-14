@@ -214,6 +214,11 @@ let comptime_params s : Ast.comptime_param list =
 let type_params s : string list =
   List.map (fun (p : Ast.comptime_param) -> p.Ast.cp_name) (comptime_params s)
 
+let pack_names (comptime : Ast.comptime_param list) =
+  List.filter_map
+    (fun (p : Ast.comptime_param) -> if p.Ast.cp_pack then Some p.Ast.cp_name else None)
+    comptime
+
 let declared_type_params s : Ast.type_param list =
   List.map
     (fun (p : Ast.comptime_param) ->
@@ -431,9 +436,23 @@ and comptime_arguments s : Ast.expr Ast.comptime_arg list option =
 
 (* Assumes the '(' has been consumed; consumes the closing ')'. *)
 and arguments s : Ast.expr list =
-  let args = listed_until s Token.Right_paren expression in
+  let argument s =
+    let starts = peek s in
+    let sp = Ast.span_of_token starts in
+    match matches s [ Token.Dot_dot_dot ] with
+    | None -> expression s, false, starts
+    | Some _ -> Ast.at sp (`Spread (expression s)), true, starts
+  in
+  let args = listed_until s Token.Right_paren argument in
+  let rec check_last = function
+    | (_, spread, _) :: (((_, _, after) :: _) as rest) ->
+      if spread then ignore (error s after "A spread must be the last argument.");
+      check_last rest
+    | _ -> ()
+  in
+  check_last args;
   ignore (consume s Token.Right_paren "Expected ')' after arguments.");
-  args
+  List.map (fun (a, _, _) -> a) args
 
 (* Only a name or something already called can take one, so `if x { … }` and a
    record literal keep their braces. *)
@@ -809,7 +828,10 @@ and type_arguments s : Ast.type_expr list =
     ignore (consume s Token.Greater "Expected '>' after type arguments.");
     args
 
-and parameters s : Ast.param list =
+(* [packs] are the names the enclosing `<>` declared as packs, so `...Args`
+   collects into the tuple the pack stands for while `...int` collects into an
+   array. *)
+and parameters ?(packs = []) s : Ast.param list =
   (* Each is kept with the token it started at, so a parameter that should not
      be there is reported where it stands. *)
   let parameter s =
@@ -822,7 +844,12 @@ and parameters s : Ast.param list =
         let sp = Ast.span_of_token (peek s) in
         (match matches s [ Token.Dot_dot_dot ] with
          | None -> Some (type_expr s)
-         | Some _ -> Some (Ast.at sp (Ast.Ty_variadic (type_expr s))))
+         | Some _ ->
+           let inner = type_expr s in
+           (match inner.Ast.it with
+            | Ast.Ty_name name when List.mem name packs ->
+              Some (Ast.at sp (Ast.Ty_variadic (Ast.at sp (Ast.Ty_spread inner))))
+            | _ -> Some (Ast.at sp (Ast.Ty_variadic inner))))
     in
     { Ast.name; ty; implicit = false }, starts
   in
@@ -857,7 +884,7 @@ and fn_decl
   let name = read_name s in
   let comptime = comptime_params s in
   ignore (consume s Token.Left_paren "Expected '(' after function name.");
-  let params = parameters s in
+  let params = parameters ~packs:(pack_names comptime) s in
   let signature = signature ~comptime s in
   let name = before_body s name in
   ignore (consume s Token.Left_brace "Expected '{' before function body.");
@@ -1125,7 +1152,7 @@ and trait_decl s sp : Ast.stmt =
       let method_name = consume_identifier s "Expected a method name." in
       let comptime = comptime_params s in
       ignore (consume s Token.Left_paren "Expected '(' after the method name.");
-      let params = parameters s in
+      let params = parameters ~packs:(pack_names comptime) s in
       let signature = signature ~comptime s in
       ignore (consume s Token.Semicolon "Expected ';' after a method signature.");
       loop
@@ -1177,7 +1204,7 @@ and impl_decl s sp : Ast.stmt =
       let method_name = consume_identifier s "Expected a method name." in
       let comptime = comptime_params s in
       ignore (consume s Token.Left_paren "Expected '(' after the method name.");
-      let params = parameters s in
+      let params = parameters ~packs:(pack_names comptime) s in
       let signature = signature ~comptime s in
       ignore (consume s Token.Left_brace "Expected '{' before the method body.");
       loop

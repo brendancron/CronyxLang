@@ -169,6 +169,10 @@ type 'e tuple =
   | `Tuple_get of 'e * int
   ]
 
+(* An argument list is as long as the tuple spread into it, so the checker is
+   what takes one apart: nothing after it holds one. *)
+type 'e spread = [ `Spread of 'e ]
+
 type 'e record =
   [ `Record_lit of (string * 'e) list
   | `Field of 'e * string
@@ -389,6 +393,7 @@ and expr_kind =
   | expr compound
   | expr indexing
   | expr tuple
+  | expr spread
   | expr record
   | expr nominal
   | expr collection
@@ -427,6 +432,7 @@ and desugared_expr_kind =
   | desugared_expr compound
   | desugared_expr indexing
   | desugared_expr tuple
+  | desugared_expr spread
   | desugared_expr record
   | desugared_expr nominal
   | desugared_expr collection
@@ -457,6 +463,7 @@ and typed_expr_kind =
   | typed_expr compound
   | typed_expr indexing
   | typed_expr tuple
+  | typed_expr spread
   | typed_expr record
   | typed_expr nominal
   | typed_expr collection
@@ -584,6 +591,10 @@ let map_indexing (f : 'a -> 'b) (e : 'a indexing) : 'b indexing =
   match e with
   | `Index (target, i) -> `Index (f target, f i)
   | `Index_assign (target, i, v) -> `Index_assign (f target, f i, f v)
+
+let map_spread (f : 'a -> 'b) (e : 'a spread) : 'b spread =
+  match e with
+  | `Spread inner -> `Spread (f inner)
 
 let map_tuple (f : 'a -> 'b) (e : 'a tuple) : 'b tuple =
   match e with

@@ -1,0 +1,15 @@
+fn pick<T>(a: T, b: T): T {
+    return a;
+}
+
+fn pair_up<A, B>(a: A, b: B): (A, B) {
+    return (a, b);
+}
+
+fn ident(x) {
+    return x;
+}
+
+print(typeof(pick).name);
+print(typeof(pair_up).name);
+print(typeof(ident).name);

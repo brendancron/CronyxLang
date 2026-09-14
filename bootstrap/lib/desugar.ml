@@ -9,8 +9,9 @@ exception Error of error
 
 let declared : (string, stmt handler) Hashtbl.t = Hashtbl.create 8
 
-(* Functions whose last parameter is variadic, and how many come before it. *)
-let variadic : (string, int) Hashtbl.t = Hashtbl.create 8
+(* Functions whose last parameter is variadic: how many come before it, and
+   whether what it collects into is a pack's tuple rather than an array. *)
+let variadic : (string, int * bool) Hashtbl.t = Hashtbl.create 8
 
 (* What a declaration was written with, kept here because this is where the
    wrapper is unwound and no later tree can hold one.
@@ -28,7 +29,9 @@ let declared_name (s : stmt) =
 
 let variadic_arity (params : param list) =
   match List.rev params with
-  | { ty = Some { it = Ty_variadic _; _ }; _ } :: before -> Some (List.length before)
+  | { ty = Some { it = Ty_variadic { it = Ty_spread _; _ }; _ }; _ } :: before ->
+    Some (List.length before, true)
+  | { ty = Some { it = Ty_variadic _; _ }; _ } :: before -> Some (List.length before, false)
   | _ -> None
 
 let counter = ref 0
@@ -57,8 +60,8 @@ let rec expr (e : expr) : desugared_expr =
     match e.it with
     (* Nothing after this pass knows a call was written any other way. *)
     | `Call (({ it = `Var name; _ } as callee), args)
-      when Hashtbl.mem variadic name && List.length args >= Hashtbl.find variadic name ->
-      let fixed = Hashtbl.find variadic name in
+      when Hashtbl.mem variadic name && List.length args >= fst (Hashtbl.find variadic name) ->
+      let fixed, packed = Hashtbl.find variadic name in
       let rec split n = function
         | rest when n = 0 -> [], rest
         | [] -> [], []
@@ -67,9 +70,15 @@ let rec expr (e : expr) : desugared_expr =
           a :: before, after
       in
       let before, collected = split fixed args in
-      `Call
-        ( expr callee
-        , List.map expr before @ [ { it = `Collection_lit (List.map expr collected); span = sp; ann = () } ] )
+      let bundle : desugared_expr_kind =
+        match packed, collected with
+        (* A product of none is `unit`, and nothing later reads an empty tuple
+           as one. *)
+        | true, [] -> `Unit
+        | true, collected -> `Tuple (List.map expr collected)
+        | false, collected -> `Collection_lit (List.map expr collected)
+      in
+      `Call (expr callee, List.map expr before @ [ { it = bundle; span = sp; ann = () } ])
     | #lit as l -> l
     | #vars as v -> (map_vars expr v :> desugared_expr_kind)
     | #ops as o -> (map_ops expr o :> desugared_expr_kind)
@@ -77,6 +86,7 @@ let rec expr (e : expr) : desugared_expr =
     | #compound as c -> (map_compound expr c :> desugared_expr_kind)
     | #indexing as i -> (map_indexing expr i :> desugared_expr_kind)
     | #tuple as t -> (map_tuple expr t :> desugared_expr_kind)
+    | #spread as s -> (map_spread expr s :> desugared_expr_kind)
     | #record as r -> (map_record expr r :> desugared_expr_kind)
     | #nominal as n -> (map_nominal expr n :> desugared_expr_kind)
     | #collection as c -> (map_collection expr c :> desugared_expr_kind)

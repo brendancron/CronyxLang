@@ -1,0 +1,6 @@
+fn show(a: int, b: int, c: int) {
+    print(a + b + c);
+}
+
+var pair = (1, 2);
+show(...pair, 3);

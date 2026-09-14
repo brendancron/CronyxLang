@@ -382,6 +382,7 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
       | #Ast.compound as c -> (Ast.map_compound go c :> Ast.expr_kind)
       | #Ast.indexing as i -> (Ast.map_indexing go i :> Ast.expr_kind)
       | #Ast.tuple as t -> (Ast.map_tuple go t :> Ast.expr_kind)
+      | #Ast.spread as s -> (Ast.map_spread go s :> Ast.expr_kind)
       | #Ast.record as r -> (Ast.map_record go r :> Ast.expr_kind)
       | #Ast.collection as c -> (Ast.map_collection go c :> Ast.expr_kind)
       | #Ast.comptime_call as c -> (Ast.map_comptime_call go c :> Ast.expr_kind)

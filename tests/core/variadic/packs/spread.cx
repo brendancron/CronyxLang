@@ -1,0 +1,17 @@
+fn fire<T, ...Args>(f: (...Args) -> T, args: (...Args)): T {
+    return f(...args);
+}
+
+fn two(a: int, b: string) {
+    print(str(a) + b);
+}
+
+fn none() {
+    print("none");
+}
+
+two(3, "x");
+none();
+
+fire(two, (4, "y"));
+fire(none, ());
