@@ -1,0 +1,5 @@
+1
+x
+y
+Bundle<int, string>
+Bundle<bool, int, string>

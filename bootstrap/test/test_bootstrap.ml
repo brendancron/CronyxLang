@@ -147,6 +147,7 @@ let cases =
   ; "tests/core/variadic/packs/empty"
   ; "tests/core/variadic/packs/through_fn"
   ; "tests/core/variadic/packs/written"
+  ; "tests/core/variadic/packs/erased"
   ; "tests/reflection/typeof_effect_transitive"
   ; "tests/reflection/typeof_effect_multi"
   ; "tests/reflection/typeof_effect_fn_vs_ctl"
@@ -451,6 +452,17 @@ let expected_failing : (string * blocker) list =
   ; "tests/compile/m6/apply", Parked
   ; "tests/compile/m7/safe_div", Parked
   ; "tests/compile/m8/gadt", Parked
+  ; "tests/core/variadic/packs/tuple", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/tuple_empty", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/collect", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/collect_generic", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/spread", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/spread_roundtrip", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/action", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/errors/spread_array", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/errors/spread_arity", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/errors/spread_not_last", Waiting "tuple splice, collect and spread"
+  ; "tests/core/variadic/packs/errors/tuple_not_pack", Waiting "tuple splice, collect and spread"
   ]
 
 (* Ought to be rejected and are not, paired with the `.err` they should

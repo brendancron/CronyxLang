@@ -1,0 +1,24 @@
+type Move<...Args> {
+    name: string,
+    apply: (...Args) -> unit
+}
+
+type MoveAction<...Args> {
+    move: Move<...Args>,
+    intent: (...Args)
+}
+
+fn queue<...Args>(m: Move<...Args>, args: ...Args): MoveAction<...Args> {
+    return new MoveAction { move: m, intent: args };
+}
+
+fn run<...Args>(a: MoveAction<...Args>) {
+    a.move.apply(...a.intent);
+}
+
+var burn = new Move { name: "burn", apply: (user: int, target: int) => { print(user + target); } };
+var wait = new Move { name: "wait", apply: () => { print("wait"); } };
+
+run(queue(burn, 1, 2));
+run(queue(wait));
+print(typeof(queue(burn, 1, 2)).name);

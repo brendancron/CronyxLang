@@ -1,0 +1,10 @@
+fn bundle<...Args>(args: ...Args): (...Args) {
+    return args;
+}
+
+var two = bundle(1, "x");
+
+print(two.0);
+print(two.1);
+print(typeof(two).name);
+print(typeof(bundle()).name);
