@@ -157,6 +157,7 @@ let cases =
   ; "tests/core/variadic/packs/spread"
   ; "tests/core/variadic/packs/spread_roundtrip"
   ; "tests/core/variadic/packs/spread_method"
+  ; "tests/core/variadic/packs/spread_impl_method"
   ; "tests/core/variadic/packs/impl_pack"
   ; "tests/core/variadic/packs/spelling"
   ; "tests/core/variadic/packs/impl_trait_args"
