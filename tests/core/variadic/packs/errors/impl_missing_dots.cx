@@ -1,0 +1,7 @@
+type Slot<...Args> {
+    intent: (...Args)
+}
+
+impl Slot<Args> {
+    fn count(self): int { return 1; }
+}

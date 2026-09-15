@@ -118,6 +118,11 @@ let declared_params : (int, unit) Hashtbl.t = Hashtbl.create 8
    call through the first is contained; through the second it is tied. *)
 let declared_row_params : (int, unit) Hashtbl.t = Hashtbl.create 8
 
+(* Which parameters were declared to stand for a parameter list. Recorded per
+   variable rather than per name, so a use is checked against the binder that is
+   actually in scope. *)
+let declared_packs : (int, unit) Hashtbl.t = Hashtbl.create 8
+
 (* What the author called a parameter. An id is a counter, so printing one would
    make a signature read differently for a variable allocated somewhere else
    entirely. *)
@@ -132,7 +137,8 @@ let reset () =
   counter := 0;
   Hashtbl.reset declared_params;
   Hashtbl.reset declared_row_params;
-  Hashtbl.reset param_names
+  Hashtbl.reset param_names;
+  Hashtbl.reset declared_packs
 
 (* An equation holding only inside a match arm is taken back when the arm ends.
    Recording is off unless asked for, so every other unification pays nothing. *)
@@ -1142,6 +1148,17 @@ let solve (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
           (fun (id, _) -> id, settle (IVar (ref (Unbound (id, Any)))))
           !bindings))
   else None
+
+let declare_pack (t : infer_ty) =
+  match repr t with
+  | IVar { contents = Unbound (id, _) } -> Hashtbl.replace declared_packs id ()
+  | _ -> ()
+
+let is_pack_param (t : infer_ty) =
+  match repr t with
+  | IVar { contents = Unbound (id, _) } -> Hashtbl.mem declared_packs id
+  | IPack _ -> true
+  | _ -> false
 
 let declare_param (t : infer_ty) =
   match repr t with

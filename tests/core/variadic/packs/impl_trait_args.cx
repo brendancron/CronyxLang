@@ -1,0 +1,23 @@
+type State {
+    turn: int
+}
+
+trait Action<S> {
+    fn invoke(self, state: S): S;
+}
+
+type Step<...Args> {
+    intent: (...Args)
+}
+
+impl Action<State> for Step<...Args> {
+    fn invoke(self, state: State): State {
+        return new State { turn: state.turn + 1 };
+    }
+}
+
+var two = new Step { intent: (1, "x") };
+var none = new Step { intent: () };
+
+print(two.invoke(new State { turn: 1 }).turn);
+print(none.invoke(new State { turn: 5 }).turn);

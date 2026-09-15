@@ -1176,15 +1176,19 @@ and impl_decl s sp : Ast.stmt =
     match matches s [ Token.For ] with
     | Some _ ->
       let name = consume_identifier s "Expected a type name after 'for'." in
-      Some (first, written), name, type_params s
+      Some (first, written), name, declared_type_params s
     | None ->
       ( None
       , first
       , List.map
           (fun (t : Ast.type_expr) ->
             match t.Ast.it with
-            | Ast.Ty_name n -> n
-            | _ -> ignore (error s (peek s) "Expected a type parameter name."); "")
+            | Ast.Ty_name n -> { Ast.tp_name = n; tp_pack = false }
+            | Ast.Ty_spread { Ast.it = Ast.Ty_name n; _ } ->
+              { Ast.tp_name = n; tp_pack = true }
+            | _ ->
+              ignore (error s (peek s) "Expected a type parameter name.");
+              { Ast.tp_name = ""; tp_pack = false })
           written )
   in
   ignore (consume s Token.Left_brace "Expected '{' after the impl header.");
