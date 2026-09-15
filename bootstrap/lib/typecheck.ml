@@ -493,7 +493,12 @@ let rec infer_ty_of_annotation (t : Ast.type_expr) : Types.infer_ty =
   | Ast.Ty_spread inner ->
     let held = infer_ty_of_annotation inner in
     (match Types.repr held with
-     | Types.IVar _ | Types.IPack _ -> ()
+     | _ when Types.is_pack_param held -> ()
+     | Types.IVar _ ->
+       fail
+         t.Ast.span
+         "'%s' was not declared as a pack, so there is nothing to spread."
+         (Printer.string_of_type_expr inner)
      | _ ->
        fail
          t.Ast.span
@@ -631,6 +636,7 @@ let type_params_of span (comptime : Ast.comptime_param list) =
           | None | Some { Ast.it = Ast.Ty_name _ | Ast.Ty_app _; _ } ->
             let var = Types.fresh () in
             Types.declare_param var;
+            if p.Ast.cp_pack then Types.declare_pack var;
             Types.name_param p.Ast.cp_name var;
             Hashtbl.replace ctx_type_params p.Ast.cp_name var;
             p, var
@@ -1633,14 +1639,23 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
       | `Impl_decl (trait, type_name, params, impl) ->
         let span = s.Ast.span in
         let methods = impl.Ast.ib_methods in
-        let type_params = List.map (fun name -> name, Types.fresh ()) params in
+        check_pack_spelling span type_name params;
+        let type_params =
+          List.map
+            (fun (p : Ast.type_param) ->
+              let var = Types.fresh () in
+              if p.Ast.tp_pack then Types.declare_pack var;
+              p.Ast.tp_name, var)
+            params
+        in
         let supplies name =
           List.exists
             (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
               String.equal m.Ast.md_name name)
             methods
         in
-        with_type_params type_params (fun () -> ignore (self_ty span type_name params));
+        with_type_params type_params (fun () ->
+          ignore (self_ty span type_name (List.map fst type_params)));
         with_type_params type_params (fun () ->
           List.iter
             (fun (name, bound) ->
@@ -1728,7 +1743,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
           (fun (t, args) ->
             let entry_name method_ = Ast.impl_method_name (Some (t, args)) type_name method_ in
             let self_concrete () =
-              match Types.concrete (self_ty span type_name params) with
+              match Types.concrete (self_ty span type_name (List.map (fun (p : Ast.type_param) -> p.Ast.tp_name) params)) with
               | Some ty -> ty
               | None -> fail span "An operator impl's type must be concrete."
             in
@@ -1794,7 +1809,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
              | "FromArray" ->
                with_type_params type_params (fun () ->
                  let element = one_argument () in
-                 let self = self_ty span type_name params in
+                 let self = self_ty span type_name (List.map (fun (p : Ast.type_param) -> p.Ast.tp_name) params) in
                  let body = Types.IFn ([ element ], self, Types.REmpty) in
                  Registry.register_container
                    registry
@@ -1817,7 +1832,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                 | None -> fail span "An operator impl's %s must be a concrete type." what
               in
               with_type_params type_params (fun () ->
-                let lhs = concrete "type" (self_ty span type_name params) in
+                let lhs = concrete "type" (self_ty span type_name (List.map (fun (p : Ast.type_param) -> p.Ast.tp_name) params)) in
                 let rhs =
                   match args with
                   | [ rhs ] -> concrete "right operand" (infer_ty_of_annotation rhs)
@@ -1882,7 +1897,9 @@ and associated_names trait =
 and conforms span ~trait ~args ~params ~required ~type_name ~type_params ~decl_params impl =
   let in_scope =
     with_type_params type_params (fun () ->
-      ("Self", self_ty span type_name decl_params)
+      ( "Self"
+      , self_ty span type_name (List.map (fun (p : Ast.type_param) -> p.Ast.tp_name) decl_params)
+      )
       :: List.map
            (fun name ->
              ( name
@@ -1968,11 +1985,39 @@ and conforming_method
         declared_text
         defined_text)
 
+(* One spelling for a pack: the dots say which parameter stands for a parameter
+   list, and a header that disagrees with the declaration reads as the other
+   thing. *)
+and check_pack_spelling span type_name (params : Ast.type_param list) =
+  let packed = Hashtbl.mem ctx_type_packs type_name in
+  List.iteri
+    (fun index (p : Ast.type_param) ->
+      let last = index = List.length params - 1 in
+      match p.Ast.tp_pack, packed && last with
+      | true, false ->
+        fail
+          span
+          "'%s' has no pack parameter, so '...%s' has nothing to spread."
+          type_name
+          p.Ast.tp_name
+      | false, true ->
+        fail
+          span
+          "'%s' declared its last parameter a pack, so it is written '...%s'."
+          type_name
+          p.Ast.tp_name
+      | _ -> ())
+    params
+
 and self_ty span type_name params =
   if params = []
   then infer_ty_of_annotation (Ast.at span (Ast.Ty_name type_name))
   else
+    (* An impl header supplies the type's parameters rather than arguments to
+       them, so a pack stands where it was declared instead of collecting what
+       came after it. *)
     named_type
+      ~written:false
       span
       type_name
       (List.map
@@ -1998,7 +2043,12 @@ and declare_types (body : Ast.desugared_stmt list) =
          | None -> if Hashtbl.mem ctx_types name then fail s.Ast.span "Type '%s' is already declared." name);
         Hashtbl.replace ctx_type_spans name s.Ast.span;
         let type_params =
-          List.map (fun (p : Ast.type_param) -> p.Ast.tp_name, Types.fresh ()) params
+          List.map
+            (fun (p : Ast.type_param) ->
+              let var = Types.fresh () in
+              if p.Ast.tp_pack then Types.declare_pack var;
+              p.Ast.tp_name, var)
+            params
         in
         if List.exists (fun (p : Ast.type_param) -> p.Ast.tp_pack) params
         then Hashtbl.replace ctx_type_packs name ();
@@ -2090,10 +2140,11 @@ and hoist env (body : Ast.desugared_stmt list) =
            must not default it. *)
         let impl_params =
           List.map
-            (fun name ->
+            (fun (p : Ast.type_param) ->
               let var = Types.fresh () in
               Types.declare_param var;
-              name, var)
+              if p.Ast.tp_pack then Types.declare_pack var;
+              p.Ast.tp_name, var)
             params
         in
         List.iter
@@ -2111,7 +2162,7 @@ and hoist env (body : Ast.desugared_stmt list) =
               Hashtbl.replace ctx_fn_params mangled type_params;
               with_type_params type_params (fun () ->
                 let param_types =
-                  self_ty s.Ast.span type_name params
+                  self_ty s.Ast.span type_name (List.map fst impl_params)
                   :: List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) rest
                 in
                 let row =

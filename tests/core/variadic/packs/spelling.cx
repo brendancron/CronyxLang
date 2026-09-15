@@ -1,0 +1,27 @@
+type Slot<...Args> {
+    tag: string,
+    use: (...Args) -> unit
+}
+
+fn any_arity<...Args>(s: Slot<...Args>): string {
+    return s.tag;
+}
+
+fn one_only<T>(s: Slot<T>): string {
+    return s.tag;
+}
+
+fn pair(a: int, b: string) {
+    print(str(a) + b);
+}
+
+fn only(a: int) {
+    print(a);
+}
+
+var two = new Slot { tag: "two", use: pair };
+var one = new Slot { tag: "one", use: only };
+
+print(any_arity(two));
+print(any_arity(one));
+print(one_only(one));

@@ -355,7 +355,15 @@ and stmt depth (s : Ast.stmt) : string =
          target
          (match params with
           | [] -> ""
-          | ps -> Printf.sprintf "<%s>" (String.concat ", " ps)))
+          | ps ->
+            Printf.sprintf
+              "<%s>"
+              (String.concat
+                 ", "
+                 (List.map
+                    (fun (p : Ast.type_param) ->
+                      (if p.Ast.tp_pack then "..." else "") ^ p.Ast.tp_name)
+                    ps))))
     ^ String.concat
         ""
         (List.map

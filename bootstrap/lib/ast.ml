@@ -259,7 +259,7 @@ type ('s, 'ann) impl_body =
 
 type ('s, 'ann) method_defs =
   [ `Trait_decl of string * string list * trait_body
-  | `Impl_decl of (string * type_expr list) option * string * string list * ('s, 'ann) impl_body
+  | `Impl_decl of (string * type_expr list) option * string * type_param list * ('s, 'ann) impl_body
   ]
 
 (* Method-or-function is a typing question, the name a loading one. *)

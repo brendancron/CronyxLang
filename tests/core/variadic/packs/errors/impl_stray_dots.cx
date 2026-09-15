@@ -1,0 +1,8 @@
+type Pair<A, B> {
+    a: A,
+    b: B
+}
+
+impl Pair<A, ...B> {
+    fn first(self): A { return self.a; }
+}
