@@ -57,11 +57,17 @@ same rule as `tests/` applies to both: a fixture no list in
 
 ## Working in this repo
 
+**Never commit or push without being asked, in those words.** Not as a tidy-up,
+not because the work looks finished, not because a branch was asked for. `git
+commit`, `git push` and `gh pr create` run only when the instruction to run them
+was given — "commit", "push", "open a PR" — and each is its own instruction: a
+request to commit is not a request to push.
+
 **Do the thing that was asked, and stop there.** A request to write a file is a
-request to write a file — not to branch, commit, push, or open a pull request.
-Landing a change is its own instruction, and it is the user's to give. When work
-is finished and unasked-for, say what is in the working tree and let the user
-decide where it goes.
+request to write a file. A request for a *branch* is a request for a branch, and
+the work belongs in its working tree, uncommitted, until told otherwise. When
+work is finished and unasked-for, say what is in the working tree and let the
+user decide where it goes.
 
 `main` is protected: it takes no direct pushes, so a change that is *meant to
 land* lands through a pull request. Branch, push, open the PR, and let the
