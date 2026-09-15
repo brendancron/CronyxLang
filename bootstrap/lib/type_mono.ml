@@ -194,9 +194,11 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
         | `Method_call (receiver, name, as_function, args) ->
       let receiver = rewrite state receiver in
       let args = List.map (rewrite state) args in
+      (* A trait impl's method is mangled with the trait it answers, so the
+         registry is what says which entry a receiver's method is. *)
       let owned =
         match Types.type_name receiver.Ast.ann with
-        | Some owner -> Some (Ast.method_name owner name)
+        | Some owner -> Some (Registry.entry_for_method state.registry owner name)
         | None -> None
       in
       (match owned with

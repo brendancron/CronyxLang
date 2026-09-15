@@ -1,0 +1,28 @@
+trait Fire {
+    fn fire(self): int;
+}
+
+type Slot<...Args> {
+    use: (...Args) -> int,
+    intent: (...Args)
+}
+
+impl Fire for Slot<...Args> {
+    fn fire(self): int {
+        return self.use(...self.intent);
+    }
+}
+
+fn add(a: int, b: int): int {
+    return a + b;
+}
+
+fn one(): int {
+    return 7;
+}
+
+var two = new Slot { use: add, intent: (1, 2) };
+var none = new Slot { use: one, intent: () };
+
+print(two.fire());
+print(none.fire());
