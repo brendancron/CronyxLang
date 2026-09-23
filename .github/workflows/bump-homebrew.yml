@@ -47,14 +47,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          # One archive per platform and the formula pins both, so a release
-          # missing either fails the run rather than leaving Apple Silicon on
-          # the Intel build or the formula quietly a version behind. A release
-          # is cut one machine at a time, so the second archive lands after the
-          # release is published: re-run this workflow once it has.
+          # An architecture the release does not carry is left where it is
+          # rather than pointed at a file that is not there: the formula names
+          # a version per architecture, so Apple Silicon moving does not wait
+          # on an Intel archive that may never be built. A release carrying
+          # neither is a mistake worth failing over.
+          found=false
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
             archive="cronyx-$TAG-$target.tar.gz"
-            gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$archive" -p "$archive.sha256" -D dl
+            case "$target" in
+              aarch64-*) slot=arm ;;
+              *)         slot=intel ;;
+            esac
+
+            if ! gh release download "$TAG" -R "$GITHUB_REPOSITORY" \
+                 -p "$archive" -p "$archive.sha256" -D dl 2>/dev/null; then
+              echo "$TAG carries no $target archive; leaving that block alone."
+              echo "${slot}_archive=" >> "$GITHUB_OUTPUT"
+              continue
+            fi
 
             published=$(awk '{print $1}' "dl/$archive.sha256")
             actual=$(sha256sum "dl/$archive" | awk '{print $1}')
@@ -63,13 +74,12 @@ jobs:
               exit 1
             }
 
-            case "$target" in
-              aarch64-*) slot=arm ;;
-              *)         slot=intel ;;
-            esac
+            found=true
             echo "${slot}_archive=$archive" >> "$GITHUB_OUTPUT"
             echo "${slot}_sha256=$actual" >> "$GITHUB_OUTPUT"
           done
+
+          $found || { echo "::error::$TAG carries no macOS archive at all"; exit 1; }
 
       - name: Check out the tap
         if: steps.tag.outputs.skip == 'false'
@@ -93,47 +103,49 @@ jobs:
           INTEL_ARCHIVE: ${{ steps.archive.outputs.intel_archive }}
           INTEL_SHA256: ${{ steps.archive.outputs.intel_sha256 }}
         run: |
-          # A url is found by the platform triple it already names rather than
-          # by where it sits, so the formula keeps whatever nesting it uses to
-          # tell the two apart. Its checksum is the line under it.
+          # The version lives inside each architecture's block rather than once
+          # at the top, so an architecture with no archive in this release stays
+          # on the last one that had it. A block is found by the platform triple
+          # its url already names, and holds its version, that url and its
+          # checksum, in that order.
           python3 - <<'PY'
           import os, re, sys
 
           path = "tap/Formula/cronyx.rb"
           text = open(path).read()
           base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{os.environ['TAG']}"
-
-          text, count = re.subn(
-              r'^(\s*)version ".*"$',
-              lambda m: f"{m.group(1)}version \"{os.environ['VERSION']}\"",
-              text,
-              flags=re.M,
-          )
-          if count != 1:
-              sys.exit(f"::error::expected one version line, found {count}")
+          version = os.environ["VERSION"]
 
           for triple, archive, sha in [
-              ("aarch64-apple-darwin", os.environ["ARM_ARCHIVE"], os.environ["ARM_SHA256"]),
-              ("x86_64-apple-darwin", os.environ["INTEL_ARCHIVE"], os.environ["INTEL_SHA256"]),
+              ("aarch64-apple-darwin", os.environ["ARM_ARCHIVE"], os.environ.get("ARM_SHA256", "")),
+              ("x86_64-apple-darwin", os.environ["INTEL_ARCHIVE"], os.environ.get("INTEL_SHA256", "")),
           ]:
+              if not archive:
+                  print(f"no {triple} archive in this release; its block keeps what it has")
+                  continue
+
               pattern = (
-                  r'^(\s*)url ".*' + re.escape(triple) + r'.*"\n\s*sha256 ".*"$'
+                  r'^(\s*)version "[^"]*"\n'
+                  r'\s*url "[^"]*' + re.escape(triple) + r'[^"]*"\n'
+                  r'\s*sha256 "[^"]*"$'
               )
-              text, count = re.subn(
-                  pattern,
-                  lambda m: f'{m.group(1)}url "{base}/{archive}"\n{m.group(1)}sha256 "{sha}"',
-                  text,
-                  flags=re.M,
+              replacement = (
+                  lambda m: f'{m.group(1)}version "{version}"\n'
+                            f'{m.group(1)}url "{base}/{archive}"\n'
+                            f'{m.group(1)}sha256 "{sha}"'
               )
+              text, count = re.subn(pattern, replacement, text, flags=re.M)
               if count != 1:
-                  sys.exit(f"::error::expected one {triple} url, found {count}")
+                  sys.exit(f"::error::expected one {triple} block, found {count}")
 
           open(path, "w").write(text)
           PY
 
-          grep -q "version \"$VERSION\"" tap/Formula/cronyx.rb || { echo "::error::the version did not take"; exit 1; }
-          grep -q "sha256 \"$ARM_SHA256\"" tap/Formula/cronyx.rb || { echo "::error::the arm64 checksum did not take"; exit 1; }
-          grep -q "sha256 \"$INTEL_SHA256\"" tap/Formula/cronyx.rb || { echo "::error::the x86_64 checksum did not take"; exit 1; }
+          for sha in "$ARM_SHA256" "$INTEL_SHA256"; do
+            [ -z "$sha" ] && continue
+            grep -q "sha256 \"$sha\"" tap/Formula/cronyx.rb \
+              || { echo "::error::a checksum did not take"; exit 1; }
+          done
 
       - name: Push it
         if: steps.tag.outputs.skip == 'false'

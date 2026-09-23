@@ -131,11 +131,13 @@ jobs:
           ARCHIVE: ${{ steps.package.outputs.archive }}
         run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
 
-  # The formula pins an archive per architecture, so the tap can only be bumped
-  # once both are up. Its own run fired when the release was published, before
-  # either of them existed.
+  # The formula names a version per architecture, so the tap is worth bumping
+  # for whichever archives landed — an architecture whose runner never came
+  # free keeps the release it already had. Its own run fired when the release
+  # was published, before any of them existed.
   tap:
     needs: archive
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
