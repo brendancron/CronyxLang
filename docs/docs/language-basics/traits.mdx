@@ -174,6 +174,125 @@ Breaking news: cronyx_lang: traits are here
 
 You'll see this pattern everywhere. A function with a trait bound is the standard way to write code that's reusable without giving up type safety — the compiler still checks every call site, it just checks them against the trait's contract instead of against a concrete type. (The angle brackets are *static parameters*, which we cover in detail in the metaprogramming section. For now, just read `<T: Summary>` as "any type that implements Summary.")
 
+## Trait objects: deciding the type at run time
+
+A trait bound is settled at compile time — `notify<T: Summary>` is compiled once per type you call it with, and each copy calls `summarize` directly. That's fast, and it's what you want most of the time. But it means one call site handles one type, so a bound can't give you a list holding both an `Article` and a `Tweet`.
+
+When you need that, write the trait *as a type*:
+
+```cronyx
+trait Speaker {
+    fn speak(self): string;
+}
+
+type Cat;
+type Dog;
+
+impl Speaker for Cat {
+    fn speak(self): string {
+        return "meow";
+    }
+}
+
+impl Speaker for Dog {
+    fn speak(self): string {
+        return "woof";
+    }
+}
+
+var speakers: List<Speaker> = [Cat, Dog];
+
+for (s in speakers) {
+    print(s.speak());
+}
+```
+
+```
+meow
+woof
+```
+
+`speakers` holds two different types, and the loop calls `speak` on each without knowing which is which. A value written this way is a **trait object**: the value itself, paired with the methods the trait asked for. The call reads the right one out of that pair when it runs.
+
+### You have to write the trait as a type
+
+Cronyx never decides on its own that two types should be seen through a trait they happen to share:
+
+```cronyx
+var speakers = [Cat, Dog];   // Expected Cat, got Dog.
+```
+
+Without the annotation this is just a list whose elements disagree, and that's an error. The annotation is what asks for the objects. There are seven places you can write it:
+
+```cronyx
+var speaker: Speaker = Cat;              // a binding with a written type
+speaker = Dog;                           // an assignment into one
+fn announce(s: Speaker) { ... }          // a parameter
+fn pick(): Speaker { return Cat; }       // a return type
+var all: List<Speaker> = [Cat, Dog];     // the element type of a collection
+type Pen { occupant: Speaker }           // a field
+pen.occupant = Dog;                      // an assignment into a field
+```
+
+### A bound and an object are not the same thing
+
+They read similarly and do different work:
+
+```cronyx
+fn viaBound<S: Speaker>(s: S) { print(s.speak()); }   // one copy per type, direct call
+fn viaObject(s: Speaker)      { print(s.speak()); }   // one function, call through the pair
+```
+
+Because a bound needs the real type, an object can't be passed to one:
+
+```cronyx
+var sp: Speaker = Cat;
+viaBound(sp);
+// 'sp' is a 'Speaker' object; '<S: Speaker>' needs the type behind it,
+// which an object does not carry.
+```
+
+Reach for the bound by default. Reach for the object when a single value, field or collection genuinely has to hold more than one type.
+
+### Effects are part of the contract
+
+If a trait's method performs an effect, the trait says so and every impl says the same thing:
+
+```cronyx
+effect Ask { ctl get(): int; }
+
+trait Speaker {
+    fn speak(self): <Ask> string;
+}
+
+impl Speaker for Cat {
+    fn speak(self): string { return "meow"; }
+    // 'Speaker' for 'Cat' declares 'speak' as (self): <Ask> string
+    // but defines (self): string.
+}
+```
+
+A call through a trait object is compiled once for every impl behind it, so they all have to agree on what that call performs. Writing the row on the impl too is how they agree — the compiler won't infer it for you and quietly change how every caller is compiled.
+
+### Every method needs a receiver
+
+A trait object finds its methods through the value, so a method that doesn't take `self` has nothing to find:
+
+```cronyx
+trait Maker {
+    fn make(): int;          // no self
+    fn show(self): string;
+}
+```
+
+Writing `Maker` as a type — `var maker: Maker = ...` — is rejected where you write it:
+
+```
+'Maker' cannot be used as a type: 'make' takes no receiver.
+```
+
+`Maker` is still perfectly good as a bound — `<M: Maker>` doesn't need the pair. It's only the object that can't be built.
+
 ## Try it
 
 Define a trait `Area` with one method, `area(self): int`. Implement it for `Circle { radius: int }` and `Rectangle { width: int, height: int }`. Then write a generic function `print_area<T: Area>(shape: T)` that prints the area of any shape, and call it with one of each.

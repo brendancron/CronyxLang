@@ -21,6 +21,11 @@ let expect span what expected actual =
       (Types.string_of_ty expected)
       (Types.string_of_ty actual)
 
+let listed names =
+  match names with
+  | [] -> "nothing"
+  | names -> String.concat ", " (List.map (Printf.sprintf "'%s'") names)
+
 let element span (t : Types.ty) =
   match t with
   | Types.Named (name, [ elem ], _) when String.equal name Types.array_name -> elem
@@ -169,11 +174,22 @@ let rec expr (e : Ast.cps_expr) : unit =
          (Types.string_of_ty ann)
      | other -> fail span "A lambda is annotated %s." (Types.string_of_ty other))
   (* The object's own type says nothing about what it holds, so what is checked
-     here is that each slot can take the data it was built beside. *)
+     here is that each slot can take the data it was built beside, and that the
+     trait's own methods are the ones the table holds. *)
   | `Object (data, vtable) ->
     expr data;
     (match ann with
-     | Types.Named _ -> ()
+     | Types.Named (trait, _, _) when Resolve.is_trait trait ->
+       let owed = List.sort_uniq String.compare (Resolve.methods_of trait) in
+       let held = List.sort_uniq String.compare (List.map fst vtable) in
+       if owed <> held
+       then
+         fail
+           span
+           "A '%s' object holds %s, but the trait declares %s."
+           trait
+           (listed held)
+           (listed owed)
      | other -> fail span "An object is annotated %s." (Types.string_of_ty other));
     List.iter
       (fun (name, (slot : Ast.cps_expr)) ->
@@ -189,7 +205,9 @@ let rec expr (e : Ast.cps_expr) : unit =
     expr receiver;
     List.iter expr args;
     (match receiver.Ast.ann with
-     | Types.Named _ -> ()
+     | Types.Named (trait, _, _) when Resolve.is_trait trait ->
+       if not (List.mem name (Resolve.methods_of trait))
+       then fail span "'%s' declares no '%s' to dispatch on." trait name
      | other ->
        fail
          receiver.Ast.span

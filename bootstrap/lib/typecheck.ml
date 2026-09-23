@@ -455,6 +455,13 @@ let is_trait_type (t : Types.infer_ty) =
 (* The one place a value's type changes without unifying. A trait in type
    position is an object, and a written type is the only thing that asks for
    one: inference never produces a trait, so it never reaches here. *)
+let rec mentions_trait (t : Types.infer_ty) =
+  match Types.repr t with
+  | Types.INamed (name, args, _) ->
+    Hashtbl.mem ctx_traits name || List.exists mentions_trait args
+  | Types.ISum (_, args) -> List.exists mentions_trait args
+  | _ -> false
+
 let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
   let span = e.Ast.span in
   match Types.repr expected, Types.infer_type_name (Types.repr e.Ast.ann) with
@@ -463,10 +470,25 @@ let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
     let reachable = trait_closure trait in
     if not (List.exists (fun t -> Hashtbl.mem ctx_impls (concrete, t)) reachable)
     then fail span "'%s' does not implement '%s'." concrete trait;
+    (* A supertrait's methods are reachable through the value, so the table
+       owes a slot for each of them too. *)
     let declared =
-      match Hashtbl.find_opt ctx_traits trait with
-      | Some (_, body) -> body.Ast.tb_methods
-      | None -> []
+      List.fold_left
+        (fun acc t ->
+          match Hashtbl.find_opt ctx_traits t with
+          | Some (_, body) ->
+            acc
+            @ List.filter
+                (fun (m : Ast.method_sig) ->
+                  not
+                    (List.exists
+                       (fun (seen : Ast.method_sig) ->
+                         String.equal seen.Ast.ms_name m.Ast.ms_name)
+                       acc))
+                body.Ast.tb_methods
+          | None -> acc)
+        []
+        (trait_closure trait)
     in
     (* A vtable slot is reached through the value, so a method that takes no
        receiver has no slot and the trait has no object. *)
@@ -486,6 +508,47 @@ let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
   | _ ->
     unify_at span expected e.Ast.ann;
     e
+
+(* The object and the bound are spelled with the same name, so unification
+   would report the trait against itself. *)
+let not_a_bound ~declared (written : Ast.desugared_expr) param (arg : checked_expr) =
+  match Types.repr param, Types.infer_type_name (Types.repr arg.Ast.ann) with
+  | Types.IVar { contents = Types.Unbound (_, Types.Bound (bound :: _)) }, Some trait
+    when Hashtbl.mem ctx_traits trait ->
+    (* Instantiation renames, so the parameter is called what the declaration
+       called it rather than what the copy carries. *)
+    let named =
+      match
+        List.filter
+          (fun (_, t) ->
+            match Types.repr t with
+            | Types.IVar { contents = Types.Unbound (_, Types.Bound bounds) } ->
+              List.exists
+                (fun (b : Types.bound) -> String.equal b.Types.bd_trait bound.Types.bd_trait)
+                bounds
+            | _ -> false)
+          declared
+      with
+      | [ (name, _) ] -> name
+      | _ -> "T"
+    in
+    fail
+      arg.Ast.span
+      "%s is a '%s' object; '<%s: %s>' needs the type behind it, which an object does not \
+       carry."
+      (match written.Ast.it with
+       | `Var name -> Printf.sprintf "'%s'" name
+       | _ -> "This argument")
+      trait
+      named
+      bound.Types.bd_trait
+  | _ -> ()
+
+let coerce_params params (args : checked_expr list) =
+  let params = Types.expand params in
+  if List.length params <> List.length args
+  then args
+  else List.map2 (fun p a -> if is_trait_type p then coerced p a else a) params args
 
 (* Put back however the body leaves: [check] carries on after an error, and a
    field pointing at the failed function would follow it. *)
@@ -1092,7 +1155,37 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
   | `Call (callee, args) ->
     let callee_node = infer_expr env ctx callee in
     let args = name_implicit_params callee_node.Ast.ann args in
-    let args = List.map (argument env ctx) args in
+    (* A literal is unified with itself before a coercion could reach inside
+       it, so an argument whose parameter mentions a trait is checked rather
+       than inferred. *)
+    let declared_params =
+      match callee.Ast.it with
+      | `Var name -> Option.value ~default:[] (Hashtbl.find_opt ctx_fn_params name)
+      | _ -> []
+    in
+    let expected_params =
+      match Types.repr callee_node.Ast.ann with
+      | Types.IFn (params, _, _) ->
+        let params = Types.expand params in
+        if List.length params = List.length args then Some params else None
+      | _ -> None
+    in
+    let args =
+      match expected_params with
+      | Some params ->
+        List.map2
+          (fun param (a : Ast.desugared_expr) ->
+            match a.Ast.it with
+            | `Spread _ -> argument env ctx a
+            | _ when mentions_trait param -> check_against env ctx param a
+            | _ ->
+              let checked = argument env ctx a in
+              not_a_bound ~declared:declared_params a param checked;
+              checked)
+          params
+          args
+      | None -> List.map (argument env ctx) args
+    in
     (* The name has to still mean the entry, not merely be spelled like it. *)
     let variadic =
       match callee.Ast.it with
@@ -1116,21 +1209,6 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        in
        node result (`Call (callee_node, args))
      | None ->
-       (* A parameter written as a trait is one of the positions that asks for
-          an object, so the argument becomes one before the call unifies. *)
-       let args =
-         match Types.repr callee_node.Ast.ann with
-         | Types.IFn (params, _, _) ->
-           let params = Types.expand params in
-           if List.length params = List.length args
-           then
-             List.map2
-               (fun param arg -> if is_trait_type param then coerced param arg else arg)
-               params
-               args
-           else args
-         | _ -> args
-       in
        let ret = Types.fresh () in
        let row = Types.fresh_row () in
        Types.unify
@@ -1321,7 +1399,14 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
            (Hashtbl.find_opt ctx_traits trait)
            ~default:([], { Ast.tb_super = []; tb_assoc = []; tb_methods = [] })
        in
-       let trait_methods = trait_body.Ast.tb_methods in
+       let trait_methods =
+         List.concat_map
+           (fun t ->
+             match Hashtbl.find_opt ctx_traits t with
+             | Some (_, body) -> body.Ast.tb_methods
+             | None -> [])
+           (trait_closure trait)
+       in
        let bound_args =
          match Types.repr receiver.Ast.ann with
          | Types.INamed (named, args, _) when String.equal named trait -> args
@@ -1367,7 +1452,9 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
               ( receiver.Ast.ann
                 :: List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) rest
               , annotated_or_fresh m.Ast.ms_signature.Ast.ret
-              , Types.fresh_row () )
+              , (match m.Ast.ms_signature.Ast.row with
+                 | Some labels -> row_of_labels labels
+                 | None -> Types.fresh_row ()) )
           in
           let ret = Types.fresh () in
           let row = Types.fresh_row () in
@@ -1420,6 +1507,20 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
            | None -> missing ()
          in
          let associated = Hashtbl.mem ctx_associated (owner, name) in
+         let args =
+           match Types.repr fn with
+           | Types.IFn (params, _, _) ->
+             let params = Types.expand params in
+             coerce_params
+               (if associated
+                then params
+                else (
+                  match params with
+                  | _receiver :: rest -> rest
+                  | [] -> []))
+               args
+           | _ -> args
+         in
          let passed =
            let given = List.map (fun (a : checked_expr) -> a.Ast.ann) args in
            if associated then given else receiver.Ast.ann :: given
@@ -1531,7 +1632,14 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          | Types.FCons (l, ty, rest) -> (l, ty) :: labels rest
        in
        let expected = labels declared in
-       let fields = List.map (fun (l, v) -> l, infer_expr env ctx v) fields in
+       let fields =
+         List.map
+           (fun (l, v) ->
+             match List.assoc_opt l expected with
+             | Some ty when mentions_trait ty -> l, check_against env ctx ty v
+             | _ -> l, infer_expr env ctx v)
+           fields
+       in
        List.iter
          (fun (l, _) ->
            if not (List.mem_assoc l expected)
@@ -1601,7 +1709,9 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
   | `Field_assign (target, label, v) ->
     let target = infer_expr env ctx target in
     let v = infer_expr env ctx v in
-    unify_at v.Ast.span (field_of target label) v.Ast.ann;
+    let declared = field_of target label in
+    let v = if is_trait_type declared then coerced declared v else v in
+    unify_at v.Ast.span declared v.Ast.ann;
     node v.Ast.ann (`Field_assign (target, label, v))
   | `Tuple items ->
     let items = List.map (infer_expr env ctx) items in
@@ -1691,8 +1801,8 @@ and check_against env ctx (expected : Types.infer_ty) (e : Ast.desugared_expr)
     | _ -> None
   in
   match e.Ast.it, element with
-  | `Collection_lit items, Some elem when is_trait_type elem ->
-    let items = List.map (fun i -> coerced elem (infer_expr env ctx i)) items in
+  | `Collection_lit items, Some elem when mentions_trait elem ->
+    let items = List.map (check_against env ctx elem) items in
     Ast.annotated e.Ast.span expected (`Collection_lit items)
   (* Everything else keeps the unification it had, down to which span a
      mismatch is reported at. *)
@@ -2050,21 +2160,23 @@ and conforming_method
     and declared_ret = annotated_or_fresh r.Ast.ms_signature.Ast.ret in
     let defined = types defined_params
     and defined_ret = annotated_or_fresh m.Ast.md_signature.Ast.ret in
-    let shown params ret =
+    let written (sg : Ast.signature) = Option.value ~default:[] sg.Ast.row in
+    let declared_row = written r.Ast.ms_signature
+    and defined_row = written m.Ast.md_signature in
+    let shown params row ret =
       Printf.sprintf
-        "(self%s): %s"
+        "(self%s): %s%s"
         (String.concat "" (List.map (fun t -> ", " ^ Types.string_of_infer_ty t) params))
+        (match row with
+         | [] -> ""
+         | labels -> Printf.sprintf "<%s> " (String.concat ", " labels))
         (Types.string_of_infer_ty ret)
     in
     (* Read before unifying: a link the first mismatch leaves behind would
        otherwise be printed as what was written. *)
-    let declared_text = shown declared declared_ret
-    and defined_text = shown defined defined_ret in
-    try
-      List.iter2 Types.unify declared defined;
-      Types.unify declared_ret defined_ret
-    with
-    | Types.Type_error _ ->
+    let declared_text = shown declared declared_row declared_ret
+    and defined_text = shown defined defined_row defined_ret in
+    let mismatched () =
       fail
         span
         "'%s' for '%s' declares '%s' as %s but defines %s."
@@ -2072,7 +2184,17 @@ and conforming_method
         type_name
         r.Ast.ms_name
         declared_text
-        defined_text)
+        defined_text
+    in
+    (* A call through a vtable emits one calling convention, so the row an impl
+       performs is the trait's to declare and the impl's to repeat. *)
+    if List.sort String.compare declared_row <> List.sort String.compare defined_row
+    then mismatched ();
+    try
+      List.iter2 Types.unify declared defined;
+      Types.unify declared_ret defined_ret
+    with
+    | Types.Type_error _ -> mismatched ())
 
 (* One spelling for a pack: the dots say which parameter stands for a parameter
    list, and a header that disagrees with the declaration reads as the other
@@ -2315,8 +2437,10 @@ and hoist env (body : Ast.desugared_stmt list) =
    trait, and a use may precede its declaration. *)
 and infer_block env ctx (body : Ast.desugared_stmt list) : checked_stmt list =
   scoped_declarations (fun () ->
-    declare_types body;
+    (* Before the types: a field may be written with a trait, which is a type
+       only once the trait is registered as one. *)
     declare_traits body;
+    declare_types body;
     declare_impls ctx.registry body;
     hoist env body;
     let assigned = assigned_names body in
@@ -3094,8 +3218,8 @@ let check ~registry (program : Ast.desugared_stmt list)
         | Located e -> errors := e :: !errors)
       program
   in
-  each declare_types;
   each declare_traits;
+  each declare_types;
   each (declare_impls registry);
   each (hoist env);
   let assigned = assigned_names program in

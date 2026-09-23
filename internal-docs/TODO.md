@@ -33,3 +33,11 @@ Trait objects are built, and a normal type reaching one costs nothing: the value
 The direction is that it takes an explicit box at the coercion — `var s: Speaker = box azalea;` — so the allocation is written where it happens rather than inferred from the target type. Since there is no `dyn`, this is the only marker a reader gets, which is the argument for it.
 
 What is not settled is the spelling, whether the box is a type a program can name or only a coercion the checker inserts, and whether the same form is what an explicitly boxed recursive type already uses. Nothing rejects the coercion today because `flat` does not exist yet either.
+
+## Comparing two trait objects
+
+Owner: [Static vs Dynamic Invocation.md](Static%20vs%20Dynamic%20Invocation.md)
+
+`==` on a trait-typed operand is accepted and answers `false` however equal the two are, because `Value.equal_with` has no case for an object and falls through. `Cat == Cat` is `true`; the same two behind a `Speaker` are not.
+
+What makes it more than a missing case is that the data carries no discriminator — two fieldless types are the same record at run time — so equality has to consult the table to tell a `Cat` from a `Dog`, or the checker has to reject the comparison. Deciding that is the work; the language has no `Eq` bound on `==` today, which is the argument for fixing the runtime rather than the checker.

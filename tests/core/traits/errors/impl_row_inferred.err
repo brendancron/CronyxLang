@@ -1,0 +1,1 @@
+[9:1] 'Speaker' for 'Cat' declares 'speak' as (self): string but defines (self): <Ask> string.

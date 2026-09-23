@@ -1,0 +1,13 @@
+effect Ask { ctl get(): int; }
+
+trait Speaker {
+    fn speak(self): <Ask> string;
+}
+
+type Cat;
+
+impl Speaker for Cat {
+    fn speak(self): string {
+        return "meow";
+    }
+}

@@ -124,7 +124,7 @@ fn speakDynHelper(speaker: Speaker) {
 In this example the speaker is again the reference to Speaker and therefore the speak invocation is dynamic since it is a dynamic construct.
 # Where a trait object comes from
 
-Inference never produces one. `var azalea = Cat;` is a `Cat` and stays one — unifying `Cat` with `Dog` is an error, not a reason to reach for a trait they share. A trait object exists only where a trait was *written* as a type, and there are five such positions:
+Inference never produces one. `var azalea = Cat;` is a `Cat` and stays one — unifying `Cat` with `Dog` is an error, not a reason to reach for a trait they share. A trait object exists only where a trait was *written* as a type:
 
 ```
 var speaker: Speaker = Cat;              // a binding with a written type
@@ -132,11 +132,22 @@ speaker = Dog;                           // an assignment into one
 fn announce(s: Speaker) { ... }          // a declared parameter
 fn pick(): Speaker { return Cat; }       // a declared return
 var all: List<Speaker> = [Cat, Dog];     // a written element type
+type Pen { occupant: Speaker }           // a declared field
+pen.occupant = Dog;                      // an assignment into one
 ```
 
 That restriction is not a convenience. Checking is Hindley-Milner, which is unification over equality: `t1 = t2`, symmetric, with no way to say `t1 <= t2`. A coercion is subtyping, so it cannot be something inference discovers — it has to be something the checker *inserts* where an expected type is already known. The alternative is a constraint system with subtyping, HM(X) or algebraic subtyping, and the price is inferred types carrying unions and intersections through every diagnostic the compiler prints. Trait objects are the only subtyping in the language, so they do not justify it.
 
-The consequence worth knowing is the last line above. Without its annotation, `[Cat, Dog]` is an error — two unequal element types and nothing to unify them to. The annotation is what does the work, not the literal.
+The consequence worth knowing is the element type. Without its annotation, `[Cat, Dog]` is an error — two unequal element types and nothing to unify them to. The annotation is what does the work, not the literal, which is why an argument whose parameter mentions a trait is *checked* against that parameter rather than inferred and unified afterwards: by the time a literal has been inferred, its elements have already been unified with each other and the coercion has nowhere to go.
+
+Going the other way is not a coercion at all:
+
+```
+fn announce<S: Speaker>(s: S) { ... }
+announce(speaker);   // 'speaker' is a 'Speaker' object; '<S: Speaker>' needs the type behind it
+```
+
+The bound monomorphizes, so it needs the type the object is hiding. The two are spelled with the same name, which is why this has a diagnostic of its own rather than the `Expected Speaker, got Speaker` that unification would print.
 
 A type that does not implement the trait is rejected where it is written, and so is a trait that cannot have an object at all:
 
@@ -146,15 +157,28 @@ var quiet: Speaker = Rock;   // 'Rock' does not implement 'Speaker'.
 
 # What an object is
 
-The data, beside the functions chosen for it. `Resolve` meets the coercion the checker inserted, reads the concrete type off it, and builds one entry per method the trait declared, each entry the plain function that impl already became. Dispatch is still static in the sense [Elaboration](Elaboration.md) means it: nothing is searched at run time, the table is built at compile time, and only *which table* a value carries is unknown until it is.
+The data, beside the functions chosen for it. `Resolve` meets the coercion the checker inserted, reads the concrete type off it, and builds one entry per method the trait's closure declares — a supertrait's methods are reached through the value like any other, so the table owes them a slot too — each entry the plain function that impl already became. Dispatch is still static in the sense [Elaboration](Elaboration.md) means it: nothing is searched at run time, the table is built at compile time, and only *which table* a value carries is unknown until it is.
 
 The interpreter needs a real table rather than a type tag: a record value holds its fields and nothing else, so `Cat` and `Dog` — both of them fieldless — are the same value at run time. Nothing about the data says which impl answers. Codegen would carry the same pair for the same reason.
 
-A method call on a trait-typed receiver becomes a call through that table. It is a resolved callee that reads its target from a slot, which is why `Verify` still rejects an unresolved one.
+A method call on a trait-typed receiver becomes a call through that table. It is a resolved callee that reads its target from a slot, which is why `Verify` still rejects an unresolved one — and why it also checks the table against the trait it claims to be, so a slot the trait never declared, or a method the table has no slot for, is caught before the interpreter has to have an opinion about it.
 
 ## Effects travel with the call
 
-A row cannot be read off a vtable, so the method's own type travels with the call site. Every impl was checked against the trait's signature, so any one of them says what a call through the table performs, and the call passes the evidence — or the continuation — that a named call to the same impl would have passed. A handler that resumes in tail position and one that resumes after doing more work both work through an object.
+A row cannot be read off a vtable, so the method's own type travels with the call site. One call sequence is emitted, and the row decides how many evidence parameters it appends, so every impl has to agree on that row: the trait declares it and an impl repeats it, and an impl that writes a different one — or omits a row the trait wrote — is a conformance error like any other signature mismatch.
+
+```
+trait Speaker { fn speak(self): <Ask> string; }
+impl Speaker for Cat {
+    fn speak(self): string { ... }
+    // 'Speaker' for 'Cat' declares 'speak' as (self): <Ask> string
+    // but defines (self): string.
+}
+```
+
+Written rather than inferred, deliberately: an impl whose row was inferred from its body would make adding a `perform` to that body a change to how every caller of the trait is compiled. The gap that leaves is an impl performing an effect neither it nor the trait wrote down, which is still accepted and still reaches the interpreter — `tests/core/traits/errors/impl_row_inferred` is that case, waiting in `known_unsound`.
+
+With the row settled, the call passes the evidence — or the continuation — that a named call to the same impl would have passed. A handler that resumes in tail position and one that resumes after doing more work both work through an object.
 
 ## What a trait object cannot be
 

@@ -302,6 +302,10 @@ let cases =
   ; "tests/core/traits/dyn/returned"
   ; "tests/core/traits/dyn/effect"
   ; "tests/core/traits/dyn/effect_resumes"
+  ; "tests/core/traits/dyn/method_arg"
+  ; "tests/core/traits/dyn/list_param"
+  ; "tests/core/traits/dyn/field"
+  ; "tests/core/traits/dyn/supertrait"
   ; "tests/core/modules/local_binders/main"
   ; "tests/core/static_params/shadowed_value_param"
   ; "tests/core/static_params/nested/template_in_function"
@@ -416,6 +420,9 @@ let error_cases =
   ; "tests/types/inference/errors/unspecializable_names_the_caller"
   ; "tests/core/modules/errors/outside_package/main"
   ; "tests/effects/errors/handler_widens"
+  ; "tests/core/traits/errors/impl_row_narrower"
+  ; "tests/core/traits/errors/impl_row_wider"
+  ; "tests/core/traits/errors/object_not_a_bound"
   ]
 
 (* Accepted, then failing while running. Separate from [error_cases], which
@@ -491,7 +498,10 @@ let expected_failing : (string * blocker) list =
 
 (* Ought to be rejected and are not, paired with the `.err` they should
    produce. The suite announces the moment one starts being caught. *)
-let known_unsound : string list = []
+let known_unsound : string list =
+  (* The row is compared as written, so an impl that performs an effect neither
+     it nor the trait declares is still accepted. *)
+  [ "tests/core/traits/errors/impl_row_inferred" ]
 
 (* Every diagnostic the checker found, not only the first. *)
 let rejections path =
