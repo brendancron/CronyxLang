@@ -1,0 +1,149 @@
+name: Release Archives (macOS)
+
+# An OCaml binary is native and there is no cross-compilation worth the
+# trouble, so each Mac archive is built on a Mac of that architecture.
+# `scripts/release.sh` cuts the release from whatever machine it is run on;
+# this adds the two that machine cannot produce.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build for, e.g. v0.0.10'
+        required: true
+
+jobs:
+  archive:
+    strategy:
+      # One archive failing should not take the other's down with it: an
+      # architecture that built is still worth uploading.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            machine: Darwin-arm64
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            machine: Darwin-x86_64
+
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Read the tag
+        id: tag
+        env:
+          TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          # `vscode-v*` releases fire this same event and have nothing to do
+          # with the toolchain.
+          if [[ ! $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$TAG is not a toolchain release; nothing to build."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "$TAG is a prerelease; the tap tracks stable releases only."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # The tag, not the branch: the archive has to be the commit the release
+      # points at. The fixtures live at the repo root and the harness finds them
+      # by walking up from the test binary, so the whole tree is checked out.
+      - uses: actions/checkout@v5
+        if: steps.tag.outputs.skip == 'false'
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Install OCaml
+        if: steps.tag.outputs.skip == 'false'
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: '5'
+          dune-cache: true
+          opam-pin: false
+
+      - name: Install dependencies
+        if: steps.tag.outputs.skip == 'false'
+        working-directory: bootstrap
+        run: opam install . --deps-only --with-test --yes
+
+      - name: Test
+        if: steps.tag.outputs.skip == 'false'
+        run: |
+          (cd bootstrap && opam exec -- dune test)
+          opam exec -- dune test cx
+          opam exec -- ./scripts/cx-parity.sh
+
+      - name: Build
+        if: steps.tag.outputs.skip == 'false'
+        run: opam exec -- dune build --release
+
+      # The same layout `scripts/release.sh` packages: one release ships one
+      # toolchain, and `cx` resolves `import "std/…"` at ../lib/cronyx/stdlib,
+      # relative to the binary, so the two have to move together.
+      - name: Package
+        id: package
+        if: steps.tag.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          MACHINE: ${{ matrix.machine }}
+        run: |
+          [ "$(uname -s)-$(uname -m)" = "$MACHINE" ] \
+            || { echo "::error::this runner is $(uname -s)-$(uname -m), not $MACHINE"; exit 1; }
+
+          out=$(mktemp -d)
+          tree="$out/cronyx-$TAG-$TARGET"
+          mkdir -p "$tree/bin" "$tree/lib/cronyx"
+          cp _build/default/cx/bin/main.exe "$tree/bin/cx"
+          cp _build/default/bootstrap/bin/main.exe "$tree/bin/cronyxc"
+          chmod +x "$tree/bin/cx" "$tree/bin/cronyxc"
+          cp -R stdlib "$tree/lib/cronyx/stdlib"
+
+          # A binary reporting a version its tag does not is one `cx` refuses to
+          # hand a job to, and nothing would catch it before someone installed
+          # the toolchain.
+          reported=$("$tree/bin/cx" version)
+          [ "$reported" = "cx $VERSION" ] \
+            || { echo "::error::the binary reports '$reported', not 'cx $VERSION'"; exit 1; }
+
+          archive="cronyx-$TAG-$TARGET.tar.gz"
+          tar -czf "$out/$archive" -C "$out" "cronyx-$TAG-$TARGET"
+          shasum -a 256 "$out/$archive" | awk '{print $1}' > "$out/$archive.sha256"
+
+          echo "archive=$out/$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Publish it
+        if: steps.tag.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+
+  # The formula pins an archive per architecture, so the tap can only be bumped
+  # once both are up. Its own run fired when the release was published, before
+  # either of them existed.
+  tap:
+    needs: archive
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Hand the tag to the tap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+        run: |
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 0
+          gh workflow run bump-homebrew.yml -f tag="$TAG"

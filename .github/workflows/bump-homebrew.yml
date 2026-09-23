@@ -40,30 +40,36 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Take the checksum from the archive itself
+      - name: Take each checksum from the archive itself
         id: archive
         if: steps.tag.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          # One archive per platform, and the formula pins this one. If the
-          # release does not carry it the run fails rather than leaving the
-          # formula quietly a version behind.
-          target=x86_64-apple-darwin
-          archive="cronyx-$TAG-$target.tar.gz"
-          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$archive" -p "$archive.sha256" -D dl
+          # One archive per platform and the formula pins both, so a release
+          # missing either fails the run rather than leaving Apple Silicon on
+          # the Intel build or the formula quietly a version behind. A release
+          # is cut one machine at a time, so the second archive lands after the
+          # release is published: re-run this workflow once it has.
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            archive="cronyx-$TAG-$target.tar.gz"
+            gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "$archive" -p "$archive.sha256" -D dl
 
-          published=$(awk '{print $1}' "dl/$archive.sha256")
-          actual=$(sha256sum "dl/$archive" | awk '{print $1}')
-          [ "$published" = "$actual" ] || {
-            echo "::error::$archive hashes to $actual, but its .sha256 asset says $published"
-            exit 1
-          }
+            published=$(awk '{print $1}' "dl/$archive.sha256")
+            actual=$(sha256sum "dl/$archive" | awk '{print $1}')
+            [ "$published" = "$actual" ] || {
+              echo "::error::$archive hashes to $actual, but its .sha256 asset says $published"
+              exit 1
+            }
 
-          echo "target=$target" >> "$GITHUB_OUTPUT"
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
-          echo "sha256=$actual" >> "$GITHUB_OUTPUT"
+            case "$target" in
+              aarch64-*) slot=arm ;;
+              *)         slot=intel ;;
+            esac
+            echo "${slot}_archive=$archive" >> "$GITHUB_OUTPUT"
+            echo "${slot}_sha256=$actual" >> "$GITHUB_OUTPUT"
+          done
 
       - name: Check out the tap
         if: steps.tag.outputs.skip == 'false'
@@ -82,20 +88,52 @@ jobs:
         env:
           VERSION: ${{ steps.tag.outputs.version }}
           TAG: ${{ steps.tag.outputs.tag }}
-          ARCHIVE: ${{ steps.archive.outputs.archive }}
-          SHA256: ${{ steps.archive.outputs.sha256 }}
+          ARM_ARCHIVE: ${{ steps.archive.outputs.arm_archive }}
+          ARM_SHA256: ${{ steps.archive.outputs.arm_sha256 }}
+          INTEL_ARCHIVE: ${{ steps.archive.outputs.intel_archive }}
+          INTEL_SHA256: ${{ steps.archive.outputs.intel_sha256 }}
         run: |
-          formula=tap/Formula/cronyx.rb
-          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$ARCHIVE"
+          # A url is found by the platform triple it already names rather than
+          # by where it sits, so the formula keeps whatever nesting it uses to
+          # tell the two apart. Its checksum is the line under it.
+          python3 - <<'PY'
+          import os, re, sys
 
-          sed -i \
-            -e "s|^  version \".*\"$|  version \"$VERSION\"|" \
-            -e "s|^  url \".*\"$|  url \"$url\"|" \
-            -e "s|^  sha256 \".*\"$|  sha256 \"$SHA256\"|" \
-            "$formula"
+          path = "tap/Formula/cronyx.rb"
+          text = open(path).read()
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{os.environ['TAG']}"
 
-          grep -q "version \"$VERSION\"" "$formula" || { echo "::error::the version did not take"; exit 1; }
-          grep -q "sha256 \"$SHA256\"" "$formula" || { echo "::error::the checksum did not take"; exit 1; }
+          text, count = re.subn(
+              r'^(\s*)version ".*"$',
+              lambda m: f"{m.group(1)}version \"{os.environ['VERSION']}\"",
+              text,
+              flags=re.M,
+          )
+          if count != 1:
+              sys.exit(f"::error::expected one version line, found {count}")
+
+          for triple, archive, sha in [
+              ("aarch64-apple-darwin", os.environ["ARM_ARCHIVE"], os.environ["ARM_SHA256"]),
+              ("x86_64-apple-darwin", os.environ["INTEL_ARCHIVE"], os.environ["INTEL_SHA256"]),
+          ]:
+              pattern = (
+                  r'^(\s*)url ".*' + re.escape(triple) + r'.*"\n\s*sha256 ".*"$'
+              )
+              text, count = re.subn(
+                  pattern,
+                  lambda m: f'{m.group(1)}url "{base}/{archive}"\n{m.group(1)}sha256 "{sha}"',
+                  text,
+                  flags=re.M,
+              )
+              if count != 1:
+                  sys.exit(f"::error::expected one {triple} url, found {count}")
+
+          open(path, "w").write(text)
+          PY
+
+          grep -q "version \"$VERSION\"" tap/Formula/cronyx.rb || { echo "::error::the version did not take"; exit 1; }
+          grep -q "sha256 \"$ARM_SHA256\"" tap/Formula/cronyx.rb || { echo "::error::the arm64 checksum did not take"; exit 1; }
+          grep -q "sha256 \"$INTEL_SHA256\"" tap/Formula/cronyx.rb || { echo "::error::the x86_64 checksum did not take"; exit 1; }
 
       - name: Push it
         if: steps.tag.outputs.skip == 'false'
