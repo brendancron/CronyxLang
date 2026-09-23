@@ -168,6 +168,34 @@ let rec expr (e : Ast.cps_expr) : unit =
        fail span "A lambda of %d parameter(s) is annotated %s." (List.length params)
          (Types.string_of_ty ann)
      | other -> fail span "A lambda is annotated %s." (Types.string_of_ty other))
+  (* The object's own type says nothing about what it holds, so what is checked
+     here is that each slot can take the data it was built beside. *)
+  | `Object (data, vtable) ->
+    expr data;
+    (match ann with
+     | Types.Named _ -> ()
+     | other -> fail span "An object is annotated %s." (Types.string_of_ty other));
+    List.iter
+      (fun (name, (slot : Ast.cps_expr)) ->
+        expr slot;
+        match slot.Ast.ann with
+        | Types.Fn (receiver :: _, _, _) ->
+          expect slot.Ast.span "A vtable slot's receiver" receiver data.Ast.ann
+        | other ->
+          fail slot.Ast.span "'%s' is annotated %s, which takes no receiver." name
+            (Types.string_of_ty other))
+      vtable
+  | `Dyn_call (receiver, name, _, args) ->
+    expr receiver;
+    List.iter expr args;
+    (match receiver.Ast.ann with
+     | Types.Named _ -> ()
+     | other ->
+       fail
+         receiver.Ast.span
+         "'%s' is called on %s, which is not an object."
+         name
+         (Types.string_of_ty other))
   | `Call (callee, args) ->
     expr callee;
     List.iter expr args;

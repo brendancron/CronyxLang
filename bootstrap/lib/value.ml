@@ -9,6 +9,9 @@ type value =
   | Tuple of value list
   | Array of value array
   | Record of (string * value ref) list
+  (* A value behind a trait: the data, and the impl chosen for each method the
+     trait declared. Which body runs is read from here, not from the call. *)
+  | Object of value * (string * value) list
   | Variant of string * (string * value) list
   | Fn of fn
   (* Never outlives metaprocessing. *)
@@ -62,6 +65,7 @@ let type_name = function
   | Fn _ -> "fn"
   | Code _ -> "code"
   | Name _ -> "name"
+  | Object _ -> "object"
 
 let rec string_of_value = function
   | Array items ->
@@ -85,6 +89,7 @@ let rec string_of_value = function
   | Bool b -> string_of_bool b
   | Unit -> "unit"
   | Fn f -> Printf.sprintf "<fn %s>" f.name
+  | Object (data, _) -> string_of_value data
   | Code e -> Printf.sprintf "<code %s>" (Printer.string_of_expr e)
   | Name n -> n
 

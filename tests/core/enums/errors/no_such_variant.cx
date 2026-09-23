@@ -1,2 +1,2 @@
 type Shape { Circle(int) }
-var s = new Shape::Square(1);
+var s = Shape::Square(1);

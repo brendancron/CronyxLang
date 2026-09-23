@@ -43,7 +43,7 @@ Rewrites the surface control forms into the smaller set later passes handle — 
 
 ### Value Monomorphize
 
-Copies a function per comptime *value* argument, splicing in the literal written at the call site: `buffer<int, 16>(1)` expands under `16` by substitution alone. It runs before checking because a value can decide a type, so until one is substituted there is no single type to check the template against.
+Copies a function per static *value* argument, splicing in the literal written at the call site: `buffer<int, 16>(1)` expands under `16` by substitution alone. It runs before checking because a value can decide a type, so until one is substituted there is no single type to check the template against.
 
 ### Typecheck
 
@@ -53,9 +53,13 @@ Hindley-Milner inference with effect rows, producing a tree in which every node 
 
 Copies a generic body per concrete type its call sites use, because an operator or method inside it cannot be selected while the type is still a variable. Only bodies holding something type-directed are copied; one that merely moves values around keeps a single copy and stays generic.
 
+A trait type is concrete here, so a body taking a trait object is copied once and shared by every implementer — which is the whole point of having asked for one.
+
 ### Resolve
 
 Turns every construct whose meaning depended on a type into a primitive or a call — operators, compound assignment, indexing, collection literals, method calls. It also flattens every `impl` into ordinary functions, so nothing downstream knows that methods or operators exist.
+
+A coercion to a trait type becomes the value beside a table of the functions that trait's methods flattened to, and a method call on a trait-typed receiver becomes a call through that table. The table is built here because this is where the set of concrete types is final and every impl is already in hand.
 
 ### Reflect
 
@@ -67,7 +71,7 @@ Rewrites the functions that perform control effects, choosing per effect between
 
 ### Verify
 
-Checks each node against its children. A pass that constructs nodes invents their annotations rather than getting them from inference, and a wrong one is silent — `CPS` decides what to convert by reading the effect row off a call's annotation, so a synthesized call carrying an empty row is skipped and the program performs an unhandled effect at runtime with no compiler error anywhere.
+Checks each node against its children — including that every slot of a trait object can take the data it was built beside, and that a call through one has an object to read its target from. A pass that constructs nodes invents their annotations rather than getting them from inference, and a wrong one is silent — `CPS` decides what to convert by reading the effect row off a call's annotation, so a synthesized call carrying an empty row is skipped and the program performs an unhandled effect at runtime with no compiler error anywhere.
 
 ### Interp
 

@@ -33,6 +33,9 @@ let rec type_directed_expr self (e : Ast.typed_expr) =
   | `Str_get (a, b) -> type_directed_expr a || type_directed_expr b
   | `Unop (_, a) | `Tuple_get (a, _) | `Field (a, _) | `Typeof a | `Assign (_, a) ->
     type_directed_expr a
+  (* Which impl the vtable holds follows from the value's type, so a body
+     coercing one is owed a copy per type it coerces. *)
+  | `Coerce (inner, _, _) -> operand inner || type_directed_expr inner
   (* How many arguments the call has is what the pack holds, so a body is owed
      a copy per pack even when nothing else in it is. *)
   | `Spread a -> Types.has_generic a.Ast.ann || type_directed_expr a
@@ -111,6 +114,8 @@ let rec subst_expr ?(rows = []) mapping (e : Ast.typed_expr) : Ast.typed_expr =
       (Ast.map_collection (subst_expr mapping) c :> Ast.typed_expr_kind)
     | #Ast.method_call as m ->
       (Ast.map_method_call (subst_expr mapping) m :> Ast.typed_expr_kind)
+    | #Ast.coercions as c ->
+      (Ast.map_coercion (subst_expr mapping) c :> Ast.typed_expr_kind)
     | #Ast.reflect as r -> (Ast.map_reflect (subst_expr mapping) r :> Ast.typed_expr_kind)
     | `Lambda (params, signature, body) ->
       `Lambda (params, signature, List.map (subst_stmt mapping) body)
@@ -237,6 +242,7 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
     | #Ast.nominal as n -> (Ast.map_nominal (rewrite state) n :> Ast.typed_expr_kind)
     | #Ast.collection as c ->
       (Ast.map_collection (rewrite state) c :> Ast.typed_expr_kind)
+    | #Ast.coercions as c -> (Ast.map_coercion (rewrite state) c :> Ast.typed_expr_kind)
     | #Ast.reflect as r -> (Ast.map_reflect (rewrite state) r :> Ast.typed_expr_kind)
     | #Ast.run_expr as r ->
       (Ast.map_run_expr

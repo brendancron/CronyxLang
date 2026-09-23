@@ -7,8 +7,8 @@ print(str(p.area()) + " " + str(p.shifted(1).x));
 var q: Point = geom.origin();
 print(str(q.x) + " " + str(q.area()));
 
-print(geom.describe(new geom.Shape::Circle(3)));
-print(geom.describe(new geom.Shape::Square(4)));
+print(geom.describe(geom.Shape::Circle(3)));
+print(geom.describe(geom.Shape::Square(4)));
 
 type Point2 { x: int }
 var mine = new Point2 { x: 9 };

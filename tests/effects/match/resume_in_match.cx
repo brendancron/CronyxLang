@@ -12,7 +12,7 @@ run {
     print(use());
 } handle Ask {
     ctl get() {
-        var c = new Choice::No;
+        var c = Choice::No;
         match c {
             Choice::Yes => { resume 1; }
             Choice::No => { resume 2; }

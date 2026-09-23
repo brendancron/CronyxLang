@@ -15,7 +15,8 @@ This is separate from `docs/`, which is the Docusaurus site published for langua
 | [Data Structures.md](Data%20Structures.md)                   | The datatypes and how each is used                                    |
 | [Collection Literals.md](Collection%20Literals.md)           | How `[...]` picks a collection type                                   |
 | [Elaboration.md](Elaboration.md)                             | Type-directed resolution of operators, indexing, and literals         |
-| [Comptime Params.md](Comptime%20Params.md)                   | `<>` parameters, and why they are not just generics                   |
+| [Static vs Dynamic Invocation.md](Static%20vs%20Dynamic%20Invocation.md) | What is resolved at compile time, and what a trait object defers to run time |
+| [Static Params.md](Static%20Params.md)                   | `<>` parameters, and why they are not just generics                   |
 | [Diagnostics.md](Diagnostics.md)                             | Spans, and why a frame cannot render half-drawn                       |
 | [Modules.md](Modules.md)                                     | `import`, and why several files become one program                    |
 | [Package Manager.md](Package%20Manager.md)                   | `cx`, packages, resolution, and where the module boundary hardens     |

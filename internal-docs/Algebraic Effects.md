@@ -353,4 +353,4 @@ Following the discipline the other passes use, the effect constructs (`effect` d
 
 Handler aliasing, syntax for writing a row variable in an annotation, and whether effect declarations nest are all deferred. None of them block what is implemented.
 
-Explicit comptime arguments will hit the same ambiguity in expression position, where `pair<int>(1, 2)` and `a < b` cannot be told apart and `a<b` is idiomatic. Nothing decided here helps there; it needs a turbofish-style marker or inference-only type arguments.
+Explicit static arguments will hit the same ambiguity in expression position, where `pair<int>(1, 2)` and `a < b` cannot be told apart and `a<b` is idiomatic. Nothing decided here helps there; it needs a turbofish-style marker or inference-only type arguments.

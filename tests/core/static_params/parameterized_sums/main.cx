@@ -14,9 +14,9 @@ fn identity<T>(x: T): T {
     return x;
 }
 
-var some_int = new Option::Some(3);
-var some_str = new Option::Some("hi");
-var nothing: Option<bool> = new Option::None;
+var some_int = Option::Some(3);
+var some_str = Option::Some("hi");
+var nothing: Option<bool> = Option::None;
 
 match some_int {
     Option::Some(n) => { print(n); }

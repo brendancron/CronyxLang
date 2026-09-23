@@ -38,4 +38,4 @@ meta fn derive(shape: TypeShape) for Tagged {
 
 derive Tagged for Shape;
 
-print(new Shape::Point.tags());
+print(Shape::Point.tags());

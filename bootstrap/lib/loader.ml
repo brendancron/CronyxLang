@@ -328,11 +328,11 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
   let signature (sg : Ast.signature) =
     { sg with
       Ast.ret = Option.map type_expr sg.Ast.ret
-    ; comptime =
+    ; static_params =
         List.map
-          (fun (c : Ast.comptime_param) ->
-            { c with Ast.cp_ty = Option.map type_expr c.Ast.cp_ty })
-          sg.Ast.comptime
+          (fun (c : Ast.static_param) ->
+            { c with Ast.sp_ty = Option.map type_expr c.Ast.sp_ty })
+          sg.Ast.static_params
     }
   in
   let rec expr locals (e : Ast.expr) : Ast.expr =
@@ -385,7 +385,7 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
       | #Ast.spread as s -> (Ast.map_spread go s :> Ast.expr_kind)
       | #Ast.record as r -> (Ast.map_record go r :> Ast.expr_kind)
       | #Ast.collection as c -> (Ast.map_collection go c :> Ast.expr_kind)
-      | #Ast.comptime_call as c -> (Ast.map_comptime_call go c :> Ast.expr_kind)
+      | #Ast.static_call as c -> (Ast.map_static_call go c :> Ast.expr_kind)
       | #Ast.reflect as r -> (Ast.map_reflect go r :> Ast.expr_kind)
       | #Ast.run_expr as r ->
         let clause (c : Ast.stmt Ast.handler_clause) =

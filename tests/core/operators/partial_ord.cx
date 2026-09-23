@@ -2,9 +2,9 @@ type Money { cents: int }
 
 impl PartialOrd for Money {
     fn partial_cmp(self, rhs: Money): Option<Ordering> {
-        if (self.cents < rhs.cents) { return new Option::Some(new Ordering::Less); }
-        if (self.cents > rhs.cents) { return new Option::Some(new Ordering::Greater); }
-        return new Option::Some(new Ordering::Equal);
+        if (self.cents < rhs.cents) { return Option::Some(Ordering::Less); }
+        if (self.cents > rhs.cents) { return Option::Some(Ordering::Greater); }
+        return Option::Some(Ordering::Equal);
     }
 }
 

@@ -15,6 +15,6 @@ fn run_query<T>(q: Query<T>): T {
     }
 }
 
-print(run_query(new Query::Count));
-print(run_query(new Query::Name));
-print(run_query(new Query::Exists));
+print(run_query(Query::Count));
+print(run_query(Query::Name));
+print(run_query(Query::Exists));

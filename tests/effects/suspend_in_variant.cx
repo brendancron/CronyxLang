@@ -7,7 +7,7 @@ type Shape {
 }
 
 fn make(): <Ask> Shape {
-    return new Shape::Rect { w: 2, h: get() };
+    return Shape::Rect { w: 2, h: get() };
 }
 
 run {

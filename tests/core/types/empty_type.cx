@@ -1,0 +1,11 @@
+type Marker;
+
+fn tag(m: Marker): string {
+    return "tagged";
+}
+
+var one = Marker;
+var two: Marker = Marker;
+
+print(tag(one));
+print(tag(two));

@@ -1,1 +1,0 @@
-[7:6] This argument to 'size' is not known at compile time: a call is only comptime-evaluable inside a meta block, which does not exist yet.

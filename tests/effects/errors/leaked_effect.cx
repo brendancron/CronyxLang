@@ -12,4 +12,4 @@ fn ask<T>(q: Q<T>): T {
     }
 }
 
-print(ask(new Q::Num));
+print(ask(Q::Num));

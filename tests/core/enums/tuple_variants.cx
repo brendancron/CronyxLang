@@ -4,19 +4,19 @@ type Shape {
     Rect(int, int),
 }
 
-match new Shape::Point {
+match Shape::Point {
     Shape::Point     => { print("point"); }
     Shape::Circle(r) => { print(r); }
     Shape::Rect(w, h) => { print(w); }
 }
 
-match new Shape::Circle(10) {
+match Shape::Circle(10) {
     Shape::Point     => { print("point"); }
     Shape::Circle(r) => { print(r); }
     Shape::Rect(w, h) => { print(w); }
 }
 
-match new Shape::Rect(3, 4) {
+match Shape::Rect(3, 4) {
     Shape::Point      => { print("point"); }
     Shape::Circle(r)  => { print(r); }
     Shape::Rect(w, h) => { print(w + h); }

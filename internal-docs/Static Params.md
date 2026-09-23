@@ -1,6 +1,6 @@
-# Comptime params
+# Static params
 
-A `<>` list declares parameters known at compile time. Monomorphization emits one copy of the function per distinct set of arguments, with those arguments baked in — so a comptime parameter costs nothing at runtime.
+A `<>` list declares parameters known at compile time. Monomorphization emits one copy of the function per distinct set of arguments, with those arguments baked in — so a static parameter costs nothing at runtime.
 
 Other languages call this generics, but here the arguments are values, and a type is only the most common kind of value.
 
@@ -42,7 +42,7 @@ fn buffer<T, n: int>(): Array<T> {
 var b = buffer<int, 16>();
 ```
 
-This is where value parameters earn their place: a comptime `int` used as an array size is const generics, without const generics being a separate feature. If `[T; N]` is ever wanted, it is a use of this mechanism rather than a new one.
+This is where value parameters earn their place: a static `int` used as an array size is const generics, without const generics being a separate feature. If `[T; N]` is ever wanted, it is a use of this mechanism rather than a new one.
 
 ## Checking
 
@@ -89,7 +89,7 @@ That is two checking regimes in one language. The alternative is restricting val
 
 ## What may appear in `<>`
 
-At a call site, an argument must be known at compile time: a literal, another comptime parameter in scope, or a call to something comptime-evaluable.
+At a call site, an argument must be known at compile time: a literal, another static parameter in scope, or a call to something evaluable at compile time.
 
 ```cronyx
 fn wrap<prefix: string>(x: int): string {
@@ -97,21 +97,21 @@ fn wrap<prefix: string>(x: int): string {
 }
 
 fn outer<tag: string>(x: int): string {
-    return wrap<tag>(x);          // fine: tag is comptime here
+    return wrap<tag>(x);          // fine: tag is static here
 }
 
 var n = read_int();
 wrap<str(n)>(1);                  // rejected: n is not known at compile time
 ```
 
-The diagnostic needs to say *why* an expression is not comptime, not merely that it is not.
+The diagnostic needs to say *why* an expression is not static, not merely that it is not.
 
 ## Specialization
 
-One copy per distinct argument set, so the compiler needs a canonical key for comptime values and equality on them. Two consequences:
+One copy per distinct argument set, so the compiler needs a canonical key for static values and equality on them. Two consequences:
 
 - **Code size grows with distinct arguments.** `logged<"a">` and `logged<"b">` are separate functions. This is the known cost of the approach.
-- **Effect rows belong in the key.** A comptime function argument that performs effects changes the body's row, so two instantiations differing only in the effects of an argument are genuinely different functions.
+- **Effect rows belong in the key.** A static function argument that performs effects changes the body's row, so two instantiations differing only in the effects of an argument are genuinely different functions.
 
 ## Interactions
 
@@ -119,7 +119,7 @@ One copy per distinct argument set, so the compiler needs a canonical key for co
 
 **Collection literals.** Same shape: a literal in a generic body has an element type that is only known per instantiation.
 
-**Reflection.** With types as comptime values, `typeof(x)` returning a `type` is more useful than returning a `string`, since the result can be passed straight into a `<>` list. The string form becomes `name_of(typeof(x))`. Worth deciding before fixtures pin the current string behavior.
+**Reflection.** With types as static values, `typeof(x)` returning a `type` is more useful than returning a `string`, since the result can be passed straight into a `<>` list. The string form becomes `name_of(typeof(x))`. Worth deciding before fixtures pin the current string behavior.
 
 ## `type` as a value
 
@@ -166,4 +166,4 @@ type Variant { name: string, payload: [Type] }
 
 ## Settled
 
-**No defaults on comptime parameters.** Every one is supplied at the call site. Adding defaults later is additive — a parameter that gains one keeps working for callers that already pass it.
+**No defaults on static parameters.** Every one is supplied at the call site. Adding defaults later is additive — a parameter that gains one keeps working for callers that already pass it.

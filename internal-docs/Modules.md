@@ -137,7 +137,7 @@ The prelude is still a string in `lib/prelude.ml` rather than a unit the loader 
 
 **Packages.** They arrive as the boundary where cycles are *rejected* and interfaces are shipped — remediation 6's territory. Cycles staying legal within a program is coherent precisely because a program is one unit, the way they are legal inside a Rust crate and illegal between them.
 
-**A functor feature.** Not because functors are unwanted, but because a `meta fn` over a compile-time module value already is one. Building a second abstraction mechanism beside comptime is how a language ends up with two ways to do everything.
+**A functor feature.** Not because functors are unwanted, but because a `meta fn` over a compile-time module value already is one. Building a second abstraction mechanism beside static params is how a language ends up with two ways to do everything.
 
 ## What the Rust bootstrap did
 

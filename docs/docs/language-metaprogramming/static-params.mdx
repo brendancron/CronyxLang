@@ -2,11 +2,11 @@
 sidebar_position: 5
 ---
 
-# Comptime parameters
+# Static parameters
 
 *Other languages call these generics.*
 
-Through this section we've kept reaching for `meta { ... }` and `gen` to write code that produces other code. **Comptime parameters** are the same idea folded into normal function and struct declarations — values (most often, *types*) that get filled in at compile time, with the compiler producing one specialized version per call shape.
+Through this section we've kept reaching for `meta { ... }` and `gen` to write code that produces other code. **Static parameters** are the same idea folded into normal function and struct declarations — values (most often, *types*) that get filled in at compile time, with the compiler producing one specialized version per call shape.
 
 If you've used generics in any other language, the syntax will look familiar. The difference is the framing: in Cronyx, generic parameters aren't a separate "type system feature" — they're just parameters that get resolved at meta time, the same staging machinery you've been using.
 
@@ -205,7 +205,7 @@ print(label(quit));
 
 ## Beyond types: value parameters
 
-A comptime parameter doesn't have to be a type. It can be any value the compiler knows at meta time:
+A static parameter doesn't have to be a type. It can be any value the compiler knows at meta time:
 
 ```cronyx
 fn my_func<n: int>() {
@@ -215,9 +215,9 @@ fn my_func<n: int>() {
 my_func<5>();
 ```
 
-`<n: int>` declares a comptime *value* parameter — an `int` provided at the call site, available inside the body. `my_func<5>()` produces a specialized version where `n` is hard-coded to `5`. From the compiler's perspective, this is the same machinery: a parameter resolved at meta time, used to specialize one definition into a concrete function.
+`<n: int>` declares a static *value* parameter — an `int` provided at the call site, available inside the body. `my_func<5>()` produces a specialized version where `n` is hard-coded to `5`. From the compiler's perspective, this is the same machinery: a parameter resolved at meta time, used to specialize one definition into a concrete function.
 
-Value comptime parameters open the door to compile-time-sized arrays, dimension-tagged numeric types, lookup-table generators, and other patterns where a constant needs to be part of the type. The feature is supported but used less often than type parameters — most generic code only needs to abstract over types.
+Static value parameters open the door to compile-time-sized arrays, dimension-tagged numeric types, lookup-table generators, and other patterns where a constant needs to be part of the type. The feature is supported but used less often than type parameters — most generic code only needs to abstract over types.
 
 ## Try it
 
@@ -271,7 +271,7 @@ Across these five chapters you've seen the full metaprogramming story:
 - **[Generation](./generation.mdx)** — `gen` for splicing values, statements, and declarations from compile time into the runtime program.
 - **[Meta functions](./meta-functions.mdx)** — `meta fn` for reusable compile-time computation whose call sites get replaced with results.
 - **[Reflection](./reflection.mdx)** — `typeof` for inspecting types at compile time, with zero runtime cost.
-- **Comptime parameters** — `<T>` and `<n: int>` as the everyday face of monomorphization.
+- **Static parameters** — `<T>` and `<n: int>` as the everyday face of monomorphization.
 
 These are five views of the same underlying staging system. `<T>` is sugar for "generate one specialization per call type." `meta fn` is sugar for "evaluate me at compile time and replace the call." `typeof` is sugar for "ask the type system, at compile time, what this is." Underneath, it's all one phase of work running before your program does — whichever surface syntax is most natural for the job at hand.
 

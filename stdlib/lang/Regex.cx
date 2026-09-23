@@ -45,10 +45,10 @@ fn find(dfa: Dfa, input: string): Option<string> {
     var at = 0;
     while (at < cps.len()) {
         var end = longest_from(dfa, cps, at);
-        if (end != no_match()) { return new Option::Some(substring(input, at, end)); }
+        if (end != no_match()) { return Option::Some(substring(input, at, end)); }
         at = at + 1;
     }
-    return new Option::None;
+    return Option::None;
 }
 
 // Non-overlapping, leftmost-longest.

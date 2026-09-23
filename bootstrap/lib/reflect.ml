@@ -154,6 +154,7 @@ let rec expr (e : Ast.resolved_expr) : Ast.reflected_expr =
       `Lambda (params, signature, List.map stmt body)
     | #Ast.variant_lit as v ->
       (Ast.map_variant_lit expr v :> Ast.reflected_expr_kind)
+    | #Ast.objects as o -> (Ast.map_object expr o :> Ast.reflected_expr_kind)
   in
   { Ast.it; span = e.Ast.span; ann = e.Ast.ann }
 

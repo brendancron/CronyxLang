@@ -74,12 +74,12 @@ type param =
   ; implicit : bool
   }
 
-type comptime_param =
-  { cp_name : string
-  ; cp_ty : type_expr option
+type static_param =
+  { sp_name : string
+  ; sp_ty : type_expr option
   (* The one a written argument list is collected into, rather than one of
      them. *)
-  ; cp_pack : bool
+  ; sp_pack : bool
   }
 
 type type_param =
@@ -91,7 +91,7 @@ type type_param =
 type signature =
   { ret : type_expr option
   ; row : string list option
-  ; comptime : comptime_param list
+  ; static_params : static_param list
   }
 
 type op_kind =
@@ -265,12 +265,26 @@ type ('s, 'ann) method_defs =
 (* Method-or-function is a typing question, the name a loading one. *)
 type 'e method_call = [ `Method_call of 'e * string * string * 'e list ]
 
-(* A bare name parses as [Ct_type] whichever it is. *)
-type 'e comptime_arg =
-  | Ct_type of type_expr
-  | Ct_value of 'e
+(* A value on its way into a trait-typed position. The concrete type is still
+   on the inner expression's annotation; the names are the slots a vtable owes,
+   in the order the trait declared them. *)
+type 'e coercions = [ `Coerce of 'e * string * string list ]
 
-type 'e comptime_call = [ `Comptime_call of 'e * 'e comptime_arg list * 'e list ]
+(* What a coercion becomes: the data beside the functions chosen for it, and a
+   call that reads its target out of that table rather than from a name. *)
+type 'e objects =
+  [ `Object of 'e * (string * 'e) list
+  (* The method's own type travels with the call: a row cannot be read off a
+     vtable, and evidence is owed by what the method performs. *)
+  | `Dyn_call of 'e * string * Types.ty * 'e list
+  ]
+
+(* A bare name parses as [St_type] whichever it is. *)
+type 'e static_arg =
+  | St_type of type_expr
+  | St_value of 'e
+
+type 'e static_call = [ `Static_call of 'e * 'e static_arg list * 'e list ]
 
 type pattern =
   | Pat_variant of string * string * string payload
@@ -397,7 +411,7 @@ and expr_kind =
   | expr record
   | expr nominal
   | expr collection
-  | expr comptime_call
+  | expr static_call
   | expr method_call
   | expr reflect
   | expr quote
@@ -436,7 +450,7 @@ and desugared_expr_kind =
   | desugared_expr record
   | desugared_expr nominal
   | desugared_expr collection
-  | desugared_expr comptime_call
+  | desugared_expr static_call
   | desugared_expr method_call
   | desugared_expr reflect
   | (desugared_expr, desugared_stmt) lambdas
@@ -470,6 +484,7 @@ and typed_expr_kind =
   | typed_expr arrays
   | typed_expr strings
   | typed_expr method_call
+  | typed_expr coercions
   | typed_expr reflect
   | (typed_expr, typed_stmt) lambdas
   | (typed_expr, typed_stmt, typed_stmt handler) run_expr
@@ -497,6 +512,7 @@ and resolved_expr_kind =
   | resolved_expr arrays
   | resolved_expr strings
   | resolved_expr variant_lit
+  | resolved_expr objects
   | resolved_expr reflect
   | (resolved_expr, resolved_stmt) lambdas
   ]
@@ -522,6 +538,7 @@ and reflected_expr_kind =
   | reflected_expr arrays
   | reflected_expr strings
   | reflected_expr variant_lit
+  | reflected_expr objects
   | (reflected_expr, reflected_stmt) lambdas
   ]
 
@@ -546,6 +563,7 @@ and cps_expr_kind =
   | cps_expr arrays
   | cps_expr strings
   | cps_expr variant_lit
+  | cps_expr objects
   | (cps_expr, cps_stmt) lambdas
   ]
 
@@ -658,21 +676,31 @@ let impl_method_name trait type_name method_ =
     in
     generated ([ type_name; name ] @ List.map written args @ [ method_ ])
 
-let map_comptime_arg (f : 'a -> 'b) (a : 'a comptime_arg) : 'b comptime_arg =
+let map_static_arg (f : 'a -> 'b) (a : 'a static_arg) : 'b static_arg =
   match a with
-  | Ct_type t -> Ct_type t
-  | Ct_value v -> Ct_value (f v)
+  | St_type t -> St_type t
+  | St_value v -> St_value (f v)
 
-let map_comptime_call (f : 'a -> 'b) (e : 'a comptime_call) : 'b comptime_call =
+let map_static_call (f : 'a -> 'b) (e : 'a static_call) : 'b static_call =
   match e with
-  | `Comptime_call (callee, comptime_args, args) ->
-    `Comptime_call
-      (f callee, List.map (map_comptime_arg f) comptime_args, List.map f args)
+  | `Static_call (callee, static_args, args) ->
+    `Static_call
+      (f callee, List.map (map_static_arg f) static_args, List.map f args)
 
 let map_method_call (f : 'a -> 'b) (e : 'a method_call) : 'b method_call =
   match e with
   | `Method_call (receiver, name, as_function, args) ->
     `Method_call (f receiver, name, as_function, List.map f args)
+
+let map_coercion (f : 'a -> 'b) (e : 'a coercions) : 'b coercions =
+  match e with
+  | `Coerce (inner, trait, methods) -> `Coerce (f inner, trait, methods)
+
+let map_object (f : 'a -> 'b) (e : 'a objects) : 'b objects =
+  match e with
+  | `Object (data, vtable) -> `Object (f data, List.map (fun (l, v) -> l, f v) vtable)
+  | `Dyn_call (receiver, name, ty, args) ->
+    `Dyn_call (f receiver, name, ty, List.map f args)
 
 let map_method_def (fs : 's1 -> 's2) (fa : 'a1 -> 'a2) (m : ('s1, 'a1) method_def)
   : ('s2, 'a2) method_def

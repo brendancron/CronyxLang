@@ -10,4 +10,4 @@ fn find<T>(n: Nested<T>, seed: T): int {
     }
 }
 
-print(find(new Nested::Leaf(5), 5));
+print(find(Nested::Leaf(5), 5));

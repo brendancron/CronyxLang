@@ -1,0 +1,32 @@
+effect Ask { ctl get(): int; }
+
+trait Speaker {
+    fn speak(self): <Ask> string;
+}
+
+type Cat;
+type Dog;
+
+impl Speaker for Cat {
+    fn speak(self): <Ask> string {
+        return "meow " + str(get());
+    }
+}
+
+impl Speaker for Dog {
+    fn speak(self): <Ask> string {
+        return "woof " + str(get());
+    }
+}
+
+fn main(): unit {
+    var speakers: List<Speaker> = [Cat, Dog];
+    run {
+        for (s in speakers) {
+            print(s.speak());
+        }
+    }
+    handle Ask { ctl get() { resume 1; print("after the resume"); } }
+}
+
+main();

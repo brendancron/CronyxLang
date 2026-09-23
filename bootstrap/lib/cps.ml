@@ -156,7 +156,7 @@ let arm_decl span name params body =
     (`Fn
       ( name
       , List.map (fun p -> { Ast.name = p; ty = None; implicit = false }) params
-      , { Ast.ret = None; row = None; comptime = [] }
+      , { Ast.ret = None; row = None; static_params = [] }
       , body ))
 
 let cont_decl span name params body =
@@ -295,6 +295,17 @@ let rec expr info (e : Ast.reflected_expr) : Ast.cps_expr =
     | #Ast.tuple as t -> (Ast.map_tuple (expr info) t :> Ast.cps_expr_kind)
     | #Ast.record as r -> (Ast.map_record (expr info) r :> Ast.cps_expr_kind)
     | #Ast.variant_lit as v -> (Ast.map_variant_lit (expr info) v :> Ast.cps_expr_kind)
+    (* The slot holds a converted function, so the call owes it the same
+       evidence a named call to that impl would have passed. *)
+    | `Dyn_call (receiver, name, performs, args) ->
+      let receiver = expr info receiver in
+      let args = List.map (expr info) args in
+      let evidence =
+        evidence_of_row info (row_of performs)
+        |> List.map (fun op -> var e.Ast.span (evidence_ty info op) (evidence_var info op))
+      in
+      `Dyn_call (receiver, name, performs, args @ evidence)
+    | #Ast.objects as o -> (Ast.map_object (expr info) o :> Ast.cps_expr_kind)
   in
   { Ast.it; span = e.Ast.span; ann = !widened }
 
@@ -319,6 +330,13 @@ let rec suspends info (e : Ast.reflected_expr) =
   | `Record_lit fields | `Variant (_, fields) ->
     List.exists (fun (_, v) -> suspends info v) fields
   | `Field_assign (r, _, v) -> suspends info r || suspends info v
+  (* A vtable hides which body answers, so whether it suspends is not a
+     question the row on this call site can be asked. *)
+  | `Object (data, _) -> suspends info data
+  | `Dyn_call (receiver, _, performs, args) ->
+    is_delimited info (row_of performs)
+    || suspends info receiver
+    || List.exists (suspends info) args
 
 let rec suspends_stmt info (s : Ast.reflected_stmt) =
   match s.Ast.it with
@@ -343,7 +361,8 @@ let rec suspends_stmt info (s : Ast.reflected_stmt) =
    is the next thing that happens. *)
 let ready_call info (e : Ast.reflected_expr) =
   match e.Ast.it with
-  | `Call (_, args) -> suspends info e && not (List.exists (suspends info) args)
+  | `Call (_, args) | `Dyn_call (_, _, _, args) ->
+    suspends info e && not (List.exists (suspends info) args)
   | _ -> false
 
 let suspending_logic info (e : Ast.reflected_expr) =
@@ -363,6 +382,9 @@ let rec extract_with select info (e : Ast.reflected_expr)
   | _ when select info e ->
     Some (e, fun name -> { Ast.it = `Var name; span = e.Ast.span; ann = e.Ast.ann })
   | #Ast.lit | `Var _ | `Lambda _ -> None
+  | `Object _ -> None
+  | `Dyn_call (receiver, name, performs, args) ->
+    extract_list info args (fun args -> rebuild (`Dyn_call (receiver, name, performs, args)))
   | `Call (callee, args) -> extract_list info args (fun args -> rebuild (`Call (callee, args)))
   | `Tuple items -> extract_list info items (fun items -> rebuild (`Tuple items))
   | `Array_lit items -> extract_list info items (fun items -> rebuild (`Array_lit items))
@@ -771,6 +793,26 @@ and invoke info span next (c : Ast.reflected_expr) : Ast.cps_stmt list =
     in
     let answering = Types.Fn ([ widen info c.Ast.ann ], Types.Unit, Types.closed_row []) in
     before @ [ call span target (args @ evidence @ [ var span answering next ]) ]
+  (* The target is read from the vtable rather than named, so what is appended
+     is the same and only the call form differs. *)
+  | `Dyn_call (receiver, name, performs, args) ->
+    let receiver = expr info receiver in
+    let args = List.map (expr info) args in
+    let evidence =
+      evidence_of_row info (row_of performs)
+      |> List.map (fun op -> var span (evidence_ty info op) (evidence_var info op))
+    in
+    let answering = Types.Fn ([ widen info c.Ast.ann ], Types.Unit, Types.closed_row []) in
+    [ node
+        span
+        (`Expr
+          { Ast.it =
+              `Dyn_call
+                (receiver, name, performs, args @ evidence @ [ var span answering next ])
+          ; span
+          ; ann = Types.Unit
+          })
+    ]
   | _ -> unsupported span "This effect cannot be sequenced yet."
 
 (* An arm that never calls it abandons the rest of the body: abort. *)

@@ -4,6 +4,18 @@
 (* A synthesized call claiming purity would be given no evidence. *)
 let declared_rows : (string, Types.row) Hashtbl.t = Hashtbl.create 16
 
+(* A vtable slot holds the impl's own function, so the entry's type is the one
+   the method was checked at rather than one rebuilt from the call. *)
+let declared_types : (string, Types.ty) Hashtbl.t = Hashtbl.create 16
+
+(* A trait in type position is an object, and its methods dispatch at run time
+   rather than through an entry chosen here. *)
+let traits : (string, unit) Hashtbl.t = Hashtbl.create 8
+
+(* Every impl of a method was checked against the trait's signature, so any one
+   of them says what a call through the vtable performs. *)
+let trait_methods : (string * string, Types.ty) Hashtbl.t = Hashtbl.create 16
+
 let row_of (t : Types.ty) =
   match t with
   | Types.Fn (_, _, row) -> row
@@ -11,13 +23,16 @@ let row_of (t : Types.ty) =
 
 let rec record (s : Ast.typed_stmt) =
   match s.Ast.it with
+  | `Trait_decl (name, _, _) -> Hashtbl.replace traits name ()
   | `Impl_decl (trait, type_name, _, impl) ->
     List.iter
       (fun (m : (Ast.typed_stmt, Types.ty) Ast.method_def) ->
-        Hashtbl.replace
-          declared_rows
-          (Ast.impl_method_name trait type_name m.Ast.md_name)
-          (row_of m.Ast.md_ann);
+        let entry = Ast.impl_method_name trait type_name m.Ast.md_name in
+        Hashtbl.replace declared_rows entry (row_of m.Ast.md_ann);
+        Hashtbl.replace declared_types entry m.Ast.md_ann;
+        Option.iter
+          (fun (name, _) -> Hashtbl.replace trait_methods (name, m.Ast.md_name) m.Ast.md_ann)
+          trait;
         List.iter record m.Ast.md_body)
       impl.Ast.ib_methods
   | `Block body | `Fn (_, _, _, body) -> List.iter record body
@@ -79,6 +94,11 @@ let fresh () =
   incr counter;
   Ast.generated [ "answer"; string_of_int !counter ]
 
+let is_object (t : Types.ty) =
+  match Types.type_name t with
+  | Some name -> Hashtbl.mem traits name
+  | None -> false
+
 let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
   let span = e.Ast.span
   and ann = e.Ast.ann in
@@ -126,6 +146,42 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
          `Call (fn_ref span name [ a; b ] ann, [ a; b ])
        (* Spelled out, so a third emission form has to be decided here. *)
        | Some { Registry.emit = Registry.Primitive; _ } | None -> `Binop (op, a, b))
+    | `Coerce (inner, trait, methods) ->
+      let data = expr registry inner in
+      let owner =
+        match Types.type_name data.Ast.ann with
+        | Some owner -> owner
+        | None ->
+          fail
+            data.Ast.span
+            "%s cannot become a '%s': it has no type to dispatch on."
+            (Types.string_of_ty data.Ast.ann)
+            trait
+      in
+      let slot name : string * Ast.resolved_expr =
+        let entry = Registry.entry_for_method registry owner name in
+        ( name
+        , { Ast.it = `Var entry
+          ; span
+          ; ann =
+              (match Hashtbl.find_opt declared_types entry with
+               | Some ty -> ty
+               | None ->
+                 fail span "'%s' has no '%s' to put in a '%s'." owner name trait)
+          } )
+      in
+      `Object (data, List.map slot methods)
+    | `Method_call (receiver, name, _, args) when is_object receiver.Ast.ann ->
+      let receiver = expr registry receiver in
+      let performs =
+        match Types.type_name receiver.Ast.ann with
+        | Some trait ->
+          Option.value
+            (Hashtbl.find_opt trait_methods (trait, name))
+            ~default:(Types.Fn ([], ann, Types.closed_row []))
+        | None -> Types.Fn ([], ann, Types.closed_row [])
+      in
+      `Dyn_call (receiver, name, performs, arguments registry args)
     | `Method_call (receiver, name, _, args) ->
       let receiver = expr registry receiver in
       let args = arguments registry args in
@@ -436,6 +492,9 @@ let program ~registry (p : Ast.typed_stmt list)
   : (Ast.resolved_stmt list, error) result
   =
   Hashtbl.reset declared_rows;
+  Hashtbl.reset declared_types;
+  Hashtbl.reset traits;
+  Hashtbl.reset trait_methods;
   List.iter record p;
   try Ok (block registry p) with
   | Failed e -> Error e

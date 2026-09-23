@@ -5,4 +5,4 @@ type Expr<T> {
     BoolLit(bool)             -> Expr<bool>,
 }
 
-var bad = new Expr::Add(new Expr::Lit(1), new Expr::BoolLit(true));
+var bad = Expr::Add(Expr::Lit(1), Expr::BoolLit(true));

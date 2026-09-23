@@ -5,10 +5,10 @@ type CardEffect {
     None,
 }
 
-var dmg  = new CardEffect::Damage { amount: 15 };
-var heal = new CardEffect::Heal   { amount: 5  };
-var draw = new CardEffect::Draw   { count: 3   };
-var none = new CardEffect::None;
+var dmg  = CardEffect::Damage { amount: 15 };
+var heal = CardEffect::Heal   { amount: 5  };
+var draw = CardEffect::Draw   { count: 3   };
+var none = CardEffect::None;
 
 match dmg {
     CardEffect::Damage { amount } => { print(amount); }

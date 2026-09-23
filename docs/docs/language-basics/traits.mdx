@@ -172,7 +172,7 @@ Breaking news: cronyx_lang: traits are here
 
 `notify<T: Summary>(item: T)` says "I work for any type `T` as long as `T` implements `Summary`." Inside the body, `item.summarize()` is allowed because the trait bound guarantees the method exists. We pass an `Article`; we pass a `Tweet`; both are accepted because both implement `Summary`.
 
-You'll see this pattern everywhere. A function with a trait bound is the standard way to write code that's reusable without giving up type safety — the compiler still checks every call site, it just checks them against the trait's contract instead of against a concrete type. (The angle brackets are *comptime parameters*, which we cover in detail in the metaprogramming section. For now, just read `<T: Summary>` as "any type that implements Summary.")
+You'll see this pattern everywhere. A function with a trait bound is the standard way to write code that's reusable without giving up type safety — the compiler still checks every call site, it just checks them against the trait's contract instead of against a concrete type. (The angle brackets are *static parameters*, which we cover in detail in the metaprogramming section. For now, just read `<T: Summary>` as "any type that implements Summary.")
 
 ## Try it
 

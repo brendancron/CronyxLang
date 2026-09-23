@@ -122,3 +122,68 @@ type LinkedList<T> {
 ```
 
 Are these 2 actually the same? They are extremely similar in a lot of ways? Does regular typing just auto box flat types at construction??
+
+# Static and Dynamic Dispatch
+Lets say you have the following types
+```
+trait Speaker {
+	fn speak(&self);
+}
+
+type Dog;
+impl Speaker for Dog {
+	fn speak(&self) {
+		print("Woof");
+	}
+}
+
+type Cat;
+impl Speaker for Cat {
+	fn speak(&self) {
+		print("Meow");
+	}
+}
+```
+
+You can invoke both of these statically with:
+```
+makeSpeak<T: Speaker>(speaker: T) {
+	speaker.speak()
+}
+
+var dog = Dog;
+var cat = Cat;
+
+makeSpeak(dog); // Woof
+makeSpeak(cat); // Meow
+```
+This is because of monomorphism, a different implementation of this method is created for each type that implements Speaker (which calls this method).
+
+Invoking methods statically is very powerful. However, you do lose some ergonomics when you do static dispatch. For instance what if you wanted to make a list of pets and call speak on each of them. You cannot do that with this pattern since Cat and Dog are different types.
+
+## Dynamic Dispatch
+```
+makeSpeak(speaker: Speaker) {
+	speaker.speak()
+}
+
+var dog = Dog;
+var cat = Cat;
+
+makeSpeak(dog); // Woof
+makeSpeak(cat); // Meow
+```
+Note: In this example Speaker is used directly as the type instead of implementing the type. This means we are passing the data as a dynamic reference with a data pointer, and a vtable.
+
+This specific example works the same but is actually technically slower than static dispatch and the compiler can do less inlining. However now you can do ergonomics like:
+
+```
+var speakers: List<Speaker> = [
+	Cat,
+	Dog,
+]
+
+for (var speaker in speakers) {
+	makeSpeak(speaker);
+}
+```

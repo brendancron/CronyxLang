@@ -14,5 +14,5 @@ fn eval<T>(e: Expr<T>, acc: T): T {
     }
 }
 
-print(eval(new Expr::Lit(40), 2));
-print(eval(new Expr::BoolLit(true), false));
+print(eval(Expr::Lit(40), 2));
+print(eval(Expr::BoolLit(true), false));

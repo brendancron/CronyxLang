@@ -1,0 +1,14 @@
+trait Speaker {
+    fn speak(self): string;
+}
+
+type Cat;
+type Rock;
+
+impl Speaker for Cat {
+    fn speak(self): string {
+        return "meow";
+    }
+}
+
+var quiet: Speaker = Rock;

@@ -1,5 +1,5 @@
 import { use_loop, use_match, item, Box } from "helper";
 
 print(use_loop());
-print(use_match(new Box::Hold(4)));
+print(use_match(Box::Hold(4)));
 print(item());

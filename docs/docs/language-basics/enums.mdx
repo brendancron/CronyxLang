@@ -37,7 +37,7 @@ type Direction {
     West,
 }
 
-var dir = new Direction::South;
+var dir = Direction::South;
 ```
 
 The `::` is how Cronyx says "look inside `Direction` for `South`." It's a different operator from the dot you'd use for struct field access — `.` means "field of a value," `::` means "name inside a type."
@@ -54,7 +54,7 @@ type Direction {
     West,
 }
 
-var dir = new Direction::South;
+var dir = Direction::South;
 
 match dir {
     Direction::North => { print("north"); }
@@ -93,15 +93,15 @@ type Shape {
 You construct them by passing arguments:
 
 ```cronyx
-var p  = new Shape::Point;
-var c  = new Shape::Circle(10);
-var r  = new Shape::Rect(3, 4);
+var p  = Shape::Point;
+var c  = Shape::Circle(10);
+var r  = Shape::Rect(3, 4);
 ```
 
 When you `match` on a value with a tuple variant, you give names to the payload fields and they become available in that arm:
 
 ```cronyx
-match new Shape::Circle(10) {
+match Shape::Circle(10) {
     Shape::Point      => { print("point"); }
     Shape::Circle(r)  => { print(r); }
     Shape::Rect(w, h) => { print(w + h); }
@@ -130,10 +130,10 @@ type CardEffect {
 You construct them with the struct-construction syntax we saw last chapter:
 
 ```cronyx
-var dmg  = new CardEffect::Damage { amount: 15 };
-var heal = new CardEffect::Heal   { amount: 5  };
-var draw = new CardEffect::Draw   { count: 3   };
-var none = new CardEffect::None;
+var dmg  = CardEffect::Damage { amount: 15 };
+var heal = CardEffect::Heal   { amount: 5  };
+var draw = CardEffect::Draw   { count: 3   };
+var none = CardEffect::None;
 ```
 
 And you match them with the same shape, binding the fields by name:
@@ -164,7 +164,7 @@ type Color {
     Blue,
 }
 
-match new Color::Green {
+match Color::Green {
     Color::Red => { print("red"); }
     _          => { print("other"); }
 }
@@ -195,8 +195,8 @@ fn describe_area(s: Shape) {
     }
 }
 
-describe_area(new Shape::Circle(5));
-describe_area(new Shape::Rect(4, 6));
+describe_area(Shape::Circle(5));
+describe_area(Shape::Rect(4, 6));
 ```
 
 ```
