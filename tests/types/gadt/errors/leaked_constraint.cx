@@ -15,4 +15,4 @@ fn f<T, U>(q: Q<T>, p: U): int {
     return 0;
 }
 
-print(f(new Q::Num, "boom"));
+print(f(Q::Num, "boom"));

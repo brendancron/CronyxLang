@@ -16,5 +16,5 @@ fn eval<T>(e: Expr<T>): T {
     }
 }
 
-print(eval(new Expr::Fst(new Expr::Pair(new Expr::Lit(7), new Expr::Lit(8)))));
-print(eval(new Expr::Pair(new Expr::Lit(1), new Expr::Lit(2))).1);
+print(eval(Expr::Fst(Expr::Pair(Expr::Lit(7), Expr::Lit(8)))));
+print(eval(Expr::Pair(Expr::Lit(1), Expr::Lit(2))).1);

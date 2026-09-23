@@ -1,0 +1,25 @@
+trait Named {
+    fn name(self): string;
+}
+
+trait Greeted: Named {
+    fn greeting(self): string;
+}
+
+type Robot;
+
+impl Named for Robot {
+    fn name(self): string {
+        return "r2";
+    }
+}
+
+impl Greeted for Robot {
+    fn greeting(self): string {
+        return "hello";
+    }
+}
+
+var g: Greeted = Robot;
+print(g.greeting());
+print(g.name());

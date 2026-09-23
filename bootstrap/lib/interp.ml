@@ -117,6 +117,15 @@ let rec eval env (e : Ast.cps_expr) : value =
   | `Call (callee, args) ->
     let f = eval env callee in
     call span f (eval_all env args)
+  | `Object (data, vtable) ->
+    Object (eval env data, List.map (fun (name, f) -> name, eval env f) vtable)
+  | `Dyn_call (receiver, name, _, args) ->
+    (match eval env receiver with
+     | Object (data, vtable) ->
+       (match List.assoc_opt name vtable with
+        | Some f -> call span f (data :: eval_all env args)
+        | None -> fail span "No '%s' in this object's methods." name)
+     | other -> fail span "Expected an object, got %s." (type_name other))
   | `Tuple items -> Tuple (eval_all env items)
   | `Array_lit items -> Array (Array.of_list (eval_all env items))
   | `Array_new (length, fill) ->

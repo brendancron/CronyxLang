@@ -5,7 +5,7 @@ type Direction {
     West
 }
 
-var dir = new Direction::South;
+var dir = Direction::South;
 
 match dir {
     Direction::North => { print("north"); }

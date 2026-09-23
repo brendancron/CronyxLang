@@ -134,7 +134,7 @@ type Shape {
     Empty
 }
 
-var s = new Shape::Rect { w: 3, h: 4 };
+var s = Shape::Rect { w: 3, h: 4 };
 
 match s {
     Shape::Circle(r)     => { print(r); }
@@ -153,7 +153,7 @@ type Pair<A, B> {
     second: B
 }
 
-var found = new Option::Some(3);
+var found = Option::Some(3);
 var both = new Pair { first: 1, second: "one" };
 ```
 

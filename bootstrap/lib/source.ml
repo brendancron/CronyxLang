@@ -56,7 +56,7 @@ let annotation = function
 
 let param (p : Ast.param) = p.Ast.name ^ annotation p.Ast.ty
 
-let comptime_params (cs : Ast.comptime_param list) =
+let static_params (cs : Ast.static_param list) =
   match cs with
   | [] -> ""
   | cs ->
@@ -65,8 +65,8 @@ let comptime_params (cs : Ast.comptime_param list) =
       (String.concat
          ", "
          (List.map
-            (fun (c : Ast.comptime_param) ->
-              (if c.Ast.cp_pack then "..." else "") ^ c.Ast.cp_name ^ annotation c.Ast.cp_ty)
+            (fun (c : Ast.static_param) ->
+              (if c.Ast.sp_pack then "..." else "") ^ c.Ast.sp_name ^ annotation c.Ast.sp_ty)
             cs))
 
 let signature (sg : Ast.signature) =
@@ -122,9 +122,9 @@ let rec expr (e : Ast.expr) : string =
        | args -> Printf.sprintf "<%s>" (String.concat ", " (List.map type_expr args)))
       (arguments values)
   | `New_variant (ty, variant, payload) ->
-    Printf.sprintf "new %s::%s%s" ty variant (payload_of payload)
+    Printf.sprintf "%s::%s%s" ty variant (payload_of payload)
   | `Collection_lit items -> Printf.sprintf "[%s]" (arguments items)
-  | `Comptime_call (callee, comptime, args) ->
+  | `Static_call (callee, static_args, args) ->
     Printf.sprintf
       "%s<%s>(%s)"
       (expr callee)
@@ -132,9 +132,9 @@ let rec expr (e : Ast.expr) : string =
          ", "
          (List.map
             (function
-              | Ast.Ct_type t -> type_expr t
-              | Ast.Ct_value v -> expr v)
-            comptime))
+              | Ast.St_type t -> type_expr t
+              | Ast.St_value v -> expr v)
+            static_args))
       (arguments args)
   | `Method_call (receiver, name, _, args) ->
     Printf.sprintf "%s.%s(%s)" (expr receiver) name (arguments args)
@@ -246,7 +246,7 @@ and stmt depth (s : Ast.stmt) : string =
       (Printf.sprintf
          "fn %s%s(%s)%s"
          name
-         (comptime_params sg.Ast.comptime)
+         (static_params sg.Ast.static_params)
          (String.concat ", " (List.map param params))
          (signature sg))
       body
@@ -530,7 +530,7 @@ and method_def depth (m : (Ast.stmt, unit) Ast.method_def) =
     (Printf.sprintf
        "fn %s%s(%s)%s {"
        m.Ast.md_name
-       (comptime_params m.Ast.md_signature.Ast.comptime)
+       (static_params m.Ast.md_signature.Ast.static_params)
        (String.concat ", " (List.map param m.Ast.md_params))
        (signature m.Ast.md_signature))
   ^ block (depth + 1) m.Ast.md_body

@@ -33,7 +33,7 @@ This is the same line Java draws at compile-time constants, enums and class lite
 
 Defaults are a prerequisite rather than a nicety. `@Test` with no braces is a literal with every field defaulted, so struct field defaults — declared in the type, omitted in the literal — are load-bearing for this whole direction. They also interact with reification: a reified value either writes back every field, or defaults must be stable across compilations.
 
-Within that line, values are *computed*, not merely written out. The metaprocessor already runs the whole pipeline, so an attribute may be built by a `meta fn` the way any other comptime value is.
+Within that line, values are *computed*, not merely written out. The metaprocessor already runs the whole pipeline, so an attribute may be built by a `meta fn` the way any other static value is.
 
 ## A test is a function carrying `Test`
 

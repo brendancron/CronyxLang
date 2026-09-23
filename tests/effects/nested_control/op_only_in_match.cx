@@ -9,5 +9,5 @@ fn use(c: Color): <Ask> int {
     }
 }
 
-run { print(use(new Color::Red)); }
+run { print(use(Color::Red)); }
 handle Ask { ctl get() { resume 5; print("after"); } }

@@ -66,15 +66,15 @@ let rec string_of_expr (e : Ast.expr) : string =
       "(call %s%s)"
       (string_of_expr callee)
       (String.concat "" (List.map (fun a -> " " ^ string_of_expr a) args))
-  | `Comptime_call (callee, comptime_args, args) ->
-    let comptime = function
-      | Ast.Ct_type t -> string_of_type_expr t
-      | Ast.Ct_value v -> string_of_expr v
+  | `Static_call (callee, static_args, args) ->
+    let static_arg = function
+      | Ast.St_type t -> string_of_type_expr t
+      | Ast.St_value v -> string_of_expr v
     in
     Printf.sprintf
       "(call %s<%s>%s)"
       (string_of_expr callee)
-      (String.concat ", " (List.map comptime comptime_args))
+      (String.concat ", " (List.map static_arg static_args))
       (String.concat "" (List.map (fun a -> " " ^ string_of_expr a) args))
   | `Method_call (receiver, name, _, args) ->
     Printf.sprintf
@@ -399,6 +399,8 @@ let rec string_of_typed_expr (e : Ast.typed_expr) : string =
         (string_of_typed_expr t)
         (string_of_typed_expr i)
         (string_of_typed_expr v)
+    | `Coerce (inner, trait, _) ->
+      Printf.sprintf "(coerce %s %s)" trait (string_of_typed_expr inner)
     | `Array_len t -> Printf.sprintf "(array-len %s)" (string_of_typed_expr t)
     | `Str_get (t, i) ->
       Printf.sprintf "(str-get %s %s)" (string_of_typed_expr t) (string_of_typed_expr i)

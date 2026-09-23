@@ -216,7 +216,7 @@ print(typeof(double));   // (int) -> int
 
 `x` is constrained to a type that has a `+`, nothing narrows it further, and an unresolved numeric variable defaults to `int`.
 
-The same constraint is what a generic function carries. A body using `+` on a type parameter requires an entry for it, that requirement travels with the signature, and each call site discharges it against the table — inferred throughout, never written. See [Comptime Params](Comptime%20Params.md). Annotating changes the answer without changing the body:
+The same constraint is what a generic function carries. A body using `+` on a type parameter requires an entry for it, that requirement travels with the signature, and each call site discharges it against the table — inferred throughout, never written. See [Static Params](Static%20Params.md). Annotating changes the answer without changing the body:
 
 ```cronyx
 fn double_vec(x: Vec2): Vec2 {
@@ -240,6 +240,8 @@ One body, two answers. Either the function is specialized per instantiation — 
 So: resolve statically wherever types are concrete, and monomorphize generic functions so that they are. Monomorphization is already owed for `Generic` and for effect-polymorphic functions; this makes it load-bearing for a third feature rather than adding a new obligation.
 
 Without it, zero-cost operators exist only in monomorphic code. That is the ceiling, and it is worth stating rather than discovering.
+
+A trait written as a type is the one place a call is not resolved to a name, and it does not weaken any of this: the table it dispatches through holds the same plain functions an impl flattens to, built once at compile time. What a call site does not know is which table the value carries — see [Static vs Dynamic Invocation](Static%20vs%20Dynamic%20Invocation.md).
 
 ## Rules the table needs
 

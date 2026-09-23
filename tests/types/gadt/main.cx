@@ -17,8 +17,8 @@ fn eval<T>(e: Expr<T>): T {
     }
 }
 
-print(eval(new Expr::Add(new Expr::Lit(40), new Expr::Lit(2))));
-print(eval(new Expr::If(new Expr::BoolLit(true), new Expr::Lit(1), new Expr::Lit(0))));
+print(eval(Expr::Add(Expr::Lit(40), Expr::Lit(2))));
+print(eval(Expr::If(Expr::BoolLit(true), Expr::Lit(1), Expr::Lit(0))));
 
 // Length-indexed: `head` takes a vector one longer than some N, so `Nil` cannot
 // reach it and the single arm is exhaustive.
@@ -36,8 +36,8 @@ fn head<N, T>(v: Vec<Succ<N>, T>): T {
     }
 }
 
-var one = new Vec::Cons(10, new Vec::Nil);
-var two = new Vec::Cons(20, one);
+var one = Vec::Cons(10, Vec::Nil);
+var two = Vec::Cons(20, one);
 
 print(head(two));
 print(head(one));

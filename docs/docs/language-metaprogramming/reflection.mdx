@@ -81,14 +81,14 @@ Enums report their declared name:
 type Color { Red, Green, Blue }
 type Shape { Circle(int), Rectangle(int, int) }
 
-var c = new Color::Red;
-var s = new Shape::Circle(5);
+var c = Color::Red;
+var s = Shape::Circle(5);
 
 print(typeof(c).name);  // Color
 print(typeof(s).name);  // Shape
 ```
 
-(Notice that `typeof(new Shape::Circle(5)).name` returns `Shape`, not `Shape::Circle` — `typeof` reports the type, and a variant isn't its own type.)
+(Notice that `typeof(Shape::Circle(5)).name` returns `Shape`, not `Shape::Circle` — `typeof` reports the type, and a variant isn't its own type.)
 
 Functions report their signature:
 
@@ -149,4 +149,4 @@ Now dump the runtime code with `--dump-code`. You'll see six `print("...")` call
 
 `typeof` is reflection's foundation. By itself it produces type strings; combined with `meta fn` and `gen`, it becomes the input to *type-driven code generation* — meta functions that take a type description, decide what to do based on it, and emit specialized runtime code accordingly. That's the pattern most production-strength metaprogramming follows.
 
-Next up: **comptime parameters** (other languages call them generics) — passing types and other compile-time values to functions and structs as parameters. Once you can take a type *as input*, the metaprogramming features in this section start composing into proper reusable abstractions.
+Next up: **static parameters** (other languages call them generics) — passing types and other compile-time values to functions and structs as parameters. Once you can take a type *as input*, the metaprogramming features in this section start composing into proper reusable abstractions.

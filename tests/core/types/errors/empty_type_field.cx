@@ -1,0 +1,5 @@
+type Marker;
+
+var m = Marker;
+
+print(m.name);

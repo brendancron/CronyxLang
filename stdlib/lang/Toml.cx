@@ -72,16 +72,16 @@ fn tokenize(input: string): List<Token> {
         if (c == ' ' || c == '\t' || c == '\r') {
             at = at + 1;
         } else if (c == '\n') {
-            tokens.push(new Token::Newline);
+            tokens.push(Token::Newline);
             at = at + 1;
         } else if (c == '#') {
             while (at < n && chars[at] != '\n') { at = at + 1; }
-        } else if (c == '[') { tokens.push(new Token::LBracket); at = at + 1; }
-        else if (c == ']') { tokens.push(new Token::RBracket); at = at + 1; }
-        else if (c == '{') { tokens.push(new Token::LBrace); at = at + 1; }
-        else if (c == '}') { tokens.push(new Token::RBrace); at = at + 1; }
-        else if (c == '=') { tokens.push(new Token::Equals); at = at + 1; }
-        else if (c == ',') { tokens.push(new Token::Comma); at = at + 1; }
+        } else if (c == '[') { tokens.push(Token::LBracket); at = at + 1; }
+        else if (c == ']') { tokens.push(Token::RBracket); at = at + 1; }
+        else if (c == '{') { tokens.push(Token::LBrace); at = at + 1; }
+        else if (c == '}') { tokens.push(Token::RBrace); at = at + 1; }
+        else if (c == '=') { tokens.push(Token::Equals); at = at + 1; }
+        else if (c == ',') { tokens.push(Token::Comma); at = at + 1; }
         else if (c == '"') {
             at = at + 1;
             var text = "";
@@ -99,29 +99,29 @@ fn tokenize(input: string): List<Token> {
                     at = at + 1;
                 }
             }
-            tokens.push(new Token::Str(text));
+            tokens.push(Token::Str(text));
         } else if (is_ident_start(c)) {
             var word = "";
             while (at < n && is_ident_char(chars[at])) {
                 word = word + str(chars[at]);
                 at = at + 1;
             }
-            if (word == "true") { tokens.push(new Token::Bool(true)); }
-            else if (word == "false") { tokens.push(new Token::Bool(false)); }
-            else { tokens.push(new Token::Ident(word)); }
+            if (word == "true") { tokens.push(Token::Bool(true)); }
+            else if (word == "false") { tokens.push(Token::Bool(false)); }
+            else { tokens.push(Token::Ident(word)); }
         } else if (is_digit(c)) {
             var num = 0;
             while (at < n && is_digit(chars[at])) {
                 num = num * 10 + (ord(chars[at]) - ord('0'));
                 at = at + 1;
             }
-            tokens.push(new Token::Int(num));
+            tokens.push(Token::Int(num));
         } else {
             at = at + 1;
         }
     }
 
-    tokens.push(new Token::Eof);
+    tokens.push(Token::Eof);
     return tokens;
 }
 
@@ -153,10 +153,10 @@ fn parse_primitive(tokens: List<Token>, pos: List<int>): TomlPrimitive {
     var t = at(tokens, pos);
     advance(pos);
     match t {
-        Token::Str(text) => { return new TomlPrimitive::PString(text); }
-        Token::Int(n) => { return new TomlPrimitive::PInt(n); }
-        Token::Bool(b) => { return new TomlPrimitive::PBool(b); }
-        _ => { return new TomlPrimitive::PString(""); }
+        Token::Str(text) => { return TomlPrimitive::PString(text); }
+        Token::Int(n) => { return TomlPrimitive::PInt(n); }
+        Token::Bool(b) => { return TomlPrimitive::PBool(b); }
+        _ => { return TomlPrimitive::PString(""); }
     }
 }
 
@@ -184,10 +184,10 @@ fn parse_value(tokens: List<Token>, pos: List<int>): TomlValue {
                 _ => { advance(pos); }
             }
         }
-        return new TomlValue::Table(entries);
+        return TomlValue::Table(entries);
     }
 
-    return new TomlValue::Primitive(parse_primitive(tokens, pos));
+    return TomlValue::Primitive(parse_primitive(tokens, pos));
 }
 
 fn parse(input: string): TomlDoc {
@@ -249,9 +249,9 @@ fn section_names(doc: TomlDoc): List<string> {
 
 fn get_section(doc: TomlDoc, name: string): Option<TomlSection> {
     for (section in doc.sections) {
-        if (section.name == name) { return new Option::Some(section); }
+        if (section.name == name) { return Option::Some(section); }
     }
-    return new Option::None;
+    return Option::None;
 }
 
 fn section_entry_keys(section: TomlSection): List<string> {
@@ -262,16 +262,16 @@ fn section_entry_keys(section: TomlSection): List<string> {
 
 fn get_entry(section: TomlSection, key: string): Option<TomlEntry> {
     for (entry in section.entries) {
-        if (entry.key == key) { return new Option::Some(entry); }
+        if (entry.key == key) { return Option::Some(entry); }
     }
-    return new Option::None;
+    return Option::None;
 }
 
 fn get_inline(entries: List<TomlInlineEntry>, key: string): Option<TomlPrimitive> {
     for (entry in entries) {
-        if (entry.key == key) { return new Option::Some(entry.val); }
+        if (entry.key == key) { return Option::Some(entry.val); }
     }
-    return new Option::None;
+    return Option::None;
 }
 
 // A value is a primitive of some kind, or a table. Asking which is what the

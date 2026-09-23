@@ -1,0 +1,1 @@
+[4:5] Embedded bytes cannot be a static argument to 'tag': a static value is a number, string, char or bool.

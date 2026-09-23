@@ -226,5 +226,5 @@ Koka is the usual tiebreaker and has no GADTs, so OCaml is the reference: the sa
 
 - [Elaboration](Elaboration.md) — operators, indexing, and literals resolved from these types.
 - [Effects](Algebraic%20Effects.md) — the row carried on every function type.
-- [Comptime Params](Comptime%20Params.md) — what `Generic` becomes once monomorphization exists.
+- [Static Params](Static%20Params.md) — what `Generic` becomes once monomorphization exists.
 - [GADT Refinement](GADT%20Refinement.md) — how a match arm learns what a constructor says, and why it is not yet sound.

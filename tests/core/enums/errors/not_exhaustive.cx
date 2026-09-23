@@ -1,5 +1,5 @@
 type Shape { Circle(int), Empty }
-var s = new Shape::Circle(1);
+var s = Shape::Circle(1);
 match s {
     Shape::Circle(r) => { print(r); }
 }

@@ -14,7 +14,7 @@ run {
     print(choose());
 } handle Ask {
     ctl pick() {
-        resume new C::B;
+        resume C::B;
         print("h");
     }
 }

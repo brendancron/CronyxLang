@@ -90,7 +90,7 @@ let rec expr (e : expr) : desugared_expr =
     | #record as r -> (map_record expr r :> desugared_expr_kind)
     | #nominal as n -> (map_nominal expr n :> desugared_expr_kind)
     | #collection as c -> (map_collection expr c :> desugared_expr_kind)
-    | #comptime_call as c -> (map_comptime_call expr c :> desugared_expr_kind)
+    | #static_call as c -> (map_static_call expr c :> desugared_expr_kind)
     | #method_call as m -> (map_method_call expr m :> desugared_expr_kind)
     | `Lambda (params, signature, body) -> `Lambda (params, signature, List.map stmt body)
     | #run_expr as r -> (map_run_expr expr stmt (clause sp) r :> desugared_expr_kind)

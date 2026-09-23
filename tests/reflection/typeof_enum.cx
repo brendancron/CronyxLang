@@ -9,9 +9,9 @@ type Shape {
     Rectangle(int, int)
 }
 
-var c = new Color::Red;
-var s = new Shape::Circle(5);
-var r = new Shape::Rectangle(3, 4);
+var c = Color::Red;
+var s = Shape::Circle(5);
+var r = Shape::Rectangle(3, 4);
 print(typeof(c).name);
 print(typeof(s).name);
 print(typeof(r).name);

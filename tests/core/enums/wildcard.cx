@@ -4,17 +4,17 @@ type Color {
     Blue
 }
 
-match new Color::Red {
+match Color::Red {
     Color::Red => { print("red"); }
     _ => { print("other"); }
 }
 
-match new Color::Green {
+match Color::Green {
     Color::Red => { print("red"); }
     _ => { print("other"); }
 }
 
-match new Color::Blue {
+match Color::Blue {
     Color::Red => { print("red"); }
     _ => { print("other"); }
 }

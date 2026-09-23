@@ -13,8 +13,8 @@ fn pick(c: Choice): <Ask> int {
 }
 
 run {
-    print(pick(new Choice::Yes));
-    print(pick(new Choice::No));
+    print(pick(Choice::Yes));
+    print(pick(Choice::No));
 } handle Ask {
     ctl get() {
         resume 5;

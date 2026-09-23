@@ -100,8 +100,8 @@ impl HashMap<K, V> {
 
     fn get(self, key: K): Option<V> {
         var slot = find(self, key);
-        if (slot == empty()) { return new Option::None; }
-        return new Option::Some(self.vals[slot]);
+        if (slot == empty()) { return Option::None; }
+        return Option::Some(self.vals[slot]);
     }
 
     fn get_or(self, key: K, fallback: V): V {

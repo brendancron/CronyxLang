@@ -38,7 +38,7 @@ let derived_eq span target : Ast.stmt =
                   ; { Ast.name = "rhs"; ty = Some (ty target); implicit = false }
                   ]
               ; md_signature =
-                  { Ast.ret = Some (ty "bool"); row = Some []; comptime = [] }
+                  { Ast.ret = Some (ty "bool"); row = Some []; static_params = [] }
               ; md_body =
                   [ at
                       (`Return
@@ -106,10 +106,10 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
   let signature (sg : Ast.signature) =
     { sg with
       Ast.ret = Option.map type_expr sg.Ast.ret
-    ; comptime =
+    ; static_params =
         List.map
-          (fun (c : Ast.comptime_param) -> { c with Ast.cp_ty = Option.map type_expr c.Ast.cp_ty })
-          sg.Ast.comptime
+          (fun (c : Ast.static_param) -> { c with Ast.sp_ty = Option.map type_expr c.Ast.sp_ty })
+          sg.Ast.static_params
     }
   in
   let hidden shadowed names = List.fold_left (Fun.flip Shadowed.add) shadowed names
@@ -151,7 +151,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
         | #Ast.spread as sp -> (Ast.map_spread expr sp :> Ast.expr_kind)
         | #Ast.record as r -> (Ast.map_record expr r :> Ast.expr_kind)
         | #Ast.collection as c -> (Ast.map_collection expr c :> Ast.expr_kind)
-        | #Ast.comptime_call as c -> (Ast.map_comptime_call expr c :> Ast.expr_kind)
+        | #Ast.static_call as c -> (Ast.map_static_call expr c :> Ast.expr_kind)
         | #Ast.reflect as r -> (Ast.map_reflect expr r :> Ast.expr_kind)
         | #Ast.run_expr as r ->
           let clause (c : Ast.stmt Ast.handler_clause) =
@@ -365,7 +365,7 @@ let lower { table; codes; _ } ~params (body : Ast.program) =
         | #Ast.record as r -> (Ast.map_record expr r :> Ast.expr_kind)
         | #Ast.nominal as n -> (Ast.map_nominal expr n :> Ast.expr_kind)
         | #Ast.collection as c -> (Ast.map_collection expr c :> Ast.expr_kind)
-        | #Ast.comptime_call as c -> (Ast.map_comptime_call expr c :> Ast.expr_kind)
+        | #Ast.static_call as c -> (Ast.map_static_call expr c :> Ast.expr_kind)
         | #Ast.method_call as m -> (Ast.map_method_call expr m :> Ast.expr_kind)
         | #Ast.reflect as r -> (Ast.map_reflect expr r :> Ast.expr_kind)
         | #Ast.run_expr as r ->
@@ -466,7 +466,7 @@ let expand context ~meta_fns ~named ~seen (root : Ast.stmt) : Ast.stmt =
         | #Ast.record as r -> (Ast.map_record expr r :> Ast.expr_kind)
         | #Ast.nominal as n -> (Ast.map_nominal expr n :> Ast.expr_kind)
         | #Ast.collection as c -> (Ast.map_collection expr c :> Ast.expr_kind)
-        | #Ast.comptime_call as c -> (Ast.map_comptime_call expr c :> Ast.expr_kind)
+        | #Ast.static_call as c -> (Ast.map_static_call expr c :> Ast.expr_kind)
         | #Ast.method_call as m -> (Ast.map_method_call expr m :> Ast.expr_kind)
         | #Ast.reflect as r -> (Ast.map_reflect expr r :> Ast.expr_kind)
         | #Ast.run_expr as r ->

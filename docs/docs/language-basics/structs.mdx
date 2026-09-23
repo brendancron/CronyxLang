@@ -44,6 +44,29 @@ var p      = new Point { x: 3, y: 4 };
 
 The `new` is what tells a construction apart from a block, so it is not optional.
 
+## A struct with no fields
+
+Sometimes a type carries no data at all — it exists so that you can name it, hang methods off it, or tell it apart from another type. Declare one by writing the name and a semicolon, with no block:
+
+```cronyx
+type Celsius;
+
+impl Celsius {
+    fn unit(self): string {
+        return "degrees C";
+    }
+}
+
+var c = Celsius;
+print(c.unit());
+```
+
+```
+degrees C
+```
+
+A type with no fields has exactly one possible value, so the type's name *is* that value: `var c = Celsius;` is how you get one, and there's nothing to write inside a `new` that would tell two of them apart. These show up most often with traits, which the next chapter covers.
+
 ## Reading fields
 
 Access a field with a dot:

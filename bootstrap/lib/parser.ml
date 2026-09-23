@@ -190,7 +190,7 @@ let type_annotation s : Ast.type_expr option =
   | Some _ -> Some (type_expr s)
   | None -> None
 
-let comptime_params s : Ast.comptime_param list =
+let static_params s : Ast.static_param list =
   match matches s [ Token.Less ] with
   | None -> []
   | Some _ ->
@@ -198,8 +198,8 @@ let comptime_params s : Ast.comptime_param list =
       comma_separated ~closer:Token.Greater s (fun s ->
         let starts = peek s in
         let pack = matches s [ Token.Dot_dot_dot ] <> None in
-        let name = consume_identifier s "Expected a comptime parameter name." in
-        ({ Ast.cp_name = name; cp_ty = type_annotation s; cp_pack = pack }, pack, starts))
+        let name = consume_identifier s "Expected a static parameter name." in
+        ({ Ast.sp_name = name; sp_ty = type_annotation s; sp_pack = pack }, pack, starts))
     in
     let rec check_last = function
       | (_, pack, _) :: (((_, _, after) :: _) as rest) ->
@@ -208,27 +208,27 @@ let comptime_params s : Ast.comptime_param list =
       | _ -> ()
     in
     check_last params;
-    ignore (consume s Token.Greater "Expected '>' after comptime parameters.");
+    ignore (consume s Token.Greater "Expected '>' after static parameters.");
     List.map (fun (p, _, _) -> p) params
 
 let type_params s : string list =
-  List.map (fun (p : Ast.comptime_param) -> p.Ast.cp_name) (comptime_params s)
+  List.map (fun (p : Ast.static_param) -> p.Ast.sp_name) (static_params s)
 
-let pack_names (comptime : Ast.comptime_param list) =
+let pack_names (static_params : Ast.static_param list) =
   List.filter_map
-    (fun (p : Ast.comptime_param) -> if p.Ast.cp_pack then Some p.Ast.cp_name else None)
-    comptime
+    (fun (p : Ast.static_param) -> if p.Ast.sp_pack then Some p.Ast.sp_name else None)
+    static_params
 
 let declared_type_params s : Ast.type_param list =
   List.map
-    (fun (p : Ast.comptime_param) ->
-      { Ast.tp_name = p.Ast.cp_name; tp_pack = p.Ast.cp_pack })
-    (comptime_params s)
+    (fun (p : Ast.static_param) ->
+      { Ast.tp_name = p.Ast.sp_name; tp_pack = p.Ast.sp_pack })
+    (static_params s)
 
-let signature ?(comptime = []) s : Ast.signature =
+let signature ?(static_params = []) s : Ast.signature =
   let returning () =
     let row = if check s Token.Less then Some (row_annotation s) else None in
-    { Ast.ret = Some (type_expr s); row; comptime }
+    { Ast.ret = Some (type_expr s); row; static_params }
   in
   match matches s [ Token.Colon ] with
   | Some _ -> returning ()
@@ -239,7 +239,7 @@ let signature ?(comptime = []) s : Ast.signature =
     ignore (error s (peek s) "A return type follows ':', not '->'.");
     ignore (advance s);
     returning ()
-  | None -> { Ast.ret = None; row = None; comptime }
+  | None -> { Ast.ret = None; row = None; static_params }
 
 (* ---- expressions ---- *)
 
@@ -355,13 +355,13 @@ and call s : Ast.expr =
       ignore (consume s Token.Right_bracket "Expected ']' after index.");
       loop (Ast.at callee.Ast.span (`Index (callee, index)))
     | Token.Less ->
-      (match comptime_arguments s with
-       | Some comptime_args ->
-         ignore (consume s Token.Left_paren "Expected '(' after comptime arguments.");
+      (match static_arguments s with
+       | Some static_args ->
+         ignore (consume s Token.Left_paren "Expected '(' after static arguments.");
          loop
            (Ast.at
               callee.Ast.span
-              (`Comptime_call (callee, comptime_args, arguments s)))
+              (`Static_call (callee, static_args, arguments s)))
        | None -> callee)
     | Token.Dot ->
       ignore (advance s);
@@ -399,7 +399,7 @@ and call s : Ast.expr =
 
 (* `f<int>(x)` and `a < b > (c)` are the same shape, so this is accepted only
    when a call follows; position and errors are put back when none does. *)
-and comptime_arguments s : Ast.expr Ast.comptime_arg list option =
+and static_arguments s : Ast.expr Ast.static_arg list option =
   let start = s.current
   and errors = s.errors in
   let restore () =
@@ -417,10 +417,10 @@ and comptime_arguments s : Ast.expr Ast.comptime_arg list option =
           s.current <- start;
           s.errors <- errors;
           (* Below comparison, or the closing '>' reads as an operator. *)
-          Ast.Ct_value (unary s)
+          Ast.St_value (unary s)
         in
         match type_expr s with
-        | t when check s Token.Comma || check s Token.Greater -> Ast.Ct_type t
+        | t when check s Token.Comma || check s Token.Greater -> Ast.St_type t
         | _ -> as_value ()
         | exception Parse_error -> as_value ())
     in
@@ -458,7 +458,7 @@ and arguments s : Ast.expr list =
    record literal keep their braces. *)
 and callable (e : Ast.expr) =
   match e.Ast.it with
-  | `Var _ | `Call _ | `Method_call _ | `Comptime_call _ -> true
+  | `Var _ | `Call _ | `Method_call _ | `Static_call _ -> true
   | _ -> false
 
 (* `{ x, y -> … }` names the parameters; anything else leaves how many there are
@@ -532,7 +532,7 @@ and trailing_lambda s args : Ast.expr list =
       | exception Parse_error -> restore ()
     in
     args
-    @ [ Ast.at sp (`Lambda (params, { Ast.ret = None; row = None; comptime = [] }, body)) ])
+    @ [ Ast.at sp (`Lambda (params, { Ast.ret = None; row = None; static_params = [] }, body)) ])
 
 and finish_call s callee : Ast.expr =
   Ast.at callee.Ast.span (`Call (callee, trailing_lambda s (arguments s)))
@@ -605,7 +605,7 @@ and lambda s sp : Ast.expr =
       let e = expression s in
       [ { Ast.it = `Return (Some e); span = e.Ast.span; ann = () } ])
   in
-  Ast.at sp (`Lambda (params, { Ast.ret = None; row = None; comptime = [] }, body))
+  Ast.at sp (`Lambda (params, { Ast.ret = None; row = None; static_params = [] }, body))
 
 and primary s : Ast.expr =
   let tok = peek s in
@@ -631,7 +631,32 @@ and primary s : Ast.expr =
     Ast.at sp (`Bool false)
   | Token.Identifier name ->
     ignore (advance s);
-    Ast.at sp (`Var name)
+    (* `a.b` is a field until a `::` proves the dot was a module path. *)
+    let name =
+      if check s Token.Dot && (peek_at s 2).Token.token_type = Token.Colon_colon
+      then qualified s name
+      else name
+    in
+    if check s Token.Colon_colon
+    then (
+      ignore (advance s);
+      let variant = consume_identifier s "Expected a variant name." in
+      let payload =
+        match (peek s).Token.token_type with
+        (* At least one, or `T::V()` and `T::V` would both write the same
+           thing. *)
+        | Token.Left_paren ->
+          ignore (advance s);
+          let items = comma_separated ~closer:Token.Right_paren s expression in
+          ignore (consume s Token.Right_paren "Expected ')' after arguments.");
+          Ast.P_tuple items
+        | Token.Left_brace when not s.no_brace ->
+          ignore (advance s);
+          Ast.P_fields (record_fields s)
+        | _ -> Ast.P_none
+      in
+      Ast.at sp (`New_variant (name, variant, payload)))
+    else Ast.at sp (`Var name)
   | Token.Run ->
     ignore (advance s);
     run_expr s sp
@@ -650,33 +675,19 @@ and primary s : Ast.expr =
   | Token.New ->
     ignore (advance s);
     let name = qualified s (consume_identifier s "Expected a type name after 'new'.") in
-    (* `::` still separates a sum type from its variant. *)
     if check s Token.Colon_colon
-    then (
-      ignore (advance s);
-      let variant = consume_identifier s "Expected a variant name." in
-      let payload =
-        match (peek s).Token.token_type with
-        (* At least one, or `new T::V()` and `new T::V` would both write the
-           same thing. *)
-        | Token.Left_paren ->
-          ignore (advance s);
-          let items = comma_separated ~closer:Token.Right_paren s expression in
-          ignore (consume s Token.Right_paren "Expected ')' after arguments.");
-          Ast.P_tuple items
-        | Token.Left_brace when not s.no_brace ->
-          ignore (advance s);
-          Ast.P_fields (record_fields s)
-        | _ -> Ast.P_none
-      in
-      Ast.at sp (`New_variant (name, variant, payload)))
-    else (
-      let type_args = type_arguments s in
-      match matches s [ Token.Left_paren ] with
-      | Some _ -> Ast.at sp (`New_call (name, type_args, arguments s))
-      | None ->
-        ignore (consume s Token.Left_brace "Expected '{' after type name.");
-        Ast.at sp (`New (name, record_fields s)))
+    then
+      ignore
+        (error
+           s
+           (peek s)
+           (Printf.sprintf "A variant is written '%s::…', without 'new'." name));
+    let type_args = type_arguments s in
+    (match matches s [ Token.Left_paren ] with
+     | Some _ -> Ast.at sp (`New_call (name, type_args, arguments s))
+     | None ->
+       ignore (consume s Token.Left_brace "Expected '{' after type name.");
+       Ast.at sp (`New (name, record_fields s)))
   | Token.Left_brace when not s.no_brace ->
     ignore (advance s);
     Ast.at sp (`Record_lit (record_fields s))
@@ -882,10 +893,10 @@ and fn_decl
   : Ast.stmt
   =
   let name = read_name s in
-  let comptime = comptime_params s in
+  let static_params = static_params s in
   ignore (consume s Token.Left_paren "Expected '(' after function name.");
-  let params = parameters ~packs:(pack_names comptime) s in
-  let signature = signature ~comptime s in
+  let params = parameters ~packs:(pack_names static_params) s in
+  let signature = signature ~static_params s in
   let name = before_body s name in
   ignore (consume s Token.Left_brace "Expected '{' before function body.");
   Ast.at sp (`Fn (name, params, signature, block s))
@@ -1150,10 +1161,10 @@ and trait_decl s sp : Ast.stmt =
     else (
       ignore (consume s Token.Fn "Expected a method signature.");
       let method_name = consume_identifier s "Expected a method name." in
-      let comptime = comptime_params s in
+      let static_params = static_params s in
       ignore (consume s Token.Left_paren "Expected '(' after the method name.");
-      let params = parameters ~packs:(pack_names comptime) s in
-      let signature = signature ~comptime s in
+      let params = parameters ~packs:(pack_names static_params) s in
+      let signature = signature ~static_params s in
       ignore (consume s Token.Semicolon "Expected ';' after a method signature.");
       loop
         assoc
@@ -1206,10 +1217,10 @@ and impl_decl s sp : Ast.stmt =
     else (
       ignore (consume s Token.Fn "Expected a method.");
       let method_name = consume_identifier s "Expected a method name." in
-      let comptime = comptime_params s in
+      let static_params = static_params s in
       ignore (consume s Token.Left_paren "Expected '(' after the method name.");
-      let params = parameters ~packs:(pack_names comptime) s in
-      let signature = signature ~comptime s in
+      let params = parameters ~packs:(pack_names static_params) s in
+      let signature = signature ~static_params s in
       ignore (consume s Token.Left_brace "Expected '{' before the method body.");
       loop
         assoc
@@ -1284,6 +1295,9 @@ and attribute_arg s =
 and type_decl s sp : Ast.stmt =
   let name = consume_identifier s "Expected a type name." in
   let params = declared_type_params s in
+  if Option.is_some (matches s [ Token.Semicolon ])
+  then Ast.at sp (`Type_decl (name, params, Ast.T_fields []))
+  else (
   ignore (consume s Token.Left_brace "Expected '{' after type name.");
   let rec loop fields variants =
     if check s Token.Right_brace || is_at_end s
@@ -1348,7 +1362,7 @@ and type_decl s sp : Ast.stmt =
   let fields, variants = loop [] [] in
   ignore (consume s Token.Right_brace "Expected '}' after type body.");
   let body = if variants <> [] then Ast.T_variants variants else Ast.T_fields fields in
-  Ast.at sp (`Type_decl (name, params, body))
+  Ast.at sp (`Type_decl (name, params, body)))
 
 and handler_decl s sp : Ast.stmt =
   let name = consume_identifier s "Expected handler name." in

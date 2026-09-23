@@ -263,15 +263,15 @@ let cases =
   ; "tests/core/traits/supertrait"
   ; "tests/core/traits/builtin_receiver/main"
   ; "tests/effects/methods/methods"
-  ; "tests/core/comptime/type_params/main"
-  ; "tests/core/comptime/type_reuse/main"
-  ; "tests/core/comptime/parameterized_types/main"
-  ; "tests/core/comptime/parameterized_sums/main"
-  ; "tests/core/comptime/value_params/main"
-  ; "tests/core/comptime/mixed_params/main"
+  ; "tests/core/static_params/type_params/main"
+  ; "tests/core/static_params/type_reuse/main"
+  ; "tests/core/static_params/parameterized_types/main"
+  ; "tests/core/static_params/parameterized_sums/main"
+  ; "tests/core/static_params/value_params/main"
+  ; "tests/core/static_params/mixed_params/main"
   ; "tests/core/traits/trait_bound/main"
-  ; "tests/core/comptime/inferred_constraints/main"
-  ; "tests/core/comptime/element_generic/main"
+  ; "tests/core/static_params/inferred_constraints/main"
+  ; "tests/core/static_params/element_generic/main"
   ; "tests/meta/params/func"
   ; "tests/meta/execution/basic"
   ; "tests/meta/execution/nested"
@@ -294,10 +294,22 @@ let cases =
   ; "tests/core/resolution/hoisting_in_match_arm"
   ; "tests/core/types/local_type_per_function"
   ; "tests/core/types/unit_literal"
+  ; "tests/core/types/empty_type"
+  ; "tests/core/types/empty_type_impl"
+  ; "tests/core/traits/dyn/binding"
+  ; "tests/core/traits/dyn/param"
+  ; "tests/core/traits/dyn/collection"
+  ; "tests/core/traits/dyn/returned"
+  ; "tests/core/traits/dyn/effect"
+  ; "tests/core/traits/dyn/effect_resumes"
+  ; "tests/core/traits/dyn/method_arg"
+  ; "tests/core/traits/dyn/list_param"
+  ; "tests/core/traits/dyn/field"
+  ; "tests/core/traits/dyn/supertrait"
   ; "tests/core/modules/local_binders/main"
-  ; "tests/core/comptime/shadowed_value_param"
-  ; "tests/core/comptime/nested/template_in_function"
-  ; "tests/core/comptime/nested/template_in_method"
+  ; "tests/core/static_params/shadowed_value_param"
+  ; "tests/core/static_params/nested/template_in_function"
+  ; "tests/core/static_params/nested/template_in_method"
   ; "tests/meta/codegen/shadowed_local"
   ; "tests/core/defer/defer_in_converted_fn"
   ; "tests/core/defer/defer_multishot"
@@ -324,6 +336,12 @@ let error_cases =
   ; "tests/core/lambdas/errors/unnamed_pair"
   ; "tests/core/lambdas/errors/naked_arrow"
   ; "tests/core/type_annotations/errors/arrow_return"
+  ; "tests/core/types/errors/empty_type_field"
+    (* Inference never produces a trait object; only a written type asks for one. *)
+  ; "tests/core/traits/errors/inferred_trait_object"
+  ; "tests/core/traits/errors/not_an_implementer"
+  ; "tests/core/traits/errors/object_needs_receiver"
+  ; "tests/core/enums/errors/new_variant"
   ; "tests/core/lambdas/errors/trailing_comma"
   ; "tests/core/embed/errors/missing"
   ; "tests/effects/generic/errors/one_type"
@@ -389,11 +407,11 @@ let error_cases =
   ; "tests/core/traits/errors/impl_trait_arg_arity"
   ; "tests/core/traits/errors/impl_missing_trait_args"
   ; "tests/core/syntax/errors/derive_trailing_comma"
-  ; "tests/core/comptime/errors/type_arity"
-  ; "tests/core/comptime/errors/comptime_arity"
-  ; "tests/core/comptime/errors/not_comptime"
-  ; "tests/core/comptime/errors/comptime_call"
-  ; "tests/core/comptime/errors/embedded_bytes"
+  ; "tests/core/static_params/errors/type_arity"
+  ; "tests/core/static_params/errors/static_arity"
+  ; "tests/core/static_params/errors/not_static"
+  ; "tests/core/static_params/errors/static_call"
+  ; "tests/core/static_params/errors/embedded_bytes"
   ; "tests/types/gadt/errors/ill_typed_tree"
   ; "tests/types/gadt/errors/impossible_arm"
   ; "tests/types/gadt/errors/leaked_constraint"
@@ -402,6 +420,9 @@ let error_cases =
   ; "tests/types/inference/errors/unspecializable_names_the_caller"
   ; "tests/core/modules/errors/outside_package/main"
   ; "tests/effects/errors/handler_widens"
+  ; "tests/core/traits/errors/impl_row_narrower"
+  ; "tests/core/traits/errors/impl_row_wider"
+  ; "tests/core/traits/errors/object_not_a_bound"
   ]
 
 (* Accepted, then failing while running. Separate from [error_cases], which
@@ -477,7 +498,10 @@ let expected_failing : (string * blocker) list =
 
 (* Ought to be rejected and are not, paired with the `.err` they should
    produce. The suite announces the moment one starts being caught. *)
-let known_unsound : string list = []
+let known_unsound : string list =
+  (* The row is compared as written, so an impl that performs an effect neither
+     it nor the trait declares is still accepted. *)
+  [ "tests/core/traits/errors/impl_row_inferred" ]
 
 (* Every diagnostic the checker found, not only the first. *)
 let rejections path =

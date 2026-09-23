@@ -1,0 +1,31 @@
+trait Speaker {
+    fn speak(self): string;
+}
+
+type Cat;
+type Dog;
+
+impl Speaker for Cat {
+    fn speak(self): string {
+        return "meow";
+    }
+}
+
+impl Speaker for Dog {
+    fn speak(self): string {
+        return "woof";
+    }
+}
+
+type Room;
+
+impl Room {
+    fn host(self, s: Speaker): string {
+        return s.speak();
+    }
+}
+
+var room = Room;
+
+print(room.host(Cat));
+print(room.host(Dog));

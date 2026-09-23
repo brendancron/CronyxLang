@@ -1,0 +1,21 @@
+effect Ask { ctl get(): int; }
+
+trait Speaker {
+    fn speak(self): <Ask> string;
+}
+
+type Cat;
+
+impl Speaker for Cat {
+    fn speak(self): <Ask> string {
+        return "meow " + str(get());
+    }
+}
+
+fn main(): unit {
+    var speaker: Speaker = Cat;
+    run { print(speaker.speak()); }
+    handle Ask { ctl get() { resume 5; } }
+}
+
+main();

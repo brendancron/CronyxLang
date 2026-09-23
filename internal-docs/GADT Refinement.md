@@ -48,7 +48,7 @@ fn f<T, U>(q: Q<T>, p: U): int {
     return 0;
 }
 
-print(f(new Q::Num, "boom"));
+print(f(Q::Num, "boom"));
 ```
 
 `U` belongs to the function, not to the refinement. The arm pins it to `int`,

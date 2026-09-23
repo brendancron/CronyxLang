@@ -2,7 +2,7 @@
 
 Turning a compile-time value back into the syntax that denotes it.
 
-Any stage holding a value that has to end up *in the program* needs this. Metaprocessing needs it for `gen`, monomorphization needs it to bake a comptime argument into a specialized copy, and constant folding needs it to write a computed result back as a literal. Same operation in each case, so it is one facility rather than three.
+Any stage holding a value that has to end up *in the program* needs this. Metaprocessing needs it for `gen`, monomorphization needs it to bake a static argument into a specialized copy, and constant folding needs it to write a computed result back as a literal. Same operation in each case, so it is one facility rather than three.
 
 ## Reifiability is derived, not declared
 
@@ -68,6 +68,6 @@ Since arrays have identity, that silently changes aliasing across the stage boun
 
 **The structural rule is the only rule.** There is no way to override how a type is written out. An override would only make sense for a type whose literal form reconstructs something internally inconsistent — a cached field, an invariant the syntax does not restore — and nothing in the language creates that situation.
 
-**A `type` value is written out as its type expression.** `int` reifies to `int`, `Array<int>` to `Array<int>`. That is what a comptime type parameter needs in order to be baked into a specialized copy, and it is why `Type` is the one record whose reified form is not its field structure. It stays total because `Type` is opaque for construction — every value of it came from a type that can be named.
+**A `type` value is written out as its type expression.** `int` reifies to `int`, `Array<int>` to `Array<int>`. That is what a static type parameter needs in order to be baked into a specialized copy, and it is why `Type` is the one record whose reified form is not its field structure. It stays total because `Type` is opaque for construction — every value of it came from a type that can be named.
 
 **There is no size limit.** A compile-time value too large to write out produces a program too large to compile, and that is the author's problem.

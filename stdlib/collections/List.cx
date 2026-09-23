@@ -35,9 +35,9 @@ fn all<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
 
 fn find<T>(items: List<T>, f: (T) -> bool): Option<T> {
     for (item in items) {
-        if (f(item)) { return new Option::Some(item); }
+        if (f(item)) { return Option::Some(item); }
     }
-    return new Option::None;
+    return Option::None;
 }
 
 fn concat<T>(a: List<T>, b: List<T>): List<T> {

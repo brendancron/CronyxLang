@@ -10,8 +10,8 @@ print(new Point { x: 1, y: 9 } == p);
 var nested = [[1, 2], [3]];
 print(str(nested == [[1, 2], [3]]) + " " + str(nested == [[1, 2], [4]]));
 
-print(new Shape::Circle(3) == new Shape::Circle(3));
-print(new Shape::Circle(3) == new Shape::Square(3));
+print(Shape::Circle(3) == Shape::Circle(3));
+print(Shape::Circle(3) == Shape::Square(3));
 
 print(str((1, "a") == (1, "a")) + " " + str((1, "a") == (1, "b")));
 

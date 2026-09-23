@@ -168,7 +168,7 @@ by what a statement holds, so `desugared_stmt`, `typed_stmt`, `resolved_stmt`
 and `cps_stmt` are the same tree at different points. A construct that has been
 lowered is gone from the type, which is what stops a later pass from meeting it.
 
-**Two monomorphizers.** `Value_mono` substitutes comptime *value* parameters and
+**Two monomorphizers.** `Value_mono` substitutes static *value* parameters and
 runs before checking, because a value can decide a type. `Type_mono` copies
 generic bodies per concrete type and runs after, because inference is what says
 which types those are.
@@ -177,9 +177,13 @@ which types those are.
 the passes above and run by the interpreter, which is why `Compile` holds
 everything from `Desugar` on and `Pipeline` holds the rest.
 
-**Dispatch is static.** Operators are traits, `Resolve` turns every impl into
-plain functions, and there are no trait objects — see
-[internal-docs/Elaboration.md](internal-docs/Elaboration.md).
+**Dispatch is static unless a trait is written as a type.** Operators are
+traits and `Resolve` turns every impl into plain functions — see
+[internal-docs/Elaboration.md](internal-docs/Elaboration.md). A trait in type
+position is a trait object, which pairs a value with a table of those same
+functions; the checker inserts that coercion only where the type was written,
+so inference never produces one — see
+[internal-docs/Static vs Dynamic Invocation.md](internal-docs/Static%20vs%20Dynamic%20Invocation.md).
 
 **CPS is selective.** Only functions performing control effects are rewritten,
 and each effect gets evidence passing or full continuations depending on whether
