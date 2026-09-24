@@ -46,12 +46,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
+          EVENT: ${{ github.event_name }}
         run: |
           # An architecture the release does not carry is left where it is
           # rather than pointed at a file that is not there: the formula names
           # a version per architecture, so Apple Silicon moving does not wait
-          # on an Intel archive that may never be built. A release carrying
-          # neither is a mistake worth failing over.
+          # on an Intel archive that may never be built.
+          #
+          # A release carrying neither is expected when this runs on the
+          # `release` event: the Mac archives are built after publishing, and
+          # release-archives.yml runs this again once they are uploaded. Run
+          # by hand, carrying neither is a mistake worth failing over.
           found=false
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
             archive="cronyx-$TAG-$target.tar.gz"
@@ -79,10 +84,18 @@ jobs:
             echo "${slot}_sha256=$actual" >> "$GITHUB_OUTPUT"
           done
 
-          $found || { echo "::error::$TAG carries no macOS archive at all"; exit 1; }
+          if ! $found; then
+            if [ "$EVENT" = "release" ]; then
+              echo "$TAG has no macOS archive yet; release-archives.yml runs this again once they are uploaded."
+              echo "none=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::$TAG carries no macOS archive at all"
+            exit 1
+          fi
 
       - name: Check out the tap
-        if: steps.tag.outputs.skip == 'false'
+        if: steps.tag.outputs.skip == 'false' && steps.archive.outputs.none != 'true'
         uses: actions/checkout@v5
         with:
           repository: brendancron/homebrew-cronyx
@@ -94,7 +107,7 @@ jobs:
           path: tap
 
       - name: Point the formula at the release
-        if: steps.tag.outputs.skip == 'false'
+        if: steps.tag.outputs.skip == 'false' && steps.archive.outputs.none != 'true'
         env:
           VERSION: ${{ steps.tag.outputs.version }}
           TAG: ${{ steps.tag.outputs.tag }}
@@ -148,7 +161,7 @@ jobs:
           done
 
       - name: Push it
-        if: steps.tag.outputs.skip == 'false'
+        if: steps.tag.outputs.skip == 'false' && steps.archive.outputs.none != 'true'
         working-directory: tap
         env:
           VERSION: ${{ steps.tag.outputs.version }}
