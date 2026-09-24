@@ -54,7 +54,8 @@ jobs:
       - name: Hand the targets to the matrix
         id: read
         if: steps.tag.outputs.skip == 'false'
-        run: echo "matrix=$(jq -c '{include: .}' targets.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "matrix=$(jq -c '{include: .}' targets.json)" >> "$GITHUB_OUTPUT"
 
   archive:
     needs: targets
@@ -86,20 +87,32 @@ jobs:
           TAG: ${{ needs.targets.outputs.tag }}
           VERSION: ${{ needs.targets.outputs.version }}
           TARGET: ${{ matrix.triple }}
+          UNAME_S: ${{ matrix.uname_s }}
+          UNAME_M: ${{ matrix.uname_m }}
+          FORMAT: ${{ matrix.format }}
+          LINK_FLAGS: ${{ matrix.link_flags }}
           IMAGE: ${{ matrix.musl }}
         run: |
-          docker run --rm -v "$PWD:/src" -w /src \
-            -e TAG -e VERSION -e TARGET -e UNAME_S -e UNAME_M \
+          # As root, against the switch the image already carries: the image
+          # runs as `opam`, which does not own a tree the runner checked out.
+          # The image pins its opam repository to a local clone taken when the
+          # image was built, so `opam update` there finds nothing and `dune`
+          # resolves to whatever was current then -- older than this project
+          # needs. Pointing `default` at the real remote is what gets a dune
+          # new enough to read `(lang dune 3.24)`.
+          docker run --rm -v "$PWD:/src" -w /src --user root \
+            -e TAG -e VERSION -e TARGET -e UNAME_S -e UNAME_M -e FORMAT \
+            -e CRONYX_LINK_FLAGS="$LINK_FLAGS" \
+            -e OPAMROOT=/home/opam/.opam \
             "$IMAGE" sh -euc '
-              apk add --no-cache ocaml dune opam build-base bash tar gzip git
-              opam init --bare --disable-sandboxing --yes
-              opam switch create . ocaml-system --deps-only --with-test --yes \
-                || opam install ./bootstrap --deps-only --with-test --yes
+              apk add --no-cache build-base bash tar
+              git config --global --add safe.directory "*"
+              opam repository set-url default https://opam.ocaml.org --yes
+              opam install dune --yes
               eval "$(opam env)"
               dune build --release
-              scripts/package.sh
+              bash scripts/package.sh
             '
-        continue-on-error: false
 
       - name: Install OCaml
         if: matrix.musl == ''
@@ -111,11 +124,15 @@ jobs:
 
       - name: Install dependencies
         if: matrix.musl == ''
+        shell: bash
         working-directory: bootstrap
         run: opam install . --deps-only --with-test --yes
 
+      # `windows-latest` defaults to PowerShell, which does not read any of
+      # this.
       - name: Test
         if: matrix.musl == ''
+        shell: bash
         run: |
           (cd bootstrap && opam exec -- dune test)
           opam exec -- dune test cx
@@ -123,6 +140,7 @@ jobs:
 
       - name: Build
         if: matrix.musl == ''
+        shell: bash
         run: opam exec -- dune build --release
 
       - name: Package

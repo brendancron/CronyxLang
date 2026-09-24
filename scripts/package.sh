@@ -41,7 +41,11 @@ esac
 suffix=""
 [ "$FORMAT" = "zip" ] && suffix=".exe"
 
-out=$(mktemp -d)
+# Not a temp directory: a musl archive is built inside a container over the
+# mounted tree, and a path under /tmp there is a path the host does not have.
+out=$root/dist
+rm -rf "$out"
+mkdir -p "$out"
 tree="$out/cronyx-$TAG-$TARGET"
 mkdir -p "$tree/bin" "$tree/lib/cronyx"
 cp _build/default/cx/bin/main.exe "$tree/bin/cx$suffix"
@@ -72,6 +76,7 @@ then sha256sum "$archive" | awk '{print $1}' > "$archive.sha256"
 else shasum -a 256 "$archive" | awk '{print $1}' > "$archive.sha256"
 fi
 
-echo "$archive" > archive-path
+# Relative, for the same reason: the caller may be on the other side of a mount.
+echo "dist/$(basename "$archive")" > archive-path
 echo "$archive"
 echo "sha256 $(cat "$archive.sha256")"
