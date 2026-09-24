@@ -1,0 +1,5 @@
+# The fixtures under `tests/` are compared byte for byte against a `.txt`, a
+# `.err` or a `.rt`, so a checkout that rewrites line endings fails the suite
+# rather than the feature. Git on Windows converts to CRLF by default, which is
+# why this is not left to the platform.
+* text=auto eol=lf

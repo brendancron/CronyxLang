@@ -34,12 +34,31 @@ This installs one complete toolchain: `cx`, which links the compiler rather
 than shelling out to it, and the standard library it resolves `import "std/…"`
 against. There is nothing further to install to start writing Cronyx.
 
-The archive is Intel (`x86_64-apple-darwin`); Apple Silicon runs it under
-Rosetta 2.
+A release carries one archive per architecture, and the formula names a version
+per architecture too, so `brew upgrade` moves each one as its archive lands.
 
-### Windows and Linux
+### Linux
 
-No archive is published yet. Build one — OCaml 5 and dune:
+```
+curl -fsSL https://brendancron.github.io/CronyxLang/install.sh | sh
+```
+
+It picks the archive for the machine it is on, checks it against the checksum
+published beside it, and installs into `~/.local`. `CRONYX_PREFIX` puts it
+somewhere else and `CRONYX_VERSION` asks for a release other than the latest.
+The Linux archives are linked statically against musl, so the distribution does
+not matter.
+
+The tap works here too, if you already use Homebrew on Linux:
+
+```
+brew tap brendancron/cronyx
+brew install cronyx
+```
+
+### Anything else
+
+Build it — OCaml 5 and dune:
 
 ```
 git clone https://github.com/brendancron/CronyxLang
@@ -58,7 +77,9 @@ cp _build/default/cx/bin/main.exe ~/.local/bin/cx
 cp -R stdlib ~/.local/lib/cronyx/stdlib
 ```
 
-`CRONYX_STDLIB` overrides that search if you would rather keep them apart.
+`CRONYX_STDLIB` overrides that search if you would rather keep them apart --
+which is what a package manager that installs through a shim rather than a
+symlink needs.
 
 ## Toolchains
 

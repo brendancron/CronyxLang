@@ -1,0 +1,58 @@
+[
+  {
+    "triple": "aarch64-apple-darwin",
+    "runner": "macos-15",
+    "uname_s": "Darwin",
+    "uname_m": "arm64",
+    "format": "tar.gz",
+    "channels": [
+      "homebrew"
+    ]
+  },
+  {
+    "triple": "x86_64-apple-darwin",
+    "runner": "macos-13",
+    "uname_s": "Darwin",
+    "uname_m": "x86_64",
+    "format": "tar.gz",
+    "channels": [
+      "homebrew"
+    ]
+  },
+  {
+    "triple": "x86_64-unknown-linux-musl",
+    "runner": "ubuntu-latest",
+    "musl": "ocaml/opam:alpine-ocaml-5.3",
+    "uname_s": "Linux",
+    "uname_m": "x86_64",
+    "format": "tar.gz",
+    "channels": [
+      "homebrew",
+      "installer"
+    ],
+    "link_flags": "-ccopt -static -ccopt -no-pie"
+  },
+  {
+    "triple": "aarch64-unknown-linux-musl",
+    "runner": "ubuntu-24.04-arm",
+    "musl": "ocaml/opam:alpine-ocaml-5.3",
+    "uname_s": "Linux",
+    "uname_m": "aarch64",
+    "format": "tar.gz",
+    "channels": [
+      "homebrew",
+      "installer"
+    ],
+    "link_flags": "-ccopt -static -ccopt -no-pie"
+  },
+  {
+    "triple": "x86_64-pc-windows-gnu",
+    "runner": "windows-latest",
+    "uname_s": "MINGW64_NT",
+    "uname_m": "x86_64",
+    "format": "zip",
+    "channels": [
+      "scoop"
+    ]
+  }
+]

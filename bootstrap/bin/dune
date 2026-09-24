@@ -1,4 +1,21 @@
+; A musl archive has to be linked statically or it carries a dependency on
+; `/lib/ld-musl-*.so`, which no glibc distribution has -- so the one artifact
+; that was meant to run anywhere would run only on Alpine. `-static` alone is
+; not enough: the linker then produces a static *PIE*, which this runtime
+; faults on before reaching `main`. The flags arrive through the environment
+; because only the musl rows of `targets.json` want them, and `-static` is an
+; error on macOS.
+(rule
+ (target link-flags.sexp)
+ (action
+  (with-stdout-to
+   %{target}
+   (echo "(%{env:CRONYX_LINK_FLAGS=})"))))
+
 (executable
  (public_name bootstrap)
  (name main)
+ (link_flags
+  (:standard
+   (:include link-flags.sexp)))
  (libraries bootstrap))

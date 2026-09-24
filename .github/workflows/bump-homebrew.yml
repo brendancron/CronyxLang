@@ -40,6 +40,14 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
+      # For `targets.json`, which says which platforms the formula carries. At
+      # the tag, so a release is bumped against the targets it was built for.
+      - uses: actions/checkout@v5
+        if: steps.tag.outputs.skip == 'false'
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          path: source
+
       - name: Take each checksum from the archive itself
         id: archive
         if: steps.tag.outputs.skip == 'false'
@@ -53,22 +61,19 @@ jobs:
           # a version per architecture, so Apple Silicon moving does not wait
           # on an Intel archive that may never be built.
           #
-          # A release carrying neither is expected when this runs on the
-          # `release` event: the Mac archives are built after publishing, and
+          # A release carrying none of them is expected when this runs on the
+          # `release` event: the archives are built after publishing, and
           # release-archives.yml runs this again once they are uploaded. Run
-          # by hand, carrying neither is a mistake worth failing over.
+          # by hand, carrying none is a mistake worth failing over.
           found=false
-          for target in aarch64-apple-darwin x86_64-apple-darwin; do
-            archive="cronyx-$TAG-$target.tar.gz"
-            case "$target" in
-              aarch64-*) slot=arm ;;
-              *)         slot=intel ;;
-            esac
+          echo "[]" > archives.json
+
+          while read -r target format; do
+            archive="cronyx-$TAG-$target.$format"
 
             if ! gh release download "$TAG" -R "$GITHUB_REPOSITORY" \
                  -p "$archive" -p "$archive.sha256" -D dl 2>/dev/null; then
               echo "$TAG carries no $target archive; leaving that block alone."
-              echo "${slot}_archive=" >> "$GITHUB_OUTPUT"
               continue
             fi
 
@@ -80,17 +85,26 @@ jobs:
             }
 
             found=true
-            echo "${slot}_archive=$archive" >> "$GITHUB_OUTPUT"
-            echo "${slot}_sha256=$actual" >> "$GITHUB_OUTPUT"
-          done
+            python3 - "$target" "$archive" "$actual" <<'PY'
+          import json, sys
+          rows = json.load(open("archives.json"))
+          rows.append({"triple": sys.argv[1], "archive": sys.argv[2], "sha256": sys.argv[3]})
+          json.dump(rows, open("archives.json", "w"))
+          PY
+          done < <(python3 -c '
+          import json
+          for t in json.load(open("source/targets.json")):
+              if "homebrew" in t["channels"]:
+                  print(t["triple"], t["format"])
+          ')
 
           if ! $found; then
             if [ "$EVENT" = "release" ]; then
-              echo "$TAG has no macOS archive yet; release-archives.yml runs this again once they are uploaded."
+              echo "$TAG has no archive yet; release-archives.yml runs this again once they are uploaded."
               echo "none=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "::error::$TAG carries no macOS archive at all"
+            echo "::error::$TAG carries no archive the formula wants"
             exit 1
           fi
 
@@ -111,10 +125,6 @@ jobs:
         env:
           VERSION: ${{ steps.tag.outputs.version }}
           TAG: ${{ steps.tag.outputs.tag }}
-          ARM_ARCHIVE: ${{ steps.archive.outputs.arm_archive }}
-          ARM_SHA256: ${{ steps.archive.outputs.arm_sha256 }}
-          INTEL_ARCHIVE: ${{ steps.archive.outputs.intel_archive }}
-          INTEL_SHA256: ${{ steps.archive.outputs.intel_sha256 }}
         run: |
           # The version lives inside each architecture's block rather than once
           # at the top, so an architecture with no archive in this release stays
@@ -122,21 +132,15 @@ jobs:
           # its url already names, and holds its version, that url and its
           # checksum, in that order.
           python3 - <<'PY'
-          import os, re, sys
+          import json, os, re, sys
 
           path = "tap/Formula/cronyx.rb"
           text = open(path).read()
           base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{os.environ['TAG']}"
           version = os.environ["VERSION"]
 
-          for triple, archive, sha in [
-              ("aarch64-apple-darwin", os.environ["ARM_ARCHIVE"], os.environ.get("ARM_SHA256", "")),
-              ("x86_64-apple-darwin", os.environ["INTEL_ARCHIVE"], os.environ.get("INTEL_SHA256", "")),
-          ]:
-              if not archive:
-                  print(f"no {triple} archive in this release; its block keeps what it has")
-                  continue
-
+          for row in json.load(open("archives.json")):
+              triple, archive, sha = row["triple"], row["archive"], row["sha256"]
               pattern = (
                   r'^(\s*)version "[^"]*"\n'
                   r'\s*url "[^"]*' + re.escape(triple) + r'[^"]*"\n'
@@ -148,17 +152,25 @@ jobs:
                             f'{m.group(1)}sha256 "{sha}"'
               )
               text, count = re.subn(pattern, replacement, text, flags=re.M)
-              if count != 1:
+              # A target the formula has no block for is not an error: a
+              # platform can be built and published before the tap carries it.
+              if count == 0:
+                  print(f"the formula has no {triple} block; skipping it")
+              elif count > 1:
                   sys.exit(f"::error::expected one {triple} block, found {count}")
+              else:
+                  print(f"{triple} -> {version}")
 
           open(path, "w").write(text)
           PY
 
-          for sha in "$ARM_SHA256" "$INTEL_SHA256"; do
-            [ -z "$sha" ] && continue
-            grep -q "sha256 \"$sha\"" tap/Formula/cronyx.rb \
-              || { echo "::error::a checksum did not take"; exit 1; }
-          done
+          python3 - <<'PY'
+          import json
+          formula = open("tap/Formula/cronyx.rb").read()
+          for row in json.load(open("archives.json")):
+              if f'sha256 "{row["sha256"]}"' not in formula:
+                  print(f'{row["triple"]}: its checksum did not take (no block for it?)')
+          PY
 
       - name: Push it
         if: steps.tag.outputs.skip == 'false' && steps.archive.outputs.none != 'true'

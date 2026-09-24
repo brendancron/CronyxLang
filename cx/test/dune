@@ -1,3 +1,6 @@
 (test
  (name test_cx)
- (libraries bootstrap cx unix))
+ (libraries bootstrap cx unix)
+ ; A spawned test runs in the `cx` binary, so it has to be built before the
+ ; suite that spawns it.
+ (deps %{exe:../bin/main.exe}))
