@@ -63,6 +63,9 @@ let run_one path index name =
   let converted : Ast.cps_stmt list =
     In_channel.with_open_bin path (fun inp -> (Marshal.from_channel inp : Ast.cps_stmt list))
   in
+  (* Windows opens stdout in text mode, which would turn every newline the
+     runner parses on into a carriage return and a newline. *)
+  set_binary_mode_out stdout true;
   let out = print_string in
   let env = Builtins.env ~out in
   Value.define
@@ -91,6 +94,7 @@ let in_process ~self carrier index (name, _, _) =
   in
   Unix.close writing;
   let channel = Unix.in_channel_of_descr reading in
+  set_binary_mode_in channel true;
   let text = In_channel.input_all channel in
   close_in channel;
   ignore (Unix.waitpid [] child);

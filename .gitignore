@@ -5,3 +5,8 @@ _build/
 target/
 *.install
 dist/
+
+# `tests/core/builtins/writefile` writes a file and reads it back, and there is
+# no builtin that would let it clean up after itself. The name is fixed, and a
+# relative one rather than `/tmp` so the fixture runs on Windows too.
+tests/core/builtins/writefile_out.txt

@@ -1,19 +1,29 @@
 type span = Source_map.Span.t
 
+(* Every path that reaches a diagnostic has been through [Loader.normalize],
+   which spells a separator `/` -- as the line below already assumes. An entry
+   arrives from [Filename.concat], which spells it `\\` on Windows, so the two
+   would never compare equal and every diagnostic would name the file it is
+   already in. *)
+let slashed path =
+  if Sys.win32 then String.map (fun c -> if Char.equal c '\\' then '/' else c) path else path
+
 (* A path is shown only when it is not the file the user named, and then
    relative to it. *)
 let shown_path ~entry path =
-  let root = Filename.dirname entry ^ "/" in
+  let path = slashed path in
+  let root = Filename.dirname (slashed entry) ^ "/" in
   if String.length path > String.length root
      && String.equal (String.sub path 0 (String.length root)) root
   then String.sub path (String.length root) (String.length path - String.length root)
   else path
 
 let locate ~entry (s : span) =
+  let entry = slashed entry in
   match Source_map.Span.view s with
   | Source_map.Span.Nowhere_in_source -> "[unknown]"
   | Source_map.Span.Located l ->
-    let path = Source_map.File.path l.Source_map.Span.file in
+    let path = slashed (Source_map.File.path l.Source_map.Span.file) in
     if String.equal path entry
     then Printf.sprintf "[%d:%d]" l.Source_map.Span.line l.Source_map.Span.col
     else
