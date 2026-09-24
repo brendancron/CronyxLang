@@ -1,0 +1,5 @@
+print("util top");
+
+fn foo() {
+    print("foo");
+}

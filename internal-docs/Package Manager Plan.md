@@ -54,11 +54,11 @@ The point of the project and the item [Package Manager.md](Package%20Manager.md)
 
 The format is settled — serialize the compiler's own types, tag with the compiler version, key the cache on the tag, rebuild everything when the types change.
 
-**What an artifact holds today** is the package's declarations after loading and metaprocessing, mangled under the package's own name, plus the names each of its units exports. It stops before the checker: a consumer typechecks and monomorphizes the whole graph at once, which is what lets a generic from a dependency be instantiated at a type the dependency never saw. Shipping *typed* IR — so a consumer need not re-check a dependency's bodies — is the next step and is what makes the artifact an interface rather than a shortcut.
+**What an artifact holds today** is the package's declarations after loading, mangled under the package's own name, plus the names each of its units exports. It is not metaprocessed: which copy of a template exists, and which declarations a `meta` block reaches, is decided by the program that uses the package, so the walk runs once over the linked program, from the package root. It stops before the checker: a consumer typechecks and monomorphizes the whole graph at once, which is what lets a generic from a dependency be instantiated at a type the dependency never saw. Shipping *typed* IR — so a consumer need not re-check a dependency's bodies — is the next step and is what makes the artifact an interface rather than a shortcut.
 
 Two consequences of stopping there, both worth knowing before they are discovered:
 
-- **A `meta` block sees only its own package.** Each package is metaprocessed alone, so a `meta` block cannot reach a dependency's declarations. Nothing needs it yet.
+- **A `meta` block runs when the program is put together, not when its package is compiled.** The walk covers the linked graph, so a `meta` block reaches a dependency's declarations like any others, and a dependency's `meta` blocks run again on every run of every program that reaches them.
 - **The standard library is embedded, not linked.** `stdlib` is not compiled to an artifact, so each package that imports it carries what it used, and the link keeps the first declaration of each name. Compiling `std` like any other package retires that.
 
 **Done when**
@@ -71,25 +71,25 @@ Two consequences of stopping there, both worth knowing before they are discovere
 
 ## 4. The cache
 
-Content-addressed, keyed on an input hash covering: the compiler version, every source file, the manifest, the feature set, the profile, every path a `meta` block read through `readfile` or `embed`, and each dependency's artifact hash.
+Content-addressed, keyed on an input hash covering: the compiler version, every source file, the manifest, the feature set, the profile, every path an `embed` read, and each dependency's artifact hash.
 
-That `meta` clause is why this milestone is not free. `readfile` runs at meta time in `builtins.ml` and `embed` resolves in `loader.ml`; neither recorded what it touched. `Inputs` is where they record it now, rather than at the call sites, so that a third way to read a file cannot forget to.
+`embed` resolves in `loader.ml` and `readfile` runs in `builtins.ml`; both record what they read in `Inputs` rather than at the call sites, so that a third way to read a file cannot forget to. Only what is read while the artifact is built lands in it, and that is `embed`'s: the artifact is not metaprocessed, so a `meta` block's `readfile` runs when the linked program is walked and reads the file again on every run.
 
-An artifact carries every path it read and what that path hashed to, so freshness is a question about content rather than about a clock: touching a file changes nothing, editing one rebuilds the package that read it and everything above it. The paths are recorded rather than derived from the manifest, which is the only way a `meta` block's reads can be in the key at all.
+An artifact carries every path it read and what that path hashed to, so freshness is a question about content rather than about a clock: touching a file changes nothing, editing one rebuilds the package that read it and everything above it. The paths are recorded rather than derived from the manifest, since nothing in the manifest names what a program embeds.
 
 A build runs from the package root, so every path an artifact carries is relative to it and two copies of one tree compile to the same bytes.
 
 **Done when**
 
 - A second `cx build` with no change does no compiler work. *(`cache/unchanged`, which asserts the compiled list is empty.)*
-- Touching a file a `meta` block read invalidates the package that read it and nothing else. *(`cache/meta changed`, over `reads_data`.)*
+- Changing a file a `meta` block reads rebuilds nothing, and the next run reads it again. *(`cache/meta changed`, over `reads_data`.)*
 - Changing the compiler version invalidates everything. *(`cache/version changed`.)*
 - Two builds of the same tree in different directories produce byte-identical artifacts. *(Built from the package root; verified by hand across two locations.)*
 
 **Todo, left by this milestone**
 
 - **Nothing bounds a `meta` block.** It can loop forever or eat the machine. Out of scope for the cache, but it is the other half of "the environment the build sees is empty".
-- **The artifact stops before the checker.** A consumer re-checks a dependency's bodies, so the cache saves parsing and metaprocessing but not inference. Turning the artifact into a real interface needs five things that do not exist: generalized schemes for exported names (generalization happens in `infer_stmt`, not `hoist`), `Desugar`'s whole-program `handler` and variadic tables, a serializable snapshot of `Typecheck`'s global tables, the `Registry` entries a dependency registered, and the prelude split out of package compilation so it is not carried by every artifact. Worth doing when `pub` arrives or when re-checking is measurably the slow part; neither is true yet.
+- **The artifact stops before the checker.** A consumer re-checks a dependency's bodies, so the cache saves parsing and loading but not metaprocessing or inference. Turning the artifact into a real interface needs five things that do not exist: generalized schemes for exported names (generalization happens in `infer_stmt`, not `hoist`), `Desugar`'s whole-program `handler` and variadic tables, a serializable snapshot of `Typecheck`'s global tables, the `Registry` entries a dependency registered, and the prelude split out of package compilation so it is not carried by every artifact. Worth doing when `pub` arrives or when re-checking is measurably the slow part; neither is true yet.
 - **The standard library is embedded per package.** Compiling `std` like any other package retires both that and the first-wins dedup at link.
 
 ## 5. Toolchains and dispatch

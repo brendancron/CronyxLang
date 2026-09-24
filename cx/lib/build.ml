@@ -193,7 +193,6 @@ let rec compile ~out ~built ~compiled ~located root
            ~roots
            ~entry_namespace:manifest.Manifest.name
            ~seeds:(sources root)
-           ~out
            entry
        in
        let inputs =
@@ -257,13 +256,17 @@ let materialize (resolution : Resolution.t) =
   in
   Ok (fun name -> List.assoc_opt name pairs)
 
-let package ?(mode = unrestricted) ~out root =
-  let compiled = ref [] in
+(* Every path an artifact carries is relative to the root it was built from,
+   so a meta block reading a file, which runs when the program is put
+   together, has to run from there too. *)
+let within root f =
   let here = Sys.getcwd () in
   Sys.chdir root;
-  Fun.protect
-    ~finally:(fun () -> Sys.chdir here)
-    (fun () ->
+  Fun.protect ~finally:(fun () -> Sys.chdir here) f
+
+let package ?(mode = unrestricted) ~out root =
+  let compiled = ref [] in
+  within root (fun () ->
       (* Resolution first: the lockfile is what says the graph is what it was,
          and a build that disagreed with it would be building something else. *)
       match lock ~mode "." with

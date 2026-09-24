@@ -9,6 +9,28 @@ type error =
 
 exception Located of error
 
+(* What the checker does where a name has nothing declared behind it. Once
+   metaprocessing is done that is an error. Before it runs, a meta block may
+   still declare the name, so the check carries on as if it knew nothing about
+   it: [unknown fail anything] either fails or answers with [anything ()]. *)
+type policy = { unknown : 'a. (unit -> 'a) -> (unit -> 'a) -> 'a }
+
+let strict = { unknown = (fun fail _ -> fail ()) }
+let partial = { unknown = (fun _ anything -> anything ()) }
+let current = ref strict
+
+(* The types made up for names nothing declared yet, and what calling one
+   returns: a receiver of one of these is unknown because of a meta block, where
+   any other unpinned receiver is ambiguous whatever a meta block does. *)
+let unknowns : Types.infer_ty list ref = ref []
+
+let unknown_ty () =
+  let t = Types.fresh () in
+  unknowns := t :: !unknowns;
+  t
+
+let is_unknown t = List.exists (fun u -> Types.repr u == Types.repr t) !unknowns
+
 type checked_expr = (checked_expr_kind, Types.infer_ty) Ast.node
 
 and checked_expr_kind =
@@ -679,7 +701,7 @@ and named_type ?(written = true) span name args =
         (List.length args))
   else
     match Hashtbl.find_opt ctx_types name with
-    | None -> fail span "Unknown type '%s'." name
+    | None -> !current.unknown (fun () -> fail span "Unknown type '%s'." name) Types.fresh
     | Some decl ->
       let vars = decl_params decl in
       let packed = Hashtbl.mem ctx_type_packs name && written in
@@ -910,7 +932,10 @@ let field_of (target : checked_expr) label =
     in
     (match find fields with
      | Some ty -> ty
-     | None -> fail target.Ast.span "Type '%s' has no field '%s'." name label)
+     | None ->
+       !current.unknown
+         (fun () -> fail target.Ast.span "Type '%s' has no field '%s'." name label)
+         Types.fresh)
   | _ ->
     let ty = Types.fresh () in
     unify_at
@@ -1064,7 +1089,10 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        (match Hashtbl.find_opt ctx_types name with
         | Some (Product ([], declared)) when Types.repr_fields declared = Types.FEmpty ->
           node (Types.INamed (name, [], declared)) (`New (name, []))
-        | _ -> fail span "Undefined variable '%s'." name))
+        | _ ->
+          !current.unknown
+            (fun () -> fail span "Undefined variable '%s'." name)
+            (fun () -> node (unknown_ty ()) (`Var name))))
   | `Run_expr (body, handlers, clause) ->
     let answer = Types.fresh () in
     let assigned = assigned_in_expr e [] in
@@ -1096,7 +1124,10 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     node answer (`Run_expr (body, handlers, clause))
   | `Assign (name, v) ->
     (match lookup env name with
-     | None -> fail span "Undefined variable '%s'." name
+     | None ->
+       !current.unknown
+         (fun () -> fail span "Undefined variable '%s'." name)
+         (fun () -> node Types.IUnit (`Assign (name, infer_expr env ctx v)))
      | Some scheme ->
        let target = Types.instantiate scheme in
        let value = infer_expr env ctx v in
@@ -1133,7 +1164,10 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     node (binop_result ctx.registry op a.Ast.ann b.Ast.ann) (`Binop (op, a, b))
   | `Compound (op, name, v) ->
     (match lookup env name with
-     | None -> fail span "Undefined variable '%s'." name
+     | None ->
+       !current.unknown
+         (fun () -> fail span "Undefined variable '%s'." name)
+         (fun () -> node Types.IUnit (`Compound (op, name, infer_expr env ctx v)))
      | Some scheme ->
        let target = Types.instantiate scheme in
        let v = infer_expr env ctx v in
@@ -1209,7 +1243,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        in
        node result (`Call (callee_node, args))
      | None ->
-       let ret = Types.fresh () in
+       let ret = if is_unknown callee_node.Ast.ann then unknown_ty () else Types.fresh () in
        let row = Types.fresh_row () in
        Types.unify
          callee_node.Ast.ann
@@ -1354,6 +1388,9 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
         Some (node ret (`Call (Ast.annotated span ty (`Field (receiver, name)), args)))
       | _ -> None
     in
+    let anything () =
+      node (unknown_ty ()) (`Call ({ Ast.it = `Var as_function; span; ann = Types.fresh () }, receiver :: args))
+    in
     (* An `impl` wins, or a free function could shadow a method. *)
     let via_function () =
       match lookup env as_function with
@@ -1388,7 +1425,10 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
         | None ->
           (match via_field () with
            | Some call -> call
-           | None -> raise e))
+           | None ->
+             !current.unknown
+               (fun () -> raise e)
+               (fun () -> if is_unknown receiver.Ast.ann then anything () else raise e)))
      | Ok found ->
        (match found with
      (* The trait declares the signature; which type supplies the body is
@@ -1476,7 +1516,19 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
            owner
            owner
            name;
-       let missing () = fail span "Type '%s' has no method '%s'." owner name in
+       (* `Cat.type_name()` names the type, not its one value. *)
+       if Option.is_some named_receiver
+          && Hashtbl.mem ctx_methods (owner, name)
+          && not (Hashtbl.mem ctx_associated (owner, name))
+       then
+         fail
+           span
+           "'%s' takes self, so it is called on a value, not on the type '%s'."
+           name
+           owner;
+       let missing (type a) (anything : unit -> a) : a =
+         !current.unknown (fun () -> fail span "Type '%s' has no method '%s'." owner name) anything
+       in
        if (String.equal owner Types.array_name || String.equal owner Types.string_name)
           && String.equal name Types.array_len
        then (
@@ -1499,12 +1551,12 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          | None ->
            (match via_field () with
             | Some call -> call
-            | None -> missing ()))
+            | None -> missing anything))
        else (
          let fn =
            match lookup env (Registry.entry_for_method ctx.registry owner name) with
            | Some scheme -> Types.instantiate scheme
-           | None -> missing ()
+           | None -> missing Types.fresh
          in
          let associated = Hashtbl.mem ctx_associated (owner, name) in
          let args =
@@ -1643,7 +1695,10 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        List.iter
          (fun (l, _) ->
            if not (List.mem_assoc l expected)
-           then fail span "Type '%s' has no field '%s'." name l)
+           then
+             !current.unknown
+               (fun () -> fail span "Type '%s' has no field '%s'." name l)
+               (fun () -> ()))
          fields;
        List.iter
          (fun (l, _) ->
@@ -1867,7 +1922,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
          | None -> ()
          | Some (trait_name, trait_args) ->
            (match Hashtbl.find_opt ctx_traits trait_name with
-            | None -> fail span "Unknown trait '%s'." trait_name
+            | None -> !current.unknown (fun () -> fail span "Unknown trait '%s'." trait_name) ignore
             | Some (trait_params, required) ->
               if List.length trait_args <> List.length trait_params
               then
@@ -3065,8 +3120,9 @@ let pure params ret =
    while it is being proved, or proving it never ends. *)
 let proving : (string * string) list ref = ref []
 
+(* An impl a meta block has yet to generate is as unknown as a name. *)
 let satisfies name (b : Types.bound) =
-  List.exists
+  (List.exists
     (fun declared ->
       List.length declared = List.length b.Types.bd_args
       &&
@@ -3087,7 +3143,8 @@ let satisfies name (b : Types.bound) =
               true
             with
             | Types.Type_error _ -> false))
-       b.Types.bd_bindings
+       b.Types.bd_bindings)
+  || !current.unknown (fun () -> false) (fun () -> true)
 
 let admits registry kind (t : Types.infer_ty) =
   match kind with
@@ -3189,10 +3246,11 @@ let declare_builtins env =
       bind env name scheme)
     Builtins.variadic
 
-let check ~registry (program : Ast.desugared_stmt list)
+let check_with ~registry (program : Ast.desugared_stmt list)
   : (Ast.typed_stmt list, error list) result
   =
   Types.reset ();
+  unknowns := [];
   Types.extra_admits := admits registry;
   Types.assoc_binding := (fun owner member -> Hashtbl.find_opt ctx_assoc (owner, member));
   reset_effects ();
@@ -3247,3 +3305,7 @@ let check ~registry (program : Ast.desugared_stmt list)
   match List.rev errors with
   | [] -> Ok (List.map resolve_stmt checked)
   | errors -> Error errors
+
+let check ?(policy = strict) ~registry program =
+  current := policy;
+  Fun.protect ~finally:(fun () -> current := strict) (fun () -> check_with ~registry program)

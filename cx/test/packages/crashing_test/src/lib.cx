@@ -1,0 +1,10 @@
+@test
+fn crashes() {
+    var xs = [1];
+    print(xs[5]);
+}
+
+@test
+fn still_runs() {
+    assert(true, "the crash above ended only its own test");
+}

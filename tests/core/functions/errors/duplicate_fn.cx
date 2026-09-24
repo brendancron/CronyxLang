@@ -1,0 +1,3 @@
+fn g() { print("first"); }
+fn g() { print("second"); }
+g();

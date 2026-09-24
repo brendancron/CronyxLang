@@ -1,0 +1,8 @@
+fn f<a: int>() {
+    meta print("f<" + str(a) + ">()");
+    print(a);
+}
+
+f<1>();
+f<3>();
+f<1>();

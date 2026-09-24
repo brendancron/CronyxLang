@@ -1,0 +1,7 @@
+fn foo() { greet("Brendan"); }
+
+meta {
+    gen fn greet(name) { print("Hello, " + name); }
+}
+
+foo();

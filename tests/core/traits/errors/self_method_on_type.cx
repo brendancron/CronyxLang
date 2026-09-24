@@ -1,0 +1,7 @@
+type Cat;
+
+impl Cat {
+    fn name(self): string { return "Cat"; }
+}
+
+print(Cat.name());

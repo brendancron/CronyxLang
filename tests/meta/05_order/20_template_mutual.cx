@@ -1,0 +1,20 @@
+fn even<n: int>(): bool {
+    meta print("even<" + str(n) + ">");
+    meta if (n == 0) {
+        gen return true;
+    } else {
+        gen return odd<n - 1>();
+    }
+}
+
+fn odd<n: int>(): bool {
+    meta print("odd<" + str(n) + ">");
+    meta if (n == 0) {
+        gen return false;
+    } else {
+        gen return even<n - 1>();
+    }
+}
+
+print(even<3>());
+print(even<1>());

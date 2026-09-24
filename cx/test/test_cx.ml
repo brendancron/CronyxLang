@@ -32,7 +32,7 @@ let bad_packages =
 
 (* Run through `cx test` rather than `cx run`: the expectation is the report,
    not what the program prints. *)
-let test_packages = [ "tested"; "bad_test"; "tests_dir" ]
+let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "crashing_test" ]
 
 let repo_root () =
   let marker = Filename.concat "cx" (Filename.concat "test" "manifests") in
@@ -320,7 +320,7 @@ let built root =
   match Cx.Build.package ~out root with
   | Error errors -> Error errors
   | Ok (artifacts, _) ->
-    (match Compile.program (Cx.Build.link artifacts) with
+    (match Cx.Build.within root (fun () -> Pipeline.linked ~out (Cx.Build.link artifacts)) with
      | Error errors -> Error errors
      | Ok converted ->
        (match Pipeline.run (Builtins.env ~out) converted with
@@ -447,8 +447,9 @@ let cache_unchanged dir =
   expect_compiled "cache/cold" root [ "greet"; "app" ]
   && expect_compiled "cache/unchanged" root []
 
-(* A file a `meta` block read is a build input like any other, and it belongs to
-   the package that read it. *)
+(* A `meta` block runs when the program is put together, not when its package
+   is compiled, so a file it reads is not an input of the artifact: changing it
+   rebuilds nothing, and the next run reads it again. *)
 let cache_meta_read dir =
   let root = Filename.concat dir "reads_data" in
   let data = Filename.concat root (Filename.concat "src" "banner.txt") in
@@ -457,7 +458,7 @@ let cache_meta_read dir =
   let ok =
     expect_compiled "cache/meta cold" root [ "greet"; "reads_data" ]
     && (write data "a different banner\n";
-        expect_compiled "cache/meta changed" root [ "reads_data" ])
+        expect_compiled "cache/meta changed" root [])
   in
   write data original;
   ok

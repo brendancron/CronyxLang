@@ -103,7 +103,8 @@ let run_package ~mode dumps =
   | Error errors -> report root errors
   | Ok (artifacts, _) ->
     let entry = Option.value (Cx.Workspace.entry_of root) ~default:root in
-    Driver.execute_linked ~dumps ~entry (Cx.Build.link artifacts)
+    Cx.Build.within root (fun () ->
+      Driver.execute_linked ~dumps ~entry (Cx.Build.link artifacts))
 
 (* Each test is one `run` block, so a failure leaves that block and the next
    test still runs: the isolation is the effect system's. *)

@@ -1,0 +1,4 @@
+meta print("main before");
+import "util";
+meta print("main after");
+util.foo();

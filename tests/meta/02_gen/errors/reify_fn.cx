@@ -1,0 +1,4 @@
+meta {
+    var f = (n) => n + 1;
+    gen var g = f;
+}

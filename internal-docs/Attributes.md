@@ -54,7 +54,7 @@ This is the same question Java answered with `@Retention` and answered badly: `R
 
 Attributes are on the AST node, in `Ast.field.f_attrs` and `Ast.variant.v_attrs`, which is what puts them in `Artifact` — an artifact is `Marshal` of `Ast.program`, so a deriver in one package reads attributes written in another with nothing added.
 
-They stay out of `Typecheck.decl`. Unification and both monomorphizers walk that, and none of them has a reason to carry inert data. `Typecheck` copies attributes into `ctx_attrs`, keyed by type name and member label, and `Reflect` is the only reader — the same arrangement `ctx_types` already had for a sum's variants, which `Reflect` reads for the same reason.
+They stay out of `Typecheck.decl`. Unification and `Type_mono` walk that, and neither has a reason to carry inert data. `Typecheck` copies attributes into `ctx_attrs`, keyed by type name and member label, and `Reflect` is the only reader — the same arrangement `ctx_types` already had for a sum's variants, which `Reflect` reads for the same reason.
 
 ```
 member       parser → typecheck (ctx_attrs) → reflect (TypeField / TypeVariant) → cps drops it

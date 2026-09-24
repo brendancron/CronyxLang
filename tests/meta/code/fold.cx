@@ -1,5 +1,4 @@
-// A chunk of syntax is a value: built with ordinary code, spliced by name.
-meta fn build() {
+fn build() {
     var check = code(true);
     for (n in [1, 2, 3]) { check = code(check && n > 0); }
     gen fn all_positive(): bool { return check; }

@@ -1,0 +1,8 @@
+fn make() {
+    var g = () => {
+        meta print("lambda");
+        return 1;
+    };
+}
+
+make();

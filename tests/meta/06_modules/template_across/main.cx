@@ -1,0 +1,4 @@
+import "util";
+
+util.f<1>();
+util.f<1>();

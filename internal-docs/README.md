@@ -21,7 +21,8 @@ This is separate from `docs/`, which is the Docusaurus site published for langua
 | [Modules.md](Modules.md)                                     | `import`, and why several files become one program                    |
 | [Package Manager.md](Package%20Manager.md)                   | `cx`, packages, resolution, and where the module boundary hardens     |
 | [Package Manager Plan.md](Package%20Manager%20Plan.md)       | The order `cx` gets built in, and what "done" means at each step      |
-| [Metaprocessing.md](Metaprocessing.md)                       | `meta` and `gen`, and compilation calling itself                      |
+| [Metaprocessing.md](Metaprocessing.md)                       | `meta` and `gen`, the walk that runs them, and compilation calling itself |
+| [Meta Scope and Instantiation.md](Meta%20Scope%20and%20Instantiation.md) | What a meta scope receives and what `gen` sends back, and when an instantiation is made |
 | [Reify.md](Reify.md)                                         | Turning a compile-time value back into syntax                         |
 | [Attributes.md](Attributes.md)                               | `@name(…)` on a field or a variant, and why it cannot reach runtime   |
 | [Testing.md](Testing.md)                                     | `cx test`, and why a failed assertion is an effect                    |

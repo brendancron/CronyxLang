@@ -1,4 +1,4 @@
-(* A compiled package: its declarations, already mangled and metaprocessed, and
+(* A compiled package: its declarations, mangled but not yet metaprocessed, and
    the names each of its units exports.
 
    There is no schema. The lockfile pins an exact compiler and every package in

@@ -1,0 +1,10 @@
+meta {
+    gen fn g() {
+        meta print("g");
+    }
+    gen fn h() {
+        meta print("h");
+    }
+}
+
+g();

@@ -118,6 +118,57 @@ If `a.cx` imports `b.cx` and `b.cx` imports `a.cx`, Cronyx handles it — the mo
 
 That said: cycles often *suggest* a missing third module that both files actually depend on. If two modules can't be understood without each other, it's worth asking whether they should be one module instead.
 
+## What importing runs
+
+Importing a module gives you its declarations — nothing more. A module can have statements at its top level too, but those run only when that file is the one you ran:
+
+```cronyx title="greetings.cx"
+fn greeting(name: string): string {
+    return "Hello, " + name;
+}
+
+print(greeting("from greetings.cx"));
+```
+
+```cronyx title="main.cx"
+import "greetings";
+
+print(greetings.greeting("Cronyx"));
+```
+
+`cx run main.cx` prints only:
+
+```
+Hello, Cronyx
+```
+
+and `cx run greetings.cx` prints `Hello, from greetings.cx`. That makes it easy to keep a quick demo or a smoke test at the bottom of a module without it firing in every program that imports it.
+
+A module's top-level [`meta` blocks](../language-metaprogramming/metaprocessing.mdx) are the exception, because they can produce declarations. They run while compiling, the first time the program actually uses something from the module — and only once, however many files import it. A module that's imported but never used never runs its meta blocks at all, and the order of your `import` lines makes no difference.
+
+Anything a module's meta blocks generate is part of the module, reached through its name like everything else:
+
+```cronyx title="table.cx"
+meta {
+    for (n in [1, 2, 3]) {
+        var fn_name = ("times_" + str(n)).as_name();
+        gen fn fn_name(x: int): int {
+            return x * n;
+        }
+    }
+}
+```
+
+```cronyx title="main.cx"
+import "table";
+
+print(table.times_3(5));
+```
+
+```
+15
+```
+
 ## Try it
 
 Create two files in the same directory.
@@ -148,4 +199,4 @@ Then try changing it to use each of the other two import styles — alias the mo
 
 ## What's next
 
-You can now spread a Cronyx program across as many files as you like. That's the end of the language-basics tour — you've covered values, functions, control flow, slices, structs, enums, and modules. Next up is the **Concepts** section, where we slow down and explain the *why* behind some of Cronyx's distinctive choices: the two-phase type system, staging, and algebraic effects.
+You can now spread a Cronyx program across as many files as you like. That's the end of the language-basics tour — you've covered values, functions, control flow, slices, structs, enums, and modules. Next up is [metaprogramming](../language-metaprogramming/metaprocessing.mdx): code that runs while your program compiles, and writes more of it.

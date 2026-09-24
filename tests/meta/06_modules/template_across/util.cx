@@ -1,0 +1,6 @@
+meta print("util meta");
+
+fn f<a: int>() {
+    meta print("f<" + str(a) + ">");
+    print(a);
+}

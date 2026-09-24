@@ -1,0 +1,8 @@
+fn double(n: int): int { return n * 2; }
+
+meta {
+    for (n in [1, 2]) {
+        var name = ("doubles_" + str(n)).as_name();
+        gen @test fn name() { assert(double(n) == n + n, "double is n + n"); }
+    }
+}

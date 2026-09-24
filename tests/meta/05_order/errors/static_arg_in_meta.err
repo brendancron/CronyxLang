@@ -1,0 +1,1 @@
+[3:17] 'fib' cannot be instantiated from inside a meta block: 'n' is a value there. Write the call inside a gen.

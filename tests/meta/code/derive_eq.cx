@@ -2,7 +2,7 @@
 type Dog { name: string, age: int }
 type Point { x: int, y: int, z: int }
 
-meta fn derive_eq(shape: TypeShape) {
+fn derive_eq(shape: TypeShape) {
     match shape {
         TypeShape::Product(t, fields) => {
             var check = code(true);

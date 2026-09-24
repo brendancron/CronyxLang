@@ -1,4 +1,4 @@
-Status: **implemented.** `lib/types.ml` and `lib/typecheck.ml` run after `Desugar`; every program goes through the checker. See [Architecture](Architecture.md) for where that sits now.
+Status: **implemented.** `lib/types.ml` and `lib/typecheck.ml` run after `Desugar`; every program goes through the checker twice, partially before metaprocessing and fully after it. See [Architecture](Architecture.md) for where that sits.
 
 This records the design of the OCaml bootstrap's static type system, what was carried over from the Rust bootstrap's checker (`legacy-bootstrap/src/semantics/types/`), what was done differently, and what is still missing.
 
@@ -88,6 +88,18 @@ Two traversals after the hoist, because Hindley–Milner cannot finish a node's 
 
 The hoist pass also produces the function signature table (`(string, ty) Hashtbl.t`) that codegen wants for emitting declarations before any body is compiled.
 
+## Checked twice: before metaprocessing and after
+
+A program is checked the way C++ checks a template. The metaprocessing walk only visits what the program reaches, so a check of what it emitted alone would never report an error in a function nothing calls. So `Precheck` checks the whole loaded program first, reached or not, and the full check runs after the walk on what it emitted; `Pipeline.whole` reports both, the first's duplicates of the second's dropped.
+
+**The first check runs on a copy with meta erased.** A static value parameter becomes a local of its declared type, since its value is what a meta block reads and its type is known now; a static call keeps only its type arguments; a function that held a `meta` block ends by returning an unknown value, since what the block would have returned is not known either; `code(…)` is unknown; `meta`, `gen` and `derive` are dropped. A type template keeps only its type parameters.
+
+**The checker takes a policy for what it does not know.** `Typecheck.policy` is a strategy record, `{ unknown : 'a. (unit -> 'a) -> (unit -> 'a) -> 'a }`, consulted wherever a name, type, trait, member or impl has nothing declared behind it: `strict` takes the first continuation and fails, `partial` takes the second and carries on with a fresh type. `Precheck` runs `Typecheck.check ~policy:Typecheck.partial`; everything else runs `strict`, the default. `partial` is the one place the checker is permissive, and the rule against permissive fallbacks below still holds for it: it is lenient only about what a meta block could still declare.
+
+That is also why the leniency does not reach every unpinned receiver. A method call whose receiver's type came from an unknown name — a variable nothing declared, or a call to one — is unknown because of a meta block, and `partial` lets it through. Any other receiver whose type is still a variable is ambiguous whatever a meta block does, so it is an error under both policies (`tests/core/traits/errors/ambiguous_receiver`). The checker tells the two apart by remembering the types it made up for unknown names (`Typecheck.unknowns`).
+
+So the first check reports conflicts between things already known — `fn label<a: int>(b: string): string { return a + b; }` fails there even if never called, because `a` is an `int` whatever its value — and nothing a meta block could still make right. `meta if (n % 2 == 0) { gen return 5; } else { gen return "hello"; }` is not an error until an instantiation like `f<3>` is reached, and then the full check reports it. The first check never reports an undefined name: a meta block may generate one, in the same body or from another file. `tests/meta/07_precheck/` pins all four cases.
+
 ## Operator constraints
 
 Two numeric types plus annotation-free inference makes `fn double(x) { return x + x; }` ambiguous — nothing pins `x` to `int` or `float`. It resolves through the same traits a written bound would name, so there is no separate mechanism for operators:
@@ -168,7 +180,7 @@ Notes on the parts that differ from the plan above:
 
 ## Known gaps
 
-- **`print` is variadic**, which no HM type describes. A call is checked structurally — the arguments are inferred and the call carries a signature built from them — and the *binding* is `() -> unit`, so referring to `print` as a value is rejected rather than yielding something unconstrained. What no type describes is the declaration, so `print` cannot be written in Cronyx. The intended answer is a `meta fn` expanding a call at compile time, which needs no type for the arity at all; the alternatives are a top type, trait objects, or a one-argument `print`.
+- **`print` is variadic**, which no HM type describes. A call is checked structurally — the arguments are inferred and the call carries a signature built from them — and the *binding* is `() -> unit`, so referring to `print` as a value is rejected rather than yielding something unconstrained. What no type describes is the declaration, so `print` cannot be written in Cronyx. The intended answer is to expand a call at compile time — a `meta` block writing out the call for the arity it was given — which needs no type for the arity at all; the alternatives are a top type, trait objects, or a one-argument `print`.
 - **No exhaustiveness check on `return`.** A function returning on only one path infers from the `return` it can see, while the evaluator yields `unit` when control falls off the end. The types are a promise the runtime does not keep.
 - **`Generic` survives where nothing needed it concrete.** `Type_mono` copies a generic function or `impl` method per concrete type its call sites use, but only when the body contains something type-directed — an operator, a method, a literal. A function that merely moves values around keeps one copy and a `Generic` in its annotations, which is fine for the interpreter and will not be for codegen.
 - **Uses before a function's declaration are monomorphic.** Generalization happens when the declaration statement is reached, so a call earlier in the same block sees the hoisted monomorphic type.
@@ -226,5 +238,5 @@ Koka is the usual tiebreaker and has no GADTs, so OCaml is the reference: the sa
 
 - [Elaboration](Elaboration.md) — operators, indexing, and literals resolved from these types.
 - [Effects](Algebraic%20Effects.md) — the row carried on every function type.
-- [Static Params](Static%20Params.md) — what `Generic` becomes once monomorphization exists.
+- [Static Params](Static%20Params.md) — static parameters, and which are instantiated by the metaprocessing walk rather than by `Type_mono`.
 - [GADT Refinement](GADT%20Refinement.md) — how a match arm learns what a constructor says, and why it is not yet sound.

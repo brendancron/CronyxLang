@@ -1,0 +1,27 @@
+trait Named {
+    fn type_name(self): string;
+}
+
+type Cat;
+type Dog;
+
+derive Named for Cat;
+derive Named for Dog;
+
+var cat = Cat;
+var dog = Dog;
+
+print(cat.type_name());
+print(dog.type_name());
+
+fn derive(shape: TypeShape) for Named {
+    match shape {
+        TypeShape::Product(t, fields) => {
+            var label = str(t);
+            gen impl Named for t {
+                fn type_name(self): string { return label; }
+            }
+        }
+        _ => {}
+    }
+}

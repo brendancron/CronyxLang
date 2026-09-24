@@ -1,0 +1,13 @@
+fn fib(n: int) {
+    if (n <= 1) {
+        return 1;
+    } else {
+        return fib(n-1) + fib(n-2);
+    }
+}
+
+// runs at comp time
+meta print(fib(3));
+
+// runs at run time
+print(fib(5));

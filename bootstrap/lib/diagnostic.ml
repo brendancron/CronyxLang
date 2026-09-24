@@ -8,7 +8,6 @@ type stage =
   | Load
   | Meta
   | Desugar
-  | Value_mono
   | Type
   | Type_mono
   | Resolve
@@ -30,7 +29,6 @@ let stage_name = function
   | Load -> "Load"
   | Meta -> "Meta"
   | Desugar -> "Desugar"
-  | Value_mono -> "Value monomorphize"
   | Type -> "Type"
   | Type_mono -> "Type monomorphize"
   | Resolve -> "Resolve"
@@ -42,7 +40,7 @@ let stage_name = function
 (* A program the compiler rejected is the user's fault; one that got past the
    checker and then broke is the compiler's. *)
 let exit_code = function
-  | Manifest | Scan | Parse | Load | Meta | Desugar | Value_mono | Type | Type_mono | Resolve
+  | Manifest | Scan | Parse | Load | Meta | Desugar | Type | Type_mono | Resolve
   | Reflect -> 65
   | Cps | Verify | Runtime -> 70
 

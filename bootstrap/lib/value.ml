@@ -91,7 +91,12 @@ let rec string_of_value = function
   | Fn f -> Printf.sprintf "<fn %s>" f.name
   | Object (data, _) -> string_of_value data
   | Code e -> Printf.sprintf "<code %s>" (Printer.string_of_expr e)
-  | Name n -> n
+  (* A name from another module carries that module's prefix, which the program
+     never wrote; it is shown as written. *)
+  | Name n ->
+    (match String.rindex_opt n '#' with
+     | Some at -> String.sub n (at + 1) (String.length n - at - 1)
+     | None -> n)
 
 (* OCaml's own comparison raises on functional values. A pair already under
    comparison counts as equal, which is what makes a cyclic value terminate. *)

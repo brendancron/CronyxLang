@@ -1,0 +1,12 @@
+fn twice(n: int): int {
+    print("twice " + str(n));
+    return n * 2;
+}
+
+var y = 10;
+meta {
+    var a = 2;
+    gen print(twice(a));
+    gen print(twice(a) + y);
+    gen print(twice(y));
+}

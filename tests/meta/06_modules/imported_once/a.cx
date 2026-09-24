@@ -1,0 +1,4 @@
+meta print("a meta");
+
+fn hi() { print("a hi"); }
+fn go() { print("a"); }

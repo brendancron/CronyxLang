@@ -117,7 +117,7 @@ let rec string_of_expr (e : Ast.expr) : string =
       "(new %s%s)"
       name
       (String.concat "" (List.map (fun a -> " " ^ string_of_expr a) args))
-  | `New (name, fields) ->
+  | `New (name, fields) | `New_generic (name, _, fields) ->
     Printf.sprintf
       "(new %s%s)"
       name
@@ -159,12 +159,9 @@ let rec write_stmt buf indent (s : Ast.stmt) =
   | `Defer s -> nested "defer" [ s ]
   | `Meta body -> nested "meta" body
   | `Gen inner -> nested "gen" [ inner ]
+  | `Type_members (decl, members) -> nested "type members" (decl :: members)
   | `Derive (traits, ty) ->
     line "%s(derive %s for %s)\n" pad (String.concat ", " traits) ty
-  | `Meta_fn (name, params, _, body) ->
-    nested
-      (Printf.sprintf "meta fn %s (%s)" name (String.concat " " (List.map string_of_param params)))
-      body
   | `Import decl ->
     let shown =
       match decl with

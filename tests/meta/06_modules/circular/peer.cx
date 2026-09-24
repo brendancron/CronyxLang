@@ -1,0 +1,7 @@
+import "main";
+
+meta print("peer meta");
+
+fn start() {
+    main.hello();
+}

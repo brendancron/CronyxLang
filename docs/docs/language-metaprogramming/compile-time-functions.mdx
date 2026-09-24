@@ -1,0 +1,286 @@
+---
+sidebar_position: 5
+---
+
+# Compile-time functions
+
+`meta { ... }` blocks are great when you have a one-shot piece of compile-time logic. But the moment you want to *reuse* that logic — call it from two places, parameterize it, recurse on it — you want a function.
+
+Cronyx doesn't have a separate kind of function for this. (If you've seen `meta fn` in older material: it isn't a form in the language.) An ordinary `fn` does all of it, in one of three ways:
+
+- **Called from a meta block**, any function runs at compile time.
+- **With static parameters**, a function's own `meta` blocks can look at its arguments and write a different body for each.
+- **With a `gen` inside**, a function called from a meta block adds declarations to the program.
+
+## Calling a function from a meta block
+
+A meta block is regular Cronyx, so it can call any function in the program. The call runs during compilation:
+
+```cronyx
+fn factorial(n: int): int {
+    var result = 1;
+    for (var i = 1; i <= n; i++) {
+        result = result * i;
+    }
+    return result;
+}
+
+meta print(factorial(5));
+
+meta {
+    var n = 7;
+    gen print(factorial(n));
+}
+
+print(factorial(6));
+```
+
+```
+120
+5040
+720
+```
+
+Three calls to the same function, at two different times:
+
+- `meta print(factorial(5))` runs entirely at compile time. It prints `120` while compiling and leaves nothing behind.
+- `gen print(factorial(n))` reads the meta variable `n`, so — by the rule from the [generation chapter](./generation.mdx) — the call is evaluated while the block runs and its result is written into the program.
+- `print(factorial(6))` is ordinary runtime code.
+
+```cronyx title="--dump-code"
+fn factorial(n: int): int {
+    var result = 1;
+    for (var i = 1; (i <= n); i += 1) {
+        result = (result * i);
+    }
+    return result;
+}
+print(5040);
+print(factorial(6));
+```
+
+The runtime program never computes `7!` — it prints a constant. That's the pattern for any expensive-but-constant computation: lookup tables you'd otherwise hard-code, configuration derived from other configuration, arithmetic that would be wasteful to repeat at runtime. Write a plain function, and call it where the answer should be baked in.
+
+## A function that writes its own body
+
+Give a function a static value parameter and its `meta` blocks can branch on it. Here's `power`, which multiplies `x` by itself `n` times — decided at compile time, so each copy is a straight line of multiplications with no loop:
+
+```cronyx
+fn power<n: int>(x: int): int {
+    meta {
+        print("compiling power<" + str(n) + ">");
+        if (n == 0) {
+            gen return 1;
+        } else {
+            gen return x * power<n - 1>(x);
+        }
+    }
+}
+
+print(power<3>(2));
+print(power<2>(5));
+```
+
+```
+compiling power<3>
+compiling power<2>
+compiling power<1>
+compiling power<0>
+8
+25
+```
+
+Two rules make this work.
+
+**Inside a function's `meta` block, a static parameter is an ordinary value.** `n` is just an `int` there — `n == 0` is a compile-time comparison, and `str(n)` builds a compile-time string.
+
+**Inside a `gen`, meta values are written in.** In `gen return x * power<n - 1>(x);`, `x` is a runtime parameter and stays a name, while `n - 1` reads the meta value `n` and is evaluated. The copy for `n = 3` gets `return x * power<2>(x);` — and the walk, reaching that call, compiles `power<2>` next.
+
+```cronyx title="--dump-code"
+fn power#0(x: int): int {
+    return (x * power#1(x));
+}
+fn power#1(x: int): int {
+    return (x * power#2(x));
+}
+fn power#2(x: int): int {
+    return (x * power#3(x));
+}
+fn power#3(x: int): int {
+    return 1;
+}
+print(power#0(2));
+print(power#1(5));
+```
+
+Each copy gets a name of its own (the `#0` suffixes). Notice `compiling power<2>` printed once, although both `power<3>` and the top-level `power<2>(5)` asked for it: **a function is compiled once per static argument list**, the first time the walk reaches a call with that list. Recursive and mutually recursive templates end the same way — a call to a copy that's already being compiled just refers to it.
+
+The compiler doesn't put a limit on how deep this goes. A template whose arguments never reach a base case keeps asking for new copies, and compiling it doesn't finish, just as a recursive function with no base case never returns.
+
+### What crosses into a meta block
+
+A meta block runs while compiling, so only what's known while compiling can reach it. A static parameter can; a runtime parameter can't:
+
+```cronyx
+fn scale(factor: int, x: int): int {
+    meta print(factor);
+    return x * factor;
+}
+
+print(scale(2, 3));
+```
+
+```
+'factor' is a run-time value and does not cross into a meta block.
+```
+
+A static value crosses one level only. A `meta` block nested inside the function's `meta` block is compiled before the outer one runs, so the value doesn't exist yet from its point of view:
+
+```cronyx
+fn countdown<n: int>() {
+    meta {
+        print(n);
+        meta print(n);
+    }
+}
+
+countdown<3>();
+```
+
+```
+'n' is a value of the enclosing meta block and does not cross into a nested one.
+```
+
+And a call that makes a new copy belongs in a `gen`, not directly in the meta block. Inside the meta block `n` is a value, not a static argument, so there's nothing to compile the copy from:
+
+```cronyx
+fn power<n: int>(x: int): int {
+    meta {
+        var smaller = power<n - 1>(x);
+    }
+    return 1;
+}
+
+print(power<3>(2));
+```
+
+```
+'power' cannot be instantiated from inside a meta block: 'n' is a value there. Write the call inside a gen.
+```
+
+### When the body is checked
+
+The [first chapter](./metaprocessing.mdx) said the whole program is checked before the walk, reached or not. For a function like `power`, that early check sees everything *except* what its meta blocks will write — so a mistake in the parts you wrote directly is reported even if the function is never called:
+
+```cronyx
+fn label<n: int>(s: string): string {
+    return n + s;
+}
+
+print("label is never called");
+```
+
+```
+No operator + for int and string: int does not implement Add<string>.
+```
+
+What a meta block generates is checked per copy, once the walk has made it. This function is fine for even `n` and wrong for odd:
+
+```cronyx
+fn pick<n: int>(): int {
+    meta if (n % 2 == 0) {
+        gen return 5;
+    } else {
+        gen return "odd";
+    }
+}
+
+print(pick<2>());
+print(pick<3>());
+```
+
+```
+Expected int, got string.
+```
+
+Delete the `pick<3>()` call and the program compiles and prints `5`: no copy for an odd `n` was ever made, so there's no body with the mistake in it.
+
+## A function that generates declarations
+
+A `gen` doesn't have to sit directly in a meta block. A function called from one can do the generating, which is how a generator gets factored into pieces:
+
+```cronyx
+fn make_getter(field: string, value: int) {
+    var fn_name = ("get_" + field).as_name();
+    gen fn fn_name(): int {
+        return value;
+    }
+}
+
+meta {
+    make_getter("width", 4);
+    make_getter("height", 3);
+}
+
+print(get_width() * get_height());
+```
+
+```
+12
+```
+
+```cronyx title="--dump-code"
+fn get_width(): int {
+    return 4;
+}
+fn get_height(): int {
+    return 3;
+}
+print((get_width() * get_height()));
+```
+
+The generated declarations land where the meta block is, as if the block had written them itself. `make_getter` has no place in the running program, though — generating code only means something while compiling — so calling it outside a meta block is an error:
+
+```cronyx
+fn make_hello() {
+    gen fn hello() { print("hi"); }
+}
+
+make_hello();
+```
+
+```
+'make_hello' performs Gen, which only a meta block handles.
+```
+
+## Try it
+
+Write `fn fib<n: int>(): int` that returns the `n`th Fibonacci number (with `fib<0>` and `fib<1>` both `1`), computing it by generating calls to smaller copies. Then print `fib<3>()` and `fib<5>()`.
+
+A working answer:
+
+```cronyx
+fn fib<n: int>(): int {
+    meta if (n <= 1) {
+        gen return 1;
+    } else {
+        gen return fib<n - 1>() + fib<n - 2>();
+    }
+}
+
+print(fib<3>());
+print(fib<5>());
+```
+
+```
+3
+8
+```
+
+Dump it with `--dump-code` and count the copies: six, one for each `n` from `0` to `5` — `fib<3>` and everything below it was compiled once and reused by `fib<5>`.
+
+## What's next
+
+You can now factor compile-time work into functions: plain ones called from meta blocks, templates that write a body per argument, and generators that add declarations.
+
+Next up: **deriving** — the most common generator of all, a function that reads a type's fields and writes a trait impl for it, invoked with one line.

@@ -1,0 +1,9 @@
+type Buf<n: int> {
+    items: Array<int>,
+
+    meta print("Buf<" + str(n) + ">");
+}
+
+var a = new Buf<4> { items: [] };
+var b = new Buf<8> { items: [] };
+var c = new Buf<4> { items: [] };

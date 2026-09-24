@@ -16,7 +16,7 @@ let rec walk attribute found (s : Ast.stmt) =
 and children (s : Ast.stmt) =
   match s.Ast.it with
   | `Attributed (_, inner) -> [ inner ]
-  | `Block body | `Fn (_, _, _, body) | `Meta body | `Meta_fn (_, _, _, body) -> body
+  | `Block body | `Fn (_, _, _, body) | `Meta body -> body
   | `Defer inner | `Gen inner -> [ inner ]
   | `If (_, t, e) -> t :: Option.to_list e
   | `While (_, body) -> [ body ]

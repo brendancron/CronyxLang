@@ -1,0 +1,228 @@
+---
+sidebar_position: 6
+---
+
+# Deriving
+
+Plenty of trait impls are pure bookkeeping. Showing a struct means printing each field; comparing two means comparing each field; naming a type means returning its name. Written by hand, those impls are tedious, and they drift out of date the moment someone adds a field.
+
+**Deriving** hands the bookkeeping to a generator. You write the generator once, as a function that reads a type's shape and `gen`s an impl, and then ask for the impl with one line:
+
+```cronyx
+derive Named for Cat;
+```
+
+Everything in this chapter is built from pieces you've already met: reflection to read the type, a function called from a meta block, and `gen` to write the impl.
+
+## Writing a deriver
+
+A deriver is a function with a fixed signature, written with the trait it derives:
+
+```cronyx
+trait Named {
+    fn type_name(self): string;
+}
+
+fn derive(shape: TypeShape) for Named {
+    match shape {
+        TypeShape::Product(t, fields) => {
+            var label = str(t);
+            gen impl Named for t {
+                fn type_name(self): string { return label; }
+            }
+        }
+        _ => {}
+    }
+}
+
+type Cat;
+type Point { x: int, y: int }
+
+derive Named for Cat;
+derive Named for Point;
+
+var cat = Cat;
+var p = new Point { x: 1, y: 2 };
+
+print(cat.type_name());
+print(p.type_name());
+```
+
+```
+Cat
+Point
+```
+
+`fn derive(shape: TypeShape) for Named` is the deriver for `Named`; each trait has at most one. `derive Named for Cat;` is a meta block in disguise: it calls that function with `typeof(Cat).shape`, and whatever the function `gen`s lands where the `derive` is written.
+
+The `TypeShape` is what [reflection](./reflection.mdx) says about the type, in a form a `match` can take apart:
+
+- `TypeShape::Product(t, fields)` — a type with fields. `t` is the type's name and `fields` its fields.
+- `TypeShape::Sum(t, variants)` — a type with variants.
+- `TypeShape::Scalar` and `TypeShape::Other` — everything else.
+
+`t` is a `Name`, the same kind of value `.as_name()` produced in the [generation chapter](./generation.mdx), so `gen impl Named for t` writes the impl for whichever type was derived. `str(t)` turns it into the string `"Cat"` or `"Point"`, and because `label` is a meta variable, that string is written into the generated method.
+
+## Building a body from the fields
+
+A deriver that walks the fields needs to build an expression piece by piece — one term per field — and only then write it into the impl. `code(...)` is how: it holds an expression as *syntax*, without running it.
+
+```cronyx
+trait Show {
+    fn show(self): string;
+}
+
+fn derive(shape: TypeShape) for Show {
+    match shape {
+        TypeShape::Product(t, fields) => {
+            var name = str(t);
+            var text = code(name);
+            for (f in fields) {
+                var field = f.name;
+                var label = " " + str(f.name) + "=";
+                text = code(text + label + str(self.field));
+            }
+            gen impl Show for t {
+                fn show(self): string { return text; }
+            }
+        }
+        _ => {}
+    }
+}
+
+type Point { x: int, y: int }
+
+derive Show for Point;
+
+var p = new Point { x: 3, y: 4 };
+print(p.show());
+```
+
+```
+Point x=3 y=4
+```
+
+Each trip around the loop wraps the expression built so far in a bigger one. Inside `code(...)`, each meta variable is replaced by what it holds — `name` and `label` by their strings, the earlier `text` by the expression built so far, and `field` by the field's name — while `self` stays a name for the running program. Keep the computing outside: put a value in a meta variable first, as `name` and `label` are here, and use the variable inside `code(...)`. The impl it produced, from `--dump-code`:
+
+```cronyx title="--dump-code"
+impl Show for Point {
+    fn show(self): string {
+        return (((("Point" + " x=") + str(self.x)) + " y=") + str(self.y));
+    }
+}
+```
+
+Add a field to `Point` and the impl picks it up on the next compile. That's the point of deriving: the impl can't drift, because nobody writes it.
+
+A `code(...)` value only means something while compiling, so it's allowed in a meta block and in functions that only meta blocks call — the same rule as `gen`.
+
+## Deriving several traits at once
+
+List the traits and each one's deriver runs in turn:
+
+```cronyx
+derive Show, Eq for Point;
+```
+
+`Eq` has a deriver built in, so `derive Eq for Point;` works without writing one. Any other trait needs its deriver somewhere in the program, or the `derive` is an error:
+
+```
+Trait 'Show' has no deriver.
+```
+
+## Derivers are ordinary functions
+
+Because a deriver is a plain function, the usual rules for functions apply:
+
+- **It can be declared anywhere.** A `derive` near the top of the file can use a deriver written at the bottom, just as a call can.
+- **It can call helpers.** Factor the `gen` into another function if that reads better; the impl still lands where the `derive` is.
+- **It can live in another module.** Import the trait's module and the type's, and name both: `derive named.Named for animals.Cat;`.
+
+What a `derive` generates follows the rule for any generated name: it exists once the walk has reached the `derive`. Calling a derived method before that is an error:
+
+```cronyx
+trait Named {
+    fn type_name(self): string;
+}
+
+fn derive(shape: TypeShape) for Named {
+    match shape {
+        TypeShape::Product(t, fields) => {
+            var label = str(t);
+            gen impl Named for t {
+                fn type_name(self): string { return label; }
+            }
+        }
+        _ => {}
+    }
+}
+
+type Cat;
+
+var cat = Cat;
+print(cat.type_name());
+
+derive Named for Cat;
+```
+
+```
+'type_name' is used before the derive that generates it.
+```
+
+Put each `derive` right after the type it's for, and this never comes up.
+
+## Try it
+
+Write a deriver for `Fields`, a trait with one method `field_count(self): int`, that returns how many fields the type has. Derive it for `Point { x: int, y: int }` and for a three-field `Color`.
+
+A working answer:
+
+```cronyx
+trait Fields {
+    fn field_count(self): int;
+}
+
+fn derive(shape: TypeShape) for Fields {
+    match shape {
+        TypeShape::Product(t, fields) => {
+            var count = 0;
+            for (f in fields) {
+                count = count + 1;
+            }
+            gen impl Fields for t {
+                fn field_count(self): int { return count; }
+            }
+        }
+        _ => {}
+    }
+}
+
+type Point { x: int, y: int }
+type Color { r: int, g: int, b: int }
+
+derive Fields for Point;
+derive Fields for Color;
+
+print(new Point { x: 0, y: 0 }.field_count());
+print(new Color { r: 0, g: 0, b: 0 }.field_count());
+```
+
+```
+2
+3
+```
+
+The count happens while compiling; each impl just returns a constant.
+
+## Wrapping up the section
+
+Across these six chapters you've seen the full metaprogramming story:
+
+- **[Metaprocessing](./metaprocessing.mdx)** — `meta` blocks, run by a walk over the code your program reaches, all before the program starts.
+- **[Generation](./generation.mdx)** — `gen` for splicing values, statements, and declarations from compile time into the runtime program.
+- **[Reflection](./reflection.mdx)** — `typeof` for inspecting types at compile time, with zero runtime cost.
+- **[Static parameters](./static-params.mdx)** — `<T>` and `<n: int>`, one compiled copy per argument list.
+- **[Compile-time functions](./compile-time-functions.mdx)** — ordinary functions called from meta blocks, templates whose meta blocks write a body per argument, and functions that generate declarations.
+- **Deriving** — a generator for a trait, invoked with one line per type.
+
+These are views of one staging system. A `meta` block runs code while compiling; `gen` writes its results into the program; static parameters give that code something to work on; and a function is how any of it gets reused. Underneath, it's all one phase of work running before your program does — and none of it is left for the program to pay for at runtime.

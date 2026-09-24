@@ -17,7 +17,7 @@ fn addPrintStatic<a: int, b: int>() {
 
 addPrintStatic<3,4>();
 ```
-Through monomorphization, this method becomes "baked" with 3 and 4 as params. Although it seems similar to the previous example it is important to note that `addPrintStatic<3,4>()` is a physically different function to `addPrintStatic<5,6>()` since they are statically resolved.
+Through instantiation, this method becomes "baked" with 3 and 4 as params: the metaprocessing walk makes one copy per static argument list when it reaches a call. Although it seems similar to the previous example it is important to note that `addPrintStatic<3,4>()` is a physically different function to `addPrintStatic<5,6>()` since they are statically resolved.
 
 # Static and Dynamic constructs
 cronyx has many different static and dynamic constructs. The simplest dynamic construct is a variable that is subject to change throughout program execution:
@@ -56,7 +56,7 @@ fn someStatic<x: int>() {
 	meta print(x);
 }
 ```
-This example has a LOT of implications on how ordering of meta resolution works so we may need to revisit this.
+The metaprocessing walk settles the ordering: `someStatic`'s `meta` block runs when a call to it is reached, once per instantiation, with `x` bound to that instantiation's value. In `some`, `x` is rejected — "'x' is a run-time value and does not cross into a meta block." See [Meta Scope and Instantiation.md](Meta%20Scope%20and%20Instantiation.md).
 
 # Static vs Dynamic Dispatch
 Okay this is the core of what we have been getting to. This is the most important one for many programming languages.
