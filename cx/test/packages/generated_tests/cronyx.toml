@@ -1,0 +1,4 @@
+[package]
+name    = "generated_tests"
+version = "0.1.0"
+cronyx  = "0.0.1"

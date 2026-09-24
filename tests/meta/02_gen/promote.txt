@@ -1,0 +1,6 @@
+twice 2
+twice 2
+4
+14
+twice 10
+20

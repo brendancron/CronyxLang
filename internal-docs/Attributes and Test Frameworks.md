@@ -33,7 +33,7 @@ This is the same line Java draws at compile-time constants, enums and class lite
 
 Defaults are a prerequisite rather than a nicety. `@Test` with no braces is a literal with every field defaulted, so struct field defaults — declared in the type, omitted in the literal — are load-bearing for this whole direction. They also interact with reification: a reified value either writes back every field, or defaults must be stable across compilations.
 
-Within that line, values are *computed*, not merely written out. The metaprocessor already runs the whole pipeline, so an attribute may be built by a `meta fn` the way any other static value is.
+Within that line, values are *computed*, not merely written out. The metaprocessor already runs the whole pipeline, so an attribute may be built by a function called from a `meta` block the way any other static value is.
 
 ## A test is a function carrying `Test`
 
@@ -171,4 +171,4 @@ What changes is who can write one. A benchmark harness that collects `@Bench` an
 
 ## Where this stands
 
-Attributes are a name and a list of literal arguments; `Discover.carrying` walks the metaprocessed program for functions carrying one, and the runner in `cx` synthesizes the wrappers. Names are matched and reported by their leaf, so the namespace is flat and the filter is a plain substring. `tests/`, dev-dependencies, declaration reflection, and attributes-as-values are design, as is struct field defaults, which the rest of it rests on. One decision is deferred rather than made — when a declaration query runs relative to generation — and it is in [TODO.md](TODO.md) with what it is waiting on.
+Attributes are a name and a list of literal arguments; `Discover.carrying` walks the program after metaprocessing — with every function carrying the attribute a root, so a generated one is found — for functions carrying one, and the runner in `cx` synthesizes the wrappers. Names are matched and reported by their leaf, so the namespace is flat and the filter is a plain substring. `tests/`, dev-dependencies, declaration reflection, and attributes-as-values are design, as is struct field defaults, which the rest of it rests on. One decision is deferred rather than made — when a declaration query runs relative to generation — and it is in [TODO.md](TODO.md) with what it is waiting on.

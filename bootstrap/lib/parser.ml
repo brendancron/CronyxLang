@@ -222,7 +222,7 @@ let pack_names (static_params : Ast.static_param list) =
 let declared_type_params s : Ast.type_param list =
   List.map
     (fun (p : Ast.static_param) ->
-      { Ast.tp_name = p.Ast.sp_name; tp_pack = p.Ast.sp_pack })
+      { Ast.tp_name = p.Ast.sp_name; tp_pack = p.Ast.sp_pack; tp_ty = p.Ast.sp_ty })
     (static_params s)
 
 let signature ?(static_params = []) s : Ast.signature =
@@ -417,7 +417,7 @@ and static_arguments s : Ast.expr Ast.static_arg list option =
           s.current <- start;
           s.errors <- errors;
           (* Below comparison, or the closing '>' reads as an operator. *)
-          Ast.St_value (unary s)
+          Ast.St_value (term s)
         in
         match type_expr s with
         | t when check s Token.Comma || check s Token.Greater -> Ast.St_type t
@@ -682,12 +682,46 @@ and primary s : Ast.expr =
            s
            (peek s)
            (Printf.sprintf "A variant is written '%s::…', without 'new'." name));
-    let type_args = type_arguments s in
+    (* A value may stand among the arguments, `new Buf<4> { … }`, so they are
+       read the way a static call's are. *)
+    let static_args =
+      match matches s [ Token.Less ] with
+      | None -> []
+      | Some _ ->
+        let args =
+          listed_until s Token.Greater (fun s ->
+            let start = s.current
+            and errors = s.errors in
+            match type_argument s with
+            | t when check s Token.Comma || check s Token.Greater -> Ast.St_type t
+            | _ ->
+              s.current <- start;
+              s.errors <- errors;
+              Ast.St_value (term s)
+            | exception Parse_error ->
+              s.current <- start;
+              s.errors <- errors;
+              Ast.St_value (term s))
+        in
+        ignore (consume s Token.Greater "Expected '>' after type arguments.");
+        args
+    in
     (match matches s [ Token.Left_paren ] with
-     | Some _ -> Ast.at sp (`New_call (name, type_args, arguments s))
+     | Some _ ->
+       let type_args =
+         List.map
+           (function
+             | Ast.St_type t -> t
+             | Ast.St_value _ ->
+               raise (error s (peek s) (Printf.sprintf "'%s' takes types here, not values." name)))
+           static_args
+       in
+       Ast.at sp (`New_call (name, type_args, arguments s))
      | None ->
        ignore (consume s Token.Left_brace "Expected '{' after type name.");
-       Ast.at sp (`New (name, record_fields s)))
+       (match static_args with
+        | [] -> Ast.at sp (`New (name, record_fields s))
+        | static_args -> Ast.at sp (`New_generic (name, static_args, record_fields s))))
   | Token.Left_brace when not s.no_brace ->
     ignore (advance s);
     Ast.at sp (`Record_lit (record_fields s))
@@ -728,8 +762,8 @@ and primary s : Ast.expr =
 
 (* ---- statements ---- *)
 
-(* A `meta fn` and a `derive` are read by the metaprocessor before anything
-   records an attribute, and an `import` names nothing to hang one on. *)
+(* A `derive` is read by the metaprocessor before anything records an
+   attribute, and an `import` names nothing to hang one on. *)
 and attachable (s : Ast.stmt) =
   match s.Ast.it with
   | `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Effect_decl _
@@ -743,7 +777,21 @@ and declaration s : Ast.stmt option =
     match tok.Token.token_type with
     | Token.Fn ->
       ignore (advance s);
-      Some (fn_decl s sp)
+      (* Registration is by `for Trait`, so every deriver is free to be called
+         `derive` — a keyword, hence read here. *)
+      let read_name s =
+        match matches s [ Token.Derive; Token.New ] with
+        | Some { Token.token_type = Token.Derive; _ } -> "derive"
+        (* In declaration position `new` cannot be read as the operator. *)
+        | Some _ -> "new"
+        | None -> consume_identifier s "Expected function name."
+      in
+      let before_body s name =
+        match matches s [ Token.For ] with
+        | None -> name
+        | Some _ -> Ast.deriver_name (consume_identifier s "Expected a trait name after 'for'.")
+      in
+      Some (fn_decl ~read_name ~before_body s sp)
     | Token.Var ->
       ignore (advance s);
       Some (var_decl s sp)
@@ -780,12 +828,20 @@ and declaration s : Ast.stmt option =
        | None -> None)
     | Token.Derive ->
       ignore (advance s);
+      (* `named.Named`: the loader resolves a qualified name like any other. *)
+      let rec qualified s message =
+        let head = consume_identifier s message in
+        if check s Token.Dot
+        then (
+          ignore (advance s);
+          head ^ "." ^ qualified s message)
+        else head
+      in
       let traits =
-        comma_separated ~ends:(Token.For, "for") s (fun s ->
-          consume_identifier s "Expected a trait name.")
+        comma_separated ~ends:(Token.For, "for") s (fun s -> qualified s "Expected a trait name.")
       in
       ignore (consume s Token.For "Expected 'for' after the traits to derive.");
-      let target = consume_identifier s "Expected the type to derive for." in
+      let target = qualified s "Expected the type to derive for." in
       ignore (consume s Token.Semicolon "Expected ';' after a derive.");
       Some (Ast.at sp (`Derive (traits, target)))
     | Token.Meta ->
@@ -793,25 +849,7 @@ and declaration s : Ast.stmt option =
       (* Braces are a block of statements, not part of the form: `meta` runs
          whatever follows it, one statement or many. *)
       if check s Token.Fn
-      then (
-        ignore (advance s);
-        (* Registration is by `for Trait`, so every deriver is free to be
-           called `derive` — a keyword, hence read here. *)
-        let read_name s =
-          match matches s [ Token.Derive ] with
-          | Some _ -> "derive"
-          | None -> consume_identifier s "Expected function name."
-        in
-        let before_body s name =
-          match matches s [ Token.For ] with
-          | None -> name
-          | Some _ ->
-            Ast.deriver_name (consume_identifier s "Expected a trait name after 'for'.")
-        in
-        match (fn_decl ~read_name ~before_body s sp).Ast.it with
-        | `Fn (name, params, signature, body) ->
-          Some (Ast.at sp (`Meta_fn (name, params, signature, body)))
-        | _ -> None)
+      then raise (error s tok "'meta fn' no longer exists; use static parameters and a meta block.")
       else if check s Token.Left_brace
       then (
         ignore (advance s);
@@ -1194,12 +1232,12 @@ and impl_decl s sp : Ast.stmt =
       , List.map
           (fun (t : Ast.type_expr) ->
             match t.Ast.it with
-            | Ast.Ty_name n -> { Ast.tp_name = n; tp_pack = false }
+            | Ast.Ty_name n -> { Ast.tp_name = n; tp_pack = false; tp_ty = None }
             | Ast.Ty_spread { Ast.it = Ast.Ty_name n; _ } ->
-              { Ast.tp_name = n; tp_pack = true }
+              { Ast.tp_name = n; tp_pack = true; tp_ty = None }
             | _ ->
               ignore (error s (peek s) "Expected a type parameter name.");
-              { Ast.tp_name = ""; tp_pack = false })
+              { Ast.tp_name = ""; tp_pack = false; tp_ty = None })
           written )
   in
   ignore (consume s Token.Left_brace "Expected '{' after the impl header.");
@@ -1299,8 +1337,9 @@ and type_decl s sp : Ast.stmt =
   then Ast.at sp (`Type_decl (name, params, Ast.T_fields []))
   else (
   ignore (consume s Token.Left_brace "Expected '{' after type name.");
+  (* The first member keyword ends the fields: `meta` and `fn` start no field. *)
   let rec loop fields variants =
-    if check s Token.Right_brace || is_at_end s
+    if check s Token.Right_brace || is_at_end s || check s Token.Meta || check s Token.Fn
     then List.rev fields, List.rev variants
     else (
       let attrs = attributes s in
@@ -1360,9 +1399,21 @@ and type_decl s sp : Ast.stmt =
            :: variants))
   in
   let fields, variants = loop [] [] in
+  let rec members acc =
+    if check s Token.Right_brace || is_at_end s
+    then List.rev acc
+    else (
+      match declaration s with
+      | Some d -> members (d :: acc)
+      | None -> members acc)
+  in
+  let members = members [] in
   ignore (consume s Token.Right_brace "Expected '}' after type body.");
   let body = if variants <> [] then Ast.T_variants variants else Ast.T_fields fields in
-  Ast.at sp (`Type_decl (name, params, body)))
+  let decl = Ast.at sp (`Type_decl (name, params, body)) in
+  match members with
+  | [] -> decl
+  | members -> Ast.at sp (`Type_members (decl, members)))
 
 and handler_decl s sp : Ast.stmt =
   let name = consume_identifier s "Expected handler name." in

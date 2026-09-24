@@ -1,7 +1,6 @@
-// A meta function elsewhere returns a chunk, and the caller hooks it up.
-meta fn doubled(v: Code): Code { return code(v + v); }
+fn doubled(v: Code): Code { return code(v + v); }
 
-meta fn build() {
+fn build() {
     var body = doubled(code(21));
     gen fn answer(): int { return body; }
 }

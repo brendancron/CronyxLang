@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 3
 ---
 
 # Reflection
@@ -25,7 +25,7 @@ For those cases, paying a runtime cost is paying for nothing.
 
 ## How Cronyx does reflection
 
-Cronyx is statically typed, so the type of every value is *known to the compiler*. There's no need to wait until runtime to ask. Instead, reflection runs at meta time:
+Cronyx is statically typed, so the type of every value is *known to the compiler*. There's no need to wait until runtime to ask. Instead, reflection runs while compiling:
 
 ```cronyx
 var x = 42;
@@ -43,19 +43,9 @@ bool
 string
 ```
 
-`typeof(value).name` returns a string describing the value's type. It runs at compile time — by the time the program executes, the call is gone:
+`typeof(value).name` returns a string describing the value's type. The compiler answers it while compiling: the type of `x` is known before the program runs, so the answer is a string constant by the time it does.
 
-```cronyx title="--dump-code"
-var x = 42;
-var b = true;
-var s = "hello";
-
-print("int");
-print("bool");
-print("string");
-```
-
-The runtime program prints three string literals. There's no metadata, no dispatch, no lookup. The compiler did the type-asking; the program just has the answers baked in. Reflection in Cronyx costs *nothing* at runtime — because it isn't *at* runtime.
+The runtime program prints three string constants. There's no metadata, no dispatch, no lookup. The compiler did the type-asking; the program just has the answers baked in. Reflection in Cronyx costs *nothing* at runtime — because it isn't *at* runtime.
 
 ## What `typeof` returns
 
@@ -106,9 +96,9 @@ The rendering is the same arrow form you would write in an annotation.
 
 A surprising consequence of doing reflection at compile time is that you can do *more* with it, not less. Compile-time code can:
 
-- **Read a value's type and emit specialized runtime code based on it.** Combined with `gen` from the previous chapter, you can write a single meta function that consumes a type description and produces a tailored serializer, parser, or validator — and the runtime program contains only the specialized version, with zero generic machinery left over.
-- **Reject invalid types at compile time.** If your reflection meta function is given a type it doesn't know how to handle, the error fires during compilation, not three months into production.
-- **Be inlined and constant-folded freely.** Because `typeof(x).name` evaluates to a literal string, anything built on top of it composes with the rest of the meta system. You can pass type strings through `meta fn`s, build them up, compare them, or use them to construct identifiers for `gen`-emitted declarations.
+- **Read a value's type and emit specialized runtime code based on it.** Combined with `gen` from the previous chapter, you can write a single function that consumes a type description and produces a tailored serializer, parser, or validator — and the runtime program contains only the specialized version, with zero generic machinery left over.
+- **Reject invalid types at compile time.** If your generator is given a type it doesn't know how to handle, the error fires during compilation, not three months into production.
+- **Be inlined and constant-folded freely.** Because `typeof(x).name` evaluates to a literal string, anything built on top of it composes with the rest of the meta system. You can pass type strings through functions, build them up, compare them, or use them to construct identifiers for `gen`-emitted declarations.
 
 The runtime-reflection languages can't do any of this without giving up their performance story. Cronyx gets it for free, because the reflection ran *before* the performance story started.
 
@@ -139,14 +129,14 @@ int
 string
 bool
 (int, int, int)
-[int]
+Array<int>
 { x: int, y: int }
 ```
 
-Now dump the runtime code with `--dump-code`. You'll see six `print("...")` calls with the type strings already substituted in — the `typeof` calls themselves are gone. Reflection happened during compilation; the runtime program just prints strings.
+Every one of those answers was settled during compilation; the runtime program just prints strings.
 
 ## What's next
 
-`typeof` is reflection's foundation. By itself it produces type strings; combined with `meta fn` and `gen`, it becomes the input to *type-driven code generation* — meta functions that take a type description, decide what to do based on it, and emit specialized runtime code accordingly. That's the pattern most production-strength metaprogramming follows.
+`typeof` is reflection's foundation. By itself it produces type strings; combined with `gen`, it becomes the input to *type-driven code generation* — compile-time code that takes a type description, decides what to do based on it, and emits specialized runtime code accordingly. The [deriving chapter](./deriving.mdx) is where that pattern gets a name.
 
-Next up: **static parameters** (other languages call them generics) — passing types and other compile-time values to functions and structs as parameters. Once you can take a type *as input*, the metaprogramming features in this section start composing into proper reusable abstractions.
+Next up: **static parameters** (other languages call them generics) — passing types and other compile-time values to functions and types as parameters. Once you can take a type *as input*, the metaprogramming features in this section start composing into proper reusable abstractions.

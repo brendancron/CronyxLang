@@ -1,0 +1,6 @@
+import "util";
+
+fn go() {
+    util.f<1>();
+    util.f<2>();
+}

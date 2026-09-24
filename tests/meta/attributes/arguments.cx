@@ -10,7 +10,7 @@ trait Describe {
     fn describe(self): string;
 }
 
-meta fn derive(shape: TypeShape) for Describe {
+fn derive(shape: TypeShape) for Describe {
     match shape {
         TypeShape::Product(t, fields) => {
             var tname = str(t);

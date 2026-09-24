@@ -141,6 +141,38 @@ print(moved.y);
 
 `translate` takes a `Point` and two `int` offsets, and returns a *new* `Point`. We're not modifying `start` — we're constructing a fresh value with the shifted coordinates. This pattern (functions that take a value and return a transformed one) is the bread and butter of struct-based code.
 
+## Methods in the type body
+
+A struct can carry its own functions. Write them inside the braces, after the fields:
+
+```cronyx
+type Point {
+    x: int,
+    y: int,
+
+    fn origin(): Point {
+        return new Point { x: 0, y: 0 };
+    }
+
+    fn sum(self): int {
+        return self.x + self.y;
+    }
+}
+
+var p = new Point { x: 3, y: 4 };
+print(p.sum());
+print(Point.origin().sum());
+```
+
+```
+7
+0
+```
+
+The fields come first, separated by commas as usual — a trailing comma is fine — and the first `fn` is what ends them. A function that takes `self` is a **method**, called on a value with a dot: `p.sum()`. One without `self` belongs to the type rather than to any one value, and is called through the type's name: `Point.origin()`.
+
+This is the same as writing the functions in an `impl Point { ... }` block, like the one `Celsius` used above; pick whichever reads better. Enums take members the same way, after their variants.
+
 ## Try it
 
 Define a struct `Rectangle` with `width: int` and `height: int` fields. Write a function `area(r: Rectangle): int` that returns its area, and a function `bigger(a: Rectangle, b: Rectangle): Rectangle` that returns whichever rectangle has the larger area. Test it with two rectangles of your choice.

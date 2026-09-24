@@ -1,0 +1,7 @@
+fn f<n: int>() {
+    meta {
+        meta print(n);
+    }
+}
+
+f<1>();

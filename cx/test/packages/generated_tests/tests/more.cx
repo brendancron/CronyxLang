@@ -1,0 +1,8 @@
+import "generated_tests";
+
+meta {
+    for (n in [3]) {
+        var name = ("doubles_" + str(n)).as_name();
+        gen @test fn name() { assert(generated_tests.double(n) == 6, "double of 3 is 6"); }
+    }
+}

@@ -1,0 +1,7 @@
+import { Named } from "named";
+import { Cat } from "animals";
+
+derive Named for Cat;
+
+var cat = Cat;
+print(cat.type_name());

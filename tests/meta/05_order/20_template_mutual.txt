@@ -1,0 +1,6 @@
+even<3>
+odd<2>
+even<1>
+odd<0>
+false
+false

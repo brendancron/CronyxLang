@@ -1,0 +1,5 @@
+FAIL crashes
+  Index 5 is out of bounds for length 1.
+ok   still_runs
+
+1/2 passed

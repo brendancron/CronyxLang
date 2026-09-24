@@ -69,6 +69,14 @@ the work belongs in its working tree, uncommitted, until told otherwise. When
 work is finished and unasked-for, say what is in the working tree and let the
 user decide where it goes.
 
+**Questions go in a file, not in the summary.** After a piece of work, report
+what was done, but do not end on a list of open questions, loose ends, or
+things found and not fixed. Write each one to `scratch/questions.md` (gitignored)
+with enough context to answer it cold — what was found, a Cronyx example where
+one helps, and the options with a recommendation — then say how many there are
+and ask whether to go through them. Take them one at a time, and remove each
+from the file once it is answered.
+
 `main` is protected: it takes no direct pushes, so a change that is *meant to
 land* lands through a pull request. Branch, push, open the PR, and let the
 `test` check run.
@@ -124,11 +132,12 @@ Rewriting a comment to be more insightful is usually the wrong fix. Deleting it 
 Cronyx is a statically-typed, metaprogramming-first language.
 [internal-docs/Architecture.md](internal-docs/Architecture.md) is the authority
 on the pipeline and carries a heading per pass; the order itself lives in
-`bootstrap/lib/compile.ml` and nowhere else.
+`bootstrap/lib/pipeline.ml` up to metaprocessing and `bootstrap/lib/compile.ml`
+from `Desugar` on, and nowhere else.
 
 ```
-Scanner → Parser → Loader → Metaprocess → Desugar → Value monomorphize
-  → Typecheck → Type monomorphize → Resolve → Reflect → CPS → Verify → Interp
+Scanner → Parser → Loader → Precheck → Metaprocess → Desugar → Typecheck
+  → Type monomorphize → Resolve → Reflect → CPS → Verify → Interp
 ```
 
 ### Key distinctions
@@ -152,9 +161,12 @@ graph to `target/debug/<name>.cxa` — its declarations, mangled under the
 package's own name, plus what each unit exports — and links the artifacts
 rather than reading a dependency's source. `Artifact` is `Marshal` of the
 compiler's own types with the version that wrote them, which is sound because
-the compiler that reads one is always the compiler that wrote it. The artifact
-stops before the checker, so a consumer still typechecks and monomorphizes the
-whole graph.
+the compiler that reads one is always the compiler that wrote it. An artifact
+is the package loaded and mangled, not metaprocessed: which copy of a template
+exists is decided by the program that uses it, so the walk runs once over the
+linked program, from the package root (`Build.within`) because an artifact's
+paths are relative to it. A file a `meta` block reads is therefore not an input
+of the artifact.
 
 **An import never leaves its package.** `Loader` takes the roots it may
 reach — the package, the standard library, and each dependency by name — and
@@ -163,19 +175,36 @@ an import resolving outside the root of the file that wrote it is an error.
 dependency is reached by the name the manifest gave it, so `cx` decides what is
 reachable and the compiler only consumes that decision.
 
+**An import is symbol resolution and nothing else.** Importing a file loads its
+declarations; its top-level statements run only when it is the entry. Its
+top-level `meta` blocks and `derive`s run the first time the walk asks that
+module for a name, so moving an import changes nothing. That depends on every
+name saying which module it comes from, which is why imports stay qualified.
+
 **One AST, several stages of it.** `Ast` is parameterized by its annotation and
 by what a statement holds, so `desugared_stmt`, `typed_stmt`, `resolved_stmt`
 and `cps_stmt` are the same tree at different points. A construct that has been
 lowered is gone from the type, which is what stops a later pass from meeting it.
 
-**Two monomorphizers.** `Value_mono` substitutes static *value* parameters and
-runs before checking, because a value can decide a type. `Type_mono` copies
-generic bodies per concrete type and runs after, because inference is what says
-which types those are.
+**Metaprocessing is a walk from the roots.** The entry's top-level statements
+are walked in source order, and a declaration is metaprocessed the first time
+the walk reaches it, once; what nothing reaches is never metaprocessed or
+emitted. A template taking a static *value*, or holding a `meta` block, is
+instantiated when a call to it is reached, memoized by name and arguments across
+the whole program, because a value can decide a type. `Type_mono` copies the
+rest — bodies generic only over types — after checking, because inference is
+what says which types those are. See
+[internal-docs/Metaprocessing.md](internal-docs/Metaprocessing.md).
 
 **Metaprocessing is the pipeline calling itself.** A `meta` block is compiled by
 the passes above and run by the interpreter, which is why `Compile` holds
 everything from `Desugar` on and `Pipeline` holds the rest.
+
+**Checking happens twice.** `Precheck` checks the whole program before the
+walk, reached or not, with meta erased and `Typecheck.partial` treating what a
+meta block could still declare as unknown; the full check runs on what the walk
+emitted. An error in code nothing reaches is still reported, and nothing a meta
+block could still make right is.
 
 **Dispatch is static unless a trait is written as a type.** Operators are
 traits and `Resolve` turns every impl into plain functions — see

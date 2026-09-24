@@ -1,0 +1,8 @@
+import "a";
+
+meta print("b meta");
+
+fn go() {
+    a.hi();
+    print("b");
+}

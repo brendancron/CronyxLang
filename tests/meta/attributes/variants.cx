@@ -8,7 +8,7 @@ trait Tagged {
     fn tags(self): string;
 }
 
-meta fn derive(shape: TypeShape) for Tagged {
+fn derive(shape: TypeShape) for Tagged {
     match shape {
         TypeShape::Sum(t, variants) => {
             var tname = str(t);

@@ -1,0 +1,7 @@
+import "named";
+import "animals";
+
+derive named.Named for animals.Cat;
+
+var cat = animals.Cat;
+print(cat.type_name());

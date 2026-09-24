@@ -1,0 +1,9 @@
+fn never() {
+    print(greet("Brendan"));
+}
+
+meta {
+    gen fn greet(name): string { return "Hello, " + name; }
+}
+
+print("done");

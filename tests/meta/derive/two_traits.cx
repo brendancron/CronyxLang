@@ -4,7 +4,7 @@ type Dog { name: string, age: int }
 trait Eq { fn eq(self, other: Dog): bool; }
 trait Show { fn show(self): string; }
 
-meta fn derive(shape: TypeShape) for Eq {
+fn derive(shape: TypeShape) for Eq {
     match shape {
         TypeShape::Product(t, fields) => {
             var check = code(true);
@@ -22,7 +22,7 @@ meta fn derive(shape: TypeShape) for Eq {
     }
 }
 
-meta fn derive(shape: TypeShape) for Show {
+fn derive(shape: TypeShape) for Show {
     match shape {
         TypeShape::Product(t, fields) => {
             var label = str(t);

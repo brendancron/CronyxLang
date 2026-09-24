@@ -248,6 +248,7 @@ let rec declared_name (s : Ast.stmt) =
   match s.Ast.it with
   | `Fn (name, _, _, _) -> Some name
   | `Type_decl (name, _, _) -> Some name
+  | `Type_members (decl, _) -> declared_name decl
   | `Trait_decl (name, _, _) -> Some name
   | `Attributed (_, inner) -> declared_name inner
   | _ -> None
@@ -255,19 +256,11 @@ let rec declared_name (s : Ast.stmt) =
 let rec is_declaration (s : Ast.stmt) =
   match s.Ast.it with
   | `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Effect_decl _
-  | `Handler_decl _ | `Import _ | `Meta _ | `Gen _ | `Meta_fn _ | `Derive _ -> true
+  | `Handler_decl _ | `Import _ | `Meta _ | `Gen _ | `Derive _ | `Type_members _ -> true
   | `Attributed (_, inner) -> is_declaration inner
   | _ -> false
 
 let exports unit_ = List.filter_map declared_name unit_.program
-
-(* A statement outside the entry would silently never happen. *)
-let check_declarations_only unit_ =
-  List.iter
-    (fun (s : Ast.stmt) ->
-      if not (is_declaration s)
-      then fail s.Ast.span "A module may only hold declarations.")
-    unit_.program
 
 let renamed (unit_ : unit_) ~entry name =
   if entry
@@ -364,6 +357,10 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
         `Call
           ( { e with Ast.it = `Var (Hashtbl.find aliases receiver name) }
           , List.map go args )
+      (* `util.f<1>()` and `animals.Cat`: a name read out of a module. *)
+      | `Field ({ Ast.it = `Var receiver; _ }, name)
+        when (not (S.mem receiver locals)) && Hashtbl.mem aliases receiver ->
+        `Var (Hashtbl.find aliases receiver name)
       (* Not known here, so the name it would have as a function is carried
          along for whoever can tell. *)
       | `Method_call (receiver, name, _, args) ->
@@ -371,6 +368,15 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
         `Method_call (go receiver, name, as_function, List.map go args)
       | `New (name, fields) ->
         `New (resolve_type name, List.map (fun (l, v) -> l, go v) fields)
+      | `New_generic (name, static_args, fields) ->
+        `New_generic
+          ( resolve_type name
+          , List.map
+              (function
+                | Ast.St_type t -> Ast.St_type (type_expr t)
+                | Ast.St_value v -> Ast.St_value (go v))
+              static_args
+          , List.map (fun (l, v) -> l, go v) fields )
       | `New_variant (ty, variant, payload) ->
         `New_variant (resolve_type ty, variant, Ast.map_payload go payload)
       | `New_call (name, args, values) ->
@@ -400,6 +406,8 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
     let it : Ast.stmt_kind =
       match s.Ast.it with
       | `Attributed (attrs, inner) -> `Attributed (attrs, stmt locals inner)
+      | `Type_members (decl, members) ->
+        `Type_members (stmt locals decl, List.map (stmt locals) members)
       | `Type_decl (name, params, body) ->
         let body =
           match body with
@@ -475,8 +483,6 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
       | `Import _ -> `Block []
       | `Meta body -> `Meta (List.map (stmt locals) body)
       | `Gen inner -> `Gen (stmt locals inner)
-      | `Meta_fn (name, params, sg, body) ->
-        `Meta_fn (name, List.map param params, signature sg, List.map (stmt locals) body)
       | #Ast.stmts as st -> (Ast.map_stmts (expr locals) (stmt locals) st :> Ast.stmt_kind)
       (* A loop variable binds for the body alone, so not via [bound_by]. *)
       | `For_in (names, over, body) ->
@@ -551,7 +557,6 @@ let package ?(roots = anywhere) ?entry_namespace ?seeds entry_path =
   let entry_unit = owned entry_unit in
   let rest = List.map owned rest in
   let table = Hashtbl.create 8 in
-  List.iter check_declarations_only rest;
   (* Keyed by file rather than by namespace: two packages may each hold a unit
      of the same name, and only the path tells them apart. *)
   List.iter (fun u -> Hashtbl.replace table u.path (u, exports u)) (entry_unit :: rest);
@@ -614,11 +619,21 @@ let package ?(roots = anywhere) ?entry_namespace ?seeds entry_path =
       ~from:u.path
       u.program
   in
-  (* [entry] says whose names stay plain; [keep] says whose statements run. *)
+  (* [entry] says whose names stay plain; [keep] says whose statements run. A
+     module's statements run only when it is the file being run, so importing
+     one loads its declarations and nothing else. *)
   let declarations_of u ~entry ~keep =
     resolve_unit u ~entry |> List.filter (fun s -> is_declaration s || keep)
   in
-  ( List.concat_map (fun u -> declarations_of u ~entry:false ~keep:false) rest
+  (* A module's own meta blocks wait for the walk to first ask it for a name. *)
+  let deferred u (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Meta _ | `Derive _ -> Ast.deferred ~unit_prefix:(renamed u ~entry:false "") s
+    | _ -> s
+  in
+  ( List.concat_map
+      (fun u -> List.map (deferred u) (declarations_of u ~entry:false ~keep:false))
+      rest
     @ declarations_of entry_unit ~entry:plain_entry ~keep:true
   , List.map
       (fun u -> { Artifact.namespace = u.namespace; exports = exports u })

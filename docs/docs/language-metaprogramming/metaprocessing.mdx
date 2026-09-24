@@ -6,7 +6,7 @@ sidebar_position: 1
 
 Most code runs *when you run your program*. **Metaprocessing** is Cronyx's way of running code *while it's being compiled*. The result of that compile-time work becomes part of your program — values get baked in, code gets generated, choices get resolved before your binary ever starts up.
 
-This chapter is the foundation. It introduces the `meta { ... }` block and shows how Cronyx orders the work between compile time and runtime. Later chapters layer on the ability to produce code (`gen`) and reusable compile-time logic (`meta fn`).
+This chapter is the foundation. It introduces the `meta { ... }` block and shows how Cronyx orders the work between compile time and runtime. Later chapters layer on the ability to produce code (`gen`), functions that do their work at compile time, and deriving.
 
 ## Your first meta block
 
@@ -34,12 +34,14 @@ Look at the order carefully. `"Middle"` prints *before* `"Top"`, even though it 
 
 A Cronyx program runs in two phases:
 
-1. **Compile time.** Cronyx walks the source and executes every `meta { ... }` block top-to-bottom.
+1. **Compile time.** Cronyx walks the program and runs each `meta { ... }` block as it reaches it.
 2. **Runtime.** The compiled program runs, executing everything that *wasn't* inside a meta block.
 
 The two phases don't interleave. **All** compile-time work finishes before **any** runtime work begins. That's why the output above is `Middle, Top, Bottom`: the meta phase ran first and produced its output, then the runtime phase printed `Top` and `Bottom` in source order.
 
 You can think of `meta { ... }` as a flag that says "run this *now*, not later." Anything outside a meta block runs later.
+
+A meta block that holds a single statement doesn't need the braces: `meta print("Middle");` is the same block as the one above.
 
 ## Inside a meta block, it's just Cronyx
 
@@ -63,6 +65,94 @@ done
 ```
 
 The `total` variable lives only inside the meta block — it doesn't survive into runtime. Once compilation finishes, the meta scope is gone, and the only trace of it is whatever side effects it had during the compile.
+
+## The walk: what runs, and when
+
+"Walks the program" is meant literally. The compiler starts at the top of the file you ran and goes through its statements in source order. When it reaches a meta block, it runs it. When it reaches a call to a function, it walks that function's body — so a meta block *inside* a function runs when the first call to that function is reached:
+
+```cronyx
+print("A");
+meta print("B");
+
+fn shout(s: string) {
+    meta print("C");
+    print(s + "!");
+}
+
+shout("D");
+meta print("E");
+print("F");
+```
+
+```
+B
+C
+E
+A
+D!
+F
+```
+
+`C` comes out between `B` and `E` because that's where the call `shout("D")` sits. The declaration of `shout` is above it, but a declaration on its own runs nothing — the walk enters a function's body only when something calls it, and it enters it once, however many calls there are.
+
+That has a consequence worth knowing: **code nothing reaches is never metaprocessed.** A function no reached code calls never has its meta blocks run, and it isn't part of the compiled program at all:
+
+```cronyx
+fn report(label: string) {
+    meta print("compiling report");
+    print(label);
+}
+
+fn debug_dump() {
+    report("debug");
+}
+
+print("start");
+if (false) {
+    report("never printed");
+}
+```
+
+```
+compiling report
+start
+```
+
+"Reached" is about where code is *written*, not whether it runs. The call inside `if (false)` never executes, but it sits in the top level the walk goes through, so `report` is reached and its meta block runs. The call inside `debug_dump` is never reached, because nothing calls `debug_dump`.
+
+Order within a body is source order too, and a meta block inside a loop runs once — the walk reaches the loop body once, whatever it will do at runtime:
+
+```cronyx
+for (i in [1, 2, 3]) {
+    meta print("compiling the loop body");
+    print(i);
+}
+```
+
+```
+compiling the loop body
+1
+2
+3
+```
+
+### Unreached code is still checked
+
+Skipping code nobody reaches is not the same as ignoring it. Before the walk starts, the compiler type-checks the whole program, reached or not, so a mistake in a function you haven't called yet is still an error:
+
+```cronyx
+fn never() {
+    return 1 + "one";
+}
+
+print("hi");
+```
+
+```
+No operator + for int and string: int does not implement Add<string>.
+```
+
+What this early check can't see is anything a meta block decides — code a meta block will generate, or a type that depends on a compile-time value. Those parts are checked once the walk has run the meta blocks, which is covered in the chapters ahead.
 
 ## Nested meta blocks
 
@@ -126,7 +216,7 @@ The deepest level runs first, so `4` comes out before `3`, which comes out befor
 6
 ```
 
-If you got it right, you understand staging. If you didn't, re-read the rule (deepest first) and walk it through step by step — this ordering is the conceptual core of every other chapter in this section.
+If you got it right, you understand staging. If you didn't, re-read the rule (deepest first) and walk it through step by step.
 
 ## What's next
 

@@ -1,0 +1,12 @@
+fn f<a: int>() {
+    meta print("f<" + str(a) + ">()");
+}
+
+fn never() {
+    f<9>();
+}
+
+f<1>();
+if (false) {
+    f<2>();
+}

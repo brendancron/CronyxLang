@@ -1,0 +1,1 @@
+[7:7] 'name' takes self, so it is called on a value, not on the type 'Cat'.

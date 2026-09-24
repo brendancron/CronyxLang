@@ -1,0 +1,29 @@
+trait Speaker {
+    fn speak(self): string;
+}
+
+type Cat;
+type Dog;
+
+impl Speaker for Cat {
+    fn speak(self): string {
+        return "Meow";
+    }
+}
+
+impl Speaker for Dog {
+    fn speak(self): string {
+        return "Woof";
+    }
+}
+
+fn printSpeak<S: Speaker>(speaker: S) {
+    meta print(typeof(S).name);
+    print(speaker.speak());
+}
+
+var cat = Cat;
+var dog = Dog;
+
+printSpeak<Cat>(cat);
+printSpeak<Dog>(dog);

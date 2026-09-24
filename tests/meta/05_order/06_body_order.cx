@@ -1,0 +1,11 @@
+fn f<a: int>() {
+    g<a>();
+    meta print("f<" + str(a) + ">");
+}
+
+fn g<a: int>() {
+    print(a);
+    meta print("g<" + str(a) + ">");
+}
+
+f<5>();

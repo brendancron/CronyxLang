@@ -1,0 +1,6 @@
+meta {
+    var t = (1, "a");
+    var r = { x: 1, y: "b" };
+    gen print(t);
+    gen print(r);
+}

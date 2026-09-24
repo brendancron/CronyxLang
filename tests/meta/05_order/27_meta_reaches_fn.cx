@@ -1,0 +1,6 @@
+fn helper(): int {
+    meta print("helper meta");
+    return 1;
+}
+
+meta print(helper());

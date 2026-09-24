@@ -1,0 +1,6 @@
+type Box<T> {
+    item: T,
+    meta print(typeof(T).name);
+}
+
+print("done");

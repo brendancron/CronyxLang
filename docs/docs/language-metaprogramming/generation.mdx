@@ -46,7 +46,7 @@ print("Bottom");
 
 This isn't a metaphor or an approximation. Cronyx compiles your code in two distinct phases:
 
-1. **Meta phase.** The compiler walks the source, executes every `meta { ... }` block, and replaces each block with the statements its `gen`s emitted.
+1. **Meta phase.** The compiler walks the program, runs each `meta { ... }` block it reaches, and replaces each block with the statements its `gen`s emitted.
 2. **Runtime phase.** The transformed program — with every `meta` block already evaluated and substituted — runs.
 
 By the time the runtime phase starts, the `meta { ... }` block in your source code has been *removed entirely* and replaced with `print("Middle");` in its place. There's no leftover meta machinery in the runtime program; the meta scope, the `gen` keyword, even the braces — all gone. Just plain runtime statements.
@@ -77,7 +77,7 @@ Read `gen` that way: it's a "splice the following statement into the program at 
 
 ## Splicing meta values
 
-This is where `gen` earns its keep. Names from meta scope get *substituted* into the generated code; runtime names stay as written.
+This is where `gen` earns its keep. A generated statement can mention two kinds of names: names from the meta block, which exist only while it runs, and names from the runtime program, which exist only later. They're treated differently.
 
 ```cronyx
 var y = 4;
@@ -95,19 +95,93 @@ Walk through the generation:
 
 - `y` is a *runtime* variable (declared at the top level, outside any meta).
 - `x` is the variable being declared by the gen statement, so it becomes a runtime variable too.
-- `gen var x = y + 5;` emits the literal statement `var x = y + 5;` into the runtime program.
+- `gen var x = y + 5;` emits the statement `var x = y + 5;` into the runtime program.
 
 The generated program is:
 
 ```cronyx title="--dump-code"
 var y = 4;
-var x = y + 5;
+var x = (y + 5);
 print(x);
 ```
 
-So at runtime, `x` is `9`. Notice that `y` wasn't substituted — `y` isn't a *meta-scope* variable, so it stays as a literal name reference.
+(`--dump-code` prints every operation with its parentheses, so there's no doubt about how it grouped.) `y` wasn't touched — it isn't a *meta-scope* variable, so it stays a name, to be looked up when the program runs.
 
-The rule: **inside a `gen` statement, references to variables in meta scope get baked in as values; everything else is treated as literal source.** That's how the "compute at compile time, emit at runtime" boundary works.
+A meta-scope variable is different. It won't exist at runtime, so the compiler works out its value while the meta block runs and writes that value into the generated code:
+
+```cronyx
+fn twice(n: int): int {
+    return n * 2;
+}
+
+var y = 10;
+meta {
+    var a = 2;
+    gen print(twice(a));
+    gen print(twice(a) + y);
+    gen print(twice(y));
+}
+```
+
+```
+4
+14
+20
+```
+
+```cronyx title="--dump-code"
+fn twice(n: int): int {
+    return (n * 2);
+}
+var y = 10;
+print(4);
+print((4 + y));
+print(twice(y));
+```
+
+The rule: **inside a `gen`, the largest piece of an expression that reads a meta-scope value — and uses nothing the meta block can't see — is evaluated while the block runs, and its result is written in as a literal. Everything else stays as source.**
+
+- `twice(a)` reads `a`, and `twice` is a function the meta block can call, so the whole call is evaluated: `print(4)`.
+- `twice(a) + y` can't be evaluated whole, because `y` is a runtime variable. The largest piece that can is `twice(a)`, so it becomes `4 + y`.
+- `twice(y)` reads no meta value at all, so it's left exactly as written, and runs when the program does.
+
+The statement a `gen` emits is never run whole — `gen print(twice(a))` generates a `print`, it doesn't print — only the expressions inside it are candidates.
+
+### What can be written in
+
+A value written into generated code has to be something source code can spell: an `int`, `float`, `string`, `bool`, `char`, unit, and tuples, arrays and records made of those.
+
+```cronyx
+meta {
+    var primes = [2, 3, 5, 7];
+    var origin = { x: 0, y: 0 };
+    gen var table = primes;
+    gen var start = origin;
+}
+
+print(table);
+print(start.x);
+```
+
+```cronyx title="--dump-code"
+var table = [2, 3, 5, 7];
+var start = { x: 0, y: 0 };
+print(table);
+print(start.x);
+```
+
+A function can't be written that way, so a `gen` that needs one is an error:
+
+```cronyx
+meta {
+    var f = (n) => n + 1;
+    gen var g = f;
+}
+```
+
+```
+'f' is a function and cannot be written into generated code.
+```
 
 ## Generating many declarations
 
@@ -145,10 +219,15 @@ Read what's happening at compile time:
 After compilation, the runtime program is:
 
 ```cronyx title="--dump-code"
-fn greet_alice()   { print("Hello alice"); }
-fn greet_bob()     { print("Hello bob"); }
-fn greet_charlie() { print("Hello charlie"); }
-
+fn greet_alice() {
+    print("Hello alice");
+}
+fn greet_bob() {
+    print("Hello bob");
+}
+fn greet_charlie() {
+    print("Hello charlie");
+}
 greet_alice();
 greet_bob();
 greet_charlie();
@@ -161,6 +240,26 @@ Run with `--dump-code` and you'll see the three function declarations sitting at
 A subtle point worth lingering on: `fn_name` is being used in the *identifier position* — it's not a name being looked up at runtime, it's a name being *constructed* at compile time and spliced into the function declaration. When you see a meta-scope variable used where a function name or variable name would normally go, that's the splice happening.
 
 `.as_name()` is what makes the splice legal. A `string` is data; a `Name` is an identifier, and only a `Name` may stand where one is written. The conversion checks that the text could be an identifier at all, so `"greet-alice".as_name()` is rejected where `"greet_alice".as_name()` is not.
+
+## A generated name exists after its meta block
+
+A name a meta block generates doesn't exist until the walk has run that block. Use it earlier and the compiler says so:
+
+```cronyx
+greet_alice();
+
+meta {
+    gen fn greet_alice() {
+        print("Hello alice");
+    }
+}
+```
+
+```
+'greet_alice' is used before the meta block that generates it.
+```
+
+"Earlier" means earlier in the walk from the [previous chapter](./metaprocessing.mdx), not just earlier on the page. A function written *above* the meta block may still call a generated name, as long as the first call to that function comes after the block has run. Put the generator first, and you never have to think about it.
 
 ## Try it
 
@@ -193,10 +292,15 @@ fox says hi
 Dump it with `--dump-code` and the meta block is gone — replaced by three concrete function declarations:
 
 ```cronyx title="--dump-code"
-fn speak_cat() { print("cat says hi"); }
-fn speak_dog() { print("dog says hi"); }
-fn speak_fox() { print("fox says hi"); }
-
+fn speak_cat() {
+    print("cat says hi");
+}
+fn speak_dog() {
+    print("dog says hi");
+}
+fn speak_fox() {
+    print("fox says hi");
+}
 speak_cat();
 speak_dog();
 speak_fox();
@@ -206,6 +310,6 @@ Try adding `"bear"` to the list and calling `speak_bear()`. The function appears
 
 ## What's next
 
-`meta` blocks let you compute at compile time, and `gen` lets you splice the results into the runtime program. So far the work has lived inline — every `meta { ... }` block is a one-shot. That's fine for small generators, but soon you'll want to *factor* compile-time logic into reusable pieces.
+`meta` blocks let you compute at compile time, and `gen` lets you splice the results into the runtime program. So far every generator has been driven by data written into the meta block itself — a list of names, a few numbers.
 
-Next up: **meta functions** — declaring `meta fn` once and calling it from anywhere, just like a regular function, except the work happens during the compile.
+Next up: **reflection** — `typeof`, which lets compile-time code ask the compiler about the types in your program. Once a generator can look at a type, it can produce code *for* that type.

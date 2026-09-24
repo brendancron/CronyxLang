@@ -12,7 +12,7 @@ trait Show {
     fn show(self): string;
 }
 
-meta fn derive(shape: TypeShape) for Show {
+fn derive(shape: TypeShape) for Show {
     match shape {
         TypeShape::Product(t, fields) => {
             var tname = str(t);

@@ -1,0 +1,16 @@
+type Box<T> {
+    item: T,
+    meta print("type " + typeof(T).name);
+
+    fn get(self): T {
+        meta print("get " + typeof(T).name);
+        return self.item;
+    }
+
+    fn unused(self) {
+        meta print("unused");
+    }
+}
+
+var a = new Box<int> { item: 5 };
+print(a.get());

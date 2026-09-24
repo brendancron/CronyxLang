@@ -124,6 +124,18 @@ let rec expr (e : Ast.expr) : string =
   | `New_variant (ty, variant, payload) ->
     Printf.sprintf "%s::%s%s" ty variant (payload_of payload)
   | `Collection_lit items -> Printf.sprintf "[%s]" (arguments items)
+  | `New_generic (name, static_args, fields) ->
+    Printf.sprintf
+      "new %s<%s> { %s }"
+      name
+      (String.concat
+         ", "
+         (List.map
+            (function
+              | Ast.St_type t -> type_expr t
+              | Ast.St_value v -> expr v)
+            static_args))
+      (labelled fields)
   | `Static_call (callee, static_args, args) ->
     Printf.sprintf
       "%s<%s>(%s)"
@@ -244,11 +256,16 @@ and stmt depth (s : Ast.stmt) : string =
   | `Fn (name, params, sg, body) ->
     braced
       (Printf.sprintf
-         "fn %s%s(%s)%s"
-         name
+         "fn %s%s(%s)%s%s"
+         (match Ast.deriver_trait name with
+          | Some _ -> "derive"
+          | None -> name)
          (static_params sg.Ast.static_params)
          (String.concat ", " (List.map param params))
-         (signature sg))
+         (signature sg)
+         (match Ast.deriver_trait name with
+          | Some trait -> " for " ^ trait
+          | None -> ""))
       body
   | `Return e ->
     line
@@ -270,22 +287,12 @@ and stmt depth (s : Ast.stmt) : string =
        | Ast.Wildcard path -> Printf.sprintf "import \"%s/*\";" (escape path))
   | `Meta body -> braced "meta" body
   | `Gen inner -> line "gen" ^ nested depth inner
-  | `Meta_fn (name, params, sg, body) ->
-    braced
-      (Printf.sprintf
-         "meta fn %s(%s)%s%s"
-         (match Ast.deriver_trait name with
-          | Some _ -> "derive"
-          | None -> name)
-         (String.concat ", " (List.map param params))
-         (signature sg)
-         (match Ast.deriver_trait name with
-          | Some trait -> " for " ^ trait
-          | None -> ""))
-      body
   | `Derive (traits, target) ->
     line (Printf.sprintf "derive %s for %s;" (String.concat ", " traits) target)
   | `Type_decl (name, params, body) -> type_decl depth name params body
+  | `Type_members ({ Ast.it = `Type_decl (name, params, body); _ }, members) ->
+    type_decl ~members depth name params body
+  | `Type_members (decl, members) -> stmt depth decl ^ block depth members
   | `Effect_decl (name, params, ops) -> effect_decl depth name params ops
   | `Handler_decl (name, h) ->
     line (Printf.sprintf "handler %s : %s {" name h.Ast.handled)
@@ -402,7 +409,7 @@ and attrs (list : Ast.attr list) =
             | args -> Printf.sprintf "(%s)" (String.concat ", " (List.map arg args))))
        list)
 
-and type_decl depth name params body =
+and type_decl ?(members = []) depth name params body =
   let line = line depth in
   let head =
     Printf.sprintf
@@ -417,7 +424,9 @@ and type_decl depth name params body =
               ", "
               (List.map
                  (fun (p : Ast.type_param) ->
-                   (if p.Ast.tp_pack then "..." else "") ^ p.Ast.tp_name)
+                   (if p.Ast.tp_pack then "..." else "")
+                   ^ p.Ast.tp_name
+                   ^ annotation p.Ast.tp_ty)
                  ps)))
   in
   line head
@@ -462,6 +471,9 @@ and type_decl depth name params body =
                  | Some head -> " -> " ^ type_expr head))
             variants))
   ^ "\n"
+  ^ (match members with
+     | [] -> ""
+     | members -> "\n" ^ block (depth + 1) members)
   ^ line "}"
 
 and effect_decl depth name params ops =

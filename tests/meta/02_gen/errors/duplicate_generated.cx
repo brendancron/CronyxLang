@@ -1,0 +1,7 @@
+fn greet() { print("written"); }
+
+meta {
+    gen fn greet() { print("generated"); }
+}
+
+greet();

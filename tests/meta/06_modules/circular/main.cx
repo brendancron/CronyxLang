@@ -1,0 +1,9 @@
+import "peer";
+
+meta print("main meta");
+
+fn hello() {
+    print("hello");
+}
+
+peer.start();

@@ -15,8 +15,12 @@ let variadic : (string * (unit -> Types.infer_ty)) list =
       ; Ast.generated [ "meta"; "code" ], (fun () -> Types.icode)
   ]
 
+(* Which test a `cx test` process is for. Only that runner defines it. *)
+let selected_test = Ast.generated [ "test"; "selected" ]
+
 let functions : (string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
   [ "clock", (fun () -> [], Types.IFloat)
+  ; selected_test, (fun () -> [], Types.IInt)
   ; ("print", fun () -> [ Types.fresh () ], Types.IUnit)
   ; ("str", fun () -> [ Types.fresh () ], Types.IStr)
   ; ("ord", fun () -> [ Types.IChr ], Types.IInt)

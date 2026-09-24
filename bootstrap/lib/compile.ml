@@ -14,11 +14,6 @@ let program ?(on_types = fun _ -> ()) (source : Ast.program)
     | Ok desugared -> Ok desugared
     | Error e -> Diagnostic.one Diagnostic.Desugar e.Desugar.span e.Desugar.message
   in
-  let* desugared =
-    match Value_mono.program desugared with
-    | Ok desugared -> Ok desugared
-    | Error e -> Diagnostic.one Diagnostic.Value_mono e.Value_mono.span e.Value_mono.message
-  in
   let registry = Registry.builtins () in
   let* typed =
     match Typecheck.check ~registry desugared with

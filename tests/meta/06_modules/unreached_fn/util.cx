@@ -1,0 +1,8 @@
+fn used() {
+    meta print("used meta");
+    print("used");
+}
+
+fn unused() {
+    meta print("unused meta");
+}

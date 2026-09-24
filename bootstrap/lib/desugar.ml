@@ -93,6 +93,9 @@ let rec expr (e : expr) : desugared_expr =
     | #static_call as c -> (map_static_call expr c :> desugared_expr_kind)
     | #method_call as m -> (map_method_call expr m :> desugared_expr_kind)
     | `Lambda (params, signature, body) -> `Lambda (params, signature, List.map stmt body)
+    (* An ordinary generic type is checked once, so what `<…>` said is the
+       checker's to infer again. *)
+    | `New_generic (name, _, fields) -> `New (name, List.map (fun (l, v) -> l, expr v) fields)
     | #run_expr as r -> (map_run_expr expr stmt (clause sp) r :> desugared_expr_kind)
     | #reflect as r -> (map_reflect expr r :> desugared_expr_kind)
     (* One arriving here stood where no meta program would have run it. *)
@@ -114,7 +117,7 @@ and stmt (s : stmt) : desugared_stmt =
   | _ ->
   let it : desugared_stmt_kind =
     match s.it with
-        | `Import _ | `Meta _ | `Gen _ | `Meta_fn _ | `Derive _ | `Attributed _ -> assert false
+        | `Import _ | `Meta _ | `Gen _ | `Derive _ | `Attributed _ | `Type_members _ -> assert false
     (* for (x in xs) body  ⇒  { var seq = xs; var i = 0;
                                  while (i < seq.len()) { var x = seq[i]; body; i = i + 1; } }
 
@@ -213,7 +216,8 @@ let program (p : program) : (desugared_stmt list, error) result =
   and children (s : stmt) =
     match s.it with
     | `Attributed (_, inner) -> [ inner ]
-    | `Block body | `Fn (_, _, _, body) | `Meta body | `Meta_fn (_, _, _, body) -> body
+    | `Type_members (decl, members) -> decl :: members
+    | `Block body | `Fn (_, _, _, body) | `Meta body -> body
     | `Defer inner | `Gen inner -> [ inner ]
     | `If (_, t, e) -> t :: Option.to_list e
     | `While (_, body) -> [ body ]

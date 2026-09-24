@@ -1,0 +1,9 @@
+fn f<a: int>() {
+    meta {
+        gen fn helper(): int { return a; }
+    }
+    print(helper());
+}
+
+f<1>();
+f<2>();

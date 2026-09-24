@@ -1,0 +1,5 @@
+ok   doubles_1
+ok   doubles_2
+ok   doubles_3
+
+3/3 passed

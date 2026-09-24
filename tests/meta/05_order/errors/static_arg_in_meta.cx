@@ -1,0 +1,8 @@
+fn fib<n: int>(): int {
+    meta {
+        var x = fib<n - 1>();
+    }
+    return 1;
+}
+
+print(fib<3>());

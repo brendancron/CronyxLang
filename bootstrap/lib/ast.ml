@@ -85,6 +85,8 @@ type static_param =
 type type_param =
   { tp_name : string
   ; tp_pack : bool
+  (* `n: int`: a value the type is instantiated at, never seen by the checker. *)
+  ; tp_ty : type_expr option
   }
 
 (* [row = None] leaves the effect row to inference; [Some labels] closes it. *)
@@ -317,10 +319,17 @@ type import =
 
 type imports = [ `Import of import ]
 
+(* A type declared with members after its fields: the `Type_decl`, then its
+   functions and meta blocks. Metaprocessing takes it apart. *)
+type 's type_members = [ `Type_members of 's * 's list ]
+
+(* `new Box<int> { … }`, keeping what `<…>` said: an instantiation needs it,
+   and nothing after metaprocessing does. *)
+type 'e generic_new = [ `New_generic of string * 'e static_arg list * (string * 'e) list ]
+
 type 's meta_blocks =
     [ `Meta of 's list
     | `Gen of 's
-  | `Meta_fn of string * param list * signature * 's list
     | `Derive of string list * string
   ]
 
@@ -415,6 +424,7 @@ and expr_kind =
   | expr method_call
   | expr reflect
   | expr quote
+  | expr generic_new
   | (expr, stmt) lambdas
   | (expr, stmt, stmt handler_clause) run_expr
   ]
@@ -426,6 +436,7 @@ and stmt_kind =
   | stmt attributed
   | imports
   | stmt meta_blocks
+  | stmt type_members
   | (expr, stmt) loops
   | (expr, stmt, stmt handler_clause) effects
   | stmt handler_defs
@@ -657,6 +668,15 @@ let deriver_trait name =
   then Some (String.sub name n (String.length name - n))
   else None
 
+(* A module's top-level meta block, tagged with the prefix its unit's names are
+   mangled under: it runs the first time the walk asks that unit for a name. *)
+let deferred_marker = generated [ "unit"; "meta" ]
+
+let deferred ~unit_prefix (s : stmt) : stmt =
+  { s with
+    it = `Attributed ([ { a_name = deferred_marker; a_args = [ A_str unit_prefix ]; a_span = s.span } ], s)
+  }
+
 let type_head (t : type_expr option) =
   match t with
   | Some { it = Ty_name n; _ } | Some { it = Ty_app (n, _); _ } -> n
@@ -680,6 +700,12 @@ let map_static_arg (f : 'a -> 'b) (a : 'a static_arg) : 'b static_arg =
   match a with
   | St_type t -> St_type t
   | St_value v -> St_value (f v)
+
+let map_generic_new (f : 'a -> 'b) (e : 'a generic_new) : 'b generic_new =
+  match e with
+  | `New_generic (name, static_args, fields) ->
+    `New_generic
+      (name, List.map (map_static_arg f) static_args, List.map (fun (l, v) -> l, f v) fields)
 
 let map_static_call (f : 'a -> 'b) (e : 'a static_call) : 'b static_call =
   match e with

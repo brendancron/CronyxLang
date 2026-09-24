@@ -1,0 +1,11 @@
+fn fib<n: int>(): int {
+    meta print("fib<" + str(n) + ">");
+    meta if (n <= 1) {
+        gen return 1;
+    } else {
+        gen return fib<n - 1>() + fib<n - 2>();
+    }
+}
+
+print(fib<4>());
+print(fib<2>());
