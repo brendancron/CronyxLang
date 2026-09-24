@@ -409,7 +409,9 @@ let unclaimed_packages dir =
     |> Array.to_list
     |> List.sort String.compare
     |> List.concat_map (fun entry ->
-      let name = if String.equal prefix "" then entry else Filename.concat prefix entry in
+      (* The lists above spell a fixture with `/`, and `Filename.concat` spells
+         it with `\` on Windows -- so every nested fixture would match no list. *)
+      let name = if String.equal prefix "" then entry else prefix ^ "/" ^ entry in
       let path = Filename.concat dir name in
       if not (Sys.is_directory path)
       then []

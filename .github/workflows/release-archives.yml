@@ -15,7 +15,9 @@ on:
 
 jobs:
   # `targets.json` is the one place a platform is written down; a matrix cannot
-  # read a file, so a job reads it and hands it over.
+  # read a file, so a job reads it and hands it over. A target marked
+  # `"ci": false` is cut by hand with `scripts/release.sh` and has no runner
+  # here -- only this matrix skips it, so the tap still bumps for it.
   targets:
     runs-on: ubuntu-latest
     outputs:
@@ -55,7 +57,7 @@ jobs:
         id: read
         if: steps.tag.outputs.skip == 'false'
         run: |
-          echo "matrix=$(jq -c '{include: .}' targets.json)" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(jq -c '{include: [.[] | select(.ci != false)]}' targets.json)" >> "$GITHUB_OUTPUT"
 
   archive:
     needs: targets
@@ -136,7 +138,7 @@ jobs:
         run: |
           (cd bootstrap && opam exec -- dune test)
           opam exec -- dune test cx
-          opam exec -- ./scripts/cx-parity.sh
+          opam exec -- bash ./scripts/cx-parity.sh
 
       - name: Build
         if: matrix.musl == ''

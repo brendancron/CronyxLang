@@ -781,7 +781,11 @@ let unclaimed root =
           let expected = List.exists (fun ext -> Sys.file_exists (stem ^ ext)) [ ".txt"; ".err"; ".rt" ] in
           let name =
             let cut = String.length root + 1 in
-            String.sub stem cut (String.length stem - cut)
+            let name = String.sub stem cut (String.length stem - cut) in
+            (* The lists above spell a fixture with `/`, and `Filename.concat`
+               spells it with `\\` on Windows -- so every fixture would match no
+               list and the whole suite would report as claimed by nothing. *)
+            String.map (fun c -> if Char.equal c '\\' then '/' else c) name
           in
           if expected && not (Hashtbl.mem claimed name) then missing := name :: !missing))
       (Sys.readdir dir)

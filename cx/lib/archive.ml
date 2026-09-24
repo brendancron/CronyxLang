@@ -68,7 +68,10 @@ let of_directory root =
     |> List.sort String.compare
     |> List.concat_map (fun entry ->
       let path = Filename.concat dir entry in
-      let relative = if String.equal prefix "" then entry else Filename.concat prefix entry in
+      (* Not [Filename.concat]: an archive is read on a machine other than the
+         one that packed it, so its entries are spelled the one way rather than
+         the way the packing machine happens to spell a separator. *)
+      let relative = if String.equal prefix "" then entry else prefix ^ "/" ^ entry in
       let directory = Sys.is_directory path in
       if not (shipped ~top:(String.equal prefix "") entry ~directory)
       then []
