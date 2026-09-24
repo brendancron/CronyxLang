@@ -46,14 +46,14 @@ print("Bottom");
 
 This isn't a metaphor or an approximation. Cronyx compiles your code in two distinct phases:
 
-1. **Meta phase.** The compiler walks the program, runs each `meta { ... }` block it reaches, and replaces each block with the statements its `gen`s emitted.
+1. **Meta phase.** The compiler walks the program, runs each `meta { ... }` block it reaches, and replaces each block with the statements its `gen`s emitted. Generated declarations — functions, types, impls — are placed at the top of the program instead, so `--dump-code` shows them above the code that uses them.
 2. **Runtime phase.** The transformed program — with every `meta` block already evaluated and substituted — runs.
 
 By the time the runtime phase starts, the `meta { ... }` block in your source code has been *removed entirely* and replaced with `print("Middle");` in its place. There's no leftover meta machinery in the runtime program; the meta scope, the `gen` keyword, even the braces — all gone. Just plain runtime statements.
 
 ### See it for yourself
 
-You don't have to take my word for the substitution. Pass `--dump-code` and the program after the meta phase is printed before it runs:
+You don't have to take my word for the substitution. Pass [`--dump-code`](../cli.mdx#dump-flags) and the program after the meta phase is printed before it runs:
 
 ```
 cx run main.cx --dump-code
@@ -149,28 +149,52 @@ The statement a `gen` emits is never run whole — `gen print(twice(a))` generat
 
 ### What can be written in
 
-A value written into generated code has to be something source code can spell: an `int`, `float`, `string`, `bool`, `char`, unit, and tuples, arrays and records made of those.
+A value written into generated code has to be something source code can spell: an `int`, `float`, `string`, `bool`, `char`, unit, and tuples, arrays, records, structs and enum values made of those. A struct is written back as the `new` that builds it and an enum value as its variant, so both keep their type.
 
 ```cronyx
+type Point { x: int, y: int }
+type Shape { Dot, Circle(int) }
+
 meta {
     var primes = [2, 3, 5, 7];
-    var origin = { x: 0, y: 0 };
+    var pair = (1, "one");
+    var size = { w: 3, h: 4 };
+    var origin = new Point { x: 0, y: 0 };
+    var shapes = [Shape::Dot, Shape::Circle(5)];
     gen var table = primes;
+    gen var first = pair;
+    gen var box = size;
     gen var start = origin;
+    gen var drawn = shapes;
 }
 
 print(table);
-print(start.x);
+print(first.1);
+print(box.w);
+print(typeof(start).name);
 ```
 
 ```cronyx title="--dump-code"
+type Point {
+    x: int,
+    y: int
+}
+type Shape {
+    Dot,
+    Circle(int)
+}
 var table = [2, 3, 5, 7];
-var start = { x: 0, y: 0 };
+var first = (1, "one");
+var box = { w: 3, h: 4 };
+var start = new Point { x: 0, y: 0 };
+var drawn = [Shape::Dot, Shape::Circle(5)];
 print(table);
-print(start.x);
+print(first.1);
+print(box.w);
+print(typeof(start).name);
 ```
 
-A function can't be written that way, so a `gen` that needs one is an error:
+A function or a trait object can't be written that way, so a `gen` that needs one is an error:
 
 ```cronyx
 meta {

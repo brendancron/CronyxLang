@@ -45,10 +45,23 @@ let unpack text : ((string * string) list, error) result =
     in
     entries (String.length magic) [])
 
-let checksum text = "sha256:" ^ Digest.to_hex (Digest.string text)
+let checksum text = "blake2b:" ^ Digest.BLAKE256.to_hex (Digest.BLAKE256.string text)
 
-(* Every file under [root], by its path relative to it. *)
+(* What a package ships: every file under [root] by its path relative to it,
+   less what belongs to this checkout rather than to the package. `target/` is
+   output. Anything hidden is a VCS directory, an ignore file or an editor's,
+   none of which a consumer wants. `cronyx.lock` pins this package's own build,
+   and a consumer resolves its own. `tests/` at the root is compiled against the
+   package rather than into it, and a consumer has neither the test-only
+   dependencies to build it nor a reason to. *)
 let of_directory root =
+  let shipped ~top entry ~directory =
+    not
+      (String.starts_with ~prefix:"." entry
+       || (directory && String.equal entry "target")
+       || (top && directory && String.equal entry "tests")
+       || (top && (not directory) && String.equal entry "cronyx.lock"))
+  in
   let rec walk prefix dir =
     Sys.readdir dir
     |> Array.to_list
@@ -56,14 +69,11 @@ let of_directory root =
     |> List.concat_map (fun entry ->
       let path = Filename.concat dir entry in
       let relative = if String.equal prefix "" then entry else Filename.concat prefix entry in
-      if Sys.is_directory path
-      then
-        (* `target/` is output. `tests/` at the root is compiled against the
-           package rather than into it, and a consumer has neither the
-           test-only dependencies to build it nor a reason to. *)
-        if String.equal entry "target" || (String.equal prefix "" && String.equal entry "tests")
-        then []
-        else walk relative path
+      let directory = Sys.is_directory path in
+      if not (shipped ~top:(String.equal prefix "") entry ~directory)
+      then []
+      else if directory
+      then walk relative path
       else [ relative, In_channel.with_open_bin path In_channel.input_all ])
   in
   walk "" root

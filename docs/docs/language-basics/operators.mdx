@@ -1,0 +1,458 @@
+---
+sidebar_position: 2
+---
+
+# Operators
+
+You've already used `+` and `*` on numbers and `+` on strings. This chapter covers the rest: arithmetic, comparison, logic, the compound assignments, and how tightly each operator binds. It ends with the thing that sets Cronyx's operators apart — each one is a trait, so a type of your own can support `+` the same way `int` does.
+
+## Arithmetic
+
+The five arithmetic operators work on `int` and on `float`:
+
+```cronyx
+print(7 + 2);
+print(7 - 2);
+print(7 * 2);
+print(7 / 2);
+print(7 % 2);
+print(7.0 / 2.0);
+```
+
+```
+9
+5
+14
+3
+1
+3.5
+```
+
+`/` on two `int`s is integer division — it drops the fractional part, so `7 / 2` is `3`. Write the operands as `float`s to keep it: `7.0 / 2.0` is `3.5`.
+
+Integer division rounds toward zero, and `%` takes the sign of the left operand:
+
+```cronyx
+print(-7 / 2);
+print(-7 % 2);
+```
+
+```
+-3
+-1
+```
+
+Dividing an `int` by zero, with `/` or `%`, stops the program with a runtime error.
+
+Both operands have to be the same type. `7 / 2.0` is a type error, not a quiet conversion — the compiler reports that `int` does not implement `Div<float>`. The last section of this chapter explains that message.
+
+To mix the two, convert one side yourself. `to_float()` turns an `int` into a `float`, and `to_int()` turns a `float` back into an `int`, dropping the fractional part:
+
+```cronyx
+var n = 7;
+print(n.to_float() / 2.0);
+print(3.9.to_int());
+print((-3.9).to_int());
+```
+
+```
+3.5
+3
+-3
+```
+
+`to_int()` rounds toward zero, the same way integer division does.
+
+There's no exponent operator; `2 ** 3` doesn't parse.
+
+## Unary minus
+
+A `-` in front of an expression negates it:
+
+```cronyx
+var a = 5;
+var b = -a;
+print(b);
+print(-b * 2);
+print(10 + -3);
+```
+
+```
+-5
+10
+7
+```
+
+It binds tighter than any binary operator, so `-b * 2` is `(-b) * 2`.
+
+## Comparison
+
+Comparisons produce a `bool`:
+
+```cronyx
+var a = 5;
+var b = 10;
+print(a < b);
+print(a <= 5);
+print(a > b);
+print(b >= 10);
+print(a == 5);
+print(a != b);
+```
+
+```
+true
+true
+false
+true
+true
+true
+```
+
+`==` and `!=` work on any two values of the same type, including strings, arrays, tuples, and your own structs — they compare the contents, not whether the two are the same object:
+
+```cronyx
+print("cat" == "cat");
+print([1, 2, 3] == [1, 2, 3]);
+print((1, "a") != (1, "b"));
+```
+
+```
+true
+true
+true
+```
+
+The ordering operators `<`, `<=`, `>`, `>=` work on `int`, `float`, `char`, and `string`. Strings are ordered character by character, like a dictionary, except that a character's place is its Unicode code point — so every uppercase ASCII letter comes before every lowercase one:
+
+```cronyx
+print("apple" < "banana");
+print("app" < "apple");
+print("Zebra" < "apple");
+```
+
+```
+true
+true
+true
+```
+
+Comparisons don't chain. `1 < x < 10` compares a `bool` with an `int` and fails to compile; write `1 < x && x < 10`.
+
+## Logical operators
+
+`&&` (and), `||` (or), and `!` (not) work on `bool`s:
+
+```cronyx
+var t = true;
+var f = false;
+print(t && f);
+print(t || f);
+print(!f);
+```
+
+```
+false
+true
+true
+```
+
+`&&` and `||` short-circuit: the right side runs only if the left side hasn't already decided the answer.
+
+```cronyx
+fn yes(): bool {
+    print("yes called");
+    return true;
+}
+
+fn no(): bool {
+    print("no called");
+    return false;
+}
+
+print(no() && yes());
+print(yes() || no());
+```
+
+```
+no called
+false
+yes called
+true
+```
+
+`no()` is false, so `no() && yes()` is false without calling `yes()`. `yes()` is true, so `yes() || no()` is true without calling `no()`. That's what lets you write a guard and the thing it guards in one condition: `i < xs.len() && xs[i] > 0` never reads past the end.
+
+Like `if`, these take only `bool`s — `!0` and `1 && 2` don't compile.
+
+## Compound assignment
+
+Each arithmetic operator has an assignment form that updates a variable in place:
+
+```cronyx
+var n = 20;
+n += 5;
+print(n);
+n -= 3;
+print(n);
+n *= 2;
+print(n);
+n /= 4;
+print(n);
+n %= 4;
+print(n);
+```
+
+```
+25
+22
+44
+11
+3
+```
+
+`n += 5` means exactly `n = n + 5`, and the same for the others. `+=` works on strings too, since `+` does: `s += "!"` appends.
+
+`n++` and `n--` add and subtract one. Only the postfix spelling exists — there's no `++n`. The expression's value is the *updated* variable:
+
+```cronyx
+var i = 5;
+print(i++);
+print(i);
+```
+
+```
+6
+6
+```
+
+The compound forms, `++`, and `--` work on anything you can assign to — an element or a field as well as a variable:
+
+```cronyx
+type Point {
+    x: int,
+    y: int
+}
+
+var xs = [1, 2, 3];
+xs[0] += 10;
+xs[2]++;
+print(xs);
+
+var p = new Point { x: 1, y: 2 };
+p.x *= 5;
+p.y--;
+print(p.x);
+print(p.y);
+```
+
+```
+[11, 2, 4]
+5
+1
+```
+
+The target is worked out once. In `xs[next()] += 1`, `next` is called a single time, and the same element is read and then written:
+
+```cronyx
+var calls = 0;
+
+fn next(): int {
+    calls++;
+    return 1;
+}
+
+var xs = [10, 20, 30];
+xs[next()] += 5;
+print(xs);
+print(calls);
+```
+
+```
+[10, 25, 30]
+1
+```
+
+## Precedence
+
+When an expression mixes operators, the tighter-binding ones group first. From tightest to loosest:
+
+| Operators                          | Groups        |
+| ---------------------------------- | ------------- |
+| `f()`, `xs[i]`, `p.x`, `n++`, `n--` | left to right |
+| `-x`, `!x`                         | right to left |
+| `*`, `/`, `%`                      | left to right |
+| `+`, `-`                           | left to right |
+| `<`, `<=`, `>`, `>=`               | left to right |
+| `==`, `!=`                         | left to right |
+| `&&`                               | left to right |
+| `\|\|`                             | left to right |
+| `=`, `+=`, `-=`, `*=`, `/=`, `%=`  | right to left |
+
+```cronyx
+print(2 + 3 * 4);
+print((2 + 3) * 4);
+print(10 - 4 - 3);
+print(2 * 3 > 5 && 1 < 2);
+```
+
+```
+14
+20
+3
+true
+```
+
+`10 - 4 - 3` groups as `(10 - 4) - 3`. When in doubt, add parentheses — they cost nothing.
+
+There's no ternary `a ? b : c`; use `if`/`else`.
+
+## Operators are traits
+
+Every operator on this page is a trait that the built-in types implement. `a + b` asks the type of `a` for its `Add` implementation, and `a < b` asks for `PartialOrd`. You'll meet [structs](./structs.mdx) and [traits](./traits.mdx) properly later on; for now, it's enough to see that the operators are open to your own types:
+
+| Operator                 | Trait           | Method        |
+| ------------------------ | --------------- | ------------- |
+| `a + b`                  | `Add<Rhs>`      | `add`         |
+| `a - b`                  | `Sub<Rhs>`      | `sub`         |
+| `a * b`                  | `Mul<Rhs>`      | `mul`         |
+| `a / b`                  | `Div<Rhs>`      | `div`         |
+| `a % b`                  | `Rem<Rhs>`      | `rem`         |
+| `-a`                     | `Neg`           | `neg`         |
+| `a == b`, `a != b`       | `Eq`            | `eq`          |
+| `a < b`, `<=`, `>`, `>=` | `PartialOrd`    | `partial_cmp` |
+| `xs[i]`                  | `Index<Idx>`    | `get`         |
+| `xs[i] = v`              | `IndexSet<Idx>` | `set`         |
+
+Here's a two-dimensional vector that supports `+`:
+
+```cronyx
+type Vec2 {
+    x: int,
+    y: int
+}
+
+impl Add<Vec2> for Vec2 {
+    type Output = Vec2;
+
+    fn add(self, rhs: Vec2): Vec2 {
+        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+    }
+}
+
+var a = new Vec2 { x: 1, y: 2 };
+var b = new Vec2 { x: 3, y: 4 };
+var sum = a + b;
+print(sum.x);
+print(sum.y);
+```
+
+```
+4
+6
+```
+
+The compound forms come with it. `total += v` means `total = total + v`, so a type with `Add` supports `+=` without any further code — the same holds for `-=` with `Sub`, and so on:
+
+```cronyx
+type Vec2 {
+    x: int,
+    y: int
+}
+
+impl Add<Vec2> for Vec2 {
+    type Output = Vec2;
+
+    fn add(self, rhs: Vec2): Vec2 {
+        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+    }
+}
+
+var total = new Vec2 { x: 0, y: 0 };
+total += new Vec2 { x: 1, y: 2 };
+total += new Vec2 { x: 3, y: 4 };
+print(total.x);
+print(total.y);
+```
+
+```
+4
+6
+```
+
+`Add<Vec2>` names the type on the *right* of the `+`, and `type Output = Vec2` says what the `+` produces. Neither has to be `Vec2`. Scaling a vector by a number is `int * Vec2`, so it's an impl *for `int`*, taking a `Vec2` on the right:
+
+```cronyx
+type Vec2 {
+    x: int,
+    y: int
+}
+
+impl Mul<Vec2> for int {
+    type Output = Vec2;
+
+    fn mul(self, rhs: Vec2): Vec2 {
+        return new Vec2 { x: self * rhs.x, y: self * rhs.y };
+    }
+}
+
+var v = 3 * new Vec2 { x: 1, y: 2 };
+print(v.x);
+print(v.y);
+```
+
+```
+3
+6
+```
+
+Because the two sides are chosen separately, `3 * v` and `v * 3` are two different operators. The impl above gives you the first; the second is `impl Mul<int> for Vec2`, and without it `v * 3` is a type error.
+
+This is also what the error from the first section was saying. `7 / 2.0` fails because `int` has a `Div<int>` but no `Div<float>`, and `1 + "a"` fails because `int` has no `Add<string>`. To mix a number into a string, convert it with `str`:
+
+```cronyx
+var count = 3;
+print("count: " + str(count));
+```
+
+```
+count: 3
+```
+
+You rarely need to implement `Eq` — `==` already compares any two values of a type field by field. `!=` is always the negation of `==`, so it has no trait of its own.
+
+## Try it
+
+Using the `Vec2` above, add an impl so that `v * 3` works as well as `3 * v`. Then print both `x` fields of `new Vec2 { x: 1, y: 2 } * 3`.
+
+A working answer:
+
+```cronyx
+type Vec2 {
+    x: int,
+    y: int
+}
+
+impl Mul<int> for Vec2 {
+    type Output = Vec2;
+
+    fn mul(self, rhs: int): Vec2 {
+        return new Vec2 { x: self.x * rhs, y: self.y * rhs };
+    }
+}
+
+var v = new Vec2 { x: 1, y: 2 } * 3;
+print(v.x);
+print(v.y);
+```
+
+```
+3
+6
+```
+
+The trait's argument is now `int`, because `int` is what stands on the right of the `*`, and `self` is the `Vec2` on the left.
+
+## What's next
+
+You can now compute with numbers, compare values, combine conditions, and read an expression's grouping at a glance. Next up: **functions** — packaging those expressions up so you can name them and call them again.

@@ -1,12 +1,10 @@
 ---
-sidebar_position: 5
+sidebar_position: 7
 ---
 
 # Tuples
 
 A **tuple** is a fixed-size group of values, where each value can be a different type. Reach for one when you want to bundle a small handful of values together — return more than one thing from a function, pair an `int` with the `string` that names it, group an x and a y as coordinates — and giving each piece a *name* would be overkill.
-
-You've already seen tuples in passing: in [Values, variables, and types](./values-variables-types.mdx) we listed `(int, string)` as a tuple type, and in [Functions](./functions.mdx) we used the `(x, y)` syntax inside lambdas. This chapter covers them properly.
 
 ## Creating a tuple
 
@@ -16,7 +14,7 @@ Wrap comma-separated values in parentheses:
 var t = (10, "hello", true);
 ```
 
-`t` is a tuple with three components: an `int`, a `string`, and a `bool`. Tuples can mix types freely — that's the main thing that separates them from slices.
+`t` is a tuple with three components: an `int`, a `string`, and a `bool`. Tuples can mix types freely — that's the main thing that separates them from arrays and lists.
 
 The type of `t` is `(int, string, bool)`. Cronyx writes tuple types the same way you write tuple values: comma-separated inside parens.
 
@@ -108,4 +106,4 @@ Notice the return type annotation: `(int, int)` looks just like a tuple value, e
 
 ## What's next
 
-You can now bundle values into tuples and slices, and you've got the vocabulary for "this *or* that" via enums. Next up: **structs** — naming the fields when position alone isn't descriptive enough.
+You can now bundle values into tuples and collections. Next up: **structs** — naming the fields when position alone isn't descriptive enough.

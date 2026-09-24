@@ -4,7 +4,7 @@
 
 open Bootstrap
 
-let accepted = [ "minimal"; "deps"; "comments"; "dotted"; "registry_dep" ]
+let accepted = [ "minimal"; "deps"; "comments"; "dotted"; "registry_dep"; "path_and_version" ]
 
 let rejected =
   [ "unknown_top_key"
@@ -28,7 +28,13 @@ let rejected =
 let packages =
   [ "two_packages/app"; "uses_std"; "same_unit_name"; "generic_dep"; "reads_data" ]
 let bad_packages =
-  [ "reaches_out"; "claims_std"; "overlapping_impls"; "version_conflict"; "needs_future_compiler" ]
+  [ "reaches_out"
+  ; "claims_std"
+  ; "overlapping_impls"
+  ; "version_conflict"
+  ; "needs_future_compiler"
+  ; "path_version_mismatch"
+  ]
 
 (* Run through `cx test` rather than `cx run`: the expectation is the report,
    not what the program prints. *)
@@ -85,7 +91,13 @@ let summary (m : Cx.Manifest.t) =
      @ List.map
          (fun (d : Cx.Manifest.dependency) ->
            match d.Cx.Manifest.source with
-           | Cx.Manifest.Path path -> Printf.sprintf "dep %s = path %s" d.Cx.Manifest.name path
+           | Cx.Manifest.Path (path, None) -> Printf.sprintf "dep %s = path %s" d.Cx.Manifest.name path
+           | Cx.Manifest.Path (path, Some requirement) ->
+             Printf.sprintf
+               "dep %s = path %s, publishing as %s"
+               d.Cx.Manifest.name
+               path
+               (Cx.Requirement.render requirement)
            | Cx.Manifest.Registry requirement ->
              Printf.sprintf
                "dep %s = registry %s"
@@ -580,6 +592,188 @@ let archive_case dir =
       (String.concat ", " (List.map fst files));
     false)
 
+let archive_checkout_case () =
+  let root = Filename.concat (Filename.get_temp_dir_name ()) "cx-test-checkout" in
+  remove root;
+  Cx.Archive.into_directory
+    root
+    (List.map
+       (fun path -> path, "x\n")
+       [ "cronyx.toml"
+       ; "cronyx.lock"
+       ; "README.md"
+       ; "LICENSE"
+       ; ".gitignore"
+       ; ".git/HEAD"
+       ; "src/lib.cx"
+       ; "src/.lib.cx.swp"
+       ; "target/debug/pkg.cxa"
+       ; "tests/it.cx"
+       ]);
+  let packed = List.map fst (Cx.Archive.of_directory root) in
+  remove root;
+  let expected = [ "LICENSE"; "README.md"; "cronyx.toml"; "src/lib.cx" ] in
+  if List.equal String.equal packed expected
+  then (
+    Printf.printf "ok   archive/ships the package and nothing of the checkout\n";
+    true)
+  else (
+    Printf.printf
+      "FAIL archive/ships the package and nothing of the checkout\n  packed: %s\n"
+      (String.concat ", " packed);
+    false)
+
+(* `cx` as a user runs it: its own process, its exit status and both streams. *)
+let invoke ~cwd args =
+  let temp = Filename.get_temp_dir_name () in
+  let out = Filename.concat temp "cx-test-stdout" in
+  let err = Filename.concat temp "cx-test-stderr" in
+  let open_out path = Unix.openfile path [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o644 in
+  let stdout = open_out out in
+  let stderr = open_out err in
+  let here = Sys.getcwd () in
+  Sys.chdir cwd;
+  let child =
+    Fun.protect
+      ~finally:(fun () -> Sys.chdir here)
+      (fun () -> Unix.create_process cx (Array.of_list (cx :: args)) Unix.stdin stdout stderr)
+  in
+  let code =
+    match Unix.waitpid [] child with
+    | _, Unix.WEXITED code -> code
+    | _, (Unix.WSIGNALED _ | Unix.WSTOPPED _) -> -1
+  in
+  Unix.close stdout;
+  Unix.close stderr;
+  code, read_file out, read_file err
+
+let contains ~sub text =
+  let n = String.length sub in
+  let rec at i = i + n <= String.length text && (String.equal (String.sub text i n) sub || at (i + 1)) in
+  at 0
+
+let check_cli what ~cwd args ~code ?(out = fun _ -> true) ?(err = fun _ -> true) () =
+  let actual, stdout, stderr = invoke ~cwd args in
+  if actual = code && out stdout && err stderr
+  then (
+    Printf.printf "ok   %s\n" what;
+    true)
+  else (
+    Printf.printf
+      "FAIL %s\n  cx %s\n  exit %d, wanted %d\n  --- stdout ---\n%s\n  --- stderr ---\n%s\n"
+      what
+      (String.concat " " args)
+      actual
+      code
+      stdout
+      stderr;
+    false)
+
+let helps text = String.starts_with ~prefix:"usage: cx" text
+
+let cli_cases () =
+  let dir = Filename.concat (Filename.get_temp_dir_name ()) "cx-test-cli" in
+  remove dir;
+  Sys.mkdir dir 0o755;
+  let package = Filename.concat dir "hello" in
+  ignore (Cx.Skeleton.create ~directory:package ~name:"hello");
+  let absent name = not (Sys.file_exists (Filename.concat dir name)) in
+  let results =
+    [ check_cli
+        "cli/run of a missing file"
+        ~cwd:dir
+        [ "run"; "missing.cx" ]
+        ~code:64
+        ~err:(fun e -> String.equal (normalize e) "missing.cx: No such file or directory")
+        ()
+    ; check_cli
+        "cli/run of a missing file in a package"
+        ~cwd:package
+        [ "run"; "missing.cx" ]
+        ~code:64
+        ~err:(fun e -> String.equal (normalize e) "missing.cx: No such file or directory")
+        ()
+    ; check_cli
+        "cli/new checks the name"
+        ~cwd:dir
+        [ "new"; "bad.name" ]
+        ~code:64
+        ~err:(fun e ->
+          String.equal
+            (normalize e)
+            "'bad.name' is not a package name: letters, digits, '-' and '_' only.")
+        ()
+      && absent "bad.name"
+    ; check_cli
+        "cli/new takes no option for a name"
+        ~cwd:dir
+        [ "new"; "-x" ]
+        ~code:64
+        ~err:(String.starts_with ~prefix:"unknown option: -x")
+        ()
+      && absent "-x"
+    ]
+    @ List.map
+        (fun args ->
+          check_cli
+            ("cli/help " ^ String.concat " " args)
+            ~cwd:package
+            args
+            ~code:0
+            ~out:helps
+            ())
+        [ [ "-h" ]
+        ; [ "--help" ]
+        ; [ "new"; "-h" ]
+        ; [ "build"; "-h" ]
+        ; [ "run"; "-h" ]
+        ; [ "test"; "-h" ]
+        ; [ "test"; "--help" ]
+        ; [ "update"; "-h" ]
+        ; [ "publish"; "-h" ]
+        ; [ "toolchain"; "-h" ]
+        ; [ "version"; "-h" ]
+        ]
+    @ [ (let ok = absent "-h" && not (Sys.file_exists (Filename.concat package "-h")) in
+         Printf.printf "%s cli/help creates nothing\n" (if ok then "ok  " else "FAIL");
+         ok)
+      ; check_cli
+          "cli/run dumps the package's entry"
+          ~cwd:package
+          [ "run"; "--dump-source"; "--dump-tokens"; "--dump-ast" ]
+          ~code:0
+          ~out:(fun o ->
+            String.starts_with ~prefix:"-- source --\nfn greeting" o
+            && contains ~sub:"\n-- tokens --\n" o
+            && contains ~sub:"\n-- ast --\n" o
+            && String.ends_with ~suffix:"\nHello, World!\n" o)
+          ()
+      ; check_cli
+          "cli/test takes no dump flag"
+          ~cwd:package
+          [ "test"; "--dump-ast" ]
+          ~code:64
+          ~err:(String.starts_with ~prefix:"unknown option: --dump-ast")
+          ()
+      ; check_cli
+          "cli/build takes no dump flag"
+          ~cwd:package
+          [ "build"; "--dump-code" ]
+          ~code:64
+          ~err:(String.starts_with ~prefix:"unknown option: --dump-code")
+          ()
+      ; check_cli
+          "cli/publish takes no argument"
+          ~cwd:package
+          [ "publish"; "now" ]
+          ~code:64
+          ~err:(String.starts_with ~prefix:"publish takes no arguments")
+          ()
+      ]
+  in
+  remove dir;
+  results
+
 (* A `cx` runs the job itself when it is new enough, hands it on once when it is
    not, and says where to get one when the machine has none. *)
 let dispatches =
@@ -594,14 +788,29 @@ let dispatched_commands =
   [ [ "run" ], true
   ; [ "build"; "--locked" ], true
   ; [ "test" ], true
+  ; [ "update"; "greet" ], true
   ; [ "publish" ], true
   ; [ "toolchain"; "install"; "0.0.2"; "./cx" ], false
   ; [ "toolchain"; "list" ], false
   ; [ "new"; "hello" ], false
   ; [ "version" ], false
   ; [ "--help" ], false
+  ; [ "build"; "-h" ], false
+  ; [ "run"; "main.cx"; "--help" ], false
   ; [], false
   ]
+
+let mislabelled_case () =
+  compare_case
+    "dispatch/mislabelled message"
+    ~expected:
+      (Printf.sprintf
+         "The toolchain installed as 9.9.9 reports itself as %s, so it cannot be the one this \
+          package needs.\n\
+          Reinstall it, or install 9.9.9 from \
+          https://github.com/brendancron/CronyxLang/releases/tag/v9.9.9."
+         Release.version)
+    ~actual:(Cx.Dispatch.mislabelled "9.9.9")
 
 let run_dispatched (args, expected) =
   let actual = Cx.Dispatch.dispatched args in
@@ -693,8 +902,69 @@ let registry_cases root =
     | None -> None
     | Some text -> List.assoc_opt name (Cx.Lockfile.pins text)
   in
-  (* The same package at a later version, so that a yank has something to fall
-     back to. *)
+  let locks_at version =
+    Option.equal
+      Cx.Version.equal
+      (version_of "greet")
+      (Result.to_option (Cx.Version.of_string version))
+  in
+  let manifest = Filename.concat app Cx.Manifest.file_name in
+  let original = read_file manifest in
+  let requiring requirement =
+    write
+      manifest
+      ("[package]\nname    = \"app\"\nversion = \"0.1.0\"\ncronyx  = \"0.0.1\"\n"
+       ^ match requirement with
+         | None -> ""
+         | Some requirement -> Printf.sprintf "\n[dependencies]\ngreet = \"%s\"\n" requirement)
+  in
+  let locked = { Cx.Build.locked = true; offline = false } in
+  let offline = { Cx.Build.locked = false; offline = true } in
+  let noted = ref [] in
+  let note message = noted := !noted @ [ message ] in
+  let notes expected =
+    let ok = List.equal String.equal !noted expected in
+    if not ok then Printf.printf "  notes: %s\n" (String.concat " | " !noted);
+    noted := [];
+    ok
+  in
+  let fails_with sub = function
+    | Ok _ -> false
+    | Error errors ->
+      let text =
+        String.concat "\n" (List.map (fun (e : Diagnostic.error) -> e.Diagnostic.message) errors)
+      in
+      contains ~sub text
+      || (Printf.printf "  got: %s\n" text;
+          false)
+  in
+  let build ?(mode = Cx.Build.unrestricted) root = Cx.Build.package ~mode ~note ~out:ignore root in
+  let pathver = Filename.concat dir "pathver" in
+  let broken = Filename.concat temp "cx-test-broken" in
+  remove broken;
+  Cx.Archive.into_directory
+    broken
+    [ ( "cronyx.toml"
+      , "[package]\nname    = \"broken\"\nversion = \"0.1.0\"\ncronyx  = \"0.0.1\"\n" )
+    ; "src/lib.cx", "fn f(): int {\n    return 1 +;\n}\n"
+    ];
+  let updated names expected =
+    match Cx.Build.update ~names ~note app with
+    | Error _ -> false
+    | Ok changes ->
+      List.equal
+        String.equal
+        (List.map
+           (function
+             | Cx.Build.Updated (name, was, now) ->
+               Printf.sprintf "%s %s -> %s" name (Cx.Version.to_string was) (Cx.Version.to_string now)
+             | Cx.Build.Added (name, now) -> Printf.sprintf "+%s %s" name (Cx.Version.to_string now)
+             | Cx.Build.Removed (name, was) -> Printf.sprintf "-%s %s" name (Cx.Version.to_string was))
+           changes)
+        expected
+  in
+  (* The same package at a later version, published after the first build has
+     locked the earlier one. *)
   Cx.Home.ensure later;
   Cx.Archive.into_directory later (Cx.Archive.of_directory greet);
   write
@@ -707,7 +977,37 @@ let registry_cases root =
     && check
          "registry/publishing a path dependency fails"
          (Result.is_error (Cx.Publish.publish (Filename.concat dir "pathdep")))
-    && check "registry/publish a later version" (Result.is_ok (Cx.Publish.publish later))
+    && check
+         "registry/a package that does not build is not published"
+         (Result.is_error (Cx.Publish.publish broken)
+          && not (Sys.file_exists (Cx.Registry_source.release_path registry "broken" "0.1.0")))
+    && check
+         "registry/a path dependency with a version publishes"
+         (Result.is_ok (Cx.Publish.publish pathver))
+    && check
+         "registry/as a registry dependency at that version"
+         (let shipped =
+            match
+              Cx.Archive.unpack
+                (read_file (Cx.Registry_source.archive_path registry "pathver" "0.1.0"))
+            with
+            | Ok files -> Option.value (List.assoc_opt "cronyx.toml" files) ~default:""
+            | Error _ -> ""
+          in
+          contains ~sub:"greet = \"1.0\"" shipped
+          && (not (contains ~sub:"path =" shipped))
+          && contains
+               ~sub:"greet = \"1.0\""
+               (read_file (Cx.Registry_source.release_path registry "pathver" "0.1.0")))
+    && check
+         "registry/while a build here uses the path"
+         (match built pathver with
+          | Ok output ->
+            String.equal output "Hello, path!\n"
+            && contains
+                 ~sub:"source = \"path+../greet\""
+                 (Option.value (Cx.Lockfile.read pathver) ~default:"")
+          | Error _ -> false)
     && (match built app with
         | Ok output ->
           check
@@ -715,10 +1015,65 @@ let registry_cases root =
             (String.equal
                (normalize output)
                (normalize (read_file (Filename.concat app "expected.txt"))))
-          && check
-               "registry/takes the newest satisfying version"
-               (Option.equal Cx.Version.equal (version_of "greet") (Result.to_option (Cx.Version.of_string "1.1.0")))
+          && check "registry/locks what it resolved" (locks_at "1.0.0")
         | Error _ -> check "registry/resolves, fetches, verifies and builds" false)
+    && (remove cache;
+        check_cli
+          "registry/cx run of a file reaches a registry dependency"
+          ~cwd:app
+          [ "run"; Filename.concat "src" "main.cx" ]
+          ~code:0
+          ~out:(String.equal "Hello, World!\n")
+          ())
+    && (Unix.putenv "CRONYX_REGISTRY" (registry ^ "-absent");
+        let ok =
+          check "registry/--offline builds from the cache alone" (Result.is_ok (build ~mode:offline app))
+          && (Sys.remove lock;
+              check
+                "registry/--offline resolves from the cache alone"
+                (Result.is_ok (build ~mode:offline app) && locks_at "1.0.0"))
+          && (remove cache;
+              check
+                "registry/--offline fails on what is not cached"
+                (fails_with
+                   "'greet' is not in the cache, and --offline was given"
+                   (build ~mode:offline app)))
+        in
+        Unix.putenv "CRONYX_REGISTRY" registry;
+        ok)
+    && check "registry/publish a later version" (Result.is_ok (Cx.Publish.publish later))
+    && check
+         "registry/a build keeps the locked version"
+         (Result.is_ok (built app) && locks_at "1.0.0")
+    && check
+         "registry/a newer release leaves --locked holding"
+         (Result.is_ok (Cx.Build.package ~mode:locked ~out:(fun _ -> ()) app))
+    && check "registry/update names a package" (updated [ "greet" ] [ "greet 1.0.0 -> 1.1.0" ] && locks_at "1.1.0")
+    && check "registry/update with nothing newer" (updated [] [])
+    && check
+         "registry/update of a package not in the build fails"
+         (Result.is_error (Cx.Build.update ~names:[ "nothing" ] app) && locks_at "1.1.0")
+    (* The requirement moves out from under the pin: the build moves with it,
+       and `--locked` refuses to. *)
+    && (requiring (Some "=1.0.0");
+        check
+          "registry/--locked fails when the lockfile would change"
+          (Result.is_error (Cx.Build.package ~mode:locked ~out:(fun _ -> ()) app) && locks_at "1.1.0")
+        && check
+             "registry/a requirement the pin no longer fits moves it"
+             (Result.is_ok (built app) && locks_at "1.0.0"))
+    && (requiring (Some "1.0");
+        check
+          "registry/a requirement the pin still fits leaves it"
+          (Result.is_ok (built app) && locks_at "1.0.0"))
+    && (requiring None;
+        check
+          "registry/a dependency removed from the manifest leaves the lock"
+          (Result.is_ok (Cx.Build.lock ~mode:Cx.Build.unrestricted app) && version_of "greet" = None))
+    && (requiring (Some "1.0");
+        check
+          "registry/a dependency added to the manifest takes the newest"
+          (Result.is_ok (Cx.Build.lock ~mode:Cx.Build.unrestricted app) && locks_at "1.1.0"))
     (* Yanked after this build already chose it: the lockfile keeps it, because
        one disclosure breaking every downstream build at once is not what a
        disclosure is for. *)
@@ -732,30 +1087,65 @@ let registry_cases root =
                 if String.length line >= 6 && String.equal (String.sub line 0 6) "yanked"
                 then "yanked = true"
                 else line)));
-        Result.is_ok (built app)
-        && check
-             "registry/a yank leaves a pinned version alone"
-             (Option.equal
-                Cx.Version.equal
-                (version_of "greet")
-                (Result.to_option (Cx.Version.of_string "1.1.0"))))
-    (* Resolved afresh, the yanked one is skipped. *)
+        check
+          "registry/a yank leaves a pinned version alone"
+          (Result.is_ok (build app) && locks_at "1.1.0" && notes []))
+    && check
+         "registry/update steps off a yanked version"
+         (updated [] [ "greet 1.1.0 -> 1.0.0" ]
+          && notes [ "greet 1.1.0 is yanked, so greet 1.0.0 was chosen instead." ])
     && (Sys.remove lock;
-        Result.is_ok (built app)
-        && check
-             "registry/a yank is skipped by a new resolution"
-             (Option.equal
-                Cx.Version.equal
-                (version_of "greet")
-                (Result.to_option (Cx.Version.of_string "1.0.0"))))
+        check
+          "registry/a yank is skipped by a new resolution, and says so"
+          (Result.is_ok (build app)
+           && locks_at "1.0.0"
+           && notes [ "greet 1.1.0 is yanked, so greet 1.0.0 was chosen instead." ]))
+    && check
+         "registry/publish passes on its build's notes"
+         (Result.is_ok (Cx.Publish.publish ~note app)
+          && notes [ "greet 1.1.0 is yanked, so greet 1.0.0 was chosen instead." ])
+    (* The index changed its mind about a version this build already pinned. *)
+    && (let kept = read_file lock in
+        remove cache;
+        write
+          lock
+          (String.concat
+             "\n"
+             (String.split_on_char '\n' kept
+              |> List.map (fun line ->
+                if String.starts_with ~prefix:"checksum" line
+                then "checksum = \"blake2b:0000\""
+                else line)));
+        let ok =
+          check
+            "registry/a pinned version is held to the lockfile's checksum"
+            (fails_with "─ the lockfile expects blake2b:0000" (build app))
+        in
+        write lock kept;
+        ok)
     (* The archive the registry serves is not the archive it promised. *)
     && (remove cache;
         let archive = Cx.Registry_source.archive_path registry "greet" "1.0.0" in
         write archive (read_file archive ^ "tampered");
-        check "registry/a bad checksum stops the build" (Result.is_error (built app)))
+        check
+          "registry/a bad checksum stops the build"
+          (fails_with "─ the lockfile expects blake2b:" (build app))
+        &&
+        let kept = read_file lock in
+        Sys.remove lock;
+        let ok =
+          check
+            "registry/an unpinned version is held to the index's checksum"
+            (fails_with "─ the index expects blake2b:" (build app))
+        in
+        write lock kept;
+        ok)
   in
+  remove broken;
+  write manifest original;
   Unix.putenv "CRONYX_REGISTRY" "";
   ok
+
 
 let () =
   (* An empty toolchain directory, so a diagnostic that names what this machine
@@ -781,12 +1171,15 @@ let () =
       @ List.map run_dispatched dispatched_commands
       @ [ skeleton_case ()
         ; archive_case packages_dir
+        ; archive_checkout_case ()
+        ; mislabelled_case ()
         ; registry_cases root
         ; lockfile_cases packages_dir
         ; cache_unchanged packages_dir
         ; cache_meta_read packages_dir
         ; cache_compiler_version packages_dir
         ]
+      @ cli_cases ()
       @ List.map run_requirement requirements
       @ List.map run_membership membership
       @ [ run_ordering () ]

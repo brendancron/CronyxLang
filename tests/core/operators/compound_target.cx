@@ -1,0 +1,87 @@
+var xs = [1, 2, 3];
+xs[0] += 10;
+xs[1] -= 5;
+xs[2] *= 4;
+print(xs);
+xs[2] /= 3;
+xs[0] %= 4;
+xs[1]++;
+xs[1]++;
+xs[0]--;
+print(xs);
+
+var calls = 0;
+fn at(i: int): int {
+    calls++;
+    return i;
+}
+xs[at(2)] += 100;
+xs[at(0)]++;
+print(xs);
+print(calls);
+
+var names: List<string> = ["a", "b"];
+names[1] += "!";
+print(names[1]);
+
+var grid = [[1, 2], [3, 4]];
+grid[1][0] += 30;
+grid[0][1]++;
+print(grid);
+
+type Point { x: int, y: int }
+type Shape { origin: Point, size: int }
+
+var p = new Point { x: 1, y: 2 };
+p.x += 5;
+p.y *= 10;
+p.x++;
+print(str(p.x) + " " + str(p.y));
+
+var s = new Shape { origin: new Point { x: 0, y: 0 }, size: 1 };
+s.origin.x += 7;
+s.origin.y--;
+s.size += s.origin.x;
+print(str(s.origin.x) + " " + str(s.origin.y) + " " + str(s.size));
+
+var built = 0;
+fn fresh(): Shape {
+    built++;
+    return s;
+}
+fresh().origin.x += 1;
+print(str(s.origin.x) + " " + str(built));
+
+var shapes = [s];
+shapes[0].size *= 3;
+print(s.size);
+
+type Ring { items: Array<int>, head: int }
+
+impl Index<int> for Ring {
+    type Output = int;
+
+    fn get(self, at: int): int {
+        print("get " + str(at));
+        return self.items[(self.head + at) % self.items.len()];
+    }
+}
+
+impl IndexSet<int> for Ring {
+    fn set(self, at: int, v: int): int {
+        print("set " + str(at));
+        self.items[(self.head + at) % self.items.len()] = v;
+        return v;
+    }
+}
+
+var r = new Ring { items: [10, 20, 30], head: 1 };
+r[0] += 5;
+print(r.items);
+
+fn bump(n: int): int {
+    var local = [n];
+    local[0] += 1;
+    return local[0] += 1;
+}
+print(bump(40));

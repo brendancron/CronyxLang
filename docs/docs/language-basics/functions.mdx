@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 ---
 
 # Functions
@@ -146,7 +146,7 @@ fn checkout(price: int, discount: (int) -> int): int {
 
 `checkout` takes a `price` and a function `discount` that maps an `int` price to an `int` final price, and returns whatever the discount function returns.
 
-Now we need to actually pass it a discount. One way is to construct one with a `fn` *expression* and bind it to a variable:
+Now we need to actually pass it a discount. One way is to construct one with a lambda expression and bind it to a variable:
 
 ```cronyx
 fn checkout(price: int, discount: (int) -> int): int {
@@ -188,9 +188,9 @@ print(apply() { it * 2 });
 
 Inside the braces, `it` refers to the lambda's single parameter. So `{ it * 2 }` is shorthand for "a function that takes one argument and returns twice that argument." `apply` calls it with `10`, gets back `20`, and `print` prints it.
 
-The parentheses stay even when there is nothing else to pass — they are what makes it a call.
+When the lambda is the only argument, the parentheses can go too: `apply { it * 2 }`.
 
-A trailing lambda takes one parameter, always called `it`. When you need more than one, or want to name them, write the lambda out and pass it as an ordinary argument:
+`it` is the implicit name when the lambda takes one argument. To name the parameters, or take more than one, list them before `->`: `combine(3, 4) { x, y -> x + y }`. The same call can also be written with the lambda as an ordinary argument:
 
 ```cronyx
 fn combine(a: int, b: int, f: (int, int) -> int): int {
@@ -205,7 +205,7 @@ print(combine(10, 3, (x: int, y: int) => { return x - y; }));
 7
 ```
 
-Notice that `combine` takes its non-function arguments in the parens and the trailing lambda after — `combine(3, 4) { x, y -> x + y }`. Reads almost like the function is a block.
+With a trailing lambda, `combine` takes its non-function arguments in the parens and the lambda after — `combine(3, 4) { x, y -> x + y }`. Reads almost like the function is a block.
 
 This is one of the syntactic features that gives Cronyx its flavor. You'll see it everywhere once we start working with collections.
 
@@ -213,7 +213,7 @@ This is one of the syntactic features that gives Cronyx its flavor. You'll see i
 
 Write a function `twice` that takes a function `f: (int) -> int` and an `int`, and returns `f(f(x))` — `f` applied to `x`, then applied again to the result. Call it with a trailing lambda that adds 1, starting from 0. The output should be `2`.
 
-A working answer is hidden below — try it on your own first.
+A working answer is below — try it on your own first.
 
 ```cronyx
 fn twice(x: int, f: (int) -> int): int {

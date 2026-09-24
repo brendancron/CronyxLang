@@ -1,0 +1,1 @@
+[4:9] 'Buf' takes a value parameter, so its arguments must be written: new Buf<…> { … }.

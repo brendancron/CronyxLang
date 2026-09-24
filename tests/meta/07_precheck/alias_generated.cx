@@ -1,0 +1,10 @@
+meta {
+    gen var xs = [1, 2, 3];
+}
+
+var ys = xs;
+print(ys.len());
+print(ys[2]);
+for (x in ys) {
+    print(x);
+}

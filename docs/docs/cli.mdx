@@ -1,0 +1,536 @@
+---
+sidebar_position: 5
+title: The cx command
+---
+
+# The cx command
+
+`cx` is the one command Cronyx ships. It creates packages, builds and runs them, runs their tests, publishes them, and manages toolchains. The compiler is part of it, not a separate program it calls.
+
+```
+cx <command> [options]
+```
+
+`cx -h` or `cx --help` prints the list of commands, and so does `-h` or `--help` after any command, such as `cx build -h`. Running `cx` with no command prints the same list and exits with an error.
+
+## cx new
+
+```
+cx new <name>
+```
+
+Creates a directory called `<name>` holding a new package:
+
+```
+cx new hello
+```
+
+```
+Created package 'hello'.
+```
+
+```
+hello/
+  .gitignore
+  cronyx.toml
+  src/main.cx
+  tests/example.cx
+```
+
+The `cronyx.toml` names the package, gives it version `0.1.0`, and requires the version of Cronyx you ran `cx new` with. `src/main.cx` is a small program and `tests/example.cx` is a test of it, so `cx run` and `cx test` both work straight away. `.gitignore` ignores `target/`, where builds go.
+
+`cx new` fails if the directory already exists.
+
+A package name may use letters, digits, `-` and `_`. `cx new` checks the name before it creates anything:
+
+```
+cx new bad.name
+```
+
+```
+'bad.name' is not a package name: letters, digits, '-' and '_' only.
+```
+
+A name can't start with `-`, since `cx` reads it as an option.
+
+## cx run
+
+```
+cx run [file.cx] [options]
+```
+
+With no file, `cx run` builds the package you are in and runs it. `cx` looks for `cronyx.toml` in the current directory and then in each directory above it, so you can run it from anywhere inside the package. The program it runs is `src/main.cx`, or `src/lib.cx` if there is no `main.cx`.
+
+```
+cx run
+```
+
+```
+Hello, World!
+```
+
+This goes through the same steps as `cx build` — resolving dependencies, writing the lockfile, compiling to `target/` — and then runs the result.
+
+With a file, `cx run` compiles and runs just that file:
+
+```
+cx run hello.cx
+```
+
+The file does not need to be in a package. If it is, it can import the rest of the package and the package's dependencies. When the package has registry dependencies, `cx run` resolves and fetches them first, the same way `cx build` does, and writes the lockfile. The file itself is not built into `target/`.
+
+A file that doesn't exist is an error:
+
+```
+cx run missing.cx
+```
+
+```
+missing.cx: No such file or directory
+```
+
+`cx run` takes `--locked`, `--offline` and `--frozen` (see [Lockfile flags](#lockfile-flags)) and the [dump flags](#dump-flags). Options and the file can come in any order.
+
+## cx build
+
+```
+cx build [--locked | --offline | --frozen]
+```
+
+Builds the package you are in and every package it depends on, without running anything. Each package compiles to `target/debug/<name>.cxa`, and each line of output says whether that package was compiled this time or was already up to date:
+
+```
+cx build
+```
+
+```
+checked hello
+```
+
+```
+cx build
+```
+
+```
+cached hello
+```
+
+A package is rebuilt when its `cronyx.toml` or anything under `src/` changes, when a file is added to `src/`, or when one of its dependencies was rebuilt. Files under `tests/` are not part of the build.
+
+Before compiling, `cx build` resolves the dependencies and writes `cronyx.lock` — see [Dependencies](#dependencies).
+
+## cx update
+
+```
+cx update [name...]
+```
+
+Moves locked dependencies to the newest versions that fit, and rewrites `cronyx.lock`. A build keeps the versions in the lockfile even after newer ones are published (see [The lockfile](#the-lockfile)); `cx update` is how you take them.
+
+With no names, every dependency is resolved again as if there were no lockfile:
+
+```
+cx update
+```
+
+```
+Updated greet 0.1.0 -> 0.1.1
+```
+
+With names, only those packages move, and the rest stay where the lockfile has them unless the new versions need something else:
+
+```
+cx update greet
+```
+
+Each line says what moved. `Added` and `Removed` lines appear when `cronyx.toml` has gained or lost a dependency since the lockfile was written. When nothing would change:
+
+```
+Nothing to update.
+```
+
+`cx update` doesn't build anything. Naming a package that isn't one of the dependencies is an error:
+
+```
+× Manifest error: 'nosuch' is not a package in this build.
+```
+
+It takes `--offline`, but not `--locked` or `--frozen`, since changing the lockfile is all it does.
+
+## cx test
+
+```
+cx test [filter] [--locked | --offline | --frozen]
+```
+
+Builds the package and runs every function marked `@test`, both in `src/` and in the files under `tests/`. A file under `tests/` imports the package by its name, the same way code outside the package would:
+
+```cronyx title="tests/example.cx"
+import "hello" as pkg;
+
+@test
+fn greets() {
+    assert(pkg.greeting() == "Hello, World!", "the greeting changed");
+}
+```
+
+A test in `src/` can call anything in the package directly, including what the package does not export.
+
+Each test runs in a process of its own, so a test that crashes does not take the others with it. A test must take no parameters.
+
+`cx test` prints one line per test, and then a count:
+
+```
+ok   inline_check
+ok   greets
+FAIL adds
+  arithmetic is broken
+  | checking addition
+
+2/3 passed
+```
+
+A failing test prints its failure message on the next line, then anything the test printed, each line marked with `|`. `cx test` exits with status 1 if any test failed.
+
+With a filter, only the tests whose names contain it run:
+
+```
+cx test greet
+```
+
+```
+ok   greets
+
+1/1 passed
+```
+
+If no test matches, `cx test` prints `no tests` and succeeds.
+
+`cx test` doesn't take the [dump flags](#dump-flags). Giving one is an error.
+
+A file under `tests/` that does not compile is reported along with any others that do not, and no tests run.
+
+## cx publish
+
+```
+cx publish
+```
+
+Packs up the package you are in and adds it to the registry named by `CRONYX_REGISTRY`:
+
+```
+CRONYX_REGISTRY=~/cronyx-registry cx publish
+```
+
+```
+Published greet 0.1.0 (blake2b:a16c856f3d10ff23d555fc4569fd00b2ea2f2226f81e6cbbd8a7fde5a6a99b08).
+```
+
+The archive holds the package: `cronyx.toml`, `src/`, and any other files such as a `README.md` or `LICENSE`. It leaves out what belongs to your checkout rather than to the package: `target/`, `cronyx.lock`, the top-level `tests/` directory, and every file or directory whose name starts with `.`, such as `.git/` and `.gitignore`. The version published is the `version` in `cronyx.toml`.
+
+Before publishing, `cx publish` unpacks the archive into `target/package/<name>-<version>/` and builds it there, so what it checks is exactly what someone who downloads the package gets. A package that doesn't build isn't published:
+
+```
+× Load error: Expected an expression.
+  ┌─ src/main.cx:1:10
+  │
+1 │ print(1 +);
+  │          ~
+  └─
+```
+
+A published version can't be replaced. Publishing the same version twice is an error:
+
+```
+× Manifest error: greet 0.1.0 is already published.
+```
+
+Bump the version and publish again.
+
+A `path` dependency means nothing to anyone who downloads the package, so it needs a `version` as well before the package can be published:
+
+```toml
+[dependencies]
+greet = { path = "../greet", version = "0.1" }
+```
+
+Builds on your machine use the path. The published package depends on `greet = "0.1"` from the registry instead, so that version of `greet` has to be published first. A `path` dependency without a version stops the publish:
+
+```
+× Manifest error: 'greet' is a `path` dependency, which means nothing to anyone who downloads this. Give it a version as well, as in `{ path = "…", version = "…" }`, or drop it before publishing.
+```
+
+Publishing without `CRONYX_REGISTRY` set is also an error.
+
+A registry is a directory for now. `cx publish` writes two files into it:
+
+```
+index/greet/0.1.0.toml     the version, its checksum, and what it depends on
+store/greet-0.1.0.cxar     the archive
+```
+
+There is no `cx yank`. To yank a version, set `yanked = true` in its index file. A yanked version is never picked for a new build, but a lockfile that already names it still builds. When a yanked version would otherwise have been picked, `cx` says so:
+
+```
+note: greet 0.1.1 is yanked, so greet 0.1.0 was chosen instead.
+```
+
+## cx version
+
+```
+cx version
+```
+
+```
+cx 0.0.12
+```
+
+Prints the version of the `cx` that is running. Inside a package that needs a different toolchain, this is still the one you ran — `cx version` is never handed off.
+
+## cx toolchain
+
+A package names the oldest Cronyx it works with in its `cronyx.toml`:
+
+```toml
+[package]
+name    = "hello"
+version = "0.1.0"
+cronyx  = "0.0.12"
+```
+
+`cx build`, `cx run`, `cx test`, `cx update` and `cx publish` read this first. If the running `cx` is at least that version, it does the work. If it is older, it hands the whole command to the installed toolchain of the version the package names. If that version isn't installed, it says so and stops:
+
+```
+This package needs Cronyx 0.0.99, and 0.0.12 is running.
+Fetch it from https://github.com/brendancron/CronyxLang/releases/tag/v0.0.99, then install it with `cx toolchain install 0.0.99 <path-to-cx>`.
+```
+
+The requirement is the highest `cronyx` of the package and every `path` dependency it reaches.
+
+The other commands, including `cx toolchain` itself, always run in the `cx` you called.
+
+### cx toolchain list
+
+```
+cx toolchain list
+```
+
+```
+0.0.10
+0.0.12 (running)
+```
+
+Lists the installed toolchains, and the one that is running, whether or not it was installed this way.
+
+### cx toolchain install
+
+```
+cx toolchain install <version> <path-to-cx>
+```
+
+Installs a `cx` binary, unpacked from a [release archive](https://github.com/brendancron/CronyxLang/releases), as the toolchain for `<version>`. It is copied to `~/.cronyx/toolchains/<version>/bin/cx`. Only the binary is copied, not the standard library.
+
+```
+cx toolchain install 0.0.12 ./cronyx-v0.0.12-x86_64-unknown-linux-musl/bin/cx
+```
+
+```
+Installed 0.0.12.
+```
+
+If the new version is newer than every toolchain already installed, it is also copied to `~/.cronyx/bin/cx`. For that to be the `cx` you run, put `~/.cronyx/bin` first on your `PATH`:
+
+```
+export PATH="$HOME/.cronyx/bin:$PATH"
+```
+
+Installing an older version leaves `~/.cronyx/bin/cx` alone, so installing an old toolchain to try something out never replaces a newer one:
+
+```
+Installed 0.0.10 (an older toolchain, so `cx` stays where it was).
+```
+
+## Dependencies
+
+A package lists what it depends on under `[dependencies]` in `cronyx.toml`. Each entry is either a version requirement, which is looked up in the registry, or a path to another package on disk:
+
+```toml
+[dependencies]
+greet = "0.1"                  # from the registry
+json  = { version = "^1.4" }   # the same, written as a table
+local = { path = "../local" }  # a directory holding a cronyx.toml
+tool  = { path = "../tool", version = "0.2" }  # the path here, the version once published
+```
+
+A dependency with both a `path` and a `version` is built from the path, and the path's package has to be a version the requirement allows. The version is what [`cx publish`](#cx-publish) uses.
+
+A dependency is imported by the name it has here:
+
+```cronyx
+import "greet";
+
+print(greet.hello("Cronyx"));
+```
+
+A dependency can't be called `std`, which is the standard library's name.
+
+Version requirements work the way Cargo's do:
+
+| Written | Means |
+|---|---|
+| `"1.4"` or `"^1.4"` | `>=1.4.0, <2.0.0` |
+| `"0.4"` | `>=0.4.0, <0.5.0` |
+| `"0.0.3"` | `>=0.0.3, <0.0.4` |
+| `"~1.4"` | `>=1.4.0, <1.5.0` |
+| `"=1.4.2"` | exactly `1.4.2` |
+| `">=1.2, <1.8"` | a range, from any of `>=`, `>`, `<=`, `<`, `=` joined by commas |
+
+Registry dependencies need `CRONYX_REGISTRY` set. The first time a dependency is resolved, `cx` picks the newest version that satisfies every requirement on it; after that it keeps the version in the [lockfile](#the-lockfile). It checks the archive against its checksum — the one in the lockfile if the lockfile names that version, and the registry's otherwise — and unpacks it into `~/.cronyx/registry/src/<name>-<version>`, where every package on the machine shares it. An archive that doesn't match stops the build:
+
+```
+× Manifest error: greet 0.1.0 does not match its checksum.
+  ─ the lockfile expects blake2b:00003e20abfd7dcba93a5e71d670d375bc0e6c876a32713baaf347f14a63600e
+  ─ the registry served blake2b:7fa03e20abfd7dcba93a5e71d670d375bc0e6c876a32713baaf347f14a63600e
+```
+
+If no version fits, `cx` says who asked for what:
+
+```
+× Manifest error: no version of 'greet' satisfies every requirement.
+  ─ app 0.1.0 requires greet >=0.2.0, <0.3.0
+
+  The registry offers 0.1.1, 0.1.0.
+```
+
+### The lockfile
+
+`cx build`, `cx run` and `cx test` write what they resolved to `cronyx.lock`, next to `cronyx.toml`:
+
+```toml title="cronyx.lock"
+# Generated by cx. Check this in.
+cronyx = "0.0.12"
+
+[[package]]
+name = "app"
+version = "0.1.0"
+source = "path+."
+dependencies = ["greet"]
+
+[[package]]
+name = "greet"
+version = "0.1.0"
+source = "registry"
+checksum = "blake2b:a16c856f3d10ff23d555fc4569fd00b2ea2f2226f81e6cbbd8a7fde5a6a99b08"
+dependencies = []
+```
+
+Check it in, for libraries as well as programs.
+
+Once a version is in the lockfile, builds keep using it. Publishing a newer version that fits doesn't change what `cx build` picks — the lockfile still says `0.1.0` after `greet 0.1.1` is published, and the build doesn't compile anything new:
+
+```
+cx build
+```
+
+```
+cached greet
+cached app
+```
+
+To take the newer version, run [`cx update`](#cx-update).
+
+A build changes the lockfile only when `cronyx.toml` has moved away from it:
+
+- a dependency you added is resolved to the newest version that fits;
+- a dependency you removed is taken out;
+- a dependency whose requirement the locked version no longer meets — say you changed `greet = "0.1"` to `greet = "=0.1.0"` while the lockfile had `0.1.1` — is resolved again, to the newest version that meets it.
+
+Everything else keeps its locked version, unless a package that moved now needs a different version of it. A locked version that has since been yanked is kept too.
+
+If there is no `cronyx.lock`, every dependency is resolved fresh and the lockfile is written.
+
+### Lockfile flags
+
+`cx build`, `cx run` and `cx test` take these:
+
+- `--locked` — fail rather than write the lockfile. It fails if there is no `cronyx.lock`, or if `cronyx.toml` no longer matches it: a dependency added or removed, or a requirement the locked version doesn't meet. A newer version being published doesn't make it fail, since a build wouldn't take it anyway.
+- `--offline` — don't read the registry at all. Dependencies are resolved from what earlier builds fetched into `~/.cronyx/registry`, and anything that isn't there is an error:
+
+  ```
+  × Manifest error: 'greet' is not in the cache, and --offline was given. Build once without --offline to fetch it.
+  ```
+- `--frozen` — both. This is the one to use in CI when the cache is kept between runs. A CI machine that starts with an empty cache needs `--locked` instead, since `--frozen` can't fetch anything.
+
+```
+cx build --locked
+```
+
+```
+× Manifest error: --locked was given and the lockfile would change. Run `cx build` without it to see what moved.
+```
+
+## Dump flags
+
+`cx run` can print what the compiler made of a program at each stage, before running it. Each flag prints a heading such as `-- ast --`, then the dump, and then the program runs as usual. You can give more than one.
+
+- `--dump-source` — the source file as the compiler read it.
+- `--dump-tokens` — the tokens, one per line, with their line and column.
+- `--dump-ast` — the parsed program, as S-expressions.
+- `--dump-types` — the program after type checking, every expression annotated with its type. This includes the parts of the standard library every program loads, so it is long.
+- `--dump-code` — the program as Cronyx source, after metaprocessing. This is how to see what a `gen` or a deriver produced.
+
+For example, this program generates a statement at compile time:
+
+```cronyx title="gen.cx"
+print("Top");
+meta {
+    gen print("Middle");
+}
+print("Bottom");
+```
+
+```
+cx run gen.cx --dump-code
+```
+
+```
+-- code --
+print("Top");
+print("Middle");
+print("Bottom");
+Top
+Middle
+Bottom
+```
+
+And a smaller one, parsed:
+
+```
+cx run add.cx --dump-ast
+```
+
+```
+-- ast --
+(var x (+ 1 2))
+(call print x)
+3
+```
+
+With no file, `cx run` prints the dumps for the package's `src/main.cx` (or `src/lib.cx`).
+
+## Environment variables
+
+- `CRONYX_HOME` — where `cx` keeps installed toolchains (`toolchains/`), the `cx` it promotes (`bin/cx`) and the registry cache (`registry/`, which holds the index entries and the unpacked source of every registry package it has fetched). Defaults to `~/.cronyx`.
+- `CRONYX_REGISTRY` — the registry directory that `cx publish` writes to and registry dependencies are read from. There is no default: without it, publishing and registry dependencies are errors.
+- `CRONYX_STDLIB` — the standard library to compile against. Without it, `cx` looks in `../lib/cronyx/stdlib` relative to its own binary, then for a `stdlib/` directory above the current directory, then above the binary.
+- `NO_COLOR` — set to anything non-empty to turn off colour in error messages. Colour is also off when errors aren't going to a terminal.
+
+## Exit status
+
+| Status | Meaning |
+|---|---|
+| 0 | success |
+| 1 | `cx test` ran and a test failed |
+| 64 | the command was used wrongly: an unknown command or option, a missing argument, a file that doesn't exist, no `cronyx.toml`, or a toolchain that isn't installed |
+| 65 | the program, or a `cronyx.toml`, didn't compile or resolve, or a package failed to publish |
+| 70 | the program failed while running |

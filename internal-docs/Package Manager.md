@@ -8,7 +8,7 @@ The tool ships alongside the compiler and is the boundary where the [Modules](Mo
 
 `cx`. One binary, subcommands. The compiler is a library it links against, not a program it shells out to — a `cx build` that fork/execs the compiler pays the OCaml startup cost per invocation and loses structured diagnostics to a pipe. `cx` may exec *once*, at startup, to hand the job to a different toolchain's `cx` (see [Toolchains](#toolchains-cx-installs-its-own-compiler)); after that the compiler is a library for the rest of the run.
 
-Seven subcommands cover the whole model. Each one is small; extra flags earn their place the same way a comment does.
+Eight subcommands cover the whole model. Each one is small; extra flags earn their place the same way a comment does.
 
 ```
 cx new <name>            create a package skeleton
@@ -16,13 +16,14 @@ cx build                 resolve, fetch, check, cache
 cx run [-- args…]        build then execute the entry
 cx test [filter]         run the package's @test functions
 cx add <pkg>[@<req>]     record a dependency, resolve, lock
+cx update [pkg…]         move pins to the newest versions that fit
 cx publish               upload to a registry
 cx toolchain <cmd>       install, list, and pin compiler versions
 ```
 
 `toolchain` is in the list rather than deferred because dispatch depends on it: the tool that picks a compiler must also be able to install one.
 
-`why`, `vendor`, `fmt`, `doc`, `bench`, `check`, `clean`, `update`, `search`, `login`, `yank`, and `tree` follow later. None of them change the model. Two are load-bearing when they land: `why <pkg>` prints the requirement chain that selected a version, which is the only way to learn which dependency raised the compiler floor; and `vendor` is what `--offline` needs on a machine with a cold cache.
+`why`, `vendor`, `fmt`, `doc`, `bench`, `check`, `clean`, `search`, `login`, `yank`, and `tree` follow later. None of them change the model. Two are load-bearing when they land: `why <pkg>` prints the requirement chain that selected a version, which is the only way to learn which dependency raised the compiler floor; and `vendor` is what `--offline` needs on a machine with a cold cache.
 
 ## The tool lives in the compiler's repo
 
@@ -169,7 +170,11 @@ Resolution is one function: given the manifest's requirements and a registry ind
 
 **MVS or PubGrub.** Go's Minimum Version Selection is simpler to explain, produces reproducible builds without a lockfile, and eliminates the class of "my machine picked a different patch" bugs. PubGrub gives better diagnostics ("A wants B ^1, C wants B ^2, so no version of B works"). The initial resolver is PubGrub — the diagnostic quality is worth the implementation cost, and the class of user error the resolver reports on is exactly the class we want to be precise about.
 
-**The lockfile is authoritative for `build`.** `cx build` reads `cronyx.lock` and never contacts a registry. `cx add`, `cx update`, and a lockfile-absent state are the only paths that resolve. This is the invariant users depend on: a green build stays green.
+**The lockfile is authoritative for `build`.** A version in `cronyx.lock` is kept for as long as it satisfies every requirement the graph now makes of its name, so a newer release changes nothing about a build that has already locked an older one. `cx build`, `run` and `test` resolve only what the lock cannot answer: a dependency added since, or one whose requirement has moved so that its pin no longer fits. One removed is not reached from the manifest and drops out. A package that moves can take its own dependencies with it, when what it moved to requires versions their pins do not satisfy; nothing else moves. This is the invariant users depend on: a green build stays green, and the lockfile changes only when the manifest did.
+
+A pin is a preference, not a constraint: the resolver tries it first and falls back to the newest that fits, so a requirement edited past the pin is followed by the next build rather than refused, and an edited manifest never needs a second command to build. This is Cargo's rule.
+
+`cx update` is the only path that moves a pin that still fits. With no names it resolves as if there were no lockfile; with names it unpins those and keeps the rest, which then move only by the rule above. It prints what moved, one `Updated greet 0.1.0 -> 0.1.1` per package, or `Nothing to update.` `--locked` is then an assertion about the manifest — it fails exactly when the manifest has moved away from the lock — and `cx update` refuses it, since changing the lock is all it does.
 
 ## The lockfile
 
@@ -185,11 +190,11 @@ dependencies = ["http 1.4.7", "json 0.9.2"]
 name = "http"
 version = "1.4.7"
 source = "registry+https://packages.cronyx.dev"
-checksum = "sha256:…"
+checksum = "blake2b:…"
 dependencies = ["bytes 0.1.4"]
 ```
 
-`checksum` covers the source tarball, not the compiled artifact. Binary caches are a separate concern (below) and have their own hash.
+`checksum` covers the source tarball, not the compiled artifact. Binary caches are a separate concern (below) and have their own hash. A version the lockfile pins is verified against the checksum recorded here, not against whatever the index says today: an index that changed its mind about a published version is exactly what the lock exists to catch, and a mismatch says which of the two it checked.
 
 **A git dependency locks two hashes, not one.** The resolved commit is what `rev` names, but a commit is a name a server chooses and a rewritten history can reuse; the lockfile therefore also records a hash of the checked-out tree, and a checkout whose tree does not match is an error rather than a rebuild.
 
@@ -199,7 +204,7 @@ name = "tui"
 version = "0.2.0"
 source = "git+https://…?rev=abc123"
 commit = "abc123…"
-checksum = "sha256:…"        # over the checked-out tree
+checksum = "blake2b:…"        # over the checked-out tree
 ```
 
 **No schema-version field.** Cargo's lockfile carries `version = 4` because it has been migrated three times; a fresh format has nothing to migrate from. When the schema needs to change, the field arrives with the first change and starts at `1`.
@@ -220,7 +225,7 @@ The index is a **git repository of JSON files**, one file per package, sharded b
 
 Publishing is `PUT /api/v1/crates/new` with an API token and a tarball, the tarball's manifest signed by the token's account.
 
-**A `path` dependency blocks publishing unless it also carries a `version`.** `{ path = "../local" }` means nothing to anyone who downloads the tarball, so the registry rejects it. `{ path = "../local", version = "0.2" }` publishes: the path is used locally, the version is what the published manifest records. This is Cargo's rule and the reason for it is the same.
+**A `path` dependency blocks publishing unless it also carries a `version`.** `{ path = "../local" }` means nothing to anyone who downloads the tarball, so the registry rejects it. `{ path = "../local", version = "0.2" }` publishes: the path is used locally, the version is what the published manifest records. The `cronyx.toml` inside the tarball is rewritten so that the dependency is `local = "0.2"`, since a consumer builds what it downloads and has no `../local`. Locally the package at the path must satisfy the version, or resolution reports it like any other conflict. This is Cargo's rule and the reason for it is the same.
 
 **The tarball's contents are declared, not inferred.**
 
@@ -230,9 +235,11 @@ include = ["src/**/*.cx", "cronyx.toml", "README.md", "LICENSE"]
 exclude = ["tests/fixtures/large/**"]
 ```
 
-`include` wins where both appear. With neither, the default is the package root minus `target/`, minus VCS directories, and minus anything the VCS ignores. An allowlist is the safer default to reach for, and a package that ships its `target/` once has already leaked whatever was in it.
+`include` wins where both appear. With neither, the default is the package root minus `target/`, minus `cronyx.lock` and the top-level `tests/`, and minus anything hidden, which is where VCS directories, ignore files and editor state live. An allowlist is the safer default to reach for, and a package that ships its `target/` once has already leaked whatever was in it. Neither key exists yet, and neither does reading what the VCS ignores; the default is all there is.
 
-**No auto-yank on vulnerability.** A yanked version still resolves for a lockfile that already selected it — otherwise a security disclosure breaks every downstream build simultaneously, which is not the disclosure's intent. New resolutions skip yanked versions with a diagnostic.
+**What ships has been built.** `cx publish` unpacks the tarball into `target/package/<name>-<version>/` and builds it there before anything reaches the registry, so a package that does not compile — or compiles only because of a file the tarball leaves out, or depends on a version of a path dependency nobody has published — is refused rather than discovered downstream.
+
+**No auto-yank on vulnerability.** A yanked version still resolves for a lockfile that already selected it — otherwise a security disclosure breaks every downstream build simultaneously, which is not the disclosure's intent. New resolutions skip yanked versions with a diagnostic: a `note:` on stderr naming the yanked version that would otherwise have been taken and the one that was.
 
 ## Caches, directories, offline
 
@@ -256,7 +263,7 @@ target/
   release/
 ```
 
-**Offline is a first-class mode.** `cx build --offline` refuses network access and errors if the cache lacks something. `cx build --frozen` additionally errors if the lockfile would need updating. Both are what CI wants; both are what a plane wants; the only way to reach that reliably is to make them modes, not the accidental effect of a warm cache.
+**Offline is a first-class mode.** `cx build --offline` refuses network access and errors if the cache lacks something. The cache keeps the index entry of every release it fetched beside its source, so it has the shape of a registry and an offline resolution is the ordinary resolver pointed at it: nothing reads the registry, a pinned version still resolves, and a dependency never fetched is an error naming it. `cx build --frozen` additionally errors if the lockfile would need updating. Both are what CI wants; both are what a plane wants; the only way to reach that reliably is to make them modes, not the accidental effect of a warm cache.
 
 ## What `cx build` produces
 

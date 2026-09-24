@@ -6,7 +6,7 @@
 open Bootstrap
 
 type source =
-  | Path of string
+  | Path of string * Requirement.t option
   | Registry of Requirement.t
 
 type dependency =
@@ -65,16 +65,21 @@ let reject_unknown ~what ~known entries =
           (String.concat ", " known))
     entries
 
-let package_name span name =
+let name_problem name =
   if String.equal name ""
-  then fail span "A package name may not be empty."
+  then Some "A package name may not be empty."
   else if
     not
       (String.for_all
          (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '-' -> true | _ -> false)
          name)
-  then fail span "'%s' is not a package name: letters, digits, '-' and '_' only." name
-  else name
+  then Some (Printf.sprintf "'%s' is not a package name: letters, digits, '-' and '_' only." name)
+  else None
+
+let package_name span name =
+  match name_problem name with
+  | Some problem -> fail span "%s" problem
+  | None -> name
 
 let requirement_of (entry : Toml.entry) written =
   match Requirement.of_string written with
@@ -99,7 +104,9 @@ let dependency (entry : Toml.entry) =
       ~known:[ "path"; "version" ]
       fields;
     (match Toml.find fields "path", Toml.find fields "version" with
-     | Some path, _ -> { name; source = Path (as_string path); span }
+     | Some path, version ->
+       let version = Option.map (fun v -> requirement_of v (as_string v)) version in
+       { name; source = Path (as_string path, version); span }
      | None, Some version ->
        { name; source = Registry (requirement_of version (as_string version)); span }
      | None, None ->
@@ -161,4 +168,4 @@ let find_root from =
       let parent = Filename.dirname dir in
       if String.equal parent dir then None else up parent)
   in
-  up (if Sys.is_directory from then from else Filename.dirname from)
+  up (if Sys.file_exists from && Sys.is_directory from then from else Filename.dirname from)

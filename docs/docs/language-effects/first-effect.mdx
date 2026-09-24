@@ -138,7 +138,7 @@ log("boom");
 ```
 
 ```
-Unhandled effect(s): logger.
+Unhandled effect 'logger': no handler encloses this.
 ```
 
 Nothing encloses the top level, so nothing can discharge the effect. This is the guarantee that makes the rest of the section safe to build on: if a function four levels down performs an effect and you forgot the handler, you hear about it at compile time, not at three in the morning.

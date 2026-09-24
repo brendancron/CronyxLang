@@ -1,0 +1,1 @@
+[4:25] 'shout' performs 'log', but the parameter's function type is written without a row, so it is pure. A row variable lets the effects through, as in (T) -> <E> T.

@@ -145,7 +145,7 @@ log: saw 5
 10 10
 ```
 
-`twice` was never told anything about effects and accepts both callbacks anyway. This is the same "no function coloring" property from [Why effects](./why-effects.mdx) applied to higher-order code: the annotation is what you write when you want the signature spelled out, not what makes the polymorphism happen.
+`twice` was never told anything about effects and accepts both callbacks anyway. This is "known, not written" from [Why effects](./why-effects.mdx), applied to higher-order code: the annotation is what you write when you want the signature spelled out, not what makes the polymorphism happen.
 
 You can see what was inferred with `typeof`:
 

@@ -133,11 +133,21 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
     match e.Ast.it with
     (* No in-place entry exists, so it derives from the plain operator. *)
     | `Compound (op, name, v) ->
-      let target : Ast.resolved_expr = { Ast.it = `Var name; span; ann } in
-      let combined : Ast.resolved_expr =
-        { Ast.it = `Binop (op, target, expr registry v); span; ann }
+      let target : Ast.typed_expr = { Ast.it = `Var name; span; ann } in
+      `Assign (name, expr registry { e with Ast.it = `Binop (op, target, v) })
+    | `Compound_index (op, target, index, v) ->
+      let target, target_again = once target in
+      let index, index_again = once index in
+      let current : Ast.typed_expr =
+        { Ast.it = `Index (target_again, index_again); span; ann }
       in
-      `Assign (name, combined)
+      let combined = { e with Ast.it = `Binop (op, current, v) } in
+      (expr registry { e with Ast.it = `Index_assign (target, index, combined) }).Ast.it
+    | `Compound_field (op, target, label, v) ->
+      let target, target_again = once target in
+      let current : Ast.typed_expr = { Ast.it = `Field (target_again, label); span; ann } in
+      let combined = { e with Ast.it = `Binop (op, current, v) } in
+      (expr registry { e with Ast.it = `Field_assign (target, label, combined) }).Ast.it
     | `Unop (Ast.Neg, a) ->
       let a = expr registry a in
       (match Registry.find_unary registry Ast.Neg a.Ast.ann with
@@ -361,6 +371,21 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
     | _ -> ann
   in
   { Ast.it; span; ann }
+
+(* A compound target is read and then written, and what it is made of must run
+   once between them: `xs[f()] += 1` calls `f` once. The temporary is assigned
+   where the expression stood rather than declared with its value, so an
+   enclosing loop condition still evaluates it every time round. *)
+and once (x : Ast.typed_expr) : Ast.typed_expr * Ast.typed_expr =
+  match x.Ast.it with
+  | `Var _ | #Ast.lit -> x, x
+  | _ ->
+    let temp = fresh () in
+    let declared : Ast.resolved_stmt =
+      { Ast.it = `Var_decl (temp, None, None); span = x.Ast.span; ann = x.Ast.ann }
+    in
+    hoisted := declared :: !hoisted;
+    { x with Ast.it = `Assign (temp, x) }, { x with Ast.it = `Var temp }
 
 (* Whatever the value expression hoists belongs inside the block, in front of it. *)
 and valued registry (b : (Ast.typed_expr, Ast.typed_stmt) Ast.valued_block) =

@@ -1,0 +1,5 @@
+meta {
+    var r = { x: 1 };
+    gen var rr = r;
+}
+print(rr.x);

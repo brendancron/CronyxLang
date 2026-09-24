@@ -1,1 +1,1 @@
-[unknown] Unhandled effect(s): logger.
+[4:1] Unhandled effect 'logger': no handler encloses this.

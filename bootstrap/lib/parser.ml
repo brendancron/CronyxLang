@@ -254,8 +254,12 @@ and assignment s : Ast.expr =
     | `Var name, Some binop -> Ast.at left.Ast.span (`Compound (binop, name, value))
     | `Index (target, i), None ->
       Ast.at left.Ast.span (`Index_assign (target, i, value))
+    | `Index (target, i), Some binop ->
+      Ast.at left.Ast.span (`Compound_index (binop, target, i, value))
     | `Field (target, label), None ->
       Ast.at left.Ast.span (`Field_assign (target, label, value))
+    | `Field (target, label), Some binop ->
+      Ast.at left.Ast.span (`Compound_field (binop, target, label, value))
     | _ ->
       ignore (error s tok "Invalid assignment target.");
       left
@@ -322,12 +326,15 @@ and unary s : Ast.expr =
 (* These yield the updated value, so `++x` and `x++` would mean the same thing;
    only the postfix spelling is accepted. *)
 and postfix s : Ast.expr =
+  let one tok = Ast.at (Ast.span_of_token tok) (`Int 1) in
   let rec loop left =
     let step op tok =
       match left.Ast.it with
-      | `Var name ->
-        let one = Ast.at (Ast.span_of_token tok) (`Int 1) in
-        loop (Ast.at left.Ast.span (`Compound (op, name, one)))
+      | `Var name -> loop (Ast.at left.Ast.span (`Compound (op, name, one tok)))
+      | `Index (target, i) ->
+        loop (Ast.at left.Ast.span (`Compound_index (op, target, i, one tok)))
+      | `Field (target, label) ->
+        loop (Ast.at left.Ast.span (`Compound_field (op, target, label, one tok)))
       | _ ->
         ignore (error s tok "Invalid increment target.");
         left

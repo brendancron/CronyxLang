@@ -86,7 +86,7 @@ run {
 34
 ```
 
-`a`, `b` and `count` live across every suspension. Nothing was rewritten into a state machine by hand — the compiler does that transformation, and only for the functions that need it.
+`a`, `b` and `count` live across every suspension. Nothing was rewritten into a state machine by hand — the compiler keeps them alive across suspensions, and only for the functions that need it.
 
 ## The handler is the consumer
 

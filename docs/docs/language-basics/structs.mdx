@@ -1,5 +1,5 @@
 ---
-sidebar_position: 6
+sidebar_position: 8
 ---
 
 # Structs
@@ -65,7 +65,7 @@ print(c.unit());
 degrees C
 ```
 
-A type with no fields has exactly one possible value, so the type's name *is* that value: `var c = Celsius;` is how you get one, and there's nothing to write inside a `new` that would tell two of them apart. These show up most often with traits, which the next chapter covers.
+A type with no fields has exactly one possible value, so the type's name *is* that value: `var c = Celsius;` is how you get one, and there's nothing to write inside a `new` that would tell two of them apart. These show up most often with traits, which the [Traits](./traits.mdx) chapter covers.
 
 ## Reading fields
 
@@ -209,7 +209,7 @@ print(winner.height);
 5
 ```
 
-Notice how `bigger` returns one of its arguments unchanged — structs are values you can pass around freely, just like `int`s and `string`s.
+Notice how `bigger` returns one of its arguments unchanged — structs can be passed and returned freely. A struct variable holds a reference, though: after `var b = a;`, assigning `b.x` changes `a.x` too.
 
 ## What's next
 

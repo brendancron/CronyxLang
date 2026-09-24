@@ -1,0 +1,16 @@
+trait Speaker {
+    fn speak(self): string;
+}
+
+type Cat;
+
+impl Speaker for Cat {
+    fn speak(self): string {
+        return "meow";
+    }
+}
+
+meta {
+    var s: Speaker = Cat;
+    gen var ss = s;
+}

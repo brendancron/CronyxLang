@@ -1,0 +1,7 @@
+[package]
+name    = "pathver"
+version = "0.1.0"
+cronyx  = "0.0.1"
+
+[dependencies]
+greet = { path = "../greet", version = "1.0" }

@@ -1,16 +1,16 @@
 ---
-sidebar_position: 4
+sidebar_position: 5
 ---
 
-# Slices
+# Collections
 
 Cronyx writes every collection with the same square brackets, and the type it builds is whatever you annotate. `Array<T>` is the fixed-size block a literal makes on its own; `List<T>` is the growable one. There are others — `Set<T>`, `Map<K, V>` — and a type of your own joins in by implementing `FromArray`.
 
 By the end of this chapter you'll be able to create both, read and write elements, iterate over them, slice subranges out of them, and use the built-in methods.
 
-## Creating a slice
+## Creating a collection
 
-A slice literal is a comma-separated list inside square brackets:
+A collection literal is a comma-separated list inside square brackets:
 
 ```cronyx
 var nums  = [10, 20, 30];
@@ -37,7 +37,7 @@ print(seen.len());
 2
 ```
 
-Slices can also nest:
+Collections can also nest:
 
 ```cronyx
 var grid = [[1, 2], [3, 4]];
@@ -64,7 +64,7 @@ print(row[2]);
 
 A negative index is *not* counted from the end. `nums[-1]` is out of bounds and stops the program, because an index reached from a computed expression is more often a mistake than an intention. Counting from the end is what slicing is for, and the next section covers it.
 
-For nested slices, chain the brackets:
+For nested collections, chain the brackets:
 
 ```cronyx
 var grid = [[1, 2], [3, 4]];
@@ -79,7 +79,7 @@ print(grid[1][0]);
 
 ## Updating an element
 
-Slices are mutable. Assign to an index to update the value:
+Arrays and lists are mutable. Assign to an index to update the value:
 
 ```cronyx
 var row = [1, 2, 3];
@@ -95,7 +95,7 @@ print(row[2]);
 3
 ```
 
-The same works for nested slices:
+The same works for nested collections:
 
 ```cronyx
 var grid = [[1, 2], [3, 4]];
@@ -109,7 +109,7 @@ print(grid[0][1]);
 
 ## Iterating
 
-You've already seen the C-style `for` loop. Slices have a friendlier alternative — `for (x in xs)`, which binds each element in turn to `x`:
+You've already seen the C-style `for` loop. Collections have a friendlier alternative — `for (x in xs)`, which binds each element in turn to `x`:
 
 ```cronyx
 var names = ["alice", "bob", "charlie"];
@@ -128,7 +128,7 @@ Use the C-style `for` when you need the *index* (or non-trivial stepping); use `
 
 ## Slicing a subrange
 
-Square brackets with a colon inside give you a *subrange* — a new slice that's a window into the original:
+Square brackets with a colon inside give you a *subrange* — a new collection holding a copy of those elements:
 
 ```cronyx
 var nums = [1, 2, 3, 4, 5];
@@ -200,7 +200,7 @@ has_2
 
 ## Try it
 
-Write a function `max(xs: Array<int>): int` that returns the largest element of a slice. Use `for ... in` and an `if` to track the running best. Calling `max([3, 7, 2, 9, 5])` should print `9`.
+Write a function `max(xs: Array<int>): int` that returns the largest element of an array. Use `for ... in` and an `if` to track the running best. Calling `max([3, 7, 2, 9, 5])` should print `9`.
 
 A working answer:
 
@@ -226,4 +226,4 @@ We seed `best` with the first element rather than something like `0` so the func
 
 ## What's next
 
-You can now hold collections of values, walk over them, transform them, and slice them up. Next up: **tuples** — fixed-size groups of values whose elements can be of different types, useful for returning more than one value from a function.
+You can now hold collections of values, walk over them, transform them, and slice them up. Next up: **strings** — text, and the characters it's made of.

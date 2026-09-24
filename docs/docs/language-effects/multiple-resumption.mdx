@@ -4,9 +4,9 @@ sidebar_position: 7
 
 # Multiple resumption
 
-`resume` is a normal call. Nothing says you may only make it once.
+`resume` comes back, like a normal call. Nothing says you may only make it once.
 
-That single sentence is where effects part company with every mainstream control-flow construct. `catch` can't re-run the code that threw — the stack is gone. `await` resumes a promise exactly once and throws if you try again. A `ctl` arm holds the rest of the computation as a value it can invoke as often as it likes, so calling it twice runs the rest of the program twice, once per answer.
+That single sentence is where effects part company with every mainstream control-flow construct. `catch` can't re-run the code that threw — the stack is gone. `await` continues its function exactly once; nothing can run the code after it a second time. A `ctl` arm holds the rest of the computation as a value it can invoke as often as it likes, so calling it twice runs the rest of the program twice, once per answer.
 
 ## Two answers to one question
 

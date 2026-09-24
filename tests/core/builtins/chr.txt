@@ -1,0 +1,6 @@
+a
+A
+é
+c
+true
+IBM

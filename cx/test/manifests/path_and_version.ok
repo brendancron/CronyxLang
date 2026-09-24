@@ -1,0 +1,4 @@
+name = mypkg
+version = 0.3.1
+cronyx = 0.1.1
+dep http = path ../http, publishing as >=1.4.0, <2.0.0

@@ -414,6 +414,46 @@ impl string {
         return out;
     }
 
+    fn split_str(self, sep: string): Array<string> {
+        var parts: List<string> = [];
+        if (sep.len() == 0) {
+            parts.push(self);
+        } else {
+            var start = 0;
+            var i = 0;
+            while (i + sep.len() <= self.len()) {
+                if (__slice(self, i, i + sep.len()) == sep) {
+                    parts.push(__slice(self, start, i));
+                    i += sep.len();
+                    start = i;
+                } else {
+                    i++;
+                }
+            }
+            parts.push(__slice(self, start, self.len()));
+        }
+
+        var out = new Array<string>(parts.len(), "");
+        var j = 0;
+        while (j < parts.len()) {
+            out[j] = parts[j];
+            j = j + 1;
+        }
+        return out;
+    }
+
+    fn to_int(self): Option<int> {
+        var parsed = __parse_int(self);
+        if (parsed.0) { return Option::Some(parsed.1); }
+        return Option::None;
+    }
+
+    fn to_float(self): Option<float> {
+        var parsed = __parse_float(self);
+        if (parsed.0) { return Option::Some(parsed.1); }
+        return Option::None;
+    }
+
     fn trim(self): string {
         var start = 0;
         while (start < self.len() && __is_space(self[start])) {

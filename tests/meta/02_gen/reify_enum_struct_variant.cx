@@ -1,0 +1,12 @@
+type Effect {
+    Damage { amount: int },
+    None,
+}
+meta {
+    var e = Effect::Damage { amount: 15 };
+    gen var ee = e;
+}
+match ee {
+    Effect::Damage { amount } => { print(amount); }
+    Effect::None => { print("none"); }
+}

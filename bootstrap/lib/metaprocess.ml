@@ -59,8 +59,8 @@ let emitter = Ast.generated [ "meta"; "emit" ]
 let capturer = Ast.generated [ "meta"; "value" ]
 let quoter = Ast.generated [ "meta"; "code" ]
 
-(* A value written back as the syntax that denotes it. A function, an object
-   and a variant have no such syntax, so they are [None]. *)
+(* A value written back as the syntax that denotes it. A function and an object
+   have no such syntax, so they are [None]. *)
 let rec literal_of span (v : Value.value) : Ast.expr option =
   let at it = Ast.at span it in
   let all items =
@@ -83,10 +83,28 @@ let rec literal_of span (v : Value.value) : Ast.expr option =
   | Value.Tuple items -> Option.map (fun items -> at (`Tuple items)) (all items)
   | Value.Array items ->
     Option.map (fun items -> at (`Collection_lit items)) (all (Array.to_list items))
-  | Value.Record fields ->
+  | Value.Record (named, fields) ->
     Option.map
-      (fun values -> at (`Record_lit (List.combine (List.map fst fields) values)))
+      (fun values ->
+        let fields = List.combine (List.map fst fields) values in
+        match named with
+        | Some name -> at (`New (name, fields))
+        | None -> at (`Record_lit fields))
       (all (List.map (fun (_, v) -> !v) fields))
+  | Value.Variant (Some ty, variant, fields) ->
+    let positional =
+      List.for_all Fun.id (List.mapi (fun i (label, _) -> String.equal label (string_of_int i)) fields)
+    in
+    Option.map
+      (fun values ->
+        let payload : Ast.expr Ast.payload =
+          match values with
+          | [] -> Ast.P_none
+          | values when positional -> Ast.P_tuple values
+          | values -> Ast.P_fields (List.combine (List.map fst fields) values)
+        in
+        at (`New_variant (ty, variant, payload)))
+      (all (List.map snd fields))
   | _ -> None
 
 let promoted_prefix = Ast.generated [ "meta"; "promoted" ]
@@ -101,6 +119,8 @@ let unwritable span name (v : Value.value) =
   else (
     match v with
     | Value.Fn _ -> fail span "'%s' is a function and cannot be written into generated code." name
+    | Value.Object _ ->
+      fail span "'%s' is a trait object and cannot be written into generated code." name
     | _ -> fail span "'%s' cannot be written into generated code." name)
 
 let name_of (v : Value.value) =
@@ -190,6 +210,8 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
         | `Field (receiver, label) -> `Field (expr receiver, named label)
         | `Field_assign (receiver, label, v) ->
           `Field_assign (expr receiver, named label, expr v)
+        | `Compound_field (op, receiver, label, v) ->
+          `Compound_field (op, expr receiver, named label, expr v)
         | #Ast.lit as l -> l
         | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.expr_kind)
         | #Ast.ops as o -> (Ast.map_ops expr o :> Ast.expr_kind)
@@ -773,6 +795,12 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
         let a, b = two a b in
         `Or (a, b)
       | `Compound (op, name, v) -> `Compound (op, name, ex v)
+      | `Compound_index (op, a, b, c) ->
+        let a, b = two a b in
+        `Compound_index (op, a, b, ex c)
+      | `Compound_field (op, a, label, v) ->
+        let a, v = two a v in
+        `Compound_field (op, a, label, v)
       | `Index (a, b) ->
         let a, b = two a b in
         `Index (a, b)
@@ -788,7 +816,9 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
         let a, v = two a v in
         `Field_assign (a, label, v)
       | `New_call (name, types, args) -> `New_call (name, types, many args)
-      | `New (name, fields) -> `New (name, List.map (fun (l, v) -> l, ex v) fields)
+      | `New (name, fields) ->
+        let fields = List.map (fun (l, v) -> l, ex v) fields in
+        (h.generic_new scope { e with Ast.it = `New (name, fields) }).Ast.it
       | `New_variant (ty, variant, payload) -> `New_variant (ty, variant, Ast.map_payload ex payload)
       | `New_generic (name, static_args, fields) ->
         let static_args = List.map (Ast.map_static_arg ex) static_args in
@@ -993,7 +1023,8 @@ let rec contains_code (body : Ast.stmt list) =
     | `Binop (_, a, b) | `And (a, b) | `Or (a, b) | `Index (a, b) -> expr a; expr b
     | `Assign (_, v) | `Compound (_, _, v) | `Tuple_get (v, _) | `Field (v, _) | `Spread v
     | `Typeof v -> expr v
-    | `Index_assign (a, b, c) -> expr a; expr b; expr c
+    | `Index_assign (a, b, c) | `Compound_index (_, a, b, c) -> expr a; expr b; expr c
+    | `Compound_field (_, a, _, b) -> expr a; expr b
     | `Field_assign (a, _, b) -> expr a; expr b
     | `Tuple items | `Collection_lit items -> List.iter expr items
     | `Record_lit fields | `New (_, fields) -> List.iter (fun (_, v) -> expr v) fields
@@ -1290,7 +1321,7 @@ let rec fold (e : Ast.expr) : Ast.expr =
       | _, `Int x, `Int y -> Option.fold ~none:e ~some:(fun r -> at (`Bool r)) (judged (Int.compare x y))
       | _, `Float x, `Float y ->
         Option.fold ~none:e ~some:(fun r -> at (`Bool r)) (judged (Float.compare x y))
-      | _, `Str x, `Str y -> Option.fold ~none:e ~some:(fun r -> at (`Bool r)) (judged (Stdlib.compare x y))
+      | _, `Str x, `Str y -> Option.fold ~none:e ~some:(fun r -> at (`Bool r)) (judged (Utf8.compare x y))
       | _ -> e)
   | _ -> e
 
@@ -1897,6 +1928,18 @@ and generic_new w (e : Ast.expr) =
     wake w name;
     (match Hashtbl.find_opt w.type_templates name with
      | Some tt -> { e with Ast.it = `New (instantiate_type w tt static_args e.Ast.span, fields) }
+     | None -> e)
+  | `New (name, _) ->
+    (match Hashtbl.find_opt w.type_templates name with
+     | Some tt ->
+       fail
+         e.Ast.span
+         "'%s' %s, so its arguments must be written: new %s<…> { … }."
+         name
+         (if List.exists (fun (p : Ast.type_param) -> Option.is_some p.Ast.tp_ty) tt.tt_params
+          then "takes a value parameter"
+          else "runs a meta block")
+         name
      | None -> e)
   | _ -> e
 

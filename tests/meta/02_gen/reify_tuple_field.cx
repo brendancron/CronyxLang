@@ -1,0 +1,6 @@
+meta {
+    var t = (1, "a");
+    gen var tt = t;
+}
+print(tt.0);
+print(tt.1);

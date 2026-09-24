@@ -10,7 +10,7 @@ homepage: "https://github.com/brendancron/CronyxLang"
 bug-reports: "https://github.com/brendancron/CronyxLang/issues"
 depends: [
   "dune" {>= "3.24"}
-  "ocaml"
+  "ocaml" {>= "5.2"}
   "bootstrap"
   "odoc" {with-doc}
 ]

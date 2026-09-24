@@ -1,0 +1,4 @@
+[unknown] no version of 'greet' satisfies every requirement.
+  ─ path_version_mismatch 0.1.0 requires greet >=2.0.0, <3.0.0
+
+  It is a `path` dependency on ../two_packages/greet, which is version 0.1.0.

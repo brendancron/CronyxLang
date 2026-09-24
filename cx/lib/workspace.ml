@@ -3,28 +3,22 @@
 
 open Bootstrap
 
-let dependency_roots (m : Manifest.t) =
+(* [located] is where resolution unpacked each registry dependency. *)
+let dependency_roots ?(located = fun _ -> None) (m : Manifest.t) =
   List.filter_map
     (fun (d : Manifest.dependency) ->
       match d.Manifest.source with
-      | Manifest.Path path ->
+      | Manifest.Path (path, _) ->
         Some (d.Manifest.name, Loader.from_source (Filename.concat m.Manifest.root path))
-      (* Where a registry dependency was unpacked is the resolver's answer, and
-         this is the path that has none. *)
-      | Manifest.Registry _ -> None)
+      | Manifest.Registry _ ->
+        Option.map (fun dir -> d.Manifest.name, Loader.from_source dir) (located d.Manifest.name))
     m.Manifest.dependencies
 
-let roots_for entry =
-  match Manifest.find_root entry with
-  | None -> Ok (Driver.roots_for entry, None)
-  | Some root ->
-    let path = Filename.concat root Manifest.file_name in
-    (match Manifest.load path with
-     | Error errors -> Error errors
-     | Ok manifest ->
-       Ok
-         ( { Loader.package = root; std = Toolchain.stdlib (); deps = dependency_roots manifest }
-         , Some manifest ))
+let roots ?located (m : Manifest.t) =
+  { Loader.package = m.Manifest.root
+  ; std = Toolchain.stdlib ()
+  ; deps = dependency_roots ?located m
+  }
 
 (* The entry a package runs: `src/main.cx`, and `src/lib.cx` for a library that
    has no other. *)

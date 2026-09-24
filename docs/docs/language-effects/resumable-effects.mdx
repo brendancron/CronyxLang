@@ -177,7 +177,7 @@ print(first);
 
 Use `fn` when the operation is a question with an answer and the caller always continues: read a config value, get the current time, write a log line. The arm can't accidentally break control flow because it has no way to.
 
-Use `ctl` when the handler needs a say in what happens next — abort, retry, resume with a repair, resume more than once, or stash the continuation and run it later. Everything in the rest of this section is `ctl`.
+Use `ctl` when the handler needs a say in what happens next — abort, retry, resume with a repair, resume more than once, or stash the continuation and run it later. Most of the rest of this section is `ctl`.
 
 ## Try it
 

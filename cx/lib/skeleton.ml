@@ -26,9 +26,10 @@ let example name =
     name
 
 let create ~directory ~name =
-  if Sys.file_exists directory
-  then Error (Printf.sprintf "'%s' already exists." directory)
-  else (
+  match Manifest.name_problem name with
+  | Some problem -> Error problem
+  | None when Sys.file_exists directory -> Error (Printf.sprintf "'%s' already exists." directory)
+  | None ->
     match
       Sys.mkdir directory 0o755;
       Sys.mkdir (Filename.concat directory "src") 0o755;
@@ -46,4 +47,4 @@ let create ~directory ~name =
     with
     | () -> Ok ()
     | exception Failed message -> Error message
-    | exception Sys_error message -> Error message)
+    | exception Sys_error message -> Error message

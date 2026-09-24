@@ -215,8 +215,9 @@ so inference never produces one — see
 [internal-docs/Static vs Dynamic Invocation.md](internal-docs/Static%20vs%20Dynamic%20Invocation.md).
 
 **CPS is selective.** Only functions performing control effects are rewritten,
-and each effect gets evidence passing or full continuations depending on whether
-its handlers resume in tail position.
+and each effect gets evidence passing or full continuations according to its
+declaration: a `ctl` operation means continuations, and only `fn` and `final
+ctl` operations mean evidence.
 
 ### Test fixtures
 

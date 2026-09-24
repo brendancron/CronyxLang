@@ -8,8 +8,8 @@ open Bootstrap
 
 let root () =
   match Sys.getenv_opt "CRONYX_REGISTRY" with
+  | Some "" | None -> None
   | Some dir -> Some dir
-  | None -> None
 
 let index root = Filename.concat root "index"
 let store root = Filename.concat root "store"
@@ -91,43 +91,73 @@ let releases root name =
     |> Result.map
          (List.sort (fun a b -> Version.compare b.version a.version)))
 
-(* Unpacked source, one directory per name-version, under the cache rather than
-   under the package: what a build reads is shared, and what it writes is not. *)
+(* What this machine has fetched, laid out as a registry of its own: the index
+   entries it read, and the source they describe unpacked one directory per
+   name-version. An `--offline` resolution reads it with the same code that
+   reads a registry. What a build reads is shared, and what it writes is not. *)
+let cache () = Filename.concat (Home.root ()) "registry"
+
 let cached name version =
   Filename.concat
-    (Filename.concat (Home.root ()) "registry")
+    (cache ())
     (Filename.concat "src" (Printf.sprintf "%s-%s" name (Version.to_string version)))
 
-let fetch root name (release : release) =
-  let version = Version.to_string release.version in
-  let target = cached name release.version in
-  if Sys.file_exists target
-  then Ok target
-  else (
-    let path = archive_path root name version in
-    match In_channel.with_open_bin path In_channel.input_all with
-    | exception Sys_error _ ->
-      fail (Printf.sprintf "The registry has no archive for %s %s." name version)
+let remember root name version =
+  let copy = release_path (cache ()) name version in
+  if not (Sys.file_exists copy)
+  then (
+    match In_channel.with_open_bin (release_path root name version) In_channel.input_all with
+    | exception Sys_error _ -> ()
     | text ->
-      (* Before anything is unpacked, let alone compiled: a registry that serves
-         different bytes for a version it has already served is a bug the client
-         is supposed to catch. *)
-      let actual = Archive.checksum text in
-      if not (String.equal actual release.checksum)
-      then
-        fail
-          (Printf.sprintf
-             "%s %s does not match its checksum.\n\
-             \  ─ the lockfile expects %s\n\
-             \  ─ the registry served %s"
-             name
-             version
-             release.checksum
-             actual)
-      else (
-        match Archive.unpack text with
-        | Error message -> fail (Printf.sprintf "%s %s: %s." name version message)
-        | Ok files ->
-          Home.ensure target;
-          Archive.into_directory target files;
-          Ok target))
+      Home.ensure (Filename.dirname copy);
+      Out_channel.with_open_bin copy (fun out -> Out_channel.output_string out text))
+
+(* [registry] is [None] offline, when the cache is all there is. [expected_by]
+   names where [checksum] came from, which is what a mismatch has to say. *)
+let fetch ~registry ~checksum ~expected_by name version =
+  let shown = Version.to_string version in
+  let target = cached name version in
+  match registry with
+  | None ->
+    if Sys.file_exists target
+    then Ok target
+    else
+      fail
+        (Printf.sprintf
+           "%s %s is not in the cache, and --offline was given. Build once without --offline \
+            to fetch it."
+           name
+           shown)
+  | Some root when Sys.file_exists target ->
+    remember root name shown;
+    Ok target
+  | Some root ->
+    let path = archive_path root name shown in
+    (match In_channel.with_open_bin path In_channel.input_all with
+     | exception Sys_error _ ->
+       fail (Printf.sprintf "The registry has no archive for %s %s." name shown)
+     | text ->
+       (* Before anything is unpacked, let alone compiled: a registry that serves
+          different bytes for a version it has already served is a bug the client
+          is supposed to catch. *)
+       let actual = Archive.checksum text in
+       if not (String.equal actual checksum)
+       then
+         fail
+           (Printf.sprintf
+              "%s %s does not match its checksum.\n\
+              \  ─ %s expects %s\n\
+              \  ─ the registry served %s"
+              name
+              shown
+              expected_by
+              checksum
+              actual)
+       else (
+         match Archive.unpack text with
+         | Error message -> fail (Printf.sprintf "%s %s: %s." name shown message)
+         | Ok files ->
+           Home.ensure target;
+           Archive.into_directory target files;
+           remember root name shown;
+           Ok target))

@@ -51,6 +51,8 @@ let eval_binop span (op : Ast.binop) a b =
     Bool (compare_ordered op (Uchar.to_int x) (Uchar.to_int y))
   | (Ast.Less | Ast.Less_equal | Ast.Greater | Ast.Greater_equal), Byte x, Byte y ->
     Bool (compare_ordered op (Char.code x) (Char.code y))
+  | (Ast.Less | Ast.Less_equal | Ast.Greater | Ast.Greater_equal), Str x, Str y ->
+    Bool (compare_ordered op (Utf8.compare x y) 0)
   | Ast.Equal, _, _ -> Bool (values_equal a b)
   | Ast.Not_equal, _, _ -> Bool (not (values_equal a b))
   | _ ->
@@ -76,6 +78,11 @@ let in_bounds span items i =
   if i < 0 || i >= Array.length items
   then fail span "Index %d is out of bounds for length %d." i (Array.length items);
   i
+
+let nominal (ty : Types.ty) =
+  match ty with
+  | Types.Named (name, _, _) | Types.Sum (name, _) -> Some name
+  | _ -> None
 
 let rec eval env (e : Ast.cps_expr) : value =
   let span = e.Ast.span in
@@ -152,11 +159,11 @@ let rec eval env (e : Ast.cps_expr) : value =
     Chr scalars.(in_bounds index.Ast.span scalars i)
   | `Str_len target -> Int (Array.length (as_text target.Ast.span (eval env target)))
   | `Record_lit fields ->
-    Record (List.map (fun (l, v) -> l, ref v) (eval_labeled env fields))
-  | `Variant (name, fields) -> Variant (name, eval_labeled env fields)
+    Record (nominal e.Ast.ann, List.map (fun (l, v) -> l, ref v) (eval_labeled env fields))
+  | `Variant (name, fields) -> Variant (nominal e.Ast.ann, name, eval_labeled env fields)
   | `Field (target, label) ->
     (match eval env target with
-     | Record fields ->
+     | Record (_, fields) ->
        (match List.assoc_opt label fields with
         | Some v -> !v
         | None -> fail span "No field '%s'." label)
@@ -165,7 +172,7 @@ let rec eval env (e : Ast.cps_expr) : value =
     let target = eval env target in
     let value = eval env v in
     (match target with
-     | Record fields ->
+     | Record (_, fields) ->
        (match List.assoc_opt label fields with
         | Some cell ->
           cell := value;
@@ -355,7 +362,7 @@ and exec env (s : Ast.cps_stmt) : unit =
     let bind_case (pattern : Ast.pattern) =
       match pattern, value with
       | Ast.Pat_wild, _ -> Some []
-      | Ast.Pat_variant (_, name, payload), Variant (tag, fields)
+      | Ast.Pat_variant (_, name, payload), Variant (_, tag, fields)
         when String.equal name tag ->
         Some
           (List.map

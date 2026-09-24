@@ -6,7 +6,7 @@ sidebar_position: 4
 
 *Other languages call these generics.*
 
-Through this section we've kept reaching for `meta { ... }` and `gen` to write code that produces other code. **Static parameters** are the same idea folded into normal function and type declarations — values (most often, *types*) that get filled in at compile time, with the compiler producing one specialized version per argument list.
+Through this section we've kept reaching for `meta { ... }` and `gen` to write code that produces other code. **Static parameters** are the same idea folded into normal function and type declarations — values (most often, *types*) that get filled in at compile time, with the compiler producing a specialized version per argument list wherever the body needs one.
 
 If you've used generics in any other language, the syntax will look familiar. The difference is what else a static parameter can be: a value, like an `int`, that the compiler knows while compiling — and that a `meta` block can use.
 
@@ -15,7 +15,7 @@ If you've used generics in any other language, the syntax will look familiar. Th
 Declare a type parameter with angle brackets after the function name. Inside the body, the parameter behaves like a placeholder for whatever type the caller provides:
 
 ```cronyx
-fn identity<T>(x) {
+fn identity<T>(x: T): T {
     return x;
 }
 
@@ -34,13 +34,11 @@ true
 
 ## Monomorphization: one definition, many specializations
 
-That single `identity` definition isn't really *one* function in the compiled program. It's three. The compiler looks at the call sites, sees three different argument types, and produces an independent specialized copy for each — a process called **monomorphization** (literally, "making it one shape").
+When a generic function's body does something that depends on the type — an operator, a method call or a literal on a `T` — the compiler makes a separate copy of it for each type it's called with. This is called **monomorphization** (literally, "making it one shape"): each copy works on one concrete type, and there's no dispatch left to do at runtime. A function that only moves values around, like `identity`, needs no copies and stays a single function.
 
-Copies for type parameters are made after type checking, because checking is what works out which types each call used. `--dump-code` shows the program before that point, so you'll still see one generic `identity` there; the three copies exist in what actually runs.
+Copies for type parameters are made after type checking, because checking is what works out which types each call used. `--dump-code` shows the program before that point, so you'll always see one generic definition there.
 
-This is why generics in Cronyx don't cost anything at runtime: there *isn't* a generic at runtime. There's only the specialization each call needed, with nothing left of the abstraction.
-
-It's also the same idea, ultimately, as the `meta { for ... gen fn ... }` pattern from the [generation chapter](./generation.mdx): many concrete declarations from one source declaration, based on what's known at compile time. `<T>` is a friendlier syntax for the most common version of that pattern — "produce one copy per type I'm called with."
+It's also the same idea, ultimately, as the `meta { for ... gen fn ... }` pattern from the [generation chapter](./generation.mdx): many concrete declarations from one source declaration, based on what's known at compile time. `<T>` is a friendlier syntax for the most common version of that pattern — "produce a copy per type I'm called with."
 
 ## Multiple type parameters
 
@@ -76,7 +74,7 @@ print(swapped_mix.1);
 left
 ```
 
-Each unique combination of type arguments produces its own specialization. `swap<int, int>` and `swap<string, int>` are entirely separate functions in the runtime program — they share no code, no dispatch table, no boxing. Each is exactly as fast as if you'd written it by hand for those specific types.
+`wrap` builds an `Array<T>`, which depends on what `T` is, so it gets a copy for `int` and another for `string`. `swap` only moves its values around, so it stays one function that serves both calls. A body that does something type-specific — builds a collection of `T`, adds two `T`s, calls a method on one — gets a copy per combination of type arguments, each as direct as if you'd written it by hand for those types.
 
 ## Generic types
 
@@ -111,7 +109,7 @@ true
 2
 ```
 
-The same monomorphization story applies. `new Pair { first: 1, second: "one" }` produces a `Pair<int, string>`; `new Pair { first: true, second: 99 }` produces a `Pair<bool, int>`. They're different concrete types in the runtime program, sharing nothing but the source-level declaration.
+`new Pair { first: 1, second: "one" }` produces a `Pair<int, string>`; `new Pair { first: true, second: 99 }` produces a `Pair<bool, int>`. They're different types, sharing nothing but the source-level declaration.
 
 That means you can't accidentally pass a `Pair<int, string>` where a `Pair<bool, int>` was expected — they're as distinct to the type system as `int` and `string` are, even though they came from the same generic declaration.
 
@@ -147,7 +145,7 @@ hello
 
 Fields come first, separated by commas; the members follow, and the first `fn` or `meta` is what ends the fields. A member function that takes `self` is a method.
 
-A member can also be a `meta` block. It runs once for each distinct argument list, the first time the walk reaches a `new Box<...>` with those arguments — `Box<int>` is compiled once however many boxes of `int` you build, and a `Box` nothing constructs never runs its meta block at all. Inside it, `T` is the type this copy was made for.
+A member can also be a `meta` block, and a type with one has to be given its arguments where it's constructed: `new Box<int> { ... }`, not `new Box { ... }`. The block runs once for each distinct argument list, the first time the walk reaches a `new Box<...>` with those arguments — `Box<int>` is compiled once however many boxes of `int` you build, and a `Box` nothing constructs never runs its meta block at all. Inside it, `T` is the type this copy was made for.
 
 ## Type packs: a parameter list as a parameter
 
@@ -241,7 +239,7 @@ my_func<5>();
 5
 ```
 
-`<n: int>` declares a static *value* parameter — an `int` provided at the call site, available inside the body. `my_func<5>()` compiles a version of `my_func` where `n` is `5`. Each distinct argument list gets its own copy, made the first time the walk reaches a call with those arguments; `my_func<5>()` written ten times is still one copy.
+`<n: int>` declares a static *value* parameter — an `int` provided at the call site, available inside the body. A value parameter can be a number, a `string`, a `char` or a `bool`. `my_func<5>()` compiles a version of `my_func` where `n` is `5`. Each distinct argument list gets its own copy, made the first time the walk reaches a call with those arguments; `my_func<5>()` written ten times is still one copy.
 
 An argument has to be known at compile time: an expression built from literals and the static parameters of the function the call is written in. `my_func<2 + 3>()` is the same copy as `my_func<5>()`, and inside `fn outer<k: int>`, `my_func<k * 2>()` is fine. A runtime variable can't be one, and neither can a function call — computing a value with a call is what a `meta` block is for.
 
@@ -295,12 +293,12 @@ For now, a type like this is named where it's constructed — `new Buf<4> { ... 
 
 ## Try it
 
-Write a generic function `pair_up<T>(a, b)` that takes two values of the same type and returns them as a tuple `(a, b)`. Call it with three different types.
+Write a generic function `pair_up<T>` that takes two values of the same type and returns them as a tuple `(a, b)`. Call it with three different types.
 
 A working answer:
 
 ```cronyx
-fn pair_up<T>(a, b) {
+fn pair_up<T>(a: T, b: T): (T, T) {
     return (a, b);
 }
 
@@ -319,10 +317,10 @@ hello
 true
 ```
 
-You wrote one function. The runtime got three — one each for `int`, `string` and `bool`.
+You wrote one function, and it works for all three types. Because both parameters are `T`, `pair_up(1, "x")` is rejected.
 
 ## What's next
 
-A type parameter makes one copy per type; a value parameter makes one copy per value. So far the copies differ only in the types and values they were made for — every `Buf` has the same methods, every `my_func` the same body.
+A type parameter can make a copy per type; a value parameter always makes one per value. So far the copies differ only in the types and values they were made for — every `Buf` has the same methods, every `my_func` the same body.
 
 Next up: **compile-time functions** — functions whose `meta` blocks look at their static arguments and generate a different body for each one, and functions that do their work entirely at compile time.

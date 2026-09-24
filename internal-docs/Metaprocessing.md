@@ -84,9 +84,9 @@ Raw AST, not a value — but every name in it is checked against the meta enviro
 
 **If the name is not bound at compile time**, it is emitted as an identifier and resolved later, in the program the code is spliced into.
 
-**If it is bound**, its value is *reified* — turned back into the syntax that denotes it. A number becomes a literal, an array an array literal, a record a record literal.
+**If it is bound**, its value is *reified* — turned back into the syntax that denotes it. A number becomes a literal, a tuple a tuple literal, an array an array literal, and an anonymous record a record literal (`02_gen/reify_tuple_field`, `reify_record_anonymous`). A value of a declared type keeps it: a struct is written as `new P { … }` and an enum value as `E::B(…)`, `E::A` or `E::C { … }`, recursively (`reify_struct`, `reify_generic_struct`, `reify_enum_unit`, `reify_enum_payload`, `reify_enum_struct_variant`, `reify_nested`). The interpreter carries the declared type's name on a record or variant it builds, read off the node's annotation, because the structure alone does not say it. Type arguments are not written: the checker infers them again, as it does for a `new Box<int> { … }` written by hand.
 
-**If its value cannot be reified**, that is an error at the `gen`: *'f' is a function and cannot be written into generated code.* (`02_gen/errors/reify_fn`). A closure has no literal form. See [Reify](Reify.md).
+**If its value cannot be reified**, that is an error at the `gen`: *'f' is a function and cannot be written into generated code.* (`02_gen/errors/reify_fn`), and *'s' is a trait object and cannot be written into generated code.* (`02_gen/errors/reify_object`). A closure has no literal form, and an object's type is not a declaration to rebuild. See [Reify](Reify.md).
 
 ```cronyx
 var y = 4;
@@ -353,7 +353,7 @@ fn f<n: int>(): int {
 }
 ```
 
-`f<2>` is fine (`07_precheck/depends_on_meta`); `f<3>` is *Expected int, got string.* (`07_precheck/errors/instance_mismatch`). The precheck never reports an undefined name — a meta block may generate it, in the same body or another file (`07_precheck/generated_later`) — so the full check after the walk is what does. [Type System](Type%20System.md#checked-twice-before-metaprocessing-and-after) has the checker's side of this: the policy record and why it does not excuse every unpinned receiver.
+`f<2>` is fine (`07_precheck/depends_on_meta`); `f<3>` is *Expected int, got string.* (`07_precheck/errors/instance_mismatch`). The precheck never reports an undefined name — a meta block may generate it, in the same body or another file (`07_precheck/generated_later`) — so the full check after the walk is what does. Nor does it report what is done with one: a tuple field, an index, a `match` or a `for` over a generated name, or over a variable initialised from one, is as unknown as the name (`07_precheck/alias_generated`, `02_gen/reify_tuple_field`, `reify_nested`). [Type System](Type%20System.md#checked-twice-before-metaprocessing-and-after) has the checker's side of this: the policy record and why it does not excuse every unpinned receiver.
 
 ## The evaluator is a parameter
 

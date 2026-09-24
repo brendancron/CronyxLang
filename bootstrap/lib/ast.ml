@@ -159,7 +159,11 @@ type 'a payload =
   | P_tuple of 'a list
   | P_fields of (string * 'a) list
 
-type 'e compound = [ `Compound of binop * string * 'e ]
+type 'e compound =
+  [ `Compound of binop * string * 'e
+  | `Compound_index of binop * 'e * 'e * 'e
+  | `Compound_field of binop * 'e * string * 'e
+  ]
 
 type 'e indexing =
   [ `Index of 'e * 'e
@@ -615,6 +619,8 @@ let map_logic (f : 'a -> 'b) (e : 'a logic) : 'b logic =
 let map_compound (f : 'a -> 'b) (e : 'a compound) : 'b compound =
   match e with
   | `Compound (op, name, v) -> `Compound (op, name, f v)
+  | `Compound_index (op, target, i, v) -> `Compound_index (op, f target, f i, f v)
+  | `Compound_field (op, target, label, v) -> `Compound_field (op, f target, label, f v)
 
 let map_indexing (f : 'a -> 'b) (e : 'a indexing) : 'b indexing =
   match e with

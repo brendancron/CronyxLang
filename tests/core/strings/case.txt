@@ -1,0 +1,8 @@
+HELLO, WORLD 42!
+hello, world 42!
+
+HéLLO
+Q
+q
+7
+true

@@ -139,7 +139,7 @@ The standard library declares both shapes, since both are useful: `Error` in `st
 
 ## Cleanup on the way out
 
-An abort skips the code after the call, which is exactly the situation `defer` exists for. A deferred block runs when its scope is left, whether that's a normal return or an effect unwinding past it:
+An abort skips the code after the call, which is exactly the situation `defer` exists for. A deferred block runs when its scope is left, whether that's a normal return or a `final ctl` handler unwinding past it:
 
 ```cronyx
 effect Error {
@@ -168,7 +168,7 @@ caught: boom
 cleanup
 ```
 
-`defer` is the `finally` of this section — it is what runs when a handler decides not to bring you back.
+`defer` is the `finally` of this section — it is what runs when a `final ctl` handler decides not to bring you back.
 
 Watch the order on the failing call. `caught: boom` prints *before* the second `cleanup`, because the arm runs while `risky` is still suspended and intact; the deferred block runs afterwards, as the frames the arm declined to resume are discarded. `finally` in a language with unwinding would have run first.
 

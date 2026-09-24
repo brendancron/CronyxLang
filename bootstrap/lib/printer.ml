@@ -54,6 +54,20 @@ let rec string_of_expr (e : Ast.expr) : string =
   | `Assign (name, v) -> Printf.sprintf "(set %s %s)" name (string_of_expr v)
   | `Compound (op, name, v) ->
     Printf.sprintf "(%s= %s %s)" (string_of_binop op) name (string_of_expr v)
+  | `Compound_index (op, t, i, v) ->
+    Printf.sprintf
+      "(%s= (index %s %s) %s)"
+      (string_of_binop op)
+      (string_of_expr t)
+      (string_of_expr i)
+      (string_of_expr v)
+  | `Compound_field (op, r, label, v) ->
+    Printf.sprintf
+      "(%s= (field %s %s) %s)"
+      (string_of_binop op)
+      (string_of_expr r)
+      label
+      (string_of_expr v)
   | `Unop (op, a) -> Printf.sprintf "(%s %s)" (string_of_unop op) (string_of_expr a)
   | `Binop (op, a, b) ->
     Printf.sprintf
@@ -320,6 +334,20 @@ let rec string_of_typed_expr (e : Ast.typed_expr) : string =
       Printf.sprintf "(or %s %s)" (string_of_typed_expr a) (string_of_typed_expr b)
     | `Compound (op, name, v) ->
       Printf.sprintf "(%s= %s %s)" (string_of_binop op) name (string_of_typed_expr v)
+    | `Compound_index (op, t, i, v) ->
+      Printf.sprintf
+        "(%s= (index %s %s) %s)"
+        (string_of_binop op)
+        (string_of_typed_expr t)
+        (string_of_typed_expr i)
+        (string_of_typed_expr v)
+    | `Compound_field (op, r, label, v) ->
+      Printf.sprintf
+        "(%s= (field %s %s) %s)"
+        (string_of_binop op)
+        (string_of_typed_expr r)
+        label
+        (string_of_typed_expr v)
     | `Method_call (receiver, name, as_function, args) ->
       Printf.sprintf
         "(. %s %s%s)"
