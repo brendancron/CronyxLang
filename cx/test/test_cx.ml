@@ -342,11 +342,18 @@ let package_case dir name =
     Printf.printf "FAIL package/%s\n  %s\n" name (diagnostics ~root:dir root errors);
     false
 
+(* The `cx` a spawned test runs in. This suite calls `Cx.Test` in-process, so
+   `Sys.executable_name` here is the harness rather than `cx`, and a runner that
+   spawned itself would run this whole suite once per test. *)
+let cx =
+  let here = Filename.dirname Sys.executable_name in
+  Filename.concat (Filename.concat (Filename.dirname here) "bin") "main.exe"
+
 let test_package_case dir name =
   let root = Filename.concat dir name in
   let failing = Filename.concat root "expected.err" in
   clean dir;
-  match Cx.Test.run root, Sys.file_exists failing with
+  match Cx.Test.run ~self:cx root, Sys.file_exists failing with
   | Error errors, true ->
     compare_case
       ("test/" ^ name)
@@ -543,7 +550,7 @@ let skeleton_case () =
         false)
     in
     let tested =
-      match Cx.Test.run root with
+      match Cx.Test.run ~self:cx root with
       | Ok (rendered, failed) ->
         compare_case "skeleton/test" ~expected:"ok   greets\n\n1/1 passed\n" ~actual:rendered
         && failed = 0

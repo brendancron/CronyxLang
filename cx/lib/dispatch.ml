@@ -103,7 +103,18 @@ let mislabelled version =
 (* Replaces the process. The toolchain that takes over reads the same manifests
    and reaches the same answer, so it hands the job on no further -- and the
    marker means a toolchain that lies about its version stops the job rather
-   than passing it around. *)
+   than passing it around.
+
+   Windows has no exec: what it has spelt that way spawns and lets the caller
+   die, so the exit code and the order the two processes' output interleaves are
+   both lost. Waiting for the child and exiting as it did is what makes the hand
+   off invisible to whoever ran `cx`. *)
 let hand_to version path argv =
   Unix.putenv marker version;
-  Unix.execv path argv
+  if not Sys.win32
+  then Unix.execv path argv
+  else (
+    let child = Unix.create_process path argv Unix.stdin Unix.stdout Unix.stderr in
+    match Unix.waitpid [] child with
+    | _, Unix.WEXITED code -> exit code
+    | _, (Unix.WSIGNALED _ | Unix.WSTOPPED _) -> exit 1)

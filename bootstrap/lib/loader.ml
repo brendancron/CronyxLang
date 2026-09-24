@@ -44,11 +44,38 @@ type roots =
 let anywhere = { package = "/"; std = None; deps = [] }
 let from_source root = { dep_root = root; compiled = None }
 
+(* Windows accepts either separator and roots a path at a drive rather than at
+   `/`. Both are folded to the one spelling, because [within] below is what
+   keeps an import inside its package: a prefix test between two spellings of
+   the same path answers wrongly, and which way it is wrong depends on which
+   spelling reached it. *)
+let slashed path =
+  if Sys.win32 then String.map (fun c -> if Char.equal c '\\' then '/' else c) path else path
+
+(* The drive is upper-cased because `Sys.getcwd` and a path the user wrote need
+   not agree on its case, and a difference there is a difference in every prefix
+   test built on it. A *segment* whose case differs still compares unequal,
+   which refuses an import rather than admitting one. *)
+let drive path =
+  if Sys.win32
+     && String.length path >= 2
+     && Char.equal path.[1] ':'
+     && (match path.[0] with 'a' .. 'z' | 'A' .. 'Z' -> true | _ -> false)
+  then Some (String.uppercase_ascii (String.sub path 0 2))
+  else None
+
 (* Textual: the visited set only has to agree with itself. *)
 let normalize path =
-  let absolute = String.length path > 0 && path.[0] = '/' in
+  let path = slashed path in
+  let root = drive path in
+  let body =
+    match root with
+    | Some _ -> String.sub path 2 (String.length path - 2)
+    | None -> path
+  in
+  let absolute = String.length body > 0 && Char.equal body.[0] '/' in
   let parts =
-    String.split_on_char '/' path
+    String.split_on_char '/' body
     |> List.filter (fun part -> not (String.equal part "" || String.equal part "."))
     |> List.fold_left
          (fun acc part ->
@@ -58,16 +85,19 @@ let normalize path =
          []
     |> List.rev
   in
-  (if absolute then "/" else "") ^ String.concat "/" parts
+  Option.value root ~default:""
+  ^ (if absolute then "/" else "")
+  ^ String.concat "/" parts
 
 let canonical path =
   normalize (if Filename.is_relative path then Filename.concat (Sys.getcwd ()) path else path)
 
 let within ~root path =
   let root = canonical root and path = canonical path in
-  String.equal root "/"
-  || String.equal path root
-  || String.starts_with ~prefix:(root ^ "/") path
+  (* A root that is already a root -- `/`, or `C:/` -- carries its separator, and
+     appending another would make a prefix nothing matches. *)
+  let prefix = if String.ends_with ~suffix:"/" root then root else root ^ "/" in
+  String.equal root "/" || String.equal path root || String.starts_with ~prefix path
 
 (* The root a file belongs to, which is what its own imports are measured
    against: a dependency's file may move within the dependency, not within

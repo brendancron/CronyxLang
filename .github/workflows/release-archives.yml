@@ -1,9 +1,9 @@
-name: Release Archives (macOS)
+name: Release Archives
 
 # An OCaml binary is native and there is no cross-compilation worth the
-# trouble, so each Mac archive is built on a Mac of that architecture.
+# trouble, so each archive is built on a machine of that architecture.
 # `scripts/release.sh` cuts the release from whatever machine it is run on;
-# this adds the two that machine cannot produce.
+# this adds the ones that machine cannot produce.
 on:
   release:
     types: [published]
@@ -14,24 +14,15 @@ on:
         required: true
 
 jobs:
-  archive:
-    strategy:
-      # One archive failing should not take the other's down with it: an
-      # architecture that built is still worth uploading.
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            target: aarch64-apple-darwin
-            machine: Darwin-arm64
-          - runner: macos-13
-            target: x86_64-apple-darwin
-            machine: Darwin-x86_64
-
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
-
+  # `targets.json` is the one place a platform is written down; a matrix cannot
+  # read a file, so a job reads it and hands it over.
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+      skip: ${{ steps.tag.outputs.skip }}
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - name: Read the tag
         id: tag
@@ -55,16 +46,63 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      # The tag, not the branch: the archive has to be the commit the release
-      # points at. The fixtures live at the repo root and the harness finds them
-      # by walking up from the test binary, so the whole tree is checked out.
       - uses: actions/checkout@v5
         if: steps.tag.outputs.skip == 'false'
         with:
           ref: ${{ steps.tag.outputs.tag }}
 
-      - name: Install OCaml
+      - name: Hand the targets to the matrix
+        id: read
         if: steps.tag.outputs.skip == 'false'
+        run: echo "matrix=$(jq -c '{include: .}' targets.json)" >> "$GITHUB_OUTPUT"
+
+  archive:
+    needs: targets
+    if: needs.targets.outputs.skip == 'false'
+    strategy:
+      # One archive failing should not take the others down with it: an
+      # architecture that built is still worth uploading.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+
+    steps:
+      # The tag, not the branch: the archive has to be the commit the release
+      # points at. The fixtures live at the repo root and the harness finds them
+      # by walking up from the test binary, so the whole tree is checked out.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.targets.outputs.tag }}
+
+      # A musl archive is built inside Alpine, which cannot host the JavaScript
+      # actions above -- they need glibc for their Node runtime -- so the
+      # container is entered here rather than declared on the job.
+      - name: Build and package, against musl
+        if: matrix.musl != ''
+        env:
+          TAG: ${{ needs.targets.outputs.tag }}
+          VERSION: ${{ needs.targets.outputs.version }}
+          TARGET: ${{ matrix.triple }}
+          IMAGE: ${{ matrix.musl }}
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            -e TAG -e VERSION -e TARGET -e UNAME_S -e UNAME_M \
+            "$IMAGE" sh -euc '
+              apk add --no-cache ocaml dune opam build-base bash tar gzip git
+              opam init --bare --disable-sandboxing --yes
+              opam switch create . ocaml-system --deps-only --with-test --yes \
+                || opam install ./bootstrap --deps-only --with-test --yes
+              eval "$(opam env)"
+              dune build --release
+              scripts/package.sh
+            '
+        continue-on-error: false
+
+      - name: Install OCaml
+        if: matrix.musl == ''
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: '5'
@@ -72,71 +110,48 @@ jobs:
           opam-pin: false
 
       - name: Install dependencies
-        if: steps.tag.outputs.skip == 'false'
+        if: matrix.musl == ''
         working-directory: bootstrap
         run: opam install . --deps-only --with-test --yes
 
       - name: Test
-        if: steps.tag.outputs.skip == 'false'
+        if: matrix.musl == ''
         run: |
           (cd bootstrap && opam exec -- dune test)
           opam exec -- dune test cx
           opam exec -- ./scripts/cx-parity.sh
 
       - name: Build
-        if: steps.tag.outputs.skip == 'false'
+        if: matrix.musl == ''
         run: opam exec -- dune build --release
 
-      # The same layout `scripts/release.sh` packages: one release ships one
-      # toolchain, and `cx` resolves `import "std/…"` at ../lib/cronyx/stdlib,
-      # relative to the binary, so the two have to move together.
       - name: Package
-        id: package
-        if: steps.tag.outputs.skip == 'false'
+        if: matrix.musl == ''
+        shell: bash
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
-          VERSION: ${{ steps.tag.outputs.version }}
-          TARGET: ${{ matrix.target }}
-          MACHINE: ${{ matrix.machine }}
-        run: |
-          [ "$(uname -s)-$(uname -m)" = "$MACHINE" ] \
-            || { echo "::error::this runner is $(uname -s)-$(uname -m), not $MACHINE"; exit 1; }
-
-          out=$(mktemp -d)
-          tree="$out/cronyx-$TAG-$TARGET"
-          mkdir -p "$tree/bin" "$tree/lib/cronyx"
-          cp _build/default/cx/bin/main.exe "$tree/bin/cx"
-          cp _build/default/bootstrap/bin/main.exe "$tree/bin/cronyxc"
-          chmod +x "$tree/bin/cx" "$tree/bin/cronyxc"
-          cp -R stdlib "$tree/lib/cronyx/stdlib"
-
-          # A binary reporting a version its tag does not is one `cx` refuses to
-          # hand a job to, and nothing would catch it before someone installed
-          # the toolchain.
-          reported=$("$tree/bin/cx" version)
-          [ "$reported" = "cx $VERSION" ] \
-            || { echo "::error::the binary reports '$reported', not 'cx $VERSION'"; exit 1; }
-
-          archive="cronyx-$TAG-$TARGET.tar.gz"
-          tar -czf "$out/$archive" -C "$out" "cronyx-$TAG-$TARGET"
-          shasum -a 256 "$out/$archive" | awk '{print $1}' > "$out/$archive.sha256"
-
-          echo "archive=$out/$archive" >> "$GITHUB_OUTPUT"
+          TAG: ${{ needs.targets.outputs.tag }}
+          VERSION: ${{ needs.targets.outputs.version }}
+          TARGET: ${{ matrix.triple }}
+          UNAME_S: ${{ matrix.uname_s }}
+          UNAME_M: ${{ matrix.uname_m }}
+          FORMAT: ${{ matrix.format }}
+        run: ./scripts/package.sh
 
       - name: Publish it
-        if: steps.tag.outputs.skip == 'false'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
-          ARCHIVE: ${{ steps.package.outputs.archive }}
-        run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+          TAG: ${{ needs.targets.outputs.tag }}
+        run: |
+          archive=$(cat archive-path)
+          gh release upload "$TAG" "$archive" "$archive.sha256" --clobber
 
   # The formula names a version per architecture, so the tap is worth bumping
   # for whichever archives landed — an architecture whose runner never came
   # free keeps the release it already had. Its own run fired when the release
   # was published, before any of them existed.
   tap:
-    needs: archive
+    needs: [targets, archive]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:

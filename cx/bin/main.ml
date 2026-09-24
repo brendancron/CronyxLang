@@ -116,7 +116,7 @@ let test args =
     | _ -> Driver.die ("test takes at most one filter.\n" ^ usage)
   in
   let root = package_root () in
-  match Cx.Test.run ~mode:(mode_of args) ?filter root with
+  match Cx.Test.run ~mode:(mode_of args) ?filter ~self:Sys.executable_name root with
   | Error errors -> report root errors
   | Ok (rendered, failed) ->
     print_string rendered;
@@ -173,6 +173,13 @@ let publish () =
 
 let () =
   let args = List.tl (Array.to_list Sys.argv) in
+  (* Before dispatch: this process was spawned by a `cx test` that had already
+     decided which toolchain the package needs, and a second hand-off would run
+     the test under a different compiler from the one that compiled it. *)
+  (match args with
+   | [ flag; carrier; index; name ] when String.equal flag Cx.Test.internal ->
+     Cx.Test.run_one carrier (int_of_string index) name
+   | _ -> ());
   if Cx.Dispatch.dispatched args then dispatch ();
   match args with
   | [] -> Driver.die usage

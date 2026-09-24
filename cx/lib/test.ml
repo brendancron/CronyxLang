@@ -40,44 +40,69 @@ let wrapped index (name, _, _) : Ast.stmt =
               , [ Ast.Inline { Ast.handled = "Assertion"; arms = [ arm ] } ] ))
        , None ))
 
+(* The flag the runner spawns itself with. Not in the usage text: it is how the
+   two halves of `cx test` talk to each other, and naming it invites someone to
+   pass a file that was never written by the half that writes it. *)
+let internal = "--internal-run-test"
+
+(* The compiled program reaches each test's process by being written down rather
+   than inherited -- Windows has no fork, and `Marshal` of the compiler's own
+   types is already how an artifact crosses a process boundary. The tree can go
+   this way because it holds no closures: its annotation is `Types.ty`, which is
+   constructors and `ref` cells, and `Marshal` keeps the sharing between them
+   within one call. The environment is what holds closures, and it is rebuilt on
+   the far side. *)
+let carrier converted =
+  let path = Filename.temp_file "cx-test" ".program" in
+  Out_channel.with_open_bin path (fun out -> Marshal.to_channel out converted []);
+  path
+
+(* The far side. Nothing else may print on this process's stdout: it is the
+   stream the runner parses. *)
+let run_one path index name =
+  let converted : Ast.cps_stmt list =
+    In_channel.with_open_bin path (fun inp -> (Marshal.from_channel inp : Ast.cps_stmt list))
+  in
+  let out = print_string in
+  let env = Builtins.env ~out in
+  Value.define
+    env
+    Builtins.selected_test
+    (Value.Fn { Value.name = Builtins.selected_test; arity = Some 0; apply = (fun _ _ -> Value.Int index) });
+  let failed message = out (Printf.sprintf "%s-%s\n%s!%s\n" marker name marker message) in
+  (match Pipeline.run env converted with
+   | Ok () -> ()
+   | Error e -> failed e.Diagnostic.message
+   | exception e -> failed (Printexc.to_string e));
+  flush stdout;
+  exit 0
+
 (* One test in a process of its own: what it prints comes back through a pipe,
    and a test whose process ended before it reported is a failure. *)
-let in_process converted index (name, _, _) =
+let in_process ~self carrier index (name, _, _) =
   let reading, writing = Unix.pipe () in
-  match Unix.fork () with
-  | 0 ->
-    Unix.close reading;
-    let channel = Unix.out_channel_of_descr writing in
-    let out = output_string channel in
-    let env = Builtins.env ~out in
-    Value.define
-      env
-      Builtins.selected_test
-      (Value.Fn { Value.name = Builtins.selected_test; arity = Some 0; apply = (fun _ _ -> Value.Int index) });
-    let failed message =
-      out (Printf.sprintf "%s-%s\n%s!%s\n" marker name marker message)
-    in
-    (match Pipeline.run env converted with
-     | Ok () -> ()
-     | Error e -> failed e.Diagnostic.message
-     | exception e -> failed (Printexc.to_string e));
-    flush channel;
-    Unix._exit 0
-  | child ->
-    Unix.close writing;
-    let channel = Unix.in_channel_of_descr reading in
-    let text = In_channel.input_all channel in
-    close_in channel;
-    ignore (Unix.waitpid [] child);
-    let reported tag = marker ^ tag ^ name in
-    let contains text piece =
-      let n = String.length piece in
-      let rec at i = i + n <= String.length text && (String.sub text i n = piece || at (i + 1)) in
-      at 0
-    in
-    if contains text (reported "+") || contains text (reported "-")
-    then text
-    else text ^ Printf.sprintf "%s-%s\n%s!its process ended before it finished\n" marker name marker
+  let child =
+    Unix.create_process
+      self
+      [| self; internal; carrier; string_of_int index; name |]
+      Unix.stdin
+      writing
+      Unix.stderr
+  in
+  Unix.close writing;
+  let channel = Unix.in_channel_of_descr reading in
+  let text = In_channel.input_all channel in
+  close_in channel;
+  ignore (Unix.waitpid [] child);
+  let reported tag = marker ^ tag ^ name in
+  let contains text piece =
+    let n = String.length piece in
+    let rec at i = i + n <= String.length text && (String.sub text i n = piece || at (i + 1)) in
+    at 0
+  in
+  if contains text (reported "+") || contains text (reported "-")
+  then text
+  else text ^ Printf.sprintf "%s-%s\n%s!its process ended before it finished\n" marker name marker
 
 (* Linking mangles a declaration under its package, which is the name to call
    but not the name the author wrote. *)
@@ -212,7 +237,7 @@ let of_file ~root ~manifest ~package program file =
 (* A test is found on the program the walk produced, so one a meta block
    generated is found under the name it was given. [own] says which of them
    this run is for. *)
-let executed ~root ~filter ~own program =
+let executed ~self ~root ~filter ~own program =
   let ( let* ) = Result.bind in
   let buffer = Buffer.create 4096 in
   let out = Buffer.add_string buffer in
@@ -232,18 +257,33 @@ let executed ~root ~filter ~own program =
   then Ok []
   else (
     flush_all ();
-    let ran = Build.within root (fun () -> List.mapi (in_process converted) !tests) in
+    let ran =
+      Build.within root (fun () ->
+        let carrier = carrier converted in
+        Fun.protect
+          ~finally:(fun () -> try Sys.remove carrier with Sys_error _ -> ())
+          (fun () -> List.mapi (in_process ~self carrier) !tests))
+    in
     Ok (outcomes (String.concat "" ran)))
 
-let run ?(mode = Build.unrestricted) ?filter root =
+(* [self] is the `cx` to spawn a test in, which is not necessarily this process:
+   `cx` links the compiler as a library, and the suite in `cx/test` calls this
+   in-process. A binary that assumed it was `cx` would spawn the test harness
+   and run the whole suite again, once per test. *)
+let run ?(mode = Build.unrestricted) ?filter ~self root =
   let ( let* ) = Result.bind in
+  (* Resolved before anything chdirs: [Build.within] moves to the package root,
+     and a relative path handed in from a build directory does not survive it. *)
+  let self =
+    if Filename.is_relative self then Filename.concat (Sys.getcwd ()) self else self
+  in
   let* artifacts, _ = Build.package ~mode ~out:(fun _ -> ()) root in
   let* manifest = Build.manifest_of root in
   let program = Build.link artifacts in
   let package = List.nth artifacts (List.length artifacts - 1) in
   (* Inline tests run in the whole program: they are part of it, and reach what
      the package does not export. *)
-  let* inline = executed ~root ~filter ~own:(fun _ -> true) program in
+  let* inline = executed ~self ~root ~filter ~own:(fun _ -> true) program in
   (* Each file is compiled on its own, so one that does not compile is reported
      with the rest rather than standing in front of them. *)
   let from_files, broken =
@@ -255,6 +295,7 @@ let run ?(mode = Build.unrestricted) ?filter root =
              [whole] too, and have already run. *)
           let here = Loader.normalize file in
           executed
+            ~self
             ~root
             ~filter
             ~own:(fun (_, _, span) -> String.equal (Source_map.Span.path span) here)

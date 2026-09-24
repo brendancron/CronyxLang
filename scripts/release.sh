@@ -86,10 +86,8 @@ current=$(sed -n 's/^let version = "\(.*\)"$/\1/p' "$stamp")
 # The tree was clean coming in, so putting the file back is enough to undo this
 # — which a dry run always does, and a real run does only if it fails before
 # the commit.
-out=""
 restore=false
 cleanup() {
-  [ -n "$out" ] && rm -rf "$out"
   $restore && git checkout -q -- "$stamp"
   return 0
 }
@@ -135,41 +133,35 @@ dune test cx
 echo "==> Building"
 dune build --release
 
-# uname's spelling of the host, in the triple form the archives have always used.
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64)  target=x86_64-unknown-linux-gnu ;;
-  Darwin-arm64)  target=aarch64-apple-darwin ;;
-  Darwin-x86_64) target=x86_64-apple-darwin ;;
-  *) die "no archive name for $(uname -s)-$(uname -m)" ;;
-esac
+# `targets.json` is the one place a platform is written down, so a hand-cut
+# release and a CI one cannot disagree about what an archive is called.
+host_s=$(uname -s)
+host_m=$(uname -m)
+row=$(python3 -c '
+import json, sys
+s, m = sys.argv[1], sys.argv[2]
+for t in json.load(open("targets.json")):
+    if s.startswith(t["uname_s"]) and m == t["uname_m"]:
+        print(t["triple"], t["format"])
+        break
+' "$host_s" "$host_m")
+[ -n "$row" ] || die "targets.json names no target for $host_s-$host_m"
+read -r target format <<<"$row"
 
-# One release ships one toolchain: the package manager, the compiler it links,
-# and the standard library it resolves `std/…` against. `cx` finds the library
-# at ../lib/cronyx/stdlib, so the layout here is the layout it is installed in.
-out=$(mktemp -d)
-tree="$out/cronyx-$version-$target"
-mkdir -p "$tree/bin" "$tree/lib/cronyx"
-cp _build/default/cx/bin/main.exe "$tree/bin/cx"
-cp _build/default/bootstrap/bin/main.exe "$tree/bin/cronyxc"
-chmod +x "$tree/bin/cx" "$tree/bin/cronyxc"
-cp -R stdlib "$tree/lib/cronyx/stdlib"
-
-reported=$("$tree/bin/cx" version)
-[ "$reported" = "cx $bare" ] || die "the binary reports '$reported', not 'cx $bare'"
-
-archive="cronyx-$version-$target.tar.gz"
-tar -czf "$out/$archive" -C "$out" "cronyx-$version-$target"
-shasum -a 256 "$out/$archive" | awk '{print $1}' > "$out/$archive.sha256"
+# The archive is built by the same script the release workflow runs, so what a
+# hand-cut release ships is what CI ships.
+TAG="$version" VERSION="$bare" TARGET="$target" FORMAT="$format" \
+  UNAME_S="$host_s" UNAME_M="$host_m" ./scripts/package.sh >/dev/null
+archive=$(cat archive-path)
+rm -f archive-path
+reported="cx $bare"
 
 if $dry; then
-  keep=$(mktemp -d)
-  cp "$out/$archive" "$out/$archive.sha256" "$keep/"
-  out=""
   echo
   echo "==> Dry run: not tagged, not pushed, not published"
   echo "  $reported"
-  echo "  $keep/$archive"
-  echo "  sha256 $(cat "$keep/$archive.sha256")"
+  echo "  $archive"
+  echo "  sha256 $(cat "$archive.sha256")"
   exit 0
 fi
 
@@ -194,7 +186,7 @@ beside it — that is where \`import \"std/…\"\` resolves to.
     cx new hello
     cd hello
     cx run" \
-  "$out/$archive" "$out/$archive.sha256"
+  "$archive" "$archive.sha256"
 
 echo "==> $version published"
 
@@ -204,5 +196,5 @@ echo "==> $version published"
 # tag=$version` if it fails or if the archive is replaced.
 echo
 echo "For brendancron/homebrew-cronyx, $target:"
-echo "  url \"https://github.com/brendancron/CronyxLang/releases/download/$version/$archive\""
-echo "  sha256 \"$(cat "$out/$archive.sha256")\""
+echo "  url \"https://github.com/brendancron/CronyxLang/releases/download/$version/$(basename "$archive")\""
+echo "  sha256 \"$(cat "$archive.sha256")\""
