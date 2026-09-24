@@ -1,5 +1,5 @@
 ---
-sidebar_position: 7
+sidebar_position: 9
 ---
 
 # Enums
@@ -27,7 +27,7 @@ Structs and enums share the `type` keyword: a body of `name: type` fields makes 
 
 ## Constructing a variant
 
-To create a value, write `new`, the enum name, two colons, and the variant name:
+To create a value, write the enum name, two colons, and the variant name — no `new`, unlike a struct:
 
 ```cronyx
 type Direction {
@@ -127,7 +127,7 @@ type CardEffect {
 }
 ```
 
-You construct them with the struct-construction syntax we saw last chapter:
+You construct them with the struct-construction syntax we saw last chapter, minus the `new`:
 
 ```cronyx
 var dmg  = CardEffect::Damage { amount: 15 };
@@ -178,7 +178,7 @@ Use `_` sparingly. The exhaustiveness check is one of an enum's biggest benefits
 
 ## Try it
 
-Write a `type Shape` with a `Circle(int)` and a `Rect(int, int)` variant. Then write a function `describe_area(s: Shape)` that uses `match` to print the area of each shape. (Use `r * r * 3` as a stand-in for `π·r²` — we'll cover floats and constants in a later chapter.)
+Write a `type Shape` with a `Circle(int)` and a `Rect(int, int)` variant. Then write a function `describe_area(s: Shape)` that uses `match` to print the area of each shape. (Use `r * r * 3` as a stand-in for `π·r²`, so everything stays an `int`.)
 
 A working answer:
 

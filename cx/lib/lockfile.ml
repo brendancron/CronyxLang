@@ -26,7 +26,7 @@ let render (r : Resolution.t) =
       (match p.Resolution.source with
        | Resolution.Path path ->
          Buffer.add_string buffer (Printf.sprintf "source = \"path+%s\"\n" path)
-       | Resolution.From_registry checksum ->
+       | Resolution.From_registry { checksum; _ } ->
          Buffer.add_string buffer "source = \"registry\"\n";
          Buffer.add_string buffer (Printf.sprintf "checksum = \"%s\"\n" checksum));
       Buffer.add_string
@@ -48,8 +48,10 @@ let read root =
    than through the manifest parser: this is a generated file with three keys
    that matter, and keeping the TOML subset small is worth more than reusing
    it. Yank semantics need this -- a version yanked since is still the version
-   this build was pinned to. *)
-let pins text =
+   this build was pinned to -- and so does verification, which holds a fetched
+   archive to the checksum recorded here rather than to whatever the index says
+   now. *)
+let packages text =
   let value line key =
     let key = key ^ " = \"" in
     let line = String.trim line in
@@ -62,20 +64,25 @@ let pins text =
       | None -> None)
     else None
   in
-  let rec scan name acc = function
-    | [] -> List.rev acc
-    | line :: rest ->
-      (match value line "name" with
-       | Some found -> scan (Some found) acc rest
-       | None ->
-         (match name, value line "version" with
-          | Some name, Some version ->
-            (match Version.of_string version with
-             | Ok version -> scan None ((name, version) :: acc) rest
-             | Error _ -> scan None acc rest)
-          | _ -> scan name acc rest))
+  let rec split current acc = function
+    | [] -> List.rev (List.rev current :: acc)
+    | line :: rest when String.equal (String.trim line) "[[package]]" ->
+      split [] (List.rev current :: acc) rest
+    | line :: rest -> split (line :: current) acc rest
   in
-  scan None [] (String.split_on_char '\n' text)
+  split [] [] (String.split_on_char '\n' text)
+  |> List.filter_map (fun block ->
+    let field key = List.find_map (fun line -> value line key) block in
+    match field "name", Option.map Version.of_string (field "version") with
+    | Some name, Some (Ok version) -> Some (name, version, field "checksum")
+    | _ -> None)
+
+let pins text = List.map (fun (name, version, _) -> name, version) (packages text)
+
+let checksums text =
+  List.filter_map
+    (fun (name, version, checksum) -> Option.map (fun c -> (name, version), c) checksum)
+    (packages text)
 
 let write root text =
   Out_channel.with_open_bin (path root) (fun out -> Out_channel.output_string out text)

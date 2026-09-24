@@ -121,7 +121,7 @@ B: 2
 
 Two tasks interleaved, and there is no runtime here. `spawn` installs a handler; `tick` parks the caller by pushing its continuation; the `while` loop is the event loop, written in the same language as everything else, visible and replaceable. Change the queue to a stack and you change the scheduling policy. Add a priority field and you have priorities.
 
-`counter` is worth a second look. It is a plain `for` loop. It has no `async` keyword, and calling it doesn't produce a promise — the only trace of concurrency in its signature is the `<sched>` the compiler would have inferred anyway. This is the "no function coloring" claim from [Why effects](./why-effects.mdx), delivered.
+`counter` is worth a second look. It is a plain `for` loop. It has no `async` keyword, and calling it doesn't produce a promise — the only trace of concurrency in its signature is the `<sched>` the compiler would have inferred anyway. This is "known, not written" from [Why effects](./why-effects.mdx), delivered.
 
 ## The `async` effect
 
@@ -228,7 +228,7 @@ Look back at what these chapters have in common. Logging, exceptions, generators
 | Multiple resumption    | resumes more than once                      |
 | Async                  | stores the continuation and resumes it later |
 
-Five mechanisms in other languages; one here, and the axis they vary along is a single question about `resume`.
+Separate mechanisms in other languages; one here, and the axis they vary along is a single question about `resume`.
 
 ## Try it
 

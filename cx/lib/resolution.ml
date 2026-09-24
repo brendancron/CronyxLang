@@ -4,15 +4,19 @@
    A `path` dependency is whatever version its own manifest names, so there is
    nothing to choose and the only failure is a graph that disagrees with
    itself. A registry dependency is a requirement over the versions the index
-   offers, so choosing is the whole job: take the newest that satisfies every
-   requirement anyone in the graph has made of that name, and when a later
-   requirement rules out what was already chosen, choose again. *)
+   offers, so choosing is the whole job: keep the version the lockfile pinned
+   while it satisfies every requirement anyone in the graph has made of that
+   name, take the newest that does otherwise, and when a later requirement rules
+   out what was already chosen, choose again. *)
 
 open Bootstrap
 
 type source =
   | Path of string
-  | From_registry of string (* checksum *)
+  | From_registry of
+      { checksum : string
+      ; locked : bool
+      }
 
 type entry =
   { name : string
@@ -46,9 +50,14 @@ type demand =
   ; by : chain
   }
 
-let resolve ?(pinned = []) root =
+(* [checksums] is what the lockfile recorded for each pinned version, which is
+   what a pinned version is held to: the index saying something else since is
+   what verification exists to catch, not a reason to change the lock. Offline,
+   the cache stands in for the registry. *)
+let resolve ?(pinned = []) ?(checksums = []) ?(offline = false) ?(note = ignore) root =
   let ( let* ) = Result.bind in
-  let registry = Registry_source.root () in
+  let registry = if offline then Some (Registry_source.cache ()) else Registry_source.root () in
+  let offered : (string, Registry_source.release list) Hashtbl.t = Hashtbl.create 8 in
   let paths : (string, entry * chain) Hashtbl.t = Hashtbl.create 8 in
   let demands : (string, demand list) Hashtbl.t = Hashtbl.create 8 in
   let chosen : (string, Registry_source.release) Hashtbl.t = Hashtbl.create 8 in
@@ -79,6 +88,7 @@ let resolve ?(pinned = []) root =
            name)
     | Some registry ->
       let* releases = Registry_source.releases registry name in
+      Hashtbl.replace offered name releases;
       let wanted = demanded name in
       let satisfying =
         List.filter
@@ -89,7 +99,15 @@ let resolve ?(pinned = []) root =
                  wanted)
           releases
       in
-      (match satisfying with
+      let pin =
+        match List.assoc_opt name pinned with
+        | None -> None
+        | Some v ->
+          List.find_opt
+            (fun (r : Registry_source.release) -> Version.equal v r.Registry_source.version)
+            satisfying
+      in
+      (match Option.to_list pin @ satisfying with
        | best :: _ ->
          (match Hashtbl.find_opt chosen name with
           | Some current when Version.equal current.Registry_source.version best.Registry_source.version
@@ -98,6 +116,12 @@ let resolve ?(pinned = []) root =
             Hashtbl.replace chosen name best;
             changed := true;
             Ok ())
+       | [] when offline && releases = [] ->
+         fail
+           (Printf.sprintf
+              "'%s' is not in the cache, and --offline was given. Build once without --offline \
+               to fetch it."
+              name)
        | [] ->
          fail
            (Printf.sprintf
@@ -117,7 +141,8 @@ let resolve ?(pinned = []) root =
                | [] -> "The registry has no versions of it at all."
                | releases ->
                  Printf.sprintf
-                   "The registry offers %s."
+                   "%s offers %s."
+                   (if offline then "The cache" else "The registry")
                    (String.concat
                       ", "
                       (List.map
@@ -126,13 +151,25 @@ let resolve ?(pinned = []) root =
                            ^ if r.Registry_source.yanked then " (yanked)" else "")
                          releases)))))
   in
-  let rec walk_path ~chain ~source root =
+  let rec walk_path ?requirement ~chain ~source root =
     let* manifest = manifest_at root in
     let name = manifest.Manifest.name in
     let version = manifest.Manifest.version in
     raise_floor manifest.Manifest.cronyx;
-    match Hashtbl.find_opt paths name with
-    | Some (existing, first) when not (Version.equal existing.version version) ->
+    match Hashtbl.find_opt paths name, requirement with
+    | _, Some requirement when not (Requirement.satisfies requirement version) ->
+      fail
+        (Printf.sprintf
+           "no version of '%s' satisfies every requirement.\n\
+           \  ─ %s requires %s %s\n\n\
+           \  It is a `path` dependency on %s, which is version %s."
+           name
+           (describe chain)
+           name
+           (Requirement.render requirement)
+           source
+           (Version.to_string version))
+    | Some (existing, first), _ when not (Version.equal existing.version version) ->
       fail
         (Printf.sprintf
            "no version of '%s' satisfies every requirement.\n\
@@ -147,8 +184,8 @@ let resolve ?(pinned = []) root =
            (describe chain)
            name
            (Version.to_string version))
-    | Some _ -> Ok ()
-    | None ->
+    | Some _, _ -> Ok ()
+    | None, _ ->
       Hashtbl.replace
         paths
         name
@@ -167,7 +204,8 @@ let resolve ?(pinned = []) root =
         (fun acc (d : Manifest.dependency) ->
           let* () = acc in
           match d.Manifest.source with
-          | Manifest.Path path -> walk_path ~chain ~source:path (Filename.concat root path)
+          | Manifest.Path (path, requirement) ->
+            walk_path ?requirement ~chain ~source:path (Filename.concat root path)
           | Manifest.Registry requirement -> want ~chain d.Manifest.name requirement)
         (Ok ())
         manifest.Manifest.dependencies
@@ -192,8 +230,9 @@ let resolve ?(pinned = []) root =
       choose name)
   in
   (* A choice can rule out another package's choice, so the walk repeats until
-     nothing moves. It terminates because a name is only ever re-chosen for a
-     lower version, and there are finitely many. *)
+     nothing moves. It terminates because requirements only accumulate: a name
+     is re-chosen only when its choice is ruled out, and then only from what is
+     left, so a pin once lost is never retaken and the newest left only falls. *)
   let rec settle rounds =
     if rounds > 64
     then fail "Resolution did not settle."
@@ -225,9 +264,22 @@ let resolve ?(pinned = []) root =
   let from_registry =
     Hashtbl.fold
       (fun name (r : Registry_source.release) acc ->
+        let version = r.Registry_source.version in
+        let recorded =
+          match List.assoc_opt name pinned with
+          | Some v when Version.equal v version ->
+            List.find_map
+              (fun ((n, v), checksum) ->
+                if String.equal n name && Version.equal v version then Some checksum else None)
+              checksums
+          | _ -> None
+        in
         { name
-        ; version = r.Registry_source.version
-        ; source = From_registry r.Registry_source.checksum
+        ; version
+        ; source =
+            (match recorded with
+             | Some checksum -> From_registry { checksum; locked = true }
+             | None -> From_registry { checksum = r.Registry_source.checksum; locked = false })
         ; dependencies = List.map fst r.Registry_source.requirements |> List.sort String.compare
         }
         :: acc)
@@ -258,4 +310,35 @@ let resolve ?(pinned = []) root =
             (match available with
              | [] -> "none"
              | _ -> String.concat ", " (List.map fst available)))
-     | _ -> Ok { packages; cronyx = wanted })
+     | _ ->
+       List.iter
+         (fun (p : entry) ->
+           let kept =
+             match List.assoc_opt p.name pinned with
+             | Some v -> Version.equal v p.version
+             | None -> false
+           in
+           match p.source, Hashtbl.find_opt offered p.name with
+           | From_registry _, Some releases when not kept ->
+             (match
+                List.find_opt
+                  (fun (r : Registry_source.release) ->
+                    List.for_all
+                      (fun d -> Requirement.satisfies d.requirement r.Registry_source.version)
+                      (demanded p.name))
+                  releases
+              with
+              | Some newest
+                when newest.Registry_source.yanked
+                     && not (Version.equal newest.Registry_source.version p.version) ->
+                note
+                  (Printf.sprintf
+                     "%s %s is yanked, so %s %s was chosen instead."
+                     p.name
+                     (Version.to_string newest.Registry_source.version)
+                     p.name
+                     (Version.to_string p.version))
+              | _ -> ())
+           | _ -> ())
+         packages;
+       Ok { packages; cronyx = wanted })

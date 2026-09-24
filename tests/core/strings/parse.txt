@@ -1,0 +1,15 @@
+Some(42)
+Some(-17)
+Some(7)
+None
+None
+None
+None
+Some(1.5)
+Some(-0.25)
+Some(3.0)
+None
+None
+None
+skipped ' x'
+42

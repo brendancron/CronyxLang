@@ -270,14 +270,14 @@ let executed ~self ~root ~filter ~own program =
    `cx` links the compiler as a library, and the suite in `cx/test` calls this
    in-process. A binary that assumed it was `cx` would spawn the test harness
    and run the whole suite again, once per test. *)
-let run ?(mode = Build.unrestricted) ?filter ~self root =
+let run ?(mode = Build.unrestricted) ?note ?filter ~self root =
   let ( let* ) = Result.bind in
   (* Resolved before anything chdirs: [Build.within] moves to the package root,
      and a relative path handed in from a build directory does not survive it. *)
   let self =
     if Filename.is_relative self then Filename.concat (Sys.getcwd ()) self else self
   in
-  let* artifacts, _ = Build.package ~mode ~out:(fun _ -> ()) root in
+  let* artifacts, _ = Build.package ~mode ?note ~out:(fun _ -> ()) root in
   let* manifest = Build.manifest_of root in
   let program = Build.link artifacts in
   let package = List.nth artifacts (List.length artifacts - 1) in

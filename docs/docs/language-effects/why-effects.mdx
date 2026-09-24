@@ -37,15 +37,18 @@ That's the same idea expressed five different ways. The keywords differ; the sha
 
 This idea has a name: **algebraic effects**. The cleanest expression of it is in the [Koka language](https://koka-lang.github.io/) from Microsoft Research, which was designed around effects from the ground up. Cronyx borrows the model directly.
 
-The core reason for adopting it is that the *compiler tracks every effect throughout your program*. Each function call, each effect performed, each handler installed — all of it is part of a single inference pass that knows exactly which effects can happen where. If a function in some library four levels down the call stack performs a `Log` effect, the compiler knows the function calling it does too, and so on up the chain. Effects are part of the type system; they aren't a runtime convention you can quietly violate.
+The core reason for adopting it is that the *compiler tracks every effect throughout your program*. Each function call, each effect performed, each handler installed — the type checker knows exactly which effects can happen where. If a function in some library four levels down the call stack performs a `Log` effect, the compiler knows the function calling it does too, and so on up the chain. Effects are part of the type system; they aren't a runtime convention you can quietly violate.
 
-### No function coloring
+### Known, not written
 
-Other languages do this too, badly. In Java you write `throws IOException` on every signature in the chain. In Rust every fallible call is `?`-marked and every signature returns `Result<T, E>`. In JavaScript you sprinkle `async` and `await` through your codebase, and once a function is `async` everything that calls it has to become `async` too. This is **function coloring**: a function gets tagged with what it can do, and that tag is sticky and contagious.
+In Java a function that can fail says `throws IOException`, and so does every function that calls it. In Rust it returns `Result<T, E>`, and so do its callers. In JavaScript a function that waits is `async`, and so is everything that calls it. Each of these records something worth knowing — this function can fail, this one can suspend — but you write the record by hand on every signature up the chain, and rewrite it when a function deep down starts doing something new.
 
-Cronyx tracks effects without making you write any of those annotations. The compiler infers them from how the function is used — call something that performs `Log`, and the compiler quietly notes that you perform `Log` too. There is no `async` keyword to add. There is no `throws` clause to thread through. There is no `Result<T, E>` to unwrap. You write a function that calls another function that performs an effect, and your function performs that effect. The compiler does the bookkeeping.
+Cronyx keeps the record and drops the bookkeeping. A function's effects are part of its type, and the compiler infers them: call something that performs `log`, and your function's type says `log` too. Add a `log` call four levels down and every caller whose effects are inferred follows, with no edit. Where you want the effects spelled out, you write them in the signature and the compiler holds you to it: a written list is complete, so a new effect deep down is reported at that signature instead of slipping through.
 
-This is the consequence worth emphasizing most: **the same code that calls a synchronous, infallible function also calls an asynchronous, fallible one**. The signature doesn't change. The body doesn't change. What changes is the set of effects the compiler has tracked through the call — and the set of handlers the *caller* must install.
+Two things follow from that:
+
+- **Higher-order code works with any effect.** A function taking a callback can be [polymorphic in the callback's effects](./effect-polymorphism.mdx), and is unless you write the callback's type without them, so one definition serves a pure callback, a failing one and an asynchronous one. There is no second, `async` copy of it to write.
+- **An effect can't be forgotten.** Whatever a function performs, some caller has to handle. Code that leaves an effect unhandled doesn't compile, rather than failing the first time it runs.
 
 ### The mechanism
 
@@ -55,7 +58,7 @@ With those properties in mind, the surface mechanism is small:
 - A function that wants to perform one of those operations just *performs* it.
 - A **handler** installed by the caller says how each operation is interpreted: do something and return a value, abort, retry, switch to a different task, anything you like.
 
-Every example we just looked at — errors, async, generators, callbacks, IO — turns out to be the same construction with different operations and different handlers. Throughout this section we'll build all of them with the same three keywords:
+Every example we just looked at — errors, async, generators, callbacks, IO — turns out to be the same construction with different operations and different handlers. Throughout this section we'll build all of them with the same three constructs:
 
 - `effect Name { ... }` — declare an effect.
 - `op(args)` — perform one of the effect's operations.
@@ -77,9 +80,9 @@ The unification isn't just an aesthetic win — it makes things *possible* that 
 
 ## The cost
 
-Effects aren't free. When a function performs an effect, the compiler transforms it (only that function — not the rest of your program) so that its execution can be paused and resumed by a handler. There's a runtime cost: pausing the function means saving its remaining work as a continuation, which the handler can then run later.
+Effects aren't free, but you pay only for the kind you use. An effect whose handlers never pause the caller — its operations answer and return (`fn`), or abort outright (`final ctl`) — is compiled to a hidden argument: the handler is passed down, and performing an operation is an ordinary call. An effect with a `ctl` operation, whose handler can pause the caller, needs more. Every function that can perform it, directly or through a callee, up to the `run` that handles it, is rewritten so its remaining work can be saved as a continuation and resumed later.
 
-For pure code that doesn't perform any effects, nothing changes — the transformation is selective. Code paths that perform effects pay a small cost; code paths that don't, don't. In practice this is fine for almost everything: the kinds of work that benefit from effects (IO, error recovery, generators) already operate well above the threshold where this cost matters.
+Code that performs no effects is untouched — the transformation is selective. Code paths that perform effects pay a small cost; code paths that don't, don't. In practice this is fine for almost everything: the kinds of work that benefit from effects (IO, error recovery, generators) already operate well above the threshold where this cost matters.
 
 ## A taste
 

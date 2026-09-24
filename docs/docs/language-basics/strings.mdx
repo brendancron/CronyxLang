@@ -1,0 +1,409 @@
+---
+sidebar_position: 6
+---
+
+# Strings
+
+You've been printing strings since the first chapter. This one covers what else you can do with them: escapes, joining and converting, reading characters by index, slicing, iterating, comparing, and the built-in methods. Along the way you'll meet `char`, the type a string is made of.
+
+## String literals
+
+A string literal is text between double quotes. A backslash starts an escape:
+
+```cronyx
+print("tab:\tdone");
+print("quote: \"hi\"");
+print("slash: \\");
+print("line1\nline2");
+```
+
+```
+tab:	done
+quote: "hi"
+slash: \
+line1
+line2
+```
+
+| Escape | Means            |
+| ------ | ---------------- |
+| `\n`   | newline          |
+| `\t`   | tab              |
+| `\r`   | carriage return  |
+| `\0`   | the zero character |
+| `\\`   | a backslash      |
+| `\"`   | a double quote   |
+| `\'`   | a single quote   |
+
+Any other character after a backslash is a compile error rather than being passed through, so a typo like `"\d"` is caught.
+
+A literal can also span lines — the line break is part of the string:
+
+```cronyx
+var poem = "roses are red
+violets are blue";
+print(poem);
+```
+
+```
+roses are red
+violets are blue
+```
+
+## Joining and converting
+
+`+` joins two strings, and `+=` appends to a variable:
+
+```cronyx
+var greeting = "Hello, " + "World";
+greeting += "!";
+print(greeting);
+```
+
+```
+Hello, World!
+```
+
+`+` only joins strings with strings. To put anything else into a string, convert it with `str`, which works on any value:
+
+```cronyx
+var n = 42;
+print("n is " + str(n));
+print(str(1.5) + " " + str(true) + " " + str([1, 2, 3]));
+```
+
+```
+n is 42
+1.5 true [1, 2, 3]
+```
+
+There's no interpolation syntax — `"${n}"` prints exactly those four characters. Build the string with `+` and `str`.
+
+## Length and indexing
+
+`len()` returns the number of characters. Indexing with `s[i]` returns the character at position `i`, starting at `0`:
+
+```cronyx
+var s = "hello";
+print(s.len());
+print(s[0]);
+print(s[4]);
+```
+
+```
+5
+h
+o
+```
+
+`s[i]` is a `char`, not a one-character string — the next section covers the difference. An index past the end stops the program, the same as for an array.
+
+Strings can't be changed in place. `s[0] = 'j';` is a compile error: `A string cannot be assigned into.` To change a string, build a new one.
+
+## Characters
+
+A `char` holds exactly one character and is written in single quotes:
+
+```cronyx
+var c = 'a';
+print(c);
+print(c == 'a');
+print('a' < 'b');
+print(ord(c));
+```
+
+```
+a
+true
+true
+97
+```
+
+`ord` returns a character's Unicode code point as an `int`, and `chr` turns a code point back into a `char`:
+
+```cronyx
+print(chr(97));
+print(chr(ord('a') + 2));
+```
+
+```
+a
+c
+```
+
+`chr` stops the program if the number isn't a code point a character can have, such as `-1`.
+
+`char`s are ordered by code point, which makes classifying one straightforward:
+
+```cronyx
+fn is_digit(c: char): bool {
+    return c >= '0' && c <= '9';
+}
+
+print(is_digit('7'));
+print(is_digit('x'));
+print(ord('7') - ord('0'));
+```
+
+```
+true
+false
+7
+```
+
+`to_upper()` and `to_lower()` change an ASCII letter's case, and leave any other character alone:
+
+```cronyx
+print('q'.to_upper());
+print('Q'.to_lower());
+print('7'.to_upper());
+```
+
+```
+Q
+q
+7
+```
+
+A `char` and a string are different types, even when the string has one character. `"a" == 'a'` is a type error, and so is `var c: char = "a";`. Use `str(c)` to turn a `char` into a string:
+
+```cronyx
+var c = 'x';
+print(str(c) + "yz");
+```
+
+```
+xyz
+```
+
+## Slicing
+
+Slicing works the same as on [collections](./collections.mdx), and gives back a new string:
+
+```cronyx
+var s = "hello";
+print(s[1:4]);
+print(s[:3]);
+print(s[2:]);
+print(s[-3:]);
+print(s[:-1]);
+```
+
+```
+ell
+hel
+llo
+llo
+hell
+```
+
+The end index is exclusive, and a negative bound counts from the end, so `s[-3:]` is the last three characters and `s[:-1]` is everything but the last one.
+
+## Iterating
+
+`for ... in` walks a string one `char` at a time:
+
+```cronyx
+var reversed = "";
+for (c in "hello") {
+    reversed = str(c) + reversed;
+}
+print(reversed);
+```
+
+```
+olleh
+```
+
+When you want the characters as a collection, `chars()` returns an `Array<char>`.
+
+## Built-in methods
+
+```cronyx
+var s = "  hello world  ";
+var t = s.trim();
+print(t);
+print(t.contains("lo w"));
+print(t.starts_with("hello"));
+print(t.ends_with("moon"));
+print(t.index_of("o"));
+print(t.index_of("z"));
+print(t.replace("o", "0"));
+print(t.split(' '));
+print(t.to_upper());
+```
+
+```
+hello world
+true
+true
+false
+4
+-1
+hell0 w0rld
+[hello, world]
+HELLO WORLD
+```
+
+| Method                 | What it does                                                        |
+| ---------------------- | ------------------------------------------------------------------- |
+| `s.len()`              | Number of characters, as an `int`                                   |
+| `s.contains(t)`        | `true` if `t` appears anywhere in `s`                               |
+| `s.starts_with(t)`     | `true` if `s` begins with `t`                                       |
+| `s.ends_with(t)`       | `true` if `s` ends with `t`                                         |
+| `s.index_of(t)`        | Position of the first `t` in `s`, or `-1` if there isn't one        |
+| `s.replace(t, u)`      | A copy of `s` with every `t` replaced by `u`                        |
+| `s.split(c)`           | An `Array<string>` of the pieces between each `c`                   |
+| `s.split_str(t)`       | An `Array<string>` of the pieces between each `t`                   |
+| `s.to_upper()`         | A copy with each ASCII letter in uppercase                          |
+| `s.to_lower()`         | A copy with each ASCII letter in lowercase                          |
+| `s.to_int()`           | The `int` the text spells, as an `Option<int>`                      |
+| `s.to_float()`         | The `float` the text spells, as an `Option<float>`                  |
+| `s.trim()`             | A copy without leading and trailing spaces, tabs, and newlines      |
+| `s.chars()`            | The characters, as an `Array<char>`                                 |
+| `s.bytes()`            | The UTF-8 encoding, as an `Array<byte>`                             |
+
+None of them modify `s`; the ones that produce a string return a new one.
+
+`split` takes a `char` — `s.split(' ')`, with single quotes. To split on more than one character, use `split_str`, which takes a string. Either way, two separators in a row produce an empty piece between them:
+
+```cronyx
+var parts = "a,b,,c".split(',');
+print(parts.len());
+print(parts);
+print("one, two, three".split_str(", "));
+```
+
+```
+4
+[a, b, , c]
+[one, two, three]
+```
+
+`to_upper` and `to_lower` only know the ASCII letters, `a` to `z` and `A` to `Z`. Any other character is left as it is, so `"héllo".to_upper()` is `"HéLLO"`.
+
+## Reading numbers
+
+`to_int()` and `to_float()` go the other way from `str`, reading a number out of a string. The text might not be a number, so each gives back an `Option`: `Some` holding the value, or `None`:
+
+```cronyx
+print("42".to_int());
+print("-1.5".to_float());
+print("forty-two".to_int());
+print(" 42".to_int());
+```
+
+```
+Some(42)
+Some(-1.5)
+None
+None
+```
+
+They accept what you could write as a literal — digits, an optional leading `-`, and for `to_float` an optional fractional part — and nothing around it, not even a space; `trim()` the text first if it might have some. A `match` takes the answer apart — [enums](./enums.mdx) covers `match` in full:
+
+```cronyx
+var total = 0;
+for (field in "10, 20, x, 12".split(',')) {
+    match field.trim().to_int() {
+        Option::Some(n) => { total += n; }
+        Option::None => { print("skipped '" + field + "'"); }
+    }
+}
+print(total);
+```
+
+```
+skipped ' x'
+42
+```
+
+## Comparing strings
+
+`==` and `!=` compare strings by their contents:
+
+```cronyx
+var a = "cat";
+var b = "c" + "at";
+print(a == b);
+print(a != "dog");
+```
+
+```
+true
+true
+```
+
+`<`, `<=`, `>`, and `>=` put strings in order, comparing them a character at a time. The first pair of characters that differ decides, and a string that runs out first — a prefix of the other — comes first:
+
+```cronyx
+print("apple" < "banana");
+print("app" < "apple");
+print("b" > "abc");
+print("Zebra" < "apple");
+```
+
+```
+true
+true
+true
+true
+```
+
+The characters compare by code point, so `"Zebra" < "apple"`: every uppercase ASCII letter comes before every lowercase one. To order without regard to case, compare `a.to_lower()` with `b.to_lower()`.
+
+## Unicode
+
+A string holds Unicode text, and everything above counts in characters, not bytes. `é` is one character, even though UTF-8 needs two bytes for it:
+
+```cronyx
+var s = "héllo";
+print(s.len());
+print(s[1]);
+print(s.bytes().len());
+```
+
+```
+5
+é
+6
+```
+
+`len`, indexing, slicing, and iteration all see five characters. Only `bytes()` shows you the encoding.
+
+## Try it
+
+Write a function `is_palindrome(s: string): bool` that returns `true` when `s` reads the same forwards and backwards. Compare characters from both ends, moving inward. `is_palindrome("racecar")` should print `true` and `is_palindrome("hello")` should print `false`.
+
+A working answer:
+
+```cronyx
+fn is_palindrome(s: string): bool {
+    var i = 0;
+    var j = s.len() - 1;
+    while (i < j) {
+        if (s[i] != s[j]) {
+            return false;
+        }
+        i++;
+        j--;
+    }
+    return true;
+}
+
+print(is_palindrome("racecar"));
+print(is_palindrome("hello"));
+print(is_palindrome(""));
+```
+
+```
+true
+false
+true
+```
+
+The loop stops when `i` and `j` meet in the middle, so each pair is checked once. The empty string never enters the loop — `j` starts at `-1` — and counts as a palindrome.
+
+## What's next
+
+You can now build strings, take them apart by character or by slice, and search them. Next up: **tuples** — fixed-size groups of values whose elements can be of different types.

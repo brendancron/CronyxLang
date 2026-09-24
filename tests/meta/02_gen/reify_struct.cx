@@ -1,0 +1,7 @@
+type P { x: int }
+meta {
+    var p = new P { x: 3 };
+    gen var pp = p;
+}
+print(typeof(pp).name);
+print(pp.x);

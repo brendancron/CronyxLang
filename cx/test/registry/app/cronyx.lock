@@ -11,5 +11,5 @@ dependencies = ["greet"]
 name = "greet"
 version = "1.0.0"
 source = "registry"
-checksum = "sha256:09a7819b910675554231f543628ee72c"
+checksum = "blake2b:755ca7557585810d462b5a69e2fcb1a3d5dcc2431fa892d31005f4b6ea768ace"
 dependencies = []

@@ -57,14 +57,26 @@ type mode =
 
 let unrestricted = { locked = false; offline = false }
 
+let locked_versions root =
+  match Lockfile.read root with
+  | Some text -> Lockfile.pins text
+  | None -> []
+
+let locked_checksums root =
+  match Lockfile.read root with
+  | Some text -> Lockfile.checksums text
+  | None -> []
+
 (* Resolution, and the lockfile it either writes or is held to. *)
-let lock ~mode root =
-  let pinned =
-    match Lockfile.read root with
-    | Some text -> Lockfile.pins text
-    | None -> []
-  in
-  match Resolution.resolve ~pinned root with
+let lock ?note ~mode root =
+  match
+    Resolution.resolve
+      ~pinned:(locked_versions root)
+      ~checksums:(locked_checksums root)
+      ~offline:mode.offline
+      ?note
+      root
+  with
   | Error errors -> Error errors
   | Ok resolution ->
     let rendered = Lockfile.render resolution in
@@ -87,6 +99,54 @@ let lock ~mode root =
        Lockfile.write root rendered;
        Ok resolution)
 
+type change =
+  | Updated of string * Version.t * Version.t
+  | Added of string * Version.t
+  | Removed of string * Version.t
+
+(* With no names, nothing stays pinned. With names, only those are unpinned,
+   and anything else moves only when what they moved to rules its pin out. *)
+let update ?(names = []) ?(offline = false) ?note root =
+  let ( let* ) = Result.bind in
+  let before = locked_versions root in
+  let pinned =
+    match names with
+    | [] -> []
+    | names -> List.filter (fun (name, _) -> not (List.mem name names)) before
+  in
+  let* resolution =
+    Resolution.resolve ~pinned ~checksums:(locked_checksums root) ~offline ?note root
+  in
+  let after =
+    List.map
+      (fun (p : Resolution.entry) -> p.Resolution.name, p.Resolution.version)
+      resolution.Resolution.packages
+  in
+  match
+    List.find_opt (fun name -> not (List.mem_assoc name before || List.mem_assoc name after)) names
+  with
+  | Some name ->
+    Error
+      [ Diagnostic.at
+          Diagnostic.Manifest
+          Source_map.Span.nowhere
+          (Printf.sprintf "'%s' is not a package in this build." name)
+      ]
+  | None ->
+    Lockfile.write root (Lockfile.render resolution);
+    let names =
+      List.sort_uniq String.compare (List.map fst before @ List.map fst after)
+    in
+    Ok
+      (List.filter_map
+         (fun name ->
+           match List.assoc_opt name before, List.assoc_opt name after with
+           | Some was, Some now when not (Version.equal was now) -> Some (Updated (name, was, now))
+           | None, Some now -> Some (Added (name, now))
+           | Some was, None -> Some (Removed (name, was))
+           | _ -> None)
+         names)
+
 (* [compiled] names the packages this build actually ran the compiler over, so
    that "nothing to do" is something a caller can see rather than infer from a
    clock. *)
@@ -105,7 +165,7 @@ let rec compile ~out ~built ~compiled ~located root
         (fun acc (d : Manifest.dependency) ->
           let* acc = acc in
           match d.Manifest.source with
-          | Manifest.Path path ->
+          | Manifest.Path (path, _) ->
             let* transitive =
               compile ~out ~built ~compiled ~located (Filename.concat root path)
             in
@@ -133,7 +193,7 @@ let rec compile ~out ~built ~compiled ~located root
         (fun (d : Manifest.dependency) ->
           let dep_root =
             match d.Manifest.source with
-            | Manifest.Path path -> Filename.concat root path
+            | Manifest.Path (path, _) -> Filename.concat root path
             | Manifest.Registry _ -> Option.value (located d.Manifest.name) ~default:root
           in
           d.Manifest.name, { Loader.dep_root; compiled = artifact_for d.Manifest.name })
@@ -224,33 +284,31 @@ let rec compile ~out ~built ~compiled ~located root
 (* Built from the package root, so every path an artifact carries is relative to
    it. Two copies of one tree then compile to the same bytes, which is what
    makes an artifact a function of its inputs rather than of its address. *)
-let materialize (resolution : Resolution.t) =
+let materialize ~offline (resolution : Resolution.t) =
   let ( let* ) = Result.bind in
   let* pairs =
     List.fold_left
       (fun acc (p : Resolution.entry) ->
         let* acc = acc in
-        match p.Resolution.source with
-        | Resolution.Path _ -> Ok acc
-        | Resolution.From_registry checksum ->
-          (match Registry_source.root () with
-           | None ->
-             Error
-               [ Diagnostic.at
-                   Diagnostic.Manifest
-                   Source_map.Span.nowhere
-                   "No registry is configured. Set CRONYX_REGISTRY."
-               ]
-           | Some registry ->
-             let release =
-               { Registry_source.version = p.Resolution.version
-               ; checksum
-               ; yanked = false
-               ; requirements = []
-               }
-             in
-             let* dir = Registry_source.fetch registry p.Resolution.name release in
-             Ok ((p.Resolution.name, dir) :: acc)))
+        match p.Resolution.source, offline, Registry_source.root () with
+        | Resolution.Path _, _, _ -> Ok acc
+        | Resolution.From_registry _, false, None ->
+          Error
+            [ Diagnostic.at
+                Diagnostic.Manifest
+                Source_map.Span.nowhere
+                "No registry is configured. Set CRONYX_REGISTRY."
+            ]
+        | Resolution.From_registry { checksum; locked }, _, registry ->
+          let* dir =
+            Registry_source.fetch
+              ~registry:(if offline then None else registry)
+              ~checksum
+              ~expected_by:(if locked then "the lockfile" else "the index")
+              p.Resolution.name
+              p.Resolution.version
+          in
+          Ok ((p.Resolution.name, dir) :: acc))
       (Ok [])
       resolution.Resolution.packages
   in
@@ -264,22 +322,49 @@ let within root f =
   Sys.chdir root;
   Fun.protect ~finally:(fun () -> Sys.chdir here) f
 
-let package ?(mode = unrestricted) ~out root =
+let package ?(mode = unrestricted) ?note ~out root =
   let compiled = ref [] in
   within root (fun () ->
       (* Resolution first: the lockfile is what says the graph is what it was,
          and a build that disagreed with it would be building something else. *)
-      match lock ~mode "." with
+      match lock ?note ~mode "." with
       | Error errors -> Error errors
       | Ok resolution ->
         (* Fetched and verified before anything is compiled, so a bad archive is
            an error about the archive rather than about the code in it. *)
-        (match materialize resolution with
+        (match materialize ~offline:mode.offline resolution with
          | Error errors -> Error errors
          | Ok located ->
            (match compile ~out ~built:(Hashtbl.create 8) ~compiled ~located "." with
             | Error errors -> Error errors
             | Ok artifacts -> Ok (artifacts, List.rev !compiled))))
+
+(* A file run inside a package reaches what the package does, so its registry
+   dependencies are resolved and fetched as a build would. Nothing is compiled
+   to `target/`: the file is compiled from source, dependencies and all. *)
+let file_roots ?(mode = unrestricted) ?note path =
+  let ( let* ) = Result.bind in
+  match Manifest.find_root path with
+  | None -> Ok (Driver.roots_for path)
+  | Some root ->
+    let* manifest = manifest_of root in
+    let registry =
+      List.exists
+        (fun (d : Manifest.dependency) ->
+          match d.Manifest.source with
+          | Manifest.Registry _ -> true
+          | Manifest.Path _ -> false)
+        manifest.Manifest.dependencies
+    in
+    if not registry
+    then Ok (Workspace.roots manifest)
+    else
+      let* located =
+        within root (fun () ->
+          let* resolution = lock ?note ~mode "." in
+          materialize ~offline:mode.offline resolution)
+      in
+      Ok (Workspace.roots ~located manifest)
 
 (* Each package embeds whatever of the standard library it imported, since the
    library is not itself compiled to an artifact yet. Two of them embedding the

@@ -1,0 +1,7 @@
+type Box<T> { value: T }
+meta {
+    var b = new Box { value: "held" };
+    gen var bb = b;
+}
+print(typeof(bb).name);
+print(bb.value);

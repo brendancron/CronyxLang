@@ -1,0 +1,8 @@
+print("Hello, World 42!".to_upper());
+print("Hello, World 42!".to_lower());
+print("".to_upper());
+print("héllo".to_upper());
+print('q'.to_upper());
+print('Q'.to_lower());
+print('7'.to_upper());
+print("MiXeD".to_lower() == "mixed");

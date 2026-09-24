@@ -1,0 +1,4 @@
+effect log { fn emit(msg: string): unit; }
+fn apply_twice<T>(f: (T) -> T, x: T): T { return f(f(x)); }
+fn shout(x: int): <log> int { emit("saw"); return x + 1; }
+run { print(apply_twice(shout, 0)); } handle log { fn emit(msg) { print(msg); } }

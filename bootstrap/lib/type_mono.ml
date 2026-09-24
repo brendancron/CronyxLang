@@ -20,6 +20,13 @@ let rec type_directed_expr self (e : Ast.typed_expr) =
   match e.Ast.it with
   | `Binop (_, a, b) -> operand a || operand b || type_directed_expr a || type_directed_expr b
   | `Compound (_, _, v) -> Types.has_generic e.Ast.ann || type_directed_expr v
+  | `Compound_index (_, a, b, c) ->
+    Types.has_generic e.Ast.ann
+    || type_directed_expr a
+    || type_directed_expr b
+    || type_directed_expr c
+  | `Compound_field (_, a, _, b) ->
+    Types.has_generic e.Ast.ann || type_directed_expr a || type_directed_expr b
   | `Method_call (receiver, _, _, args) ->
     operand receiver
     || type_directed_expr receiver

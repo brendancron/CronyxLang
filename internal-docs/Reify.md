@@ -28,7 +28,7 @@ impl Reifiable for Point {
 }
 ```
 
-**Why a trait rather than a structural walk.** Only the type knows what its value means as syntax. A `List` is a backing array and a count, and written out structurally it comes back as that record — the wrong type, carrying the spare capacity behind `count`. A named type comes back as an anonymous record and loses its name. `reify` lets `List` write itself as the literal that builds it and `Point` as `new Point { … }`.
+**Why a trait rather than a structural walk.** Only the type knows what its value means as syntax. A `List` is a backing array and a count, and written out structurally it comes back as `new List { … }` over those — the right type, but carrying the spare capacity behind `count` and bypassing whatever its constructor would have kept true. `reify` lets `List` write itself as the literal that builds it, and `Point` keep `new Point { … }`.
 
 **Why it returns `Code`.** It is what a `gen` splices, and what `code(…)` already builds: a `Code` held in a meta variable splices into `code(…)`, so an impl assembles its syntax the way any other meta code does. Template Haskell's `Lift` (`lift :: t -> Q Exp`, with `deriving Lift`), Scala 3's `ToExpr` and Rust's `quote::ToTokens` are the same shape.
 
@@ -46,16 +46,18 @@ impl Reifiable for Point {
 |-------|-----------|----------------|
 | `int`, `float`, `string`, `bool`, `char`, `unit` | a literal | always |
 | tuple | a tuple literal | every element is |
-| record, named product | a record literal | every field is |
+| anonymous record | a record literal | every field is |
+| named product | `new Name { … }` | every field is |
+| sum | `Name::Variant`, `Name::Variant(…)` or `Name::Variant { … }` | every payload value is |
 | array | an array literal | every element is |
 | `Code` | the syntax it holds | always |
 | `Name` | the identifier | always |
 | function | — | never |
-| sum, trait object | — | not built |
+| trait object | — | never |
 
-`meta/02_gen/reify_list` and `reify_record` are the collections; `meta/02_gen/errors/reify_fn` is the failure, *'f' is a function and cannot be written into generated code.* A variant is the gap that matters: `Name::Variant(…)` is the obvious form and nothing needs it yet. A trait object is [Meta Scope and Instantiation](Meta%20Scope%20and%20Instantiation.md)'s open question.
+`meta/02_gen/reify_list` and `reify_record` are the collections, `reify_struct`, `reify_enum_payload` and `reify_nested` the declared types; `meta/02_gen/errors/reify_fn` is the failure, *'f' is a function and cannot be written into generated code.* A trait object is refused by name (`errors/reify_object`) and remains [Meta Scope and Instantiation](Meta%20Scope%20and%20Instantiation.md)'s open question.
 
-So a user type is written out the moment its fields are — as a record, which is where the walk falls short:
+A value does not say its type by its shape, so the interpreter carries the declared name on each record and variant it builds, from the node's annotation (`Value.Record`, `Value.Variant`). Type arguments are left for the checker to infer again, as they are for a `new Box<int> { … }` written by hand. So a user type is written out the moment its fields are, as itself:
 
 ```cronyx
 type Vec2 {
@@ -65,7 +67,7 @@ type Vec2 {
 
 meta {
     var origin = new Vec2 { x: 0, y: 0 };
-    gen var start = origin;      // emits: var start = { x: 0, y: 0 };
+    gen var start = origin;      // emits: var start = new Vec2 { x: 0, y: 0 };
 }
 
 print(start.x);      // 0

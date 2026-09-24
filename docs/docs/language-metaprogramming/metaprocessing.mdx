@@ -93,7 +93,7 @@ D!
 F
 ```
 
-`C` comes out between `B` and `E` because that's where the call `shout("D")` sits. The declaration of `shout` is above it, but a declaration on its own runs nothing — the walk enters a function's body only when something calls it, and it enters it once, however many calls there are.
+`C` comes out between `B` and `E` because that's where the call `shout("D")` sits. The declaration of `shout` is above it, but a declaration on its own runs nothing — the walk enters a function's body only when something calls it or refers to it, and it enters it once, however many calls there are.
 
 That has a consequence worth knowing: **code nothing reaches is never metaprocessed.** A function no reached code calls never has its meta blocks run, and it isn't part of the compiled program at all:
 
@@ -153,6 +153,8 @@ No operator + for int and string: int does not implement Add<string>.
 ```
 
 What this early check can't see is anything a meta block decides — code a meta block will generate, or a type that depends on a compile-time value. Those parts are checked once the walk has run the meta blocks, which is covered in the chapters ahead.
+
+That includes names. A meta block could still generate a function, type or field of any name, so the early check never reports a name as undefined. A misspelled call in code the walk never reaches goes unreported until something reaches it.
 
 ## Nested meta blocks
 

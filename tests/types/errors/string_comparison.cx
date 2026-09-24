@@ -1,2 +1,1 @@
-// `<` is numeric only; `+` is what also accepts strings.
-print("a" < "b");
+print("a" < 'b');

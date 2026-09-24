@@ -1,0 +1,13 @@
+var n = 7;
+print(n.to_float() / 2.0);
+print(n / 2);
+print(3.9.to_int());
+print((-3.9).to_int());
+print(0.5.to_int());
+
+var xs = [1, 2, 4];
+var sum = 0;
+for (x in xs) {
+    sum += x;
+}
+print(sum.to_float() / xs.len().to_float());

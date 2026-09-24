@@ -159,6 +159,7 @@ let builtins () =
       (* A scalar value and an octet both have an order, and code that
          classifies characters is written with it. *)
       register t op Types.Chr Types.Chr (prim Types.Bool);
+      register t op Types.Str Types.Str (prim Types.Bool);
       register t op Types.Byte Types.Byte (prim Types.Bool))
     comparisons;
   List.iter

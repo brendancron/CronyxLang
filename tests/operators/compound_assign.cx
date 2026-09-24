@@ -1,0 +1,80 @@
+type Vec2 {
+    x: int,
+    y: int
+}
+
+impl Add<Vec2> for Vec2 {
+    type Output = Vec2;
+    fn add(self, rhs: Vec2): Vec2 { return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y }; }
+}
+
+impl Sub<Vec2> for Vec2 {
+    type Output = Vec2;
+    fn sub(self, rhs: Vec2): Vec2 { return new Vec2 { x: self.x - rhs.x, y: self.y - rhs.y }; }
+}
+
+impl Mul<int> for Vec2 {
+    type Output = Vec2;
+    fn mul(self, rhs: int): Vec2 { return new Vec2 { x: self.x * rhs, y: self.y * rhs }; }
+}
+
+impl Div<int> for Vec2 {
+    type Output = Vec2;
+    fn div(self, rhs: int): Vec2 { return new Vec2 { x: self.x / rhs, y: self.y / rhs }; }
+}
+
+impl Rem<int> for Vec2 {
+    type Output = Vec2;
+    fn rem(self, rhs: int): Vec2 { return new Vec2 { x: self.x % rhs, y: self.y % rhs }; }
+}
+
+impl Add<int> for Vec2 {
+    type Output = Vec2;
+    fn add(self, rhs: int): Vec2 { return new Vec2 { x: self.x + rhs, y: self.y + rhs }; }
+}
+
+impl Sub<int> for Vec2 {
+    type Output = Vec2;
+    fn sub(self, rhs: int): Vec2 { return new Vec2 { x: self.x - rhs, y: self.y - rhs }; }
+}
+
+fn show(v: Vec2) {
+    print(str(v.x) + " " + str(v.y));
+}
+
+var total = new Vec2 { x: 1, y: 2 };
+total += new Vec2 { x: 10, y: 20 };
+show(total);
+total -= new Vec2 { x: 1, y: 1 };
+show(total);
+total *= 3;
+show(total);
+total /= 2;
+show(total);
+total %= 7;
+show(total);
+total++;
+show(total);
+total--;
+show(total);
+
+fn sum(vs: Array<Vec2>): Vec2 {
+    var acc = new Vec2 { x: 0, y: 0 };
+    for (v in vs) {
+        acc += v;
+    }
+    return acc;
+}
+
+show(sum([new Vec2 { x: 1, y: 1 }, new Vec2 { x: 2, y: 3 }]));
+
+var grid = [new Vec2 { x: 0, y: 0 }];
+grid[0] += new Vec2 { x: 5, y: 6 };
+show(grid[0]);
+
+type Body { at: Vec2 }
+
+var b = new Body { at: new Vec2 { x: 1, y: 1 } };
+b.at += new Vec2 { x: 2, y: 2 };
+b.at *= 2;
+show(b.at);

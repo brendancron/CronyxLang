@@ -1,5 +1,5 @@
-(* Two translations, chosen per effect: evidence passing when every handler
-   resumes in tail position, continuations otherwise. *)
+(* Two translations, chosen per effect by its declaration: continuations when
+   it has a `ctl` operation, evidence passing otherwise. *)
 
 type error =
   { span : Ast.span

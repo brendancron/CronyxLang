@@ -8,11 +8,13 @@ type value =
   | Unit
   | Tuple of value list
   | Array of value array
-  | Record of (string * value ref) list
+  (* The declared type each was built as, if any. Writing one back into
+     generated code needs it, and the structure alone does not say it. *)
+  | Record of string option * (string * value ref) list
+  | Variant of string option * string * (string * value) list
   (* A value behind a trait: the data, and the impl chosen for each method the
      trait declared. Which body runs is read from here, not from the call. *)
   | Object of value * (string * value) list
-  | Variant of string * (string * value) list
   | Fn of fn
   (* Never outlives metaprocessing. *)
   | Code of Ast.expr
@@ -71,10 +73,10 @@ let rec string_of_value = function
   | Array items ->
     "[" ^ String.concat ", " (Array.to_list (Array.map string_of_value items)) ^ "]"
   | Tuple items -> "(" ^ String.concat ", " (List.map string_of_value items) ^ ")"
-  | Variant (name, []) -> name
-  | Variant (name, fields) ->
+  | Variant (_, name, []) -> name
+  | Variant (_, name, fields) ->
     name ^ "(" ^ String.concat ", " (List.map (fun (_, v) -> string_of_value v) fields) ^ ")"
-  | Record fields ->
+  | Record (_, fields) ->
     "{ "
     ^ String.concat ", " (List.map (fun (l, v) -> l ^ ": " ^ string_of_value !v) fields)
     ^ " }"
@@ -112,7 +114,7 @@ let rec equal_with seen a b =
           &&
           let rec from i = i >= Array.length x || (equal_with seen x.(i) y.(i) && from (i + 1)) in
           from 0)
-    | Record x, Record y ->
+    | Record (_, x), Record (_, y) ->
       x == y
       || (List.length x = List.length y
           && List.for_all
@@ -123,7 +125,7 @@ let rec equal_with seen a b =
                x)
     | Tuple x, Tuple y ->
       List.length x = List.length y && List.for_all2 (equal_with seen) x y
-    | Variant (n, a), Variant (m, b) ->
+    | Variant (_, n, a), Variant (_, m, b) ->
       String.equal n m
       && List.length a = List.length b
       && List.for_all2 (fun (_, x) (_, y) -> equal_with seen x y) a b
@@ -143,12 +145,12 @@ let values_equal a b = equal_with [] a b
 let rec same a b =
   match a, b with
   | Array x, Array y -> x == y
-  | Record x, Record y -> x == y
+  | Record (_, x), Record (_, y) -> x == y
   | Fn x, Fn y -> x == y
   | Code x, Code y -> x == y
   | Name x, Name y -> String.equal x y
   | Tuple x, Tuple y -> List.length x = List.length y && List.for_all2 same x y
-  | Variant (n, a), Variant (m, b) ->
+  | Variant (_, n, a), Variant (_, m, b) ->
     String.equal n m
     && List.length a = List.length b
     && List.for_all2 (fun (_, x) (_, y) -> same x y) a b

@@ -5,6 +5,12 @@ let methods : (string * string * (unit -> Types.infer_ty list * Types.infer_ty))
   [ "string", "bytes", (fun () -> [ Types.IStr ], Types.iarray Types.IByte)
     (* The one way a string becomes an identifier, checked. *)
   ; "string", "as_name", (fun () -> [ Types.IStr ], Types.iname)
+  ; "string", "to_upper", (fun () -> [ Types.IStr ], Types.IStr)
+  ; "string", "to_lower", (fun () -> [ Types.IStr ], Types.IStr)
+  ; "char", "to_upper", (fun () -> [ Types.IChr ], Types.IChr)
+  ; "char", "to_lower", (fun () -> [ Types.IChr ], Types.IChr)
+  ; "int", "to_float", (fun () -> [ Types.IInt ], Types.IFloat)
+  ; "float", "to_int", (fun () -> [ Types.IFloat ], Types.IInt)
   ]
 
 (* No HM type describes these. A call is checked structurally; a bare reference
@@ -24,6 +30,9 @@ let functions : (string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
   ; ("print", fun () -> [ Types.fresh () ], Types.IUnit)
   ; ("str", fun () -> [ Types.fresh () ], Types.IStr)
   ; ("ord", fun () -> [ Types.IChr ], Types.IInt)
+  ; ("chr", fun () -> [ Types.IInt ], Types.IChr)
+  ; ("__parse_int", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IInt ])
+  ; ("__parse_float", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IFloat ])
   ; ( "same"
     , fun () ->
         let t = Types.fresh () in
@@ -48,6 +57,27 @@ let beside (span : Ast.span) path =
   then Filename.concat (Filename.dirname from) path
   else path
 
+let ascii f c = if Uchar.is_char c then Uchar.of_char (f (Uchar.to_char c)) else c
+let upper = ascii Char.uppercase_ascii
+let lower = ascii Char.lowercase_ascii
+
+(* What a literal accepts, and nothing `int_of_string` adds to it: no `0x`, no
+   `_`, no leading `+`. *)
+let numeral ~fraction text =
+  let digits from =
+    let rec go i =
+      if i < String.length text && text.[i] >= '0' && text.[i] <= '9' then go (i + 1) else i
+    in
+    let stop = go from in
+    if stop = from then None else Some stop
+  in
+  let start = if String.length text > 0 && text.[0] = '-' then 1 else 0 in
+  match digits start with
+  | Some stop when stop = String.length text -> true
+  | Some stop when fraction && text.[stop] = '.' ->
+    digits (stop + 1) = Some (String.length text)
+  | _ -> false
+
 let values ~out =
   let native name arity apply = name, Value.Fn { Value.name; arity; apply } in
   let two name f =
@@ -71,6 +101,27 @@ let values ~out =
       match v with
       | Value.Chr c -> Value.Int (Uchar.to_int c)
       | _ -> Value.fail span "Cannot apply ord to these arguments.")
+  ; one "chr" (fun span v ->
+      match v with
+      | Value.Int n when Uchar.is_valid n -> Value.Chr (Uchar.of_int n)
+      | Value.Int n -> Value.fail span "%d is not a Unicode scalar value." n
+      | _ -> Value.fail span "Cannot apply chr to these arguments.")
+  ; one "__parse_int" (fun span v ->
+      match v with
+      | Value.Str s ->
+        let text = Utf8.encode s in
+        (match if numeral ~fraction:false text then int_of_string_opt text else None with
+         | Some n -> Value.Tuple [ Value.Bool true; Value.Int n ]
+         | None -> Value.Tuple [ Value.Bool false; Value.Int 0 ])
+      | _ -> Value.fail span "Cannot apply to_int to these arguments.")
+  ; one "__parse_float" (fun span v ->
+      match v with
+      | Value.Str s ->
+        let text = Utf8.encode s in
+        if numeral ~fraction:true text
+        then Value.Tuple [ Value.Bool true; Value.Float (float_of_string text) ]
+        else Value.Tuple [ Value.Bool false; Value.Float 0.0 ]
+      | _ -> Value.fail span "Cannot apply to_float to these arguments.")
   ; two "same" (fun _ a b -> Value.Bool (Value.same a b))
   ; two "__structural_eq" (fun _ a b -> Value.Bool (Value.values_equal a b))
   ; one "readfile" (fun span v ->
@@ -116,6 +167,33 @@ let values ~out =
         then Value.Name text
         else Value.fail span "'%s' cannot be a name." text
       | _ -> Value.fail span "Cannot apply as_name to these arguments.")
+  ; one (Ast.method_name "string" "to_upper") (fun span v ->
+      match v with
+      | Value.Str s -> Value.Str (Array.map upper s)
+      | _ -> Value.fail span "Cannot apply to_upper to these arguments.")
+  ; one (Ast.method_name "string" "to_lower") (fun span v ->
+      match v with
+      | Value.Str s -> Value.Str (Array.map lower s)
+      | _ -> Value.fail span "Cannot apply to_lower to these arguments.")
+  ; one (Ast.method_name "char" "to_upper") (fun span v ->
+      match v with
+      | Value.Chr c -> Value.Chr (upper c)
+      | _ -> Value.fail span "Cannot apply to_upper to these arguments.")
+  ; one (Ast.method_name "char" "to_lower") (fun span v ->
+      match v with
+      | Value.Chr c -> Value.Chr (lower c)
+      | _ -> Value.fail span "Cannot apply to_lower to these arguments.")
+  ; one (Ast.method_name "int" "to_float") (fun span v ->
+      match v with
+      | Value.Int n -> Value.Float (float_of_int n)
+      | _ -> Value.fail span "Cannot apply to_float to these arguments.")
+  ; one (Ast.method_name "float" "to_int") (fun span v ->
+      match v with
+      | Value.Float x when Float.is_finite x && Float.abs x < 0x1p62 ->
+        Value.Int (Float.to_int x)
+      | Value.Float x ->
+        Value.fail span "%s has no int value." (Token.float_to_string x)
+      | _ -> Value.fail span "Cannot apply to_int to these arguments.")
   ; one (Ast.method_name "string" "bytes") (fun span v ->
       match v with
       | Value.Str s ->

@@ -1,0 +1,27 @@
+print("42".to_int());
+print("-17".to_int());
+print("007".to_int());
+print("4x".to_int());
+print("".to_int());
+print(" 5".to_int());
+print("1.5".to_int());
+
+print("1.5".to_float());
+print("-0.25".to_float());
+print("3".to_float());
+print("1.".to_float());
+print(".5".to_float());
+print("abc".to_float());
+
+fn total(fields: Array<string>): int {
+    var sum = 0;
+    for (field in fields) {
+        match field.trim().to_int() {
+            Option::Some(n) => { sum += n; }
+            Option::None => { print("skipped '" + field + "'"); }
+        }
+    }
+    return sum;
+}
+
+print(total("10, 20, x, 12".split(',')));

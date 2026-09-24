@@ -1,0 +1,6 @@
+print("a, b, c".split_str(", "));
+print("one--two----three".split_str("--"));
+print("no separator".split_str(", "));
+print("".split_str(",").len());
+print("abc".split_str(""));
+print("x, ".split_str(", ").len());

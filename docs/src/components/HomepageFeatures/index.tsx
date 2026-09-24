@@ -15,9 +15,8 @@ const FeatureList: FeatureItem[] = [
     Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
     description: (
       <>
-        Fast to code in, with zero-cost abstractions. Reach for the high-level
-        features early and ship — the compiler erases their cost before the
-        binary runs.
+        Fast to code in: inference keeps annotations few, and generics,
+        effects and metaprogramming are there from the first line.
       </>
     ),
   },
@@ -34,13 +33,13 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Static types, zero overhead',
+    title: 'Static types, resolved early',
     Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
     description: (
       <>
         Hindley–Milner inference catches mistakes before your program runs.
-        Generics monomorphize away; meta computations bake into literal values;
-        traits dispatch statically. The runtime gets exactly the code it needs.
+        Generics monomorphize, meta computations bake into literal values, and
+        traits dispatch statically. Code nothing reaches is never emitted.
       </>
     ),
   },

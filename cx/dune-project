@@ -16,6 +16,6 @@
  (synopsis "The Cronyx package manager")
  (description
   "cx resolves dependencies, drives the compiler as a library, and installs the toolchain a package asks for.")
- (depends ocaml bootstrap)
+ (depends (ocaml (>= 5.2)) bootstrap)
  (tags
   ("package manager" cronyx)))

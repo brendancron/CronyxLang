@@ -8,6 +8,14 @@ Let's get setup with Cronyx in less than 5 minutes.
 
 ## Installation
 
+### Linux
+
+```
+curl -fsSL https://brendancron.github.io/CronyxLang/install.sh | sh
+```
+
+The script picks the archive for your machine, checks it against the checksum published beside it, and installs into `~/.local`. It tells you if `~/.local/bin` isn't on your `PATH` yet. `CRONYX_PREFIX` installs somewhere else, and `CRONYX_VERSION` asks for a release other than the latest. The Linux archives are linked statically, so any distribution works.
+
 ### Mac
 
 ```
@@ -15,13 +23,17 @@ brew tap brendancron/cronyx
 brew install cronyx
 ```
 
-That installs one complete toolchain: `cx`, which links the compiler rather than shelling out to it, and the standard library it resolves `import "std/…"` against. The command is `cx` — there is no separate compiler to install.
+The same tap works on Linux, if you already use Homebrew there.
 
-The published archive is Intel (`x86_64-apple-darwin`); Apple Silicon runs it under Rosetta 2.
+Either way you get one complete toolchain: `cx`, which links the compiler rather than shelling out to it, and the standard library it resolves `import "std/…"` against. `cx` is the only command you need.
 
-### Windows and Linux
+### Windows
 
-There is no prebuilt archive yet. Build one from source — you need OCaml 5 and dune:
+Download `cronyx-<version>-x86_64-pc-windows-gnu.zip` from the [releases page](https://github.com/brendancron/CronyxLang/releases), unpack it anywhere, and put its `bin` folder on your `PATH`. `cx` finds the standard library in `lib`, beside `bin`, so keep the unpacked folder together.
+
+### From source
+
+On any other platform, build it yourself — you need OCaml 5 and dune:
 
 ```
 git clone https://github.com/brendancron/CronyxLang
@@ -53,7 +65,7 @@ cx run
 Hello, World!
 ```
 
-`cx new` writes a package: a `cronyx.toml`, a `src/main.cx`, and a `.gitignore`. The program it starts you with is a greeting and a test of it:
+`cx new` writes a package: a `cronyx.toml`, a `src/main.cx`, a `tests/example.cx` and a `.gitignore`. The program it starts you with is a greeting:
 
 ```cronyx title="src/main.cx"
 fn greeting(): string {
@@ -61,10 +73,16 @@ fn greeting(): string {
 }
 
 print(greeting());
+```
+
+and a test of it. A file under `tests/` imports the package by its name, like any other code that uses it:
+
+```cronyx title="tests/example.cx"
+import "hello" as pkg;
 
 @test
 fn greets() {
-    assert(greeting() == "Hello, World!", "the greeting changed");
+    assert(pkg.greeting() == "Hello, World!", "the greeting changed");
 }
 ```
 
@@ -86,6 +104,8 @@ A single file needs no package at all — write `hello.cx` and name it:
 cx run hello.cx
 ```
 
+[The cx command](./cli.mdx) covers every command and flag.
+
 ## Toolchains
 
 A package names the compiler it needs in its `cronyx.toml`:
@@ -94,7 +114,9 @@ A package names the compiler it needs in its `cronyx.toml`:
 [package]
 name    = "hello"
 version = "0.1.0"
-cronyx  = "0.0.2"
+cronyx  = "0.0.12"
+
+[dependencies]
 ```
 
 That is a floor rather than a pin: a newer `cx` runs the package itself, and an older one hands the job to the version named, if that version is installed. Nothing has to be run before opening someone else's package.
@@ -111,4 +133,4 @@ Installing one takes a version and the `cx` binary to install as it, unpacked fr
 cx toolchain install 0.0.2 ./cronyx-v0.0.2-x86_64-apple-darwin/bin/cx
 ```
 
-Archives are published at [github.com/brendancron/CronyxLang/releases](https://github.com/brendancron/CronyxLang/releases). Installing a *newer* toolchain also makes it the `cx` on your `PATH`; installing an older one leaves that alone, so the dispatcher only ever moves forward.
+Archives are published at [github.com/brendancron/CronyxLang/releases](https://github.com/brendancron/CronyxLang/releases). Installing a *newer* toolchain also copies it to `~/.cronyx/bin/cx` — put `~/.cronyx/bin` first on your `PATH` for that to be the `cx` you run. Installing an older one leaves it alone, so the dispatcher only ever moves forward.

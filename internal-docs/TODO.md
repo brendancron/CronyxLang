@@ -95,3 +95,82 @@ Owner: [Algebraic Effects.md](Algebraic%20Effects.md)
 A program cannot start one. Its I/O is `print` and whole-file `readfile` and `writefile`; there is no `spawn` or `exec`, no environment and no command-line arguments, and `stdlib/` has nothing for them either. (`cx test` forks per test, but that is `cx` itself, in OCaml, not the program.)
 
 The likely shape is an effect rather than a builtin — `effect Process { fn spawn(cmd: string, args: Array<string>): ProcessHandle; … }` — so a function's row says it launches processes, and a test or a sandbox can handle it differently. The same argument covers file access, the environment and arguments, which are builtins today; deciding one decides the pattern for the rest.
+
+## Whether resumptions share locals
+
+Owner: [Algebraic Effects.md](Algebraic%20Effects.md)
+
+A `ctl` arm that resumes twice runs the rest of the block twice, and a variable that already existed when the operation was performed is shared by both runs:
+
+```cronyx
+effect flip { ctl flip(): bool; }
+
+run {
+    var count = 0;
+    var b = flip();
+    count += 1;
+    print(count);
+} handle flip { ctl flip() { resume false; resume true; } }
+```
+
+This prints `1` then `2`, and the same holds when the body is a function. A variable bound after the operation is bound again on each resumption, which is why the user docs' `wants_tea` differs per branch — `multiple-resumption.mdx` still says each resumption gets its own copy of the block's locals.
+
+Sharing is what a closure-based continuation gives, and what Koka does for mutable locals; copying would cost a snapshot of the frame per `ctl`. Deciding which is the semantics settles either the docs or a fixture.
+
+## `defer` under a `ctl` arm that does not resume
+
+Owner: [Algebraic Effects.md](Algebraic%20Effects.md)
+
+A `final ctl` arm unwinds, so a `defer` in the frames it abandons runs. A plain `ctl` arm that returns without resuming only drops its continuation, and a `defer` inside that continuation never runs:
+
+```cronyx
+effect E { ctl t(msg: string); }
+
+fn r() { defer { print("cleanup"); } t("boom"); }
+
+run { r(); } handle E { ctl t(msg) { print("caught"); } }
+```
+
+This prints only `caught`. Running the cleanup at the arm's exit would be wrong when the arm stored the continuation to resume later, so the choice is between documenting that an aborting operation that needs cleanup is declared `final ctl`, and running the defers once a continuation is provably dead, which needs tracking whether the arm kept it. `error-handling.mdx` currently claims only the `final ctl` case.
+
+## `cx toolchain install` and the standard library
+
+Owner: [Package Manager.md](Package%20Manager.md)
+
+`Toolchain_store.install` copies the `cx` binary it is given to `~/.cronyx/toolchains/<v>/bin/cx` and nothing else, so an installed toolchain cannot find its standard library and every `import "std/…"` fails with `Cannot find the standard library.` The release archive already has the install layout — `bin/cx`, `bin/cronyxc`, `lib/cronyx/stdlib` — so the direction is for `install` to take the unpacked archive and copy `bin/` and `lib/` together; the alternative is to keep the binary-only form and make `CRONYX_STDLIB` part of the documented setup.
+
+## How values print
+
+Owner: [Data Structures.md](Data%20Structures.md)
+
+`print(xs)` and `str(xs)` on a `List` show the record behind it — `{ items: [1, 2, 3], count: 3 }` — and after `[1, 2]` and a `push(3)` the backing array's spare capacity too: `{ items: [1, 2, 3, 3], count: 3 }`. The direction is to print the live elements the way an `Array` prints, `[1, 2, 3]`, and give `Map` and `Set` the same treatment; what is open is whether that is a `Show` impl in the prelude or a case in the evaluator's printer.
+
+Three more cases belong to the same decision. A `byte` prints as its raw octet, so `print("hé".bytes())` shows `[h, �, �]`, and nothing turns a `byte` into its number. A `float` prints with six significant digits — `1.0 / 3.0` is `0.333333` and `1234567.5` is `1.23457e+06` — while a whole one prints as `9.0`. And a string inside a collection prints without quotes, so `"".split(',')`, one empty string, prints as `[]`, the same as no strings at all.
+
+## Running the docs' examples in the browser
+
+Owner: [Architecture.md](Architecture.md)
+
+The examples in `docs/` are static. Letting a reader run them needs no native backend: `meta` blocks already make the interpreter part of every compiler, so the whole pipeline built with `wasm_of_ocaml` (or `js_of_ocaml`) is the playground. The library's one tie to the OS is `Unix.realpath` in `toolchain.ml`, already guarded; the rest is a web entry point beside `bin/main.ml` that takes a source string and returns stdout, diagnostics and the exit code instead of calling `exit`, the standard library embedded in the bundle rather than read from disk, and a Docusaurus component that runs it in a Web Worker so a runaway program can be killed. A file a `meta` block or a program reads needs a virtual filesystem or an error.
+
+If Cronyx is later compiled natively, the browser is a target of its own rather than a side effect of LLVM: LLVM's `wasm32` backend emits linear memory only, so each program would ship its own collector, where emitting WasmGC directly — through Binaryen or a small emitter — leaves collection to the engine. Selective CPS already makes continuations heap closures, so effects need Wasm's tail calls but not its stack-switching proposal. Whether that backend is ever worth having is open; the interpreter playground does not wait on it.
+
+## Registry dependencies from `tests/`
+
+Owner: [Package Manager.md](Package%20Manager.md)
+
+A file under a package's `tests/` imports the package and its path dependencies, but not its registry ones: `Test.of_file` builds its roots with `Workspace.dependency_roots`, which knows nothing of the registry. `cx run <file>` had the same gap and now goes through `Build.file_roots`, which resolves and fetches registry dependencies before compiling; the direction is for test files to take the same route, with a registry test that imports a registry dependency from `tests/`.
+
+## Checking the whole of a library
+
+Owner: [Metaprocessing.md](Metaprocessing.md)
+
+The walk metaprocesses and fully checks only what it reaches, and the early check never reports an undefined name, because a `meta` block could still generate it. A library's `src/lib.cx` has no top-level code calling its functions, so a function nothing in the package calls is never fully checked:
+
+```cronyx
+fn f(): int {
+    return nothere;
+}
+```
+
+`cx build` accepts this, and so does the build `cx publish` runs before publishing; the mistake surfaces in the first consumer that calls `f`. The direction is to treat every top-level function of a library as a root when building it, the way `cx test` treats each `@test` function, so the public surface is checked where it is written. The alternative — reporting an undefined name early whenever no reachable `meta` block could generate it — needs the early check to know what every `meta` block might emit.

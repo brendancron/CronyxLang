@@ -1,0 +1,21 @@
+print("apple" < "banana");
+print("banana" < "apple");
+print("app" < "apple");
+print("apple" <= "apple");
+print("b" > "abc");
+print("Zebra" < "apple");
+print("" < "a");
+print("abc" >= "abd");
+print("é" > "z");
+
+fn smallest<T: PartialOrd>(items: Array<T>): T {
+    var best = items[0];
+    for (item in items) {
+        if (item < best) {
+            best = item;
+        }
+    }
+    return best;
+}
+
+print(smallest(["pear", "fig", "plum"]));

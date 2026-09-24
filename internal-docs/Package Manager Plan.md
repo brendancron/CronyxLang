@@ -107,7 +107,7 @@ A build runs from the package root, so every path an artifact carries is relativ
 
 **Todo, left by this milestone**
 
-- **No download.** `toolchains.cronyx.dev` is a URL in a diagnostic and nothing else. The seam is `Toolchain_store.install`, which takes a file today and would take a fetched-and-verified one instead; the checksum belongs there with it.
+- **No download.** The release page on GitHub is a URL in a diagnostic and nothing else. The seam is `Toolchain_store.install`, which takes a file today and would take a fetched-and-verified one instead; the checksum belongs there with it.
 - **No `default` toolchain outside a package.** `~/.cronyx/config.toml`'s `default = "…"` is in the design and not in the code; outside a package `cx` is simply whichever one ran.
 
 ## 6. Resolution and the lockfile
@@ -138,7 +138,7 @@ The archive is ours rather than a tarball, for the same reason and only until th
 
 **Done when**
 
-- A published package resolves, downloads, verifies, and builds on a machine that has never seen it. *(`registry/resolves, fetches, verifies and builds`; `registry/takes the newest satisfying version` pins that `greet = "1.0"` chose 1.1.0 over 1.0.0.)*
+- A published package resolves, downloads, verifies, and builds on a machine that has never seen it. *(`registry/resolves, fetches, verifies and builds`; `registry/a build keeps the locked version` pins that 1.1.0 being published does not move a lock at 1.0.0, and `registry/update names a package` that `cx update greet` does.)*
 - Re-publishing an existing version fails. *(`registry/publish is once only`.)*
 - A yanked version still resolves for a lockfile that already selected it. *(`registry/a yank leaves a pinned version alone`, and `…is skipped by a new resolution` for the other half.)*
 - A tarball whose checksum does not match the lockfile is an error before anything is compiled. *(`registry/a bad checksum stops the build`.)*
@@ -147,8 +147,8 @@ The archive is ours rather than a tarball, for the same reason and only until th
 **Todo, left by this milestone**
 
 - **No transport.** `Registry_source.root` returns a directory. An HTTP client, a sparse index over the same files, and `PUT /api/v1/crates/new` replace it without the client above changing.
-- **Still not PubGrub.** Resolution now has candidates to choose between, and it chooses: the newest version satisfying every requirement anyone made of that name, re-choosing when a later requirement rules out an earlier choice. It reports a conflict with every requirement and who made it, which is the diagnostic PubGrub was wanted for; what it does not do is derive the incompatibility that explains *why* no version can work. That derivation is the upgrade, and it is worth making when a real graph produces a conflict this cannot explain.
-- **No `cx add` or `cx update`.** Both are small now that resolution takes requirements: `add` writes one into the manifest and re-resolves, `update` moves a pin.
+- **Still not PubGrub.** Resolution now has candidates to choose between, and it chooses: the locked version while it still fits, and otherwise the newest version satisfying every requirement anyone made of that name, re-choosing when a later requirement rules out an earlier choice. It reports a conflict with every requirement and who made it, which is the diagnostic PubGrub was wanted for; what it does not do is derive the incompatibility that explains *why* no version can work. That derivation is the upgrade, and it is worth making when a real graph produces a conflict this cannot explain.
+- **No `cx add`.** Small now that resolution takes requirements: it writes one into the manifest and re-resolves. `cx update`, which moves a pin, is built.
 - **No `include` / `exclude` at pack time.** `cx publish` packs the directory minus `target/`; the manifest keys are specified and not read.
 - **No `yank` subcommand.** The index field is read and honoured; setting it is a registry operation with no client for it yet.
 

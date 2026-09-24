@@ -94,6 +94,10 @@ let rec expr (e : Ast.expr) : string =
   | `Assign (name, v) -> Printf.sprintf "%s = %s" name (expr v)
   | `Compound (op, name, v) ->
     Printf.sprintf "%s %s= %s" name (Ast.string_of_binop op) (expr v)
+  | `Compound_index (op, target, index, v) ->
+    Printf.sprintf "%s[%s] %s= %s" (expr target) (expr index) (Ast.string_of_binop op) (expr v)
+  | `Compound_field (op, target, label, v) ->
+    Printf.sprintf "%s.%s %s= %s" (expr target) label (Ast.string_of_binop op) (expr v)
   | `Unop (op, a) -> Printf.sprintf "%s%s" (string_of_unop op) (expr a)
   (* Parenthesised throughout: the tree already says how it groups, and this
      has no precedence table to decide when the parentheses are spare. *)

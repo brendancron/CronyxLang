@@ -45,22 +45,24 @@ print(x);
 
 Reassigning with `var x = 10;` would be a *new* declaration, not an update — the bare `x = 10;` is what you want.
 
-## The four primitive types
+## The primitive types
 
-Cronyx ships with four built-in primitive types:
+Cronyx ships with seven built-in primitive types:
 
 | Type     | What it holds              | Example values        |
 | -------- | -------------------------- | --------------------- |
 | `int`    | Signed integers            | `0`, `42`, `-7`       |
+| `float`  | Floating-point numbers     | `1.5`, `-0.25`        |
 | `bool`   | Booleans                   | `true`, `false`       |
 | `string` | Text                       | `"hello"`, `""`       |
-| `unit`   | The "no value" type        | (no literal)          |
+| `char`   | A single character         | `'a'`, `'!'`          |
+| `byte`   | A single byte              | from `"hi".bytes()`   |
+| `unit`   | The "no value" type        | `()`                  |
 
 A few notes:
 
-- There is no separate float type yet — numbers are integers.
-- String literals use double quotes. Single quotes are not strings.
-- `unit` doesn't have a literal you can write. It shows up as the return type of functions that don't return anything meaningful (like `print`).
+- String literals use double quotes. Single quotes write a `char`, which holds exactly one character.
+- `unit` is the return type of functions that don't return anything meaningful (like `print`). Its one value is written `()`.
 
 You can mix them in the same program:
 
@@ -131,7 +133,7 @@ Hello World
 
 The `: int` after `add`'s parameter list is its return type. `greet` returns `unit` because it doesn't produce a value — it just prints.
 
-Unlike `var`, **function annotations aren't optional in most cases.** Get into the habit of writing them on every function — it makes type errors point at the right place and makes your code easier to read.
+Function annotations are optional too — Cronyx infers them — but get into the habit of writing them on every function. It makes type errors point at the right place and makes your code easier to read.
 
 ## Inference vs. annotation: which to use?
 
@@ -156,8 +158,8 @@ print(label + product);
 
 What do you expect to happen?
 
-If you said "it prints `answer: 42`," try running it. You'll find that Cronyx won't let you concatenate a `string` and an `int` directly — `+` on strings only joins strings. This is the type system catching a real bug. (We'll cover converting between types in a later chapter.)
+If you said "it prints `answer: 42`," try running it. You'll find that Cronyx won't let you concatenate a `string` and an `int` directly — `+` on strings only joins strings. This is the type system catching a real bug. To join them, convert the number first: `label + str(product)`.
 
 ## What's next
 
-You can now declare values, reassign them, and read a type signature. Next up: **functions and control flow** — calling functions, using `if`, and writing loops with the values you've just learned to handle.
+You can now declare values, reassign them, and read a type signature. Next up: **operators** — the arithmetic, comparisons and logic that combine those values.

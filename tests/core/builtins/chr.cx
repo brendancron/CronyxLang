@@ -1,0 +1,11 @@
+print(chr(97));
+print(chr(65));
+print(chr(233));
+print(chr(ord('a') + 2));
+print(chr(ord('z')) == 'z');
+
+var shifted = "";
+for (c in "HAL") {
+    shifted += str(chr(ord(c) + 1));
+}
+print(shifted);

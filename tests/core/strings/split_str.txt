@@ -1,0 +1,6 @@
+[a, b, c]
+[one, two, , three]
+[no separator]
+1
+[abc]
+2

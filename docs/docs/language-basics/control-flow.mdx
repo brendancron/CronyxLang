@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 ---
 
 # Control flow
@@ -20,7 +20,7 @@ if (true) {
 if success
 ```
 
-The condition goes in parens, the body in braces. Both are required — no paren-free conditions, no single-statement bodies.
+The condition goes in parens, which are required. The body is usually a braced block, though a single statement is allowed: `if (done) print("ok");`.
 
 The condition has to be a `bool`. Cronyx doesn't have "truthy" values — `if (1)` won't compile, and neither will `if ("hello")`. If you want to test a number, say what you mean: `if (n > 0)`.
 
@@ -156,4 +156,4 @@ When `n` is `0`, the loop's condition `i <= 0` is false on the very first check,
 
 ## What's next
 
-You can now branch, loop, and combine those with the functions from the last chapter. Next up: **collections** — slices and lists — where you'll finally have something to iterate *over*.
+You can now branch, loop, and combine those with the functions from the last chapter. Next up: **collections** — arrays and lists — where you'll finally have something to iterate *over*.

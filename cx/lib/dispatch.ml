@@ -41,7 +41,7 @@ let graph_floor root =
         List.iter
           (fun (d : Manifest.dependency) ->
             match d.Manifest.source with
-            | Manifest.Path path -> walk (Filename.concat root path)
+            | Manifest.Path (path, _) -> walk (Filename.concat root path)
             (* Its floor is in the index, which the resolver reads and this
                deliberately does not: dispatch is the frozen part. *)
             | Manifest.Registry _ -> ())
@@ -52,12 +52,16 @@ let graph_floor root =
 
 (* Set across the exec, so a toolchain that is not the version it was installed
    as cannot bounce the job back and forth forever. Handing off happens once. *)
+let asks_for_help args =
+  List.exists (fun arg -> String.equal arg "-h" || String.equal arg "--help") args
+
 (* The commands that read the package's code, and so need the toolchain it was
    written for. The rest -- installing that toolchain above all -- runs here
    whatever the package asks for, or a machine holding only an old `cx` has no
-   way to get a newer one. *)
+   way to get a newer one. Help is about the `cx` that was run, so it is never
+   handed on. *)
 let dispatched = function
-  | ("build" | "run" | "test" | "publish") :: _ -> true
+  | ("build" | "update" | "run" | "test" | "publish") :: rest -> not (asks_for_help rest)
   | _ -> false
 
 let marker = "CRONYX_DISPATCHED"
@@ -84,8 +88,8 @@ let decide ~running ~wanted =
 let unavailable version =
   Printf.sprintf
     "This package needs Cronyx %s, and %s is running.\n\
-     Fetch it from https://toolchains.cronyx.dev/%s, then install it with `cx toolchain \
-     install %s <path-to-cx>`."
+     Fetch it from https://github.com/brendancron/CronyxLang/releases/tag/v%s, then install \
+     it with `cx toolchain install %s <path-to-cx>`."
     version
     Release.version
     version
@@ -93,8 +97,9 @@ let unavailable version =
 
 let mislabelled version =
   Printf.sprintf
-    "The toolchain installed as %s reports itself as %s, so it cannot be the one this package \n\
-     needs. Reinstall it, or install %s from https://toolchains.cronyx.dev/%s."
+    "The toolchain installed as %s reports itself as %s, so it cannot be the one this package \
+     needs.\n\
+     Reinstall it, or install %s from https://github.com/brendancron/CronyxLang/releases/tag/v%s."
     version
     Release.version
     version

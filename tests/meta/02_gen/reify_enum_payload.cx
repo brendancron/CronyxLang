@@ -1,0 +1,9 @@
+type E { A, B(int, string) }
+meta {
+    var e = E::B(4, "four");
+    gen var ee = e;
+}
+match ee {
+    E::A => { print("A"); }
+    E::B(n, s) => { print(n); print(s); }
+}
