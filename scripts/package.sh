@@ -26,12 +26,21 @@ done
 
 # The runner is asserted to be the machine the matrix row claims, because
 # GitHub changing an image's architecture would otherwise be discovered by
-# whoever installed the archive. `uname -s` on Windows carries a build number
-# — `MINGW64_NT-10.0-20348` — so the claim is a prefix.
-case "$(uname -s)" in
-  "$UNAME_S"*) ;;
-  *) die "this runner reports $(uname -s), not $UNAME_S*" ;;
-esac
+# whoever installed the archive.
+#
+# On Windows `uname -s` names the POSIX layer rather than the system, and which
+# layer depends on the shell: `CYGWIN_NT-10.0-26100` under the Cygwin bash
+# `ocaml/setup-ocaml` installs, `MINGW64_NT-…` under Git Bash. Both carry a
+# build number too. So the claim is a `|`-separated set of prefixes, any of
+# which will do.
+matched=false
+saved_ifs=$IFS
+IFS='|'
+for want in $UNAME_S; do
+  case "$(uname -s)" in "$want"*) matched=true ;; esac
+done
+IFS=$saved_ifs
+$matched || die "this runner reports $(uname -s), which is none of: $UNAME_S"
 [ "$(uname -m)" = "$UNAME_M" ] || die "this runner is $(uname -m), not $UNAME_M"
 
 # One release ships one toolchain: the package manager, the compiler it links,
