@@ -183,4 +183,6 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
         run: |
           [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 0
-          gh workflow run bump-homebrew.yml -f tag="$TAG"
+          # No checkout in this job, so the repository is named rather than
+          # inferred from a working tree that is not there.
+          gh workflow run bump-homebrew.yml -R "$GITHUB_REPOSITORY" -f tag="$TAG"
