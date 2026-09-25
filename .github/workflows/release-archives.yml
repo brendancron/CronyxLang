@@ -12,6 +12,14 @@ on:
       tag:
         description: 'Release tag to build for, e.g. v0.0.10'
         required: true
+      ref:
+        description: >
+          Branch or commit to build from. The tag itself by default. Set it to
+          recover a release whose archive failed on something since fixed: the
+          tag cannot contain the fix, and re-running against the tag would fail
+          the same way. The binary still has to report the tag''s version, which
+          is what stops this from shipping something the tag does not name.
+        required: false
 
 jobs:
   # `targets.json` is the one place a platform is written down; a matrix cannot
@@ -51,7 +59,7 @@ jobs:
       - uses: actions/checkout@v5
         if: steps.tag.outputs.skip == 'false'
         with:
-          ref: ${{ steps.tag.outputs.tag }}
+          ref: ${{ github.event.inputs.ref || steps.tag.outputs.tag }}
 
       - name: Hand the targets to the matrix
         id: read
@@ -78,7 +86,7 @@ jobs:
       # by walking up from the test binary, so the whole tree is checked out.
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.targets.outputs.tag }}
+          ref: ${{ github.event.inputs.ref || needs.targets.outputs.tag }}
 
       # A musl archive is built inside Alpine, which cannot host the JavaScript
       # actions above -- they need glibc for their Node runtime -- so the
