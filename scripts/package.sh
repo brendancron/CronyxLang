@@ -70,11 +70,14 @@ reported=$("$tree/bin/cx$suffix" version)
 archive="$out/cronyx-$TAG-$TARGET.$FORMAT"
 case "$FORMAT" in
   tar.gz) tar -czf "$archive" -C "$out" "cronyx-$TAG-$TARGET" ;;
-  # Git Bash ships no `zip`, and the Windows runners ship 7-Zip.
+  # Git Bash and Cygwin ship no `zip`, and the Windows runners ship 7-Zip.
+  # 7-Zip is a native Windows program: it cannot read the `/cygdrive/d/…` paths
+  # the shell hands it, so both of its arguments are relative to a directory it
+  # is already standing in.
   zip)
     if command -v zip >/dev/null
-    then (cd "$out" && zip -qr "$archive" "cronyx-$TAG-$TARGET")
-    else 7z a -tzip -bso0 "$archive" "$out/cronyx-$TAG-$TARGET" >/dev/null
+    then (cd "$out" && zip -qr "$(basename "$archive")" "cronyx-$TAG-$TARGET")
+    else (cd "$out" && 7z a -tzip -bso0 "$(basename "$archive")" "cronyx-$TAG-$TARGET" >/dev/null)
     fi
     ;;
   *) die "no way to make a $FORMAT archive" ;;
