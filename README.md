@@ -93,10 +93,19 @@ brew tap brendancron/cronyx
 brew install cronyx
 ```
 
-On Windows, download the `x86_64-pc-windows-gnu` zip from
+On Windows, with [Scoop](https://scoop.sh):
+
+```
+scoop bucket add cronyx https://github.com/brendancron/scoop-cronyx
+scoop install cronyx
+```
+
+Or download the `x86_64-pc-windows-gnu` zip from
 [Releases](https://github.com/brendancron/CronyxLang/releases), unpack it, and
 put its `bin` folder on your `PATH`. Keep `lib` beside it, since `cx` finds the
-standard library there.
+standard library there — or set `CRONYX_STDLIB`, which is what the Scoop
+manifest does, because Scoop installs a shim rather than a link and a shim
+reports itself.
 
 Anywhere else, [build it from source](#building-from-source).
 

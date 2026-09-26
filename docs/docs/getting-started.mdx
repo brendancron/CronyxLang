@@ -29,7 +29,16 @@ Either way you get one complete toolchain: `cx`, which links the compiler rather
 
 ### Windows
 
-Download `cronyx-<version>-x86_64-pc-windows-gnu.zip` from the [releases page](https://github.com/brendancron/CronyxLang/releases), unpack it anywhere, and put its `bin` folder on your `PATH`. `cx` finds the standard library in `lib`, beside `bin`, so keep the unpacked folder together.
+With [Scoop](https://scoop.sh):
+
+```
+scoop bucket add cronyx https://github.com/brendancron/scoop-cronyx
+scoop install cronyx
+```
+
+Or download `cronyx-<version>-x86_64-pc-windows-gnu.zip` from the [releases page](https://github.com/brendancron/CronyxLang/releases), unpack it anywhere, and put its `bin` folder on your `PATH`. `cx` finds the standard library in `lib`, beside `bin`, so keep the unpacked folder together.
+
+Scoop puts a generated shim on your `PATH` rather than a link, and a shim reports itself — so the search `cx` makes from its own binary would start in the shims folder and find nothing. The manifest sets `CRONYX_STDLIB` for that reason, which is the override `cx` checks first.
 
 ### From source
 

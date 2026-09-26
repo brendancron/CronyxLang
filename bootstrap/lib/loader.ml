@@ -49,8 +49,7 @@ let from_source root = { dep_root = root; compiled = None }
    keeps an import inside its package: a prefix test between two spellings of
    the same path answers wrongly, and which way it is wrong depends on which
    spelling reached it. *)
-let slashed path =
-  if Sys.win32 then String.map (fun c -> if Char.equal c '\\' then '/' else c) path else path
+let slashed = Ast.slashed
 
 (* The drive is upper-cased because `Sys.getcwd` and a path the user wrote need
    not agree on its case, and a difference there is a difference in every prefix

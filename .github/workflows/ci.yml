@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# Both jobs only read the tree. The repository's default is read-only too, but
+# that is a setting someone can change, and a build running `opam install`
+# executes third-party scripts -- so the ceiling is declared here rather than
+# inherited.
+permissions:
+  contents: read
+
 jobs:
   # The name is what the main branch ruleset requires as a status check, so it
   # is not free to change with what the job happens to run.
@@ -42,4 +49,40 @@ jobs:
       # `cx` links the compiler as a library, so the two drivers must not drift.
       # The script builds the whole workspace, which is what covers `cx/`.
       - name: cx parity
-        run: opam exec -- ./scripts/cx-parity.sh
+        run: opam exec -- bash ./scripts/cx-parity.sh
+
+  # Windows was exercised only at release time, which made cutting a release the
+  # only way to find out whether a fix for it worked. The main branch ruleset
+  # requires the check named `test`, so this is a job of its own rather than a
+  # matrix over that one -- it reports, and it does not gate.
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: '5'
+          dune-cache: true
+          opam-pin: false
+
+      # `windows-latest` defaults to PowerShell, which reads none of this.
+      - name: Install dependencies
+        shell: bash
+        working-directory: bootstrap
+        run: opam install . --deps-only --with-test --yes
+
+      - name: Build
+        shell: bash
+        working-directory: bootstrap
+        run: opam exec -- dune build
+
+      - name: Test
+        shell: bash
+        run: |
+          (cd bootstrap && opam exec -- dune test)
+          opam exec -- dune test cx
+          opam exec -- bash ./scripts/cx-parity.sh
+

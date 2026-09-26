@@ -81,9 +81,11 @@ from the file once it is answered.
 land* lands through a pull request. Branch, push, open the PR, and let the
 `test` check run.
 
-**Do not watch CI.** Opening the PR is where the work ends. Do not poll
-`gh pr checks`, do not start a monitor on the run, and do not report back on
-whether it went green — check only when asked to.
+**Ask before watching CI.** Opening the PR is where the work ends. Do not poll
+`gh pr checks`, start a monitor on a run, or report back on whether it went
+green unless that was asked for — but offering is welcome: end with something
+like "would you like me to watch the build?" and wait for an answer. A yes
+covers that run, not every run after it.
 
 **Keep a branch current with `main`.** Merge `main` in before opening a PR and
 again whenever `main` moves — a branch cut from a commit that has since been

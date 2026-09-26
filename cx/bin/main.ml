@@ -219,6 +219,14 @@ let publish () =
   | Ok (name, version, checksum) ->
     Printf.printf "Published %s %s (%s).\n" name version checksum
 
+(* Windows opens these in text mode, which turns every newline into a carriage
+   return and a newline. What a compiler prints is compared byte for byte -- by
+   the fixture suite, by `scripts/cx-parity.sh`, and by anyone diffing two
+   runs -- so it is the same on every platform. *)
+let () =
+  set_binary_mode_out stdout true;
+  set_binary_mode_out stderr true
+
 let () =
   let args = List.tl (Array.to_list Sys.argv) in
   (* Before dispatch: this process was spawned by a `cx test` that had already
