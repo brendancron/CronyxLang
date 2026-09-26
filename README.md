@@ -40,7 +40,7 @@ fn describe(p: Point) {
 }
 
 run {
-    describe(new Point { x: 1, y: 2 });
+    describe(Point { x: 1, y: 2 });
 } handle log {
     fn log(msg: string) { print("[log] " + msg); }
 }

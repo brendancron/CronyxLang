@@ -22,9 +22,9 @@ fn derive_eq(shape: TypeShape) {
 meta derive_eq(typeof(Dog).shape);
 meta derive_eq(typeof(Point).shape);
 
-var rex = new Dog { name: "rex", age: 3 };
-var older = new Dog { name: "rex", age: 4 };
-var here = new Point { x: 1, y: 2, z: 3 };
-var there = new Point { x: 1, y: 2, z: 4 };
+var rex = Dog { name: "rex", age: 3 };
+var older = Dog { name: "rex", age: 4 };
+var here = Point { x: 1, y: 2, z: 3 };
+var there = Point { x: 1, y: 2, z: 4 };
 print(str(rex.eq(rex)) + " " + str(rex.eq(older)));
 print(str(here.eq(here)) + " " + str(here.eq(there)));

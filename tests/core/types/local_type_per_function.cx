@@ -1,11 +1,11 @@
 fn f(): unit {
     type Temp { a: int }
-    print(new Temp { a: 1 }.a);
+    print(Temp { a: 1 }.a);
 }
 
 fn g(): unit {
     type Temp { b: int }
-    print(new Temp { b: 2 }.b);
+    print(Temp { b: 2 }.b);
 }
 
 f();

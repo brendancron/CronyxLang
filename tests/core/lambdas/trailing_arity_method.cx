@@ -5,7 +5,7 @@ impl Box {
     fn apply(self, g: (int) -> int): int { return g(self.v); }
 }
 
-var b = new Box { v: 21 };
+var b = Box { v: 21 };
 
 b.twice { print("tick"); };
 print(b.apply { it * 2 });

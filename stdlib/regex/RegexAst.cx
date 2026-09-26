@@ -19,7 +19,7 @@ type RegexAst {
 
 fn make(): RegexAst {
     var nodes: List<RegexNode> = [];
-    return new RegexAst { nodes: nodes, root: 0 };
+    return RegexAst { nodes: nodes, root: 0 };
 }
 
 fn push(ast: RegexAst, node: RegexNode): int {

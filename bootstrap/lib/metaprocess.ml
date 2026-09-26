@@ -1934,7 +1934,7 @@ and generic_new w (e : Ast.expr) =
      | Some tt ->
        fail
          e.Ast.span
-         "'%s' %s, so its arguments must be written: new %s<…> { … }."
+         "'%s' %s, so its arguments must be written: %s<…> { … }."
          name
          (if List.exists (fun (p : Ast.type_param) -> Option.is_some p.Ast.tp_ty) tt.tt_params
           then "takes a value parameter"

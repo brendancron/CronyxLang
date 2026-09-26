@@ -9,7 +9,7 @@ type Point {
 }
 
 fn make(): <Ask> Point {
-    return new Point { x: 1, y: get() };
+    return Point { x: 1, y: get() };
 }
 
 run {

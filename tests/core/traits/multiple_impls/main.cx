@@ -25,8 +25,8 @@ impl Show for Color {
     }
 }
 
-var p = new Point { x: 1, y: 2 };
-var c = new Color { r: 255, g: 128, b: 0 };
+var p = Point { x: 1, y: 2 };
+var c = Color { r: 255, g: 128, b: 0 };
 
 print(p.show());
 print(c.show());

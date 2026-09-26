@@ -8,8 +8,8 @@ impl PartialOrd for Money {
     }
 }
 
-var a = new Money { cents: 100 };
-var b = new Money { cents: 250 };
+var a = Money { cents: 100 };
+var b = Money { cents: 250 };
 
 print(a < b);
 print(a > b);

@@ -179,7 +179,7 @@ fn parse_value(tokens: List<Token>, pos: List<int>): TomlValue {
                     advance(pos);
                     advance(pos);
                     entries.push(
-                        new TomlInlineEntry { key: key, val: parse_primitive(tokens, pos) });
+                        TomlInlineEntry { key: key, val: parse_primitive(tokens, pos) });
                 }
                 _ => { advance(pos); }
             }
@@ -206,7 +206,7 @@ fn parse(input: string): TomlDoc {
             // A new section closes the one before it, so the entries gathered
             // so far are what it holds.
             Token.LBracket => {
-                sections.push(new TomlSection { name: name, entries: entries });
+                sections.push(TomlSection { name: name, entries: entries });
                 advance(pos);
                 name = section_name(at(tokens, pos));
                 advance(pos);
@@ -217,15 +217,15 @@ fn parse(input: string): TomlDoc {
             Token.Ident(key) => {
                 advance(pos);
                 advance(pos);
-                entries.push(new TomlEntry { key: key, val: parse_value(tokens, pos) });
+                entries.push(TomlEntry { key: key, val: parse_value(tokens, pos) });
                 skip_newlines(tokens, pos);
             }
             _ => { advance(pos); }
         }
     }
 
-    sections.push(new TomlSection { name: name, entries: entries });
-    return new TomlDoc { sections: sections };
+    sections.push(TomlSection { name: name, entries: entries });
+    return TomlDoc { sections: sections };
 }
 
 fn section_name(t: Token): string {

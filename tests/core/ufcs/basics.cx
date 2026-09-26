@@ -2,9 +2,9 @@
 type Dog { name: string, age: int }
 
 fn describe(d: Dog): string { return d.name; }
-fn older(d: Dog, by: int): Dog { return new Dog { name: d.name, age: d.age + by }; }
+fn older(d: Dog, by: int): Dog { return Dog { name: d.name, age: d.age + by }; }
 
-var rex = new Dog { name: "rex", age: 3 };
+var rex = Dog { name: "rex", age: 3 };
 print(str(rex.describe()) + " " + str(describe(rex)));
 print(str(rex.older(2).age) + " " + str(older(rex, 2).age));
 

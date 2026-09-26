@@ -25,7 +25,7 @@ An array has identity: a second name is the same array, not a copy, and writing 
 An array of a given size:
 
 ```cronyx
-var zeros = new Array<int>(16);
+var zeros = Array<int>(16);
 
 print(zeros.len());      // 16
 print(zeros[0]);         // 0
@@ -117,7 +117,7 @@ type Point {
     y: int, // trailing comma is optional
 }
 
-var p = new Point { x: 1, y: 2 };
+var p = Point { x: 1, y: 2 };
 
 print(p.x);              // 1
 print(typeof(p));        // Point
@@ -154,7 +154,7 @@ type Pair<A, B> {
 }
 
 var found = Option.Some(3);
-var both = new Pair { first: 1, second: "one" };
+var both = Pair { first: 1, second: "one" };
 ```
 
 ## Map

@@ -2,5 +2,5 @@ type Circle { radius: int }
 impl Circle {
     fn scaled(self, factor: int): int { return self.radius * factor; }
 }
-var c = new Circle { radius: 1 };
+var c = Circle { radius: 1 };
 print(c.scaled());

@@ -1,2 +1,2 @@
 type Point { x: int, y: int }
-var p = new Point { x: 1 };
+var p = Point { x: 1 };

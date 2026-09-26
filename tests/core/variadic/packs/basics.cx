@@ -10,8 +10,8 @@ fn flag(a: bool) {
     print(a);
 }
 
-var two = new Slot { use: pair };
-var one = new Slot { use: flag };
+var two = Slot { use: pair };
+var one = Slot { use: flag };
 
 two.use(1, "x");
 one.use(true);

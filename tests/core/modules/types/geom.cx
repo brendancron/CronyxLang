@@ -14,12 +14,12 @@ impl Area for Point {
 
 impl Point {
     fn shifted(self, by: int): Point {
-        return new Point { x: self.x + by, y: self.y + by };
+        return Point { x: self.x + by, y: self.y + by };
     }
 }
 
 fn origin(): Point {
-    return new Point { x: 0, y: 0 };
+    return Point { x: 0, y: 0 };
 }
 
 fn describe(s: Shape): string {

@@ -407,6 +407,11 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
                 | Ast.St_value v -> Ast.St_value (go v))
               static_args
           , List.map (fun (l, v) -> l, go v) fields )
+      (* `geom.Point { … }` parses as a variant of `geom` until `geom` turns
+         out to be a module. *)
+      | `New_variant (namespace, name, Ast.P_fields fields)
+        when (not (S.mem namespace locals)) && Hashtbl.mem aliases namespace ->
+        `New (Hashtbl.find aliases namespace name, List.map (fun (l, v) -> l, go v) fields)
       | `New_variant (ty, variant, payload) ->
         `New_variant (resolve_type ty, variant, Ast.map_payload go payload)
       | `New_call (name, args, values) ->

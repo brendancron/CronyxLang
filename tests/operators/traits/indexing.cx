@@ -15,7 +15,7 @@ impl IndexSet<int> for Ring {
     }
 }
 
-var r = new Ring { items: [10, 20, 30], head: 1 };
+var r = Ring { items: [10, 20, 30], head: 1 };
 
 print(r[0]);
 print(r[2]);

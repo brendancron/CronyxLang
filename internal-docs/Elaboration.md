@@ -18,11 +18,11 @@ impl Add<Vec2> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
     }
 }
 
-var v = new Vec2 { x: 1, y: 2 } + new Vec2 { x: 3, y: 4 };
+var v = Vec2 { x: 1, y: 2 } + Vec2 { x: 3, y: 4 };
 
 print(v.x);      // 4
 print(v.y);      // 6
@@ -35,7 +35,7 @@ impl Mul<Vec2> for int {
     type Output = Vec2;
 
     fn mul(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self * rhs.x, y: self * rhs.y };
+        return Vec2 { x: self * rhs.x, y: self * rhs.y };
     }
 }
 
@@ -164,7 +164,7 @@ A type says it can be built from a literal by implementing `FromArray` — the a
 ```cronyx
 impl FromArray<T> for Ring<T> {
     fn from_array(items: Array<T>): Ring<T> {
-        return new Ring { items: items, head: 0 };
+        return Ring { items: items, head: 0 };
     }
 }
 ```
@@ -181,7 +181,7 @@ Both of these lower during compilation, so nothing is looked up while the progra
 
 ```cronyx
 var a = 1 + 2;                       // primitive add
-var b = new Vec2 { x: 1, y: 2 } + v; // direct call to Vec2's `add`
+var b = Vec2 { x: 1, y: 2 } + v; // direct call to Vec2's `add`
 ```
 
 The first emits the same node the evaluator has always handled. The second emits an ordinary call — the cost of the function you wrote, and nothing more.

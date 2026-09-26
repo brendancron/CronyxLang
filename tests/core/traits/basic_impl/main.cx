@@ -23,8 +23,8 @@ impl Describe for Rectangle {
     }
 }
 
-var c = new Circle { radius: 5 };
-var r = new Rectangle { width: 3, height: 4 };
+var c = Circle { radius: 5 };
+var r = Rectangle { width: 3, height: 4 };
 
 print(c.describe());
 print(r.describe());

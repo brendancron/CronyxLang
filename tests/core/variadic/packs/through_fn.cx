@@ -15,8 +15,8 @@ fn nothing() {
     print(0);
 }
 
-var two = new Slot { tag: "two", use: add };
-var none = new Slot { tag: "none", use: nothing };
+var two = Slot { tag: "two", use: add };
+var none = Slot { tag: "none", use: nothing };
 
 print(tag_of(two));
 print(tag_of(none));

@@ -116,10 +116,11 @@ let rec expr (e : Ast.expr) : string =
   | `Field (target, label) -> Printf.sprintf "%s.%s" (expr target) label
   | `Field_assign (target, label, v) ->
     Printf.sprintf "%s.%s = %s" (expr target) label (expr v)
-  | `New (name, fields) -> Printf.sprintf "new %s { %s }" name (labelled fields)
+  | `New (name, []) -> name
+  | `New (name, fields) -> Printf.sprintf "%s { %s }" name (labelled fields)
   | `New_call (name, args, values) ->
     Printf.sprintf
-      "new %s%s(%s)"
+      "%s%s(%s)"
       name
       (match args with
        | [] -> ""
@@ -130,7 +131,7 @@ let rec expr (e : Ast.expr) : string =
   | `Collection_lit items -> Printf.sprintf "[%s]" (arguments items)
   | `New_generic (name, static_args, fields) ->
     Printf.sprintf
-      "new %s<%s> { %s }"
+      "%s<%s> { %s }"
       name
       (String.concat
          ", "

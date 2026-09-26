@@ -9,7 +9,7 @@ impl Rectangle {
     }
 
     fn scaled(self, factor: int): Rectangle {
-        return new Rectangle { width: self.width * factor, height: self.height * factor };
+        return Rectangle { width: self.width * factor, height: self.height * factor };
     }
 
     fn describe(self): string {
@@ -21,7 +21,7 @@ fn report(r: Rectangle) {
     print(r.describe());
 }
 
-var r = new Rectangle { width: 3, height: 4 };
+var r = Rectangle { width: 3, height: 4 };
 report(r);
 report(r.scaled(2));
 print(r.area());

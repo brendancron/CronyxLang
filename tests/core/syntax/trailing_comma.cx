@@ -17,7 +17,7 @@ fn pair(): (int, int,) {
     return (1, 2,);
 }
 
-var p = new Pair<int, string,> { xs: [1, 2,], a: 3, b: "s", };
+var p = Pair<int, string,> { xs: [1, 2,], a: 3, b: "s", };
 var (left, right,) = pair();
 
 print(add(left, right,));

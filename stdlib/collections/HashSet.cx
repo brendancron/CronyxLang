@@ -26,7 +26,7 @@ fn filled(capacity: int): List<int> {
 
 fn new<K>(): HashSet<K> {
     var keys: List<K> = [];
-    return new HashSet { slots: filled(16), keys: keys, size: 0, capacity: 16 };
+    return HashSet { slots: filled(16), keys: keys, size: 0, capacity: 16 };
 }
 
 fn start_at<K: Hash>(key: K, capacity: int): int {

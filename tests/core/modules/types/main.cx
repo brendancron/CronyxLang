@@ -1,7 +1,7 @@
 import "geom";
 import { Point } from "geom";
 
-var p: geom.Point = new geom.Point { x: 2, y: 3 };
+var p: geom.Point = geom.Point { x: 2, y: 3 };
 print(str(p.area()) + " " + str(p.shifted(1).x));
 
 var q: Point = geom.origin();
@@ -17,5 +17,5 @@ match geom.Shape.Circle(7) {
 }
 
 type Point2 { x: int }
-var mine = new Point2 { x: 9 };
+var mine = Point2 { x: 9 };
 print(mine.x);

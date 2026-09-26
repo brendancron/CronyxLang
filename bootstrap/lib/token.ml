@@ -65,7 +65,6 @@ type token_type =
   | Return
   | Run
   | Match
-  | New
   | True
   | Trait
   | Type
@@ -146,7 +145,6 @@ let token_type_to_string = function
   | Return -> "RETURN"
   | Run -> "RUN"
   | Match -> "MATCH"
-  | New -> "NEW"
   | True -> "TRUE"
   | Trait -> "TRAIT"
   | Type -> "TYPE"

@@ -40,4 +40,4 @@ fn derive(shape: TypeShape) for Describe {
 
 derive Describe for Config;
 
-print(new Config { timeout: 30 }.describe());
+print(Config { timeout: 30 }.describe());

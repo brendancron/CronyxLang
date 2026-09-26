@@ -38,7 +38,7 @@ The specialized copy has no `label` parameter. The string is part of the code.
 
 ```cronyx
 fn buffer<T, n: int>(fill: T): Array<T> {
-    return new Array<T>(n, fill);
+    return Array<T>(n, fill);
 }
 
 var b = buffer<int, 16>(0);
@@ -55,11 +55,11 @@ type Buf<n: int> {
     items: Array<int>,
 }
 
-var a = new Buf<4> { items: [] };
-a = new Buf<8> { items: [] };      // Expected Buf<4>, got Buf<8>.
+var a = Buf<4> { items: [] };
+a = Buf<8> { items: [] };      // Expected Buf<4>, got Buf<8>.
 ```
 
-A copy is named by its arguments, `Buf<4>`, and is made when `new Buf<4> { … }` is reached (`meta/05_order/11_buf`, `errors/distinct_instances`). A value argument in a type annotation — `var b: Buf<4>` — does not parse yet.
+A copy is named by its arguments, `Buf<4>`, and is made when `Buf<4> { … }` is reached (`meta/05_order/11_buf`, `errors/distinct_instances`). A value argument in a type annotation — `var b: Buf<4>` — does not parse yet.
 
 ## Checking
 
@@ -128,7 +128,7 @@ The diagnostic says *why* an expression is not static, not merely that it is not
 
 Inside a `meta` block the question is asked from the other side. A static parameter is an ordinary value there, so `fib<n - 1>()` written in the block and not in a `gen` is *'fib' cannot be instantiated from inside a meta block: 'n' is a value there. Write the call inside a gen.* — see [Meta Scope and Instantiation](Meta%20Scope%20and%20Instantiation.md).
 
-A **type** argument to a function the walk instantiates is written, or visible from what the walk can see — `new X`, an annotation, a literal, a declared return type. Inference has not run when the walk reaches the call, so `printSpeak<Cat>(cat)` is how a template whose `meta` reads its type parameter is called (`meta/05_order/07_type_mono`). A type-only template the walk leaves alone keeps full inference.
+A **type** argument to a function the walk instantiates is written, or visible from what the walk can see — `X { … }`, an annotation, a literal, a declared return type. Inference has not run when the walk reaches the call, so `printSpeak<Cat>(cat)` is how a template whose `meta` reads its type parameter is called (`meta/05_order/07_type_mono`). A type-only template the walk leaves alone keeps full inference.
 
 ## Templates in a body
 
@@ -159,7 +159,7 @@ var ys = pair<int>(1, 2);     // T written
 var empty = pair<string>();   // nothing to infer from
 ```
 
-Writing them explicitly collides with comparison: `pair<int>(1, 2)` and `a < b` are the same shape, and `a<b` without spaces is idiomatic, so whitespace cannot decide it. The rule is C#'s, narrowed — after an identifier, try to parse a type argument list, and accept it only if the token after the closing `>` is `(`. Explicit arguments appear only at call sites and after `new`, which says a type follows, so requiring the call to follow is sufficient, and the one program it misreads — `a < b > (c)` — is not one anybody writes.
+Writing them explicitly collides with comparison: `pair<int>(1, 2)` and `a < b` are the same shape, and `a<b` without spaces is idiomatic, so whitespace cannot decide it. The rule is C#'s, narrowed — after an identifier, try to parse a type argument list, and accept it only if what follows the closing `>` is `(` or fields, `{ name:`. Explicit arguments appear only at call sites and constructions, so requiring one of those to follow is sufficient, and the one program it misreads — `a < b > (c)` — is not one anybody writes.
 
 This is the same ambiguity that moved effect rows before the return type, and it is worth noting that the fix there does not help here. In type position `<` is never comparison; in expression position it is.
 

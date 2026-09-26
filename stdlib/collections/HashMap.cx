@@ -27,7 +27,7 @@ fn filled(capacity: int): List<int> {
 fn new<K, V>(): HashMap<K, V> {
     var keys: List<K> = [];
     var vals: List<V> = [];
-    return new HashMap {
+    return HashMap {
         slots: filled(16), keys: keys, vals: vals, size: 0, capacity: 16
     };
 }

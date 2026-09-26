@@ -6,5 +6,5 @@ impl Circle {
 
 // An associated function is reached through the type, not through a value of
 // it, so calling it on one is an error.
-var c = new Circle { radius: 2 };
+var c = Circle { radius: 2 };
 print(c.area(5));

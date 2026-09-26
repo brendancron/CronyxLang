@@ -5,7 +5,7 @@ impl Box {
     fn combine(self, extra: int, g: (int) -> int): int { return g(self.v + extra); }
 }
 
-var b = new Box { v: 21 };
+var b = Box { v: 21 };
 
 print(b.apply { it * 2 });
 print(b.apply { x -> x + 1 });

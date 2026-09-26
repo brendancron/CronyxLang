@@ -1,7 +1,7 @@
 type P { x: int }
 type E { A, B(P) }
 meta {
-    var es = [E.A, E.B(new P { x: 7 })];
+    var es = [E.A, E.B(P { x: 7 })];
     gen var all = es;
 }
 for (e in all) {

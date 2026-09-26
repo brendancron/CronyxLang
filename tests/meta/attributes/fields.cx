@@ -50,5 +50,5 @@ fn derive(shape: TypeShape) for Show {
 
 derive Show for Person;
 
-var p = new Person { name: "ada", password: "hunter2", age: 36 };
+var p = Person { name: "ada", password: "hunter2", age: 36 };
 print(p.show());

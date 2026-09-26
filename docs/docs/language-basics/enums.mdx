@@ -27,7 +27,7 @@ Structs and enums share the `type` keyword: a body of `name: type` fields makes 
 
 ## Constructing a variant
 
-To create a value, write the enum name, a dot, and the variant name — no `new`, unlike a struct:
+To create a value, write the enum name, a dot, and the variant name:
 
 ```cronyx
 type Direction {
@@ -127,7 +127,7 @@ type CardEffect {
 }
 ```
 
-You construct them with the struct-construction syntax we saw last chapter, minus the `new`:
+You construct them with the struct-construction syntax we saw last chapter, after the variant name:
 
 ```cronyx
 var dmg  = CardEffect.Damage { amount: 15 };

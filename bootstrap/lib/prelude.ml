@@ -195,7 +195,7 @@ type List<T> {
 
 impl FromArray<T> for List<T> {
     fn from_array(items: Array<T>): List<T> {
-        return new List { items: items, count: items.len() };
+        return List { items: items, count: items.len() };
     }
 }
 
@@ -231,7 +231,7 @@ impl List<T> {
             if (room < 4) {
                 room = 4;
             }
-            var bigger = new Array<T>(room, v);
+            var bigger = Array<T>(room, v);
             var i = 0;
             while (i < self.count) {
                 bigger[i] = self.items[i];
@@ -282,7 +282,7 @@ impl Set<T> {
 
 impl FromArray<T> for Set<T> {
     fn from_array(items: Array<T>): Set<T> {
-        var out = new Set { items: [] };
+        var out = Set { items: [] };
         var i = 0;
         while (i < items.len()) {
             out.insert(items[i]);
@@ -338,7 +338,7 @@ impl Map<K, V> {
 
 impl FromArray<(K, V)> for Map<K, V> {
     fn from_array(pairs: Array<(K, V)>): Map<K, V> {
-        var out = new Map { entries: [] };
+        var out = Map { entries: [] };
         var i = 0;
         while (i < pairs.len()) {
             out.insert(pairs[i].0, pairs[i].1);
@@ -364,7 +364,7 @@ fn __slice(text: string, start: int, stop: int): string {
 
 impl string {
     fn chars(self): Array<char> {
-        var out = new Array<char>(self.len(), ' ');
+        var out = Array<char>(self.len(), ' ');
         var i = 0;
         while (i < self.len()) {
             out[i] = self[i];
@@ -405,7 +405,7 @@ impl string {
         }
         parts.push(__slice(self, start, self.len()));
 
-        var out = new Array<string>(parts.len(), "");
+        var out = Array<string>(parts.len(), "");
         var j = 0;
         while (j < parts.len()) {
             out[j] = parts[j];
@@ -433,7 +433,7 @@ impl string {
             parts.push(__slice(self, start, self.len()));
         }
 
-        var out = new Array<string>(parts.len(), "");
+        var out = Array<string>(parts.len(), "");
         var j = 0;
         while (j < parts.len()) {
             out[j] = parts[j];
@@ -522,8 +522,8 @@ impl Index<Range> for Array<T> {
     fn get(self, r: Range): Array<T> {
         var bounds = __span(r, self.len());
         var taken = bounds.1 - bounds.0;
-        if (taken <= 0) { return new Array<T>(0, self[0]); }
-        var out = new Array<T>(taken, self[bounds.0]);
+        if (taken <= 0) { return Array<T>(0, self[0]); }
+        var out = Array<T>(taken, self[bounds.0]);
         var at = 0;
         while (at < taken) {
             out[at] = self[bounds.0 + at];

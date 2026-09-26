@@ -42,7 +42,7 @@ derive Named for Cat;
 derive Named for Point;
 
 var cat = Cat;
-var p = new Point { x: 1, y: 2 };
+var p = Point { x: 1, y: 2 };
 
 print(cat.type_name());
 print(p.type_name());
@@ -94,7 +94,7 @@ type Point { x: int, y: int }
 
 derive Show for Point;
 
-var p = new Point { x: 3, y: 4 };
+var p = Point { x: 3, y: 4 };
 print(p.show());
 ```
 
@@ -203,8 +203,8 @@ type Color { r: int, g: int, b: int }
 derive Fields for Point;
 derive Fields for Color;
 
-print(new Point { x: 0, y: 0 }.field_count());
-print(new Color { r: 0, g: 0, b: 0 }.field_count());
+print(Point { x: 0, y: 0 }.field_count());
+print(Color { r: 0, g: 0, b: 0 }.field_count());
 ```
 
 ```

@@ -10,8 +10,8 @@ impl Box<T> {
     }
 }
 
-var a = new Box { v: 1 };
-var b = new Box { v: "s" };
+var a = Box { v: 1 };
+var b = Box { v: "s" };
 print(str(a.get()) + " " + str(b.get()));
 print(str(a.same()) + " " + str(b.same()));
 

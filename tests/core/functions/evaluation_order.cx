@@ -6,7 +6,7 @@ fn c(): int { print("c"); return 3; }
 
 fn add(x: int, y: int): int { return x + y; }
 
-var cell = new Cell { v: 0 };
+var cell = Cell { v: 0 };
 fn target(): Cell { print("target"); return cell; }
 
 print(a() + b());

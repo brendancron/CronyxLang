@@ -17,7 +17,7 @@ fn build(ast: RegexAst): Nfa {
     var frag = build_node(states, alphabet, transitions, counter, ast, ast.root);
     var accept: List<int> = [frag.end];
 
-    return new Nfa {
+    return Nfa {
         states: states,
         alphabet: alphabet,
         transitions: transitions,
@@ -41,11 +41,11 @@ fn add_symbol(alphabet: List<int>, cp: int) {
 }
 
 fn add_trans(transitions: List<Transition>, src: int, cp: int, to: int) {
-    transitions.push(new Transition { src: src, on: cp, to: to });
+    transitions.push(Transition { src: src, on: cp, to: to });
 }
 
 fn add_eps(transitions: List<Transition>, src: int, to: int) {
-    transitions.push(new Transition { src: src, on: epsilon(), to: to });
+    transitions.push(Transition { src: src, on: epsilon(), to: to });
 }
 
 fn build_node(
@@ -64,7 +64,7 @@ fn build_node(
             var l = build_node(states, alphabet, transitions, counter, ast, left);
             var r = build_node(states, alphabet, transitions, counter, ast, right);
             add_eps(transitions, l.end, r.start);
-            return new Fragment { start: l.start, end: r.end };
+            return Fragment { start: l.start, end: r.end };
         }
         RegexNode.Alt(left, right) => {
             var s = fresh(states, counter);
@@ -75,7 +75,7 @@ fn build_node(
             add_eps(transitions, s, r.start);
             add_eps(transitions, l.end, e);
             add_eps(transitions, r.end, e);
-            return new Fragment { start: s, end: e };
+            return Fragment { start: s, end: e };
         }
         RegexNode.Star(child) => {
             var s = fresh(states, counter);
@@ -85,14 +85,14 @@ fn build_node(
             add_eps(transitions, s, e);
             add_eps(transitions, c.end, c.start);
             add_eps(transitions, c.end, e);
-            return new Fragment { start: s, end: e };
+            return Fragment { start: s, end: e };
         }
         RegexNode.Plus(child) => {
             var e = fresh(states, counter);
             var c = build_node(states, alphabet, transitions, counter, ast, child);
             add_eps(transitions, c.end, c.start);
             add_eps(transitions, c.end, e);
-            return new Fragment { start: c.start, end: e };
+            return Fragment { start: c.start, end: e };
         }
         RegexNode.Quest(child) => {
             var s = fresh(states, counter);
@@ -101,7 +101,7 @@ fn build_node(
             add_eps(transitions, s, c.start);
             add_eps(transitions, s, e);
             add_eps(transitions, c.end, e);
-            return new Fragment { start: s, end: e };
+            return Fragment { start: s, end: e };
         }
         RegexNode.Dot => {
             return build_range(states, alphabet, transitions, counter);
@@ -111,7 +111,7 @@ fn build_node(
         }
         RegexNode.Empty => {
             var s = fresh(states, counter);
-            return new Fragment { start: s, end: s };
+            return Fragment { start: s, end: s };
         }
     }
 }
@@ -127,7 +127,7 @@ fn build_literal(
     var e = fresh(states, counter);
     add_trans(transitions, s, cp, e);
     add_symbol(alphabet, cp);
-    return new Fragment { start: s, end: e };
+    return Fragment { start: s, end: e };
 }
 
 fn build_range(
@@ -144,7 +144,7 @@ fn build_range(
         add_symbol(alphabet, cp);
         cp = cp + 1;
     }
-    return new Fragment { start: s, end: e };
+    return Fragment { start: s, end: e };
 }
 
 fn build_class(
@@ -172,7 +172,7 @@ fn build_class(
             add_symbol(alphabet, cp);
         }
     }
-    return new Fragment { start: s, end: e };
+    return Fragment { start: s, end: e };
 }
 
 fn contains(items: List<int>, val: int): bool {

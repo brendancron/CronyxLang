@@ -4,7 +4,7 @@ impl Add<Vec2> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
     }
 }
 
@@ -12,7 +12,7 @@ fn accumulate<T>(xs: Array<T>) {
     xs[0] = xs[0] + xs[1];
 }
 
-var vs = [new Vec2 { x: 1, y: 1 }, new Vec2 { x: 2, y: 2 }];
+var vs = [Vec2 { x: 1, y: 1 }, Vec2 { x: 2, y: 2 }];
 accumulate(vs);
 print(str(vs[0].x) + " " + str(vs[0].y));
 

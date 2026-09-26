@@ -12,12 +12,12 @@ type Step<...Args> {
 
 impl Action<State> for Step<...Args> {
     fn invoke(self, state: State): State {
-        return new State { turn: state.turn + 1 };
+        return State { turn: state.turn + 1 };
     }
 }
 
-var two = new Step { intent: (1, "x") };
-var none = new Step { intent: () };
+var two = Step { intent: (1, "x") };
+var none = Step { intent: () };
 
-print(two.invoke(new State { turn: 1 }).turn);
-print(none.invoke(new State { turn: 5 }).turn);
+print(two.invoke(State { turn: 1 }).turn);
+print(none.invoke(State { turn: 5 }).turn);

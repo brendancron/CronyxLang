@@ -17,8 +17,8 @@ fn pair(a: int, b: string) {
 fn nothing() {
 }
 
-var two = new Slot { use: pair };
-var none = new Slot { use: nothing };
+var two = Slot { use: pair };
+var none = Slot { use: nothing };
 
 print(typeof(hold).name);
 print(typeof(call).name);

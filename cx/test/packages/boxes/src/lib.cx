@@ -1,9 +1,9 @@
 type Pair<T> { first: T, second: T }
 
 fn pair<T>(a: T, b: T): Pair<T> {
-    return new Pair<T> { first: a, second: b };
+    return Pair<T> { first: a, second: b };
 }
 
 fn swap<T>(p: Pair<T>): Pair<T> {
-    return new Pair<T> { first: p.second, second: p.first };
+    return Pair<T> { first: p.second, second: p.first };
 }

@@ -1112,6 +1112,10 @@ let kind_name = function
   | Ast.Op_ctl -> "ctl"
   | Ast.Op_final -> "final ctl"
 
+let constructs env ctx name =
+  lookup env name = None
+  && (String.equal name Types.array_name || Registry.constructor ctx.registry name <> None)
+
 let declared_variant env ty variant =
   match lookup env ty, Hashtbl.find_opt ctx_types ty with
   | None, Some (Sum (_, variants)) -> List.assoc_opt variant variants
@@ -1263,6 +1267,19 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       | _ -> `Or (a, b)
     in
     node Types.IBool it
+  (* `Array<int>(3, 0)` reads as a call until `Array` turns out to be a type
+     with a constructor rather than a function. *)
+  | `Call ({ Ast.it = `Var name; _ }, args) when constructs env ctx name ->
+    infer_expr env ctx { e with Ast.it = `New_call (name, [], args) }
+  | `Static_call ({ Ast.it = `Var name; _ }, static_args, args) when constructs env ctx name ->
+    let type_args =
+      List.map
+        (function
+          | Ast.St_type t -> t
+          | Ast.St_value _ -> fail span "'%s' takes types here, not values." name)
+        static_args
+    in
+    infer_expr env ctx { e with Ast.it = `New_call (name, type_args, args) }
   | `Call (callee, args) ->
     let callee_node = infer_expr env ctx callee in
     let args = name_implicit_params callee_node.Ast.ann args in
@@ -1783,7 +1800,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        node ret (`Call (Ast.annotated span fn_ty (`Var fn), args)))
   | `New (name, fields) ->
     (match Hashtbl.find_opt ctx_types name with
-     | Some (Opaque _) -> fail span "'%s' cannot be constructed with 'new'." name
+     | Some (Opaque _) -> fail span "'%s' has no fields to construct it with." name
      | None | Some (Sum _) -> fail span "Unknown record type '%s'." name
      | Some (Product (vars, declared)) ->
        let args = List.map (fun _ -> Types.fresh ()) vars in

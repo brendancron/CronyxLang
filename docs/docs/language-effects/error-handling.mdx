@@ -41,7 +41,7 @@ Line for line this is the shape you already know from other languages:
 | Java, JS, Python                    | Cronyx                                |
 | ----------------------------------- | ------------------------------------- |
 | `class DivByZero extends Exception` | `effect exception { ctl throw(...); }` |
-| `throw new DivByZero(...)`          | `throw(...)`                          |
+| `throw DivByZero(...)`          | `throw(...)`                          |
 | `try { ... } catch (e) { ... }`     | `run { ... } handle exception { ... }` |
 
 And one difference that isn't cosmetic: `divide` is not annotated. There's no `throws DivByZero`, no `Result<int, Error>`, no `?`. The compiler works out that `divide` can throw because it calls `throw`, and it works out the same for everything that calls `divide`. The bookkeeping other languages ask you to maintain by hand is inferred.

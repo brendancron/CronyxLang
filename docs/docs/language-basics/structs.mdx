@@ -30,7 +30,7 @@ This declaration introduces a new type called `Point`. You can now use `Point` a
 
 ## Constructing a struct
 
-To create a value of a struct type, write `new`, the struct name, and `{ field: value, ... }`:
+To create a value of a struct type, write the struct name and `{ field: value, ... }`:
 
 ```cronyx
 type Point {
@@ -38,11 +38,11 @@ type Point {
     y: int
 }
 
-var origin = new Point { x: 0, y: 0 };
-var p      = new Point { x: 3, y: 4 };
+var origin = Point { x: 0, y: 0 };
+var p      = Point { x: 3, y: 4 };
 ```
 
-The `new` is what tells a construction apart from a block, so it is not optional.
+A brace that opens with `name:` always starts fields, so `Point { x: 0, y: 0 }` never reads as a function taking a [trailing lambda](./functions.mdx#trailing-lambdas).
 
 ## A struct with no fields
 
@@ -65,7 +65,7 @@ print(c.unit());
 degrees C
 ```
 
-A type with no fields has exactly one possible value, so the type's name *is* that value: `var c = Celsius;` is how you get one, and there's nothing to write inside a `new` that would tell two of them apart. These show up most often with traits, which the [Traits](./traits.mdx) chapter covers.
+A type with no fields has exactly one possible value, so the type's name *is* that value: `var c = Celsius;` is how you get one, and there's nothing to write inside braces that would tell two of them apart. These show up most often with traits, which the [Traits](./traits.mdx) chapter covers.
 
 ## Reading fields
 
@@ -77,7 +77,7 @@ type Point {
     y: int
 }
 
-var p = new Point { x: 3, y: 4 };
+var p = Point { x: 3, y: 4 };
 print(p.x);
 print(p.y);
 ```
@@ -97,7 +97,7 @@ type Handler {
     apply: (int) -> unit
 }
 
-var double = new Handler {
+var double = Handler {
     label: "double",
     apply: (n: int) => { print(n * 2); }
 };
@@ -124,10 +124,10 @@ type Point {
 }
 
 fn translate(p: Point, dx: int, dy: int): Point {
-    return new Point { x: p.x + dx, y: p.y + dy };
+    return Point { x: p.x + dx, y: p.y + dy };
 }
 
-var start = new Point { x: 1, y: 1 };
+var start = Point { x: 1, y: 1 };
 var moved = translate(start, 4, 6);
 
 print(moved.x);
@@ -151,7 +151,7 @@ type Point {
     y: int,
 
     fn origin(): Point {
-        return new Point { x: 0, y: 0 };
+        return Point { x: 0, y: 0 };
     }
 
     fn sum(self): int {
@@ -159,7 +159,7 @@ type Point {
     }
 }
 
-var p = new Point { x: 3, y: 4 };
+var p = Point { x: 3, y: 4 };
 print(p.sum());
 print(Point.origin().sum());
 ```
@@ -196,8 +196,8 @@ fn bigger(a: Rectangle, b: Rectangle): Rectangle {
     return b;
 }
 
-var small = new Rectangle { width: 2, height: 3 };
-var large = new Rectangle { width: 4, height: 5 };
+var small = Rectangle { width: 2, height: 3 };
+var large = Rectangle { width: 4, height: 5 };
 
 var winner = bigger(small, large);
 print(winner.width);

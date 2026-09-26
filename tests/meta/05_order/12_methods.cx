@@ -12,5 +12,5 @@ type Box<T> {
     }
 }
 
-var a = new Box<int> { item: 5 };
+var a = Box<int> { item: 5 };
 print(a.get());

@@ -2,7 +2,7 @@ type Counter {
     value: int
 }
 
-var c = new Counter { value: 0 };
+var c = Counter { value: 0 };
 c.value = c.value + 1;
 c.value = c.value + 1;
 c.value = c.value + 1;
@@ -13,7 +13,7 @@ type Point {
     y: int
 }
 
-var p = new Point { x: 10, y: 20 };
+var p = Point { x: 10, y: 20 };
 p.x = p.x + 5;
 p.y = 0;
 print(p.x);

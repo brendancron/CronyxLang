@@ -4,10 +4,10 @@ impl Mul<Vec2> for int {
     type Output = Vec2;
 
     fn mul(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self * rhs.x, y: self * rhs.y };
+        return Vec2 { x: self * rhs.x, y: self * rhs.y };
     }
 }
 
-var v = 3 * new Vec2 { x: 1, y: 2 };
+var v = 3 * Vec2 { x: 1, y: 2 };
 print(v.x);
 print(v.y);

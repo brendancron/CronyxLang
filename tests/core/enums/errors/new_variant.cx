@@ -1,6 +1,0 @@
-type Direction {
-    North,
-    South
-}
-
-var dir = new Direction.South;

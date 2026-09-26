@@ -5,5 +5,5 @@ type Colour { name: string }
 var numbers = swap(pair(1, 2));
 print(numbers.first);
 
-var colours = swap(pair(new Colour { name: "red" }, new Colour { name: "blue" }));
+var colours = swap(pair(Colour { name: "red" }, Colour { name: "blue" }));
 print(colours.first.name);

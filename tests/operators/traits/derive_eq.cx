@@ -12,10 +12,10 @@ fn count_matches<T: Eq>(items: Array<T>, want: T): int {
     return n;
 }
 
-var p = new Point { x: 1, y: 2 };
+var p = Point { x: 1, y: 2 };
 
-print(count_matches([p, new Point { x: 1, y: 2 }, new Point { x: 3, y: 4 }], p));
+print(count_matches([p, Point { x: 1, y: 2 }, Point { x: 3, y: 4 }], p));
 print(count_matches([1, 2, 1], 1));
 
-var seats: Set<Point> = [p, new Point { x: 1, y: 2 }];
+var seats: Set<Point> = [p, Point { x: 1, y: 2 }];
 print(seats.len());

@@ -4,6 +4,6 @@ type Box<T> {
     meta print(typeof(T).name);
 }
 
-var a = new Box<int> { item: 5 };
-var b = new Box<string> { item: "Hello" };
-var c = new Box<int> { item: 7 };
+var a = Box<int> { item: 5 };
+var b = Box<string> { item: "Hello" };
+var c = Box<int> { item: 7 };

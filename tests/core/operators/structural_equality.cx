@@ -1,11 +1,11 @@
 type Point { x: int, y: int }
 type Shape { Circle(int), Square(int) }
 
-var p = new Point { x: 1, y: 2 };
-var q = new Point { x: 1, y: 2 };
+var p = Point { x: 1, y: 2 };
+var q = Point { x: 1, y: 2 };
 
 print(str(p == q) + " " + str(same(p, q)) + " " + str(same(p, p)));
-print(new Point { x: 1, y: 9 } == p);
+print(Point { x: 1, y: 9 } == p);
 
 var nested = [[1, 2], [3]];
 print(str(nested == [[1, 2], [3]]) + " " + str(nested == [[1, 2], [4]]));
@@ -16,7 +16,7 @@ print(Shape.Circle(3) == Shape.Square(3));
 print(str((1, "a") == (1, "a")) + " " + str((1, "a") == (1, "b")));
 
 var ps: Set<Point> = [p, q];
-print(str(ps.len()) + " " + str(ps.contains(new Point { x: 1, y: 2 })));
+print(str(ps.len()) + " " + str(ps.contains(Point { x: 1, y: 2 })));
 
 var seats: Map<Point, string> = [(p, "aisle")];
 print(seats.get_or(q, "missing"));

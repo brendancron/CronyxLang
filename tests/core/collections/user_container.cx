@@ -5,7 +5,7 @@ type Ring<T> {
 
 impl FromArray<T> for Ring<T> {
     fn from_array(items: Array<T>): Ring<T> {
-        return new Ring { items: items, head: 0 };
+        return Ring { items: items, head: 0 };
     }
 }
 

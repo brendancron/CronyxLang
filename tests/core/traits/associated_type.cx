@@ -27,5 +27,5 @@ fn head<T: Container>(c: T): T.Item {
     return c.first();
 }
 
-print(head(new Bag { values: [7, 8] }));
-print(head(new Label { text: "hi" }));
+print(head(Bag { values: [7, 8] }));
+print(head(Label { text: "hi" }));

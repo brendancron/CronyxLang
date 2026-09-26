@@ -12,7 +12,7 @@ fn shift(p: Point): <Ask> unit {
 }
 
 run {
-    var p = new Point { x: 1, y: 2 };
+    var p = Point { x: 1, y: 2 };
     shift(p);
     print(str(p.x) + "," + str(p.y));
 } handle Ask {

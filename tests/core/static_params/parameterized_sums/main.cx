@@ -36,7 +36,7 @@ match nothing {
 print(typeof(some_int).name);
 print(typeof(some_str).name);
 
-var boxed = new Box { value: 7 };
+var boxed = Box { value: 7 };
 print(boxed.get());
 print(typeof(boxed).name);
 
