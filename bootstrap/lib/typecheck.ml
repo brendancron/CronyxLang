@@ -1112,6 +1112,11 @@ let kind_name = function
   | Ast.Op_ctl -> "ctl"
   | Ast.Op_final -> "final ctl"
 
+let declared_variant env ty variant =
+  match lookup env ty, Hashtbl.find_opt ctx_types ty with
+  | None, Some (Sum (_, variants)) -> List.assoc_opt variant variants
+  | _ -> None
+
 let rec infer_expr env ctx (e : Ast.desugared_expr) : checked_expr =
   let checked =
     try infer_expr_impl env ctx e with
@@ -1379,6 +1384,21 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
     admits_row (lookup env name) row ctx.row;
     node ret (`Call (callee_node, args))
+  (* `Option.Some(x)` and `Option.None` read as a method call and a field until
+     `Option` turns out to be a type with that variant. *)
+  | `Method_call ({ Ast.it = `Var ty; _ }, variant, _, args) when declared_variant env ty variant <> None ->
+    let declared = Option.get (declared_variant env ty variant) in
+    if args = [] && Ast.payload_fields declared.vd_payload = []
+    then fail span "'%s.%s' carries nothing, so it is written without parentheses." ty variant;
+    infer_expr env ctx { e with Ast.it = `New_variant (ty, variant, Ast.P_tuple args) }
+  | `Field ({ Ast.it = `Var ty; _ }, variant) when declared_variant env ty variant <> None ->
+    infer_expr env ctx { e with Ast.it = `New_variant (ty, variant, Ast.P_none) }
+  | `Field ({ Ast.it = `Var ty; _ }, variant)
+    when lookup env ty = None
+         && (match Hashtbl.find_opt ctx_types ty with
+             | Some (Sum _) -> true
+             | _ -> false) ->
+    fail span "Type '%s' has no variant '%s'." ty variant
   | `Method_call (receiver, name, as_function, args) ->
     (* `T.from(x)` names a type rather than a value. *)
     let named_receiver =
@@ -1600,7 +1620,13 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
            name
            owner;
        let missing (type a) (anything : unit -> a) : a =
-         !current.unknown (fun () -> fail span "Type '%s' has no method '%s'." owner name) anything
+         !current.unknown
+           (fun () ->
+             match Hashtbl.find_opt ctx_types owner with
+             | Some (Sum _) when Option.is_some named_receiver && Char.uppercase_ascii name.[0] = name.[0] ->
+               fail span "Type '%s' has no variant '%s'." owner name
+             | _ -> fail span "Type '%s' has no method '%s'." owner name)
+           anything
        in
        if (String.equal owner Types.array_name || String.equal owner Types.string_name)
           && String.equal name Types.array_len
@@ -2058,6 +2084,11 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                 impl));
         List.iter
           (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+            (* `T.V(…)` names the variant, so the function could never be reached. *)
+            (match Hashtbl.find_opt ctx_types type_name with
+             | Some (Sum (_, variants)) when List.mem_assoc m.Ast.md_name variants ->
+               fail span "'%s' already has a variant named '%s'." type_name m.Ast.md_name
+             | _ -> ());
             (match m.Ast.md_params with
              | { Ast.name = "self"; _ } :: _ -> ()
              | _ ->

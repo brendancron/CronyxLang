@@ -15,8 +15,8 @@ for (a in typeof(Person).attrs) {
     var written = str(a.name);
     for (arg in a.args) {
         match arg {
-            AttrArg::Str(v) => { written = written + "=" + v; }
-            AttrArg::Int(v) => { written = written + "=" + str(v); }
+            AttrArg.Str(v) => { written = written + "=" + v; }
+            AttrArg.Int(v) => { written = written + "=" + str(v); }
             _ => {}
         }
     }

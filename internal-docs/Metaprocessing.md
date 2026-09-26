@@ -84,7 +84,7 @@ Raw AST, not a value — but every name in it is checked against the meta enviro
 
 **If the name is not bound at compile time**, it is emitted as an identifier and resolved later, in the program the code is spliced into.
 
-**If it is bound**, its value is *reified* — turned back into the syntax that denotes it. A number becomes a literal, a tuple a tuple literal, an array an array literal, and an anonymous record a record literal (`02_gen/reify_tuple_field`, `reify_record_anonymous`). A value of a declared type keeps it: a struct is written as `new P { … }` and an enum value as `E::B(…)`, `E::A` or `E::C { … }`, recursively (`reify_struct`, `reify_generic_struct`, `reify_enum_unit`, `reify_enum_payload`, `reify_enum_struct_variant`, `reify_nested`). The interpreter carries the declared type's name on a record or variant it builds, read off the node's annotation, because the structure alone does not say it. Type arguments are not written: the checker infers them again, as it does for a `new Box<int> { … }` written by hand.
+**If it is bound**, its value is *reified* — turned back into the syntax that denotes it. A number becomes a literal, a tuple a tuple literal, an array an array literal, and an anonymous record a record literal (`02_gen/reify_tuple_field`, `reify_record_anonymous`). A value of a declared type keeps it: a struct is written as `new P { … }` and an enum value as `E.B(…)`, `E.A` or `E.C { … }`, recursively (`reify_struct`, `reify_generic_struct`, `reify_enum_unit`, `reify_enum_payload`, `reify_enum_struct_variant`, `reify_nested`). The interpreter carries the declared type's name on a record or variant it builds, read off the node's annotation, because the structure alone does not say it. Type arguments are not written: the checker infers them again, as it does for a `new Box<int> { … }` written by hand.
 
 **If its value cannot be reified**, that is an error at the `gen`: *'f' is a function and cannot be written into generated code.* (`02_gen/errors/reify_fn`), and *'s' is a trait object and cannot be written into generated code.* (`02_gen/errors/reify_object`). A closure has no literal form, and an object's type is not a declaration to rebuild. See [Reify](Reify.md).
 
@@ -414,7 +414,7 @@ trait Hash {
 
 fn derive(shape: TypeShape) for Hash {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             gen impl Hash for t {
                 fn hash(self): int { … built with `code`, above … }
             }

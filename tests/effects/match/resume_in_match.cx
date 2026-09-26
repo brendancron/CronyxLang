@@ -12,10 +12,10 @@ run {
     print(use());
 } handle Ask {
     ctl get() {
-        var c = Choice::No;
+        var c = Choice.No;
         match c {
-            Choice::Yes => { resume 1; }
-            Choice::No => { resume 2; }
+            Choice.Yes => { resume 1; }
+            Choice.No => { resume 2; }
         }
     }
 }

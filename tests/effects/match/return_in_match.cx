@@ -7,14 +7,14 @@ effect Ask { ctl get(): int; }
 
 fn pick(c: Choice): <Ask> int {
     match c {
-        Choice::Yes => { return get() + 10; }
-        Choice::No => { return 0; }
+        Choice.Yes => { return get() + 10; }
+        Choice.No => { return 0; }
     }
 }
 
 run {
-    print(pick(Choice::Yes));
-    print(pick(Choice::No));
+    print(pick(Choice.Yes));
+    print(pick(Choice.No));
 } handle Ask {
     ctl get() {
         resume 5;

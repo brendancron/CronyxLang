@@ -387,6 +387,23 @@ and call s : Ast.expr =
          in
          ignore (advance s);
          (match matches s [ Token.Left_paren ] with
+          (* Only a variant takes fields after a dot; `T.V(x)` and `T.V` look
+             like a call and a field until the checker knows `T`. *)
+          | None
+            when check s Token.Left_brace
+                 && (not s.no_brace)
+                 && (match (peek_at s 1).Token.token_type with
+                     | Token.Identifier _ -> true
+                     | _ -> false)
+                 && (peek_at s 2).Token.token_type = Token.Colon ->
+            let ty =
+              match callee.Ast.it with
+              | `Var ty -> ty
+              | `Field ({ Ast.it = `Var m; _ }, ty) -> m ^ "." ^ ty
+              | _ -> raise (error s (peek s) "Expected a type name before the variant.")
+            in
+            ignore (advance s);
+            loop (Ast.at callee.Ast.span (`New_variant (ty, label, Ast.P_fields (record_fields s))))
           | Some _ ->
             loop
               (Ast.at
@@ -638,32 +655,7 @@ and primary s : Ast.expr =
     Ast.at sp (`Bool false)
   | Token.Identifier name ->
     ignore (advance s);
-    (* `a.b` is a field until a `::` proves the dot was a module path. *)
-    let name =
-      if check s Token.Dot && (peek_at s 2).Token.token_type = Token.Colon_colon
-      then qualified s name
-      else name
-    in
-    if check s Token.Colon_colon
-    then (
-      ignore (advance s);
-      let variant = consume_identifier s "Expected a variant name." in
-      let payload =
-        match (peek s).Token.token_type with
-        (* At least one, or `T::V()` and `T::V` would both write the same
-           thing. *)
-        | Token.Left_paren ->
-          ignore (advance s);
-          let items = comma_separated ~closer:Token.Right_paren s expression in
-          ignore (consume s Token.Right_paren "Expected ')' after arguments.");
-          Ast.P_tuple items
-        | Token.Left_brace when not s.no_brace ->
-          ignore (advance s);
-          Ast.P_fields (record_fields s)
-        | _ -> Ast.P_none
-      in
-      Ast.at sp (`New_variant (name, variant, payload)))
-    else Ast.at sp (`Var name)
+    Ast.at sp (`Var name)
   | Token.Run ->
     ignore (advance s);
     run_expr s sp
@@ -681,14 +673,19 @@ and primary s : Ast.expr =
     Ast.at sp (`Code e)
   | Token.New ->
     ignore (advance s);
+    let named = peek s in
     let name = qualified s (consume_identifier s "Expected a type name after 'new'.") in
-    if check s Token.Colon_colon
+    if check s Token.Dot
+       || (String.contains name '.'
+           && not (check s Token.Left_brace || check s Token.Left_paren || check s Token.Less))
     then
-      ignore
+      raise
         (error
            s
-           (peek s)
-           (Printf.sprintf "A variant is written '%s::…', without 'new'." name));
+           named
+           (Printf.sprintf
+              "A variant is written '%s', without 'new'."
+              (if check s Token.Dot then name ^ ".…" else name)));
     (* A value may stand among the arguments, `new Buf<4> { … }`, so they are
        read the way a static call's are. *)
     let static_args =
@@ -1542,8 +1539,16 @@ and match_stmt s sp : Ast.stmt =
           Ast.Pat_wild
         | _ ->
           let ty = consume_identifier s "Expected a pattern." in
-          ignore (consume s Token.Colon_colon "Expected '::' after the type name.");
-          let variant = consume_identifier s "Expected a variant name." in
+          ignore (consume s Token.Dot "Expected '.' after the type name.");
+          let ty, variant =
+            let next = consume_identifier s "Expected a variant name." in
+            (* `geom.Shape.Circle`: the last name is the variant. *)
+            if check s Token.Dot
+            then (
+              ignore (advance s);
+              ty ^ "." ^ next, consume_identifier s "Expected a variant name.")
+            else ty, next
+          in
           let payload =
             match (peek s).Token.token_type with
             | Token.Left_paren ->

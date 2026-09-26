@@ -138,7 +138,7 @@ let rec string_of_expr (e : Ast.expr) : string =
       (String.concat "" (List.map (fun (l, v) -> " " ^ l ^ ":" ^ string_of_expr v) fields))
   | `New_variant (ty, variant, payload) ->
     Printf.sprintf
-      "(new %s::%s%s)"
+      "(new %s.%s%s)"
       ty
       variant
       (String.concat
@@ -391,7 +391,7 @@ let rec string_of_typed_expr (e : Ast.typed_expr) : string =
            (List.map (fun (l, v) -> " " ^ l ^ ":" ^ string_of_typed_expr v) fields))
     | `New_variant (ty, variant, payload) ->
       Printf.sprintf
-        "(new %s::%s%s)"
+        "(new %s.%s%s)"
         ty
         variant
         (String.concat

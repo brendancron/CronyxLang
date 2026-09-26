@@ -48,7 +48,7 @@ impl Reifiable for Point {
 | tuple | a tuple literal | every element is |
 | anonymous record | a record literal | every field is |
 | named product | `new Name { … }` | every field is |
-| sum | `Name::Variant`, `Name::Variant(…)` or `Name::Variant { … }` | every payload value is |
+| sum | `Name.Variant`, `Name.Variant(…)` or `Name.Variant { … }` | every payload value is |
 | array | an array literal | every element is |
 | `Code` | the syntax it holds | always |
 | `Name` | the identifier | always |

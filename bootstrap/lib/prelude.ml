@@ -83,29 +83,29 @@ trait PartialOrd {
 // statement, so the Ordering cannot become a bool where the operator stood.
 fn __is_less(o: Option<Ordering>): bool {
     match o {
-        Option::Some(c) => { match c { Ordering::Less => { return true; } _ => { return false; } } }
-        Option::None => { return false; }
+        Option.Some(c) => { match c { Ordering.Less => { return true; } _ => { return false; } } }
+        Option.None => { return false; }
     }
 }
 
 fn __is_less_equal(o: Option<Ordering>): bool {
     match o {
-        Option::Some(c) => { match c { Ordering::Greater => { return false; } _ => { return true; } } }
-        Option::None => { return false; }
+        Option.Some(c) => { match c { Ordering.Greater => { return false; } _ => { return true; } } }
+        Option.None => { return false; }
     }
 }
 
 fn __is_greater(o: Option<Ordering>): bool {
     match o {
-        Option::Some(c) => { match c { Ordering::Greater => { return true; } _ => { return false; } } }
-        Option::None => { return false; }
+        Option.Some(c) => { match c { Ordering.Greater => { return true; } _ => { return false; } } }
+        Option.None => { return false; }
     }
 }
 
 fn __is_greater_equal(o: Option<Ordering>): bool {
     match o {
-        Option::Some(c) => { match c { Ordering::Less => { return false; } _ => { return true; } } }
-        Option::None => { return false; }
+        Option.Some(c) => { match c { Ordering.Less => { return false; } _ => { return true; } } }
+        Option.None => { return false; }
     }
 }
 
@@ -158,12 +158,12 @@ fn __bound(at: int, length: int): int {
 
 fn __span(r: Range, length: int): (int, int) {
     match r {
-        Range::Between(from, to) => {
+        Range.Between(from, to) => {
             return (__bound(from, length), __bound(to, length));
         }
-        Range::From(from) => { return (__bound(from, length), length); }
-        Range::To(to) => { return (0, __bound(to, length)); }
-        Range::All => { return (0, length); }
+        Range.From(from) => { return (__bound(from, length), length); }
+        Range.To(to) => { return (0, __bound(to, length)); }
+        Range.All => { return (0, length); }
     }
 }
 
@@ -444,14 +444,14 @@ impl string {
 
     fn to_int(self): Option<int> {
         var parsed = __parse_int(self);
-        if (parsed.0) { return Option::Some(parsed.1); }
-        return Option::None;
+        if (parsed.0) { return Option.Some(parsed.1); }
+        return Option.None;
     }
 
     fn to_float(self): Option<float> {
         var parsed = __parse_float(self);
-        if (parsed.0) { return Option::Some(parsed.1); }
-        return Option::None;
+        if (parsed.0) { return Option.Some(parsed.1); }
+        return Option.None;
     }
 
     fn trim(self): string {

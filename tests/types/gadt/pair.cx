@@ -10,11 +10,11 @@ type Expr<T> {
 
 fn eval<T>(e: Expr<T>): T {
     match e {
-        Expr::Lit(n)     => { return n; }
-        Expr::Pair(a, b) => { return (eval(a), eval(b)); }
-        Expr::Fst(p)     => { return eval(p).0; }
+        Expr.Lit(n)     => { return n; }
+        Expr.Pair(a, b) => { return (eval(a), eval(b)); }
+        Expr.Fst(p)     => { return eval(p).0; }
     }
 }
 
-print(eval(Expr::Fst(Expr::Pair(Expr::Lit(7), Expr::Lit(8)))));
-print(eval(Expr::Pair(Expr::Lit(1), Expr::Lit(2))).1);
+print(eval(Expr.Fst(Expr.Pair(Expr.Lit(7), Expr.Lit(8)))));
+print(eval(Expr.Pair(Expr.Lit(1), Expr.Lit(2))).1);

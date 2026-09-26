@@ -3,4 +3,4 @@ type Direction {
     South
 }
 
-var dir = new Direction::South;
+var dir = new Direction.South;

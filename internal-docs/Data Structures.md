@@ -134,12 +134,12 @@ type Shape {
     Empty
 }
 
-var s = Shape::Rect { w: 3, h: 4 };
+var s = Shape.Rect { w: 3, h: 4 };
 
 match s {
-    Shape::Circle(r)     => { print(r); }
-    Shape::Rect { w, h } => { print(w * h); }   // 12
-    Shape::Empty         => { print("empty"); }
+    Shape.Circle(r)     => { print(r); }
+    Shape.Rect { w, h } => { print(w * h); }   // 12
+    Shape.Empty         => { print("empty"); }
 }
 ```
 
@@ -153,7 +153,7 @@ type Pair<A, B> {
     second: B
 }
 
-var found = Option::Some(3);
+var found = Option.Some(3);
 var both = new Pair { first: 1, second: "one" };
 ```
 

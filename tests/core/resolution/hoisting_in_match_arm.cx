@@ -1,13 +1,13 @@
 type Color { Red, Blue }
 
 fn main(): unit {
-    var c = Color::Red;
+    var c = Color.Red;
     match c {
-        Color::Red => {
+        Color.Red => {
             print(later());
             fn later(): int { return 7; }
         }
-        Color::Blue => { }
+        Color.Blue => { }
     }
 }
 

@@ -1,13 +1,13 @@
 type Color { Red, Blue }
 
 fn main(): unit {
-    var c = Color::Red;
+    var c = Color.Red;
     match c {
-        Color::Red => {
+        Color.Red => {
             defer print("deferred in arm");
             print("in arm");
         }
-        Color::Blue => { }
+        Color.Blue => { }
     }
     print("after match");
 }

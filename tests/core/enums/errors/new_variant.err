@@ -1,1 +1,1 @@
-[6:24] A variant is written 'Direction::…', without 'new'.
+[6:15] A variant is written 'Direction.South', without 'new'.

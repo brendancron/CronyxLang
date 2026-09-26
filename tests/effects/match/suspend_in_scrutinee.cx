@@ -5,8 +5,8 @@ effect Ask { ctl pick(): C; }
 
 fn choose(): <Ask> int {
     match pick() {
-        C::A => { return 1; }
-        C::B => { return 2; }
+        C.A => { return 1; }
+        C.B => { return 2; }
     }
 }
 
@@ -14,7 +14,7 @@ run {
     print(choose());
 } handle Ask {
     ctl pick() {
-        resume C::B;
+        resume C.B;
         print("h");
     }
 }

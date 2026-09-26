@@ -12,21 +12,21 @@ print(m.contains("qux"));
 
 var v = m.get("bar");
 match v {
-    Option::Some(x) => { print(x); }
-    Option::None    => { print("none"); }
+    Option.Some(x) => { print(x); }
+    Option.None    => { print("none"); }
 }
 
 m.set("foo", 99);
 var v2 = m.get("foo");
 match v2 {
-    Option::Some(x) => { print(x); }
-    Option::None    => { print("none"); }
+    Option.Some(x) => { print(x); }
+    Option.None    => { print("none"); }
 }
 
 var missing = m.get("zzz");
 match missing {
-    Option::Some(x) => { print(x); }
-    Option::None    => { print("none"); }
+    Option.Some(x) => { print(x); }
+    Option.None    => { print("none"); }
 }
 
 print(m.get_or("foo", 0));
@@ -40,6 +40,6 @@ n.set(1, "ONE");
 print(n.size());
 print(n.contains(2));
 match (n.get(1)) {
-    Option::Some(v) => { print(v); }
-    Option::None    => { print("none"); }
+    Option.Some(v) => { print(v); }
+    Option.None    => { print("none"); }
 }

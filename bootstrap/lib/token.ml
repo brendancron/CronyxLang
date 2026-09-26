@@ -17,7 +17,6 @@ type token_type =
   | Pipe_pipe
   | Star
   | Colon
-  | Colon_colon
   | Dot
   | At
     (* One or two character tokens. *)
@@ -103,7 +102,6 @@ let token_type_to_string = function
   | Pipe_pipe -> "PIPE_PIPE"
   | Star -> "STAR"
   | Colon -> "COLON"
-  | Colon_colon -> "COLON_COLON"
   | Dot -> "DOT"
   | Bang -> "BANG"
   | Bang_equal -> "BANG_EQUAL"

@@ -1,10 +1,10 @@
 // Only what reflection describes gets a shape of its own; the rest says so.
 fn kind(shape: TypeShape): string {
     match shape {
-        TypeShape::Scalar => { return "scalar"; }
-        TypeShape::Product(name, fields) => { return "product"; }
-        TypeShape::Sum(name, variants) => { return "sum"; }
-        TypeShape::Other => { return "other"; }
+        TypeShape.Scalar => { return "scalar"; }
+        TypeShape.Product(name, fields) => { return "product"; }
+        TypeShape.Sum(name, variants) => { return "sum"; }
+        TypeShape.Other => { return "other"; }
     }
 }
 

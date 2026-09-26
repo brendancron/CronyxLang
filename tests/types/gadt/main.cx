@@ -10,15 +10,15 @@ type Expr<T> {
 
 fn eval<T>(e: Expr<T>): T {
     match e {
-        Expr::Lit(n)      => { return n; }
-        Expr::Add(l, r)   => { return eval(l) + eval(r); }
-        Expr::BoolLit(b)  => { return b; }
-        Expr::If(c, t, f) => { if (eval(c)) { return eval(t); } return eval(f); }
+        Expr.Lit(n)      => { return n; }
+        Expr.Add(l, r)   => { return eval(l) + eval(r); }
+        Expr.BoolLit(b)  => { return b; }
+        Expr.If(c, t, f) => { if (eval(c)) { return eval(t); } return eval(f); }
     }
 }
 
-print(eval(Expr::Add(Expr::Lit(40), Expr::Lit(2))));
-print(eval(Expr::If(Expr::BoolLit(true), Expr::Lit(1), Expr::Lit(0))));
+print(eval(Expr.Add(Expr.Lit(40), Expr.Lit(2))));
+print(eval(Expr.If(Expr.BoolLit(true), Expr.Lit(1), Expr.Lit(0))));
 
 // Length-indexed: `head` takes a vector one longer than some N, so `Nil` cannot
 // reach it and the single arm is exhaustive.
@@ -32,12 +32,12 @@ type Vec<N, T> {
 
 fn head<N, T>(v: Vec<Succ<N>, T>): T {
     match v {
-        Vec::Cons(x, rest) => { return x; }
+        Vec.Cons(x, rest) => { return x; }
     }
 }
 
-var one = Vec::Cons(10, Vec::Nil);
-var two = Vec::Cons(20, one);
+var one = Vec.Cons(10, Vec.Nil);
+var two = Vec.Cons(20, one);
 
 print(head(two));
 print(head(one));

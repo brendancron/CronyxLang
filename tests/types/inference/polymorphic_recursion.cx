@@ -9,11 +9,11 @@ type Nested<T> {
 
 fn depth<T>(n: Nested<T>): int {
     match n {
-        Nested::Leaf(x)     => { return 0; }
-        Nested::Deep(inner) => { return 1 + depth(inner); }
+        Nested.Leaf(x)     => { return 0; }
+        Nested.Deep(inner) => { return 1 + depth(inner); }
     }
 }
 
-print(depth(Nested::Leaf(1)));
-print(depth(Nested::Deep(Nested::Leaf((1, 2)))));
-print(depth(Nested::Deep(Nested::Deep(Nested::Leaf(((1, 2), (3, 4)))))));
+print(depth(Nested.Leaf(1)));
+print(depth(Nested.Deep(Nested.Leaf((1, 2)))));
+print(depth(Nested.Deep(Nested.Deep(Nested.Leaf(((1, 2), (3, 4)))))));

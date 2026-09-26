@@ -9,5 +9,5 @@ fn use_loop(): int {
 }
 
 fn use_match(b: Box): int {
-    match b { Box::Hold(item) => { return item; } }
+    match b { Box.Hold(item) => { return item; } }
 }

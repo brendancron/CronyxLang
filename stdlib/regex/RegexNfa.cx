@@ -57,16 +57,16 @@ fn build_node(
     node_id: int
 ): Fragment {
     match ast.nodes[node_id] {
-        RegexNode::Literal(cp) => {
+        RegexNode.Literal(cp) => {
             return build_literal(states, alphabet, transitions, counter, cp);
         }
-        RegexNode::Concat(left, right) => {
+        RegexNode.Concat(left, right) => {
             var l = build_node(states, alphabet, transitions, counter, ast, left);
             var r = build_node(states, alphabet, transitions, counter, ast, right);
             add_eps(transitions, l.end, r.start);
             return new Fragment { start: l.start, end: r.end };
         }
-        RegexNode::Alt(left, right) => {
+        RegexNode.Alt(left, right) => {
             var s = fresh(states, counter);
             var e = fresh(states, counter);
             var l = build_node(states, alphabet, transitions, counter, ast, left);
@@ -77,7 +77,7 @@ fn build_node(
             add_eps(transitions, r.end, e);
             return new Fragment { start: s, end: e };
         }
-        RegexNode::Star(child) => {
+        RegexNode.Star(child) => {
             var s = fresh(states, counter);
             var e = fresh(states, counter);
             var c = build_node(states, alphabet, transitions, counter, ast, child);
@@ -87,14 +87,14 @@ fn build_node(
             add_eps(transitions, c.end, e);
             return new Fragment { start: s, end: e };
         }
-        RegexNode::Plus(child) => {
+        RegexNode.Plus(child) => {
             var e = fresh(states, counter);
             var c = build_node(states, alphabet, transitions, counter, ast, child);
             add_eps(transitions, c.end, c.start);
             add_eps(transitions, c.end, e);
             return new Fragment { start: c.start, end: e };
         }
-        RegexNode::Quest(child) => {
+        RegexNode.Quest(child) => {
             var s = fresh(states, counter);
             var e = fresh(states, counter);
             var c = build_node(states, alphabet, transitions, counter, ast, child);
@@ -103,13 +103,13 @@ fn build_node(
             add_eps(transitions, c.end, e);
             return new Fragment { start: s, end: e };
         }
-        RegexNode::Dot => {
+        RegexNode.Dot => {
             return build_range(states, alphabet, transitions, counter);
         }
-        RegexNode::Class(chars, negated) => {
+        RegexNode.Class(chars, negated) => {
             return build_class(states, alphabet, transitions, counter, chars, negated);
         }
-        RegexNode::Empty => {
+        RegexNode.Empty => {
             var s = fresh(states, counter);
             return new Fragment { start: s, end: s };
         }

@@ -18,7 +18,7 @@ trait Named {
 
 fn derive(shape: TypeShape) for Named {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var label = str(t);
             gen impl Named for t {
                 fn type_name(self): string { return label; }

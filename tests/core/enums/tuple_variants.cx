@@ -4,20 +4,20 @@ type Shape {
     Rect(int, int),
 }
 
-match Shape::Point {
-    Shape::Point     => { print("point"); }
-    Shape::Circle(r) => { print(r); }
-    Shape::Rect(w, h) => { print(w); }
+match Shape.Point {
+    Shape.Point     => { print("point"); }
+    Shape.Circle(r) => { print(r); }
+    Shape.Rect(w, h) => { print(w); }
 }
 
-match Shape::Circle(10) {
-    Shape::Point     => { print("point"); }
-    Shape::Circle(r) => { print(r); }
-    Shape::Rect(w, h) => { print(w); }
+match Shape.Circle(10) {
+    Shape.Point     => { print("point"); }
+    Shape.Circle(r) => { print(r); }
+    Shape.Rect(w, h) => { print(w); }
 }
 
-match Shape::Rect(3, 4) {
-    Shape::Point      => { print("point"); }
-    Shape::Circle(r)  => { print(r); }
-    Shape::Rect(w, h) => { print(w + h); }
+match Shape.Rect(3, 4) {
+    Shape.Point      => { print("point"); }
+    Shape.Circle(r)  => { print(r); }
+    Shape.Rect(w, h) => { print(w + h); }
 }

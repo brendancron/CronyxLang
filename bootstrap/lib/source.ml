@@ -126,7 +126,7 @@ let rec expr (e : Ast.expr) : string =
        | args -> Printf.sprintf "<%s>" (String.concat ", " (List.map type_expr args)))
       (arguments values)
   | `New_variant (ty, variant, payload) ->
-    Printf.sprintf "%s::%s%s" ty variant (payload_of payload)
+    Printf.sprintf "%s.%s%s" ty variant (payload_of payload)
   | `Collection_lit items -> Printf.sprintf "[%s]" (arguments items)
   | `New_generic (name, static_args, fields) ->
     Printf.sprintf
@@ -561,7 +561,7 @@ and case depth (p, body) =
         | Ast.Pat_wild -> "_"
         | Ast.Pat_variant (ty, variant, payload) ->
           Printf.sprintf
-            "%s::%s%s"
+            "%s.%s%s"
             ty
             variant
             (match payload with

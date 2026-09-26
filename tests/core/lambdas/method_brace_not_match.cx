@@ -1,9 +1,9 @@
 type Color { Red, Blue }
 type Holder { shade: Color }
 
-var h = new Holder { shade: Color::Blue };
+var h = new Holder { shade: Color.Blue };
 
 match h.shade {
-    Color::Red => { print("red"); }
-    Color::Blue => { print("blue"); }
+    Color.Red => { print("red"); }
+    Color.Blue => { print("blue"); }
 }

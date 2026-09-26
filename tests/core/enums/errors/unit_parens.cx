@@ -1,0 +1,2 @@
+type Light { On, Off }
+var l = Light.On();

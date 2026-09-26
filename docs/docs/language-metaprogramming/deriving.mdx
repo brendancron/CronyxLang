@@ -25,7 +25,7 @@ trait Named {
 
 fn derive(shape: TypeShape) for Named {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var label = str(t);
             gen impl Named for t {
                 fn type_name(self): string { return label; }
@@ -57,9 +57,9 @@ Point
 
 The `TypeShape` is what [reflection](./reflection.mdx) says about the type, in a form a `match` can take apart:
 
-- `TypeShape::Product(t, fields)` — a type with fields. `t` is the type's name and `fields` its fields.
-- `TypeShape::Sum(t, variants)` — a type with variants.
-- `TypeShape::Scalar` and `TypeShape::Other` — everything else.
+- `TypeShape.Product(t, fields)` — a type with fields. `t` is the type's name and `fields` its fields.
+- `TypeShape.Sum(t, variants)` — a type with variants.
+- `TypeShape.Scalar` and `TypeShape.Other` — everything else.
 
 `t` is a `Name`, the same kind of value `.as_name()` produced in the [generation chapter](./generation.mdx), so `gen impl Named for t` writes the impl for whichever type was derived. `str(t)` turns it into the string `"Cat"` or `"Point"`, and because `label` is a meta variable, that string is written into the generated method.
 
@@ -74,7 +74,7 @@ trait Show {
 
 fn derive(shape: TypeShape) for Show {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var name = str(t);
             var text = code(name);
             for (f in fields) {
@@ -147,7 +147,7 @@ trait Named {
 
 fn derive(shape: TypeShape) for Named {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var label = str(t);
             gen impl Named for t {
                 fn type_name(self): string { return label; }
@@ -184,7 +184,7 @@ trait Fields {
 
 fn derive(shape: TypeShape) for Fields {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var count = 0;
             for (f in fields) {
                 count = count + 1;

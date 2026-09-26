@@ -7,12 +7,12 @@ type Person {
 }
 
 match typeof(Person).shape {
-    TypeShape::Product(t, fields) => {
+    TypeShape.Product(t, fields) => {
         for (f in fields) {
             for (a in f.attrs) {
                 for (arg in a.args) {
                     match arg {
-                        AttrArg::Str(v) => { print(str(f.name) + " " + str(a.name) + " " + v); }
+                        AttrArg.Str(v) => { print(str(f.name) + " " + str(a.name) + " " + v); }
                         _ => {}
                     }
                 }

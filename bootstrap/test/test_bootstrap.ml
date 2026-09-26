@@ -475,6 +475,8 @@ let error_cases =
   ; "tests/core/enums/errors/not_exhaustive"
   ; "tests/core/enums/errors/no_such_variant"
   ; "tests/core/enums/errors/payload_mismatch"
+  ; "tests/core/enums/errors/unit_parens"
+  ; "tests/core/enums/errors/function_named_like_variant"
   ; "tests/core/enums/errors/not_a_sum"
   ; "tests/operators/errors/duplicate"
   ; "tests/operators/errors/undeclared"

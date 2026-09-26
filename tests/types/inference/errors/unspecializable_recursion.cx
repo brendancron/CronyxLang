@@ -5,9 +5,9 @@ type Nested<T> { Leaf(T), Deep(Nested<(T, T)>) }
 
 fn find<T>(n: Nested<T>, seed: T): int {
     match n {
-        Nested::Leaf(x) => { if (x == seed) { return 1; } return 0; }
-        Nested::Deep(i) => { return find(i, (seed, seed)); }
+        Nested.Leaf(x) => { if (x == seed) { return 1; } return 0; }
+        Nested.Deep(i) => { return find(i, (seed, seed)); }
     }
 }
 
-print(find(Nested::Leaf(5), 5));
+print(find(Nested.Leaf(5), 5));

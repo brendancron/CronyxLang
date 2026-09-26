@@ -306,8 +306,8 @@ They accept what you could write as a literal — digits, an optional leading `-
 var total = 0;
 for (field in "10, 20, x, 12".split(',')) {
     match field.trim().to_int() {
-        Option::Some(n) => { total += n; }
-        Option::None => { print("skipped '" + field + "'"); }
+        Option.Some(n) => { total += n; }
+        Option.None => { print("skipped '" + field + "'"); }
     }
 }
 print(total);
