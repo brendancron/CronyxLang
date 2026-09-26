@@ -28,8 +28,8 @@ fn notify<T: Summary>(item: T) {
     print("Breaking news: " + item.summarize());
 }
 
-var a = new Article { title: "Cronyx 0.1.4", author: "brendancron" };
-var t = new Tweet { username: "cronyx_lang", content: "traits are here" };
+var a = Article { title: "Cronyx 0.1.4", author: "brendancron" };
+var t = Tweet { username: "cronyx_lang", content: "traits are here" };
 
 notify(a);
 notify(t);

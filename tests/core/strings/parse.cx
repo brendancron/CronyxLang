@@ -17,8 +17,8 @@ fn total(fields: Array<string>): int {
     var sum = 0;
     for (field in fields) {
         match field.trim().to_int() {
-            Option::Some(n) => { sum += n; }
-            Option::None => { print("skipped '" + field + "'"); }
+            Option.Some(n) => { sum += n; }
+            Option.None => { print("skipped '" + field + "'"); }
         }
     }
     return sum;

@@ -6,10 +6,10 @@ enum Expr<T> {
 
 fn eval_int(e: Expr<int>): int {
     match e {
-        Expr::Lit(n)    => n,
-        Expr::Add(l, r) => eval_int(l) + eval_int(r),
+        Expr.Lit(n)    => n,
+        Expr.Add(l, r) => eval_int(l) + eval_int(r),
     }
 }
 
-print(eval_int(Expr::Lit(42)));
-print(eval_int(Expr::Add(Expr::Lit(10), Expr::Lit(32))));
+print(eval_int(Expr.Lit(42)));
+print(eval_int(Expr.Add(Expr.Lit(10), Expr.Lit(32))));

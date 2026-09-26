@@ -19,7 +19,7 @@ impl Speaker for Dog {
 
 type Pen { occupant: Speaker }
 
-var pen = new Pen { occupant: Cat };
+var pen = Pen { occupant: Cat };
 print(pen.occupant.speak());
 
 pen.occupant = Dog;

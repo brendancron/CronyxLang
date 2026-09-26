@@ -3,4 +3,4 @@ type Pair<A, B> {
     b: B
 }
 
-var p: Pair<> = new Pair { a: 1, b: 2 };
+var p: Pair<> = Pair { a: 1, b: 2 };

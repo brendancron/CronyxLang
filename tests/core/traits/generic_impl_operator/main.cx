@@ -4,7 +4,7 @@ impl Add<Vec2> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
     }
 }
 
@@ -30,11 +30,11 @@ impl Pair<T> {
     }
 }
 
-var v = new Pair { a: new Vec2 { x: 1, y: 2 }, b: new Vec2 { x: 10, y: 20 } };
+var v = Pair { a: Vec2 { x: 1, y: 2 }, b: Vec2 { x: 10, y: 20 } };
 print(str(v.total().x) + " " + str(v.twice().x) + " " + str(v.same()));
 
-var n = new Pair { a: 2, b: 3 };
+var n = Pair { a: 2, b: 3 };
 print(str(n.total()) + " " + str(n.twice()) + " " + str(n.same()));
 
-var s = new Pair { a: "ab", b: "ab" };
+var s = Pair { a: "ab", b: "ab" };
 print(str(s.total()) + " " + str(s.same()));

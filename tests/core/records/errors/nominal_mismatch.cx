@@ -1,4 +1,4 @@
 type Point { x: int }
 type Pixel { x: int }
 fn f(a: Point): int { return a.x; }
-print(f(new Pixel { x: 1 }));
+print(f(Pixel { x: 1 }));

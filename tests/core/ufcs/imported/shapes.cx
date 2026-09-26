@@ -2,6 +2,6 @@ type Point { x: int, y: int }
 
 fn describe(p: Point): string { return "function"; }
 fn shifted(p: Point, by: int): Point {
-    return new Point { x: p.x + by, y: p.y + by };
+    return Point { x: p.x + by, y: p.y + by };
 }
 fn doubled(n: int): int { return n * 2; }

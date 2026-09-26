@@ -97,16 +97,16 @@ print(Regex.test(ident, ""));        // false
 // ── test: find ────────────────────────────────────────────────────────────────
 var num = Regex.compile("[0-9]+");
 match (Regex.find(num, "abc123def")) {
-    Option::Some(s) => { print(s); }   // 123
-    Option::None    => { print("none"); }
+    Option.Some(s) => { print(s); }   // 123
+    Option.None    => { print("none"); }
 }
 match (Regex.find(num, "nope")) {
-    Option::Some(s) => { print(s); }
-    Option::None    => { print("none"); }  // none
+    Option.Some(s) => { print(s); }
+    Option.None    => { print("none"); }  // none
 }
 match (Regex.find(num, "42")) {
-    Option::Some(s) => { print(s); }   // 42
-    Option::None    => { print("none"); }
+    Option.Some(s) => { print(s); }   // 42
+    Option.None    => { print("none"); }
 }
 
 // ── test: find_all ────────────────────────────────────────────────────────────

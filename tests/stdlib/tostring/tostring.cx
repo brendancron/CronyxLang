@@ -15,5 +15,5 @@ impl ToString for Point {
     }
 }
 
-var p = new Point { x: 3, y: 4 };
+var p = Point { x: 3, y: 4 };
 print(p.to_string());

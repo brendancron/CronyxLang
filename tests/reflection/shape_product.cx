@@ -2,17 +2,17 @@ type Point { x: int, y: int }
 
 fn describe(shape: TypeShape): string {
     match shape {
-        TypeShape::Scalar => { return "scalar"; }
-        TypeShape::Product(name, fields) => {
+        TypeShape.Scalar => { return "scalar"; }
+        TypeShape.Product(name, fields) => {
             var out = "product:";
             for (field in fields) { out = out + " " + str(field.name); }
             return out;
         }
-        TypeShape::Sum(name, variants) => { return "sum"; }
-        TypeShape::Other => { return "other"; }
+        TypeShape.Sum(name, variants) => { return "sum"; }
+        TypeShape.Other => { return "other"; }
     }
 }
 
-var p = new Point { x: 1, y: 2 };
+var p = Point { x: 1, y: 2 };
 print(typeof(p).name);
 print(describe(typeof(p).shape));

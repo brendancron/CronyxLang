@@ -8,11 +8,11 @@ type Q<T> { Num -> Q<int>, Text -> Q<string> }
 
 fn f<T, U>(q: Q<T>, p: U): int {
     match q {
-        Q::Num  => { print(p + 1); }
-        Q::Text => { }
+        Q.Num  => { print(p + 1); }
+        Q.Text => { }
     }
     print(p + "s");
     return 0;
 }
 
-print(f(Q::Num, "boom"));
+print(f(Q.Num, "boom"));

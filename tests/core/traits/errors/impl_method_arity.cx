@@ -5,4 +5,4 @@ type Circle { radius: int }
 impl Describe for Circle {
     fn describe(self): string { return "circle"; }
 }
-print(new Circle { radius: 1 });
+print(Circle { radius: 1 });

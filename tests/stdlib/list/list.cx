@@ -26,8 +26,8 @@ print(big[1]);
 
 var found = nums.find() { it > 3 };
 match found {
-    Option::Some(v) => { print(v); }
-    Option::None    => { print("none"); }
+    Option.Some(v) => { print(v); }
+    Option.None    => { print("none"); }
 }
 
 var a = [1, 2];

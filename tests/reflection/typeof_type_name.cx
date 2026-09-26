@@ -6,12 +6,12 @@ type Card { Damage(int), Skip }
 print(str(typeof(Dog).name) + " " + str(typeof(Card).name));
 print(str(typeof(int).name) + " " + str(typeof(string).name));
 
-var rex = new Dog { name: "rex", age: 3 };
+var rex = Dog { name: "rex", age: 3 };
 print(typeof(rex).name == typeof(Dog).name);
 
 match typeof(Card).shape {
-    TypeShape::Sum(named, variants) => { print(str(str(named)) + " " + str(variants.len())); }
-    TypeShape::Product(named, fields) => {}
-    TypeShape::Scalar => {}
-    TypeShape::Other => {}
+    TypeShape.Sum(named, variants) => { print(str(str(named)) + " " + str(variants.len())); }
+    TypeShape.Product(named, fields) => {}
+    TypeShape.Scalar => {}
+    TypeShape.Other => {}
 }

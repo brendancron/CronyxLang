@@ -8,5 +8,5 @@ impl Pair<T> {
     }
 }
 
-var f = new Pair { a: new Foo { z: 1 }, b: new Foo { z: 2 } };
+var f = Pair { a: Foo { z: 1 }, b: Foo { z: 2 } };
 print(f.total().z);

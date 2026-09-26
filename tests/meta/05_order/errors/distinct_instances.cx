@@ -2,5 +2,5 @@ type Buf<n: int> {
     items: Array<int>,
 }
 
-var a = new Buf<4> { items: [] };
-a = new Buf<8> { items: [] };
+var a = Buf<4> { items: [] };
+a = Buf<8> { items: [] };

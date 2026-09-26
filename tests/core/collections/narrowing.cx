@@ -13,6 +13,6 @@ print(str(xs.len()) + " " + str(xs[3]) + " " + str(typeof(xs).name));
 var ys = [1, 2];
 print(str(ys.len()) + " " + str(typeof(ys).name));
 
-var s = new Stack { n: 0 };
+var s = Stack { n: 0 };
 s.push(5);
 print(s.n);

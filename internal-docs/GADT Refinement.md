@@ -43,12 +43,12 @@ This gets (1) and (2). It fails (3).
 
 ```cronyx
 fn f<T, U>(q: Q<T>, p: U): int {
-    match q { Q::Num => { print(p + 1); }  Q::Text => { } }
+    match q { Q.Num => { print(p + 1); }  Q.Text => { } }
     print(p + "s");
     return 0;
 }
 
-print(f(Q::Num, "boom"));
+print(f(Q.Num, "boom"));
 ```
 
 `U` belongs to the function, not to the refinement. The arm pins it to `int`,
@@ -72,7 +72,7 @@ with `Expr<bool>`, and `hoist` binds a function monomorphically while its own
 body is checked, so that pins the arm's `A` to `bool`. The wide retraction
 currently undoes it and the arm stays generic. Narrow the retraction and the arm
 is compiled as though `A = bool`, which is wrong for
-`Expr::If(…, Lit(1), Lit(0))`.
+`Expr.If(…, Lit(1), Lit(0))`.
 
 **The retraction is load-bearing for two unrelated reasons and only one of them
 is legitimate.** Anything that fixes the leak has to answer the recursion
@@ -108,8 +108,8 @@ type reaches the arm through the *environment*:
 ```cronyx
 fn eval<T>(e: Expr<T>, acc: T): T {
     match e {
-        Expr::Lit(n)     => { return acc + n; }
-        Expr::BoolLit(b) => { return b; }
+        Expr.Lit(n)     => { return acc + n; }
+        Expr.BoolLit(b) => { return b; }
     }
 }
 ```

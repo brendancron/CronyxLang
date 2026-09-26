@@ -10,7 +10,7 @@ trait Tagged {
 
 fn derive(shape: TypeShape) for Tagged {
     match shape {
-        TypeShape::Sum(t, variants) => {
+        TypeShape.Sum(t, variants) => {
             var tname = str(t);
             var text = code(tname);
             for (v in variants) {
@@ -19,7 +19,7 @@ fn derive(shape: TypeShape) for Tagged {
                     if (str(a.name) == "tag") {
                         for (arg in a.args) {
                             match arg {
-                                AttrArg::Str(x) => { label = label + ":" + x; }
+                                AttrArg.Str(x) => { label = label + ":" + x; }
                                 _ => {}
                             }
                         }
@@ -38,4 +38,4 @@ fn derive(shape: TypeShape) for Tagged {
 
 derive Tagged for Shape;
 
-print(Shape::Point.tags());
+print(Shape.Point.tags());

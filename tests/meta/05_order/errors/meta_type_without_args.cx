@@ -2,4 +2,4 @@ type Box<T> {
     value: T,
     meta { print("compiling"); }
 }
-var b = new Box { value: 5 };
+var b = Box { value: 5 };

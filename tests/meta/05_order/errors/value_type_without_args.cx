@@ -1,4 +1,4 @@
 type Buf<n: int> {
     size: int,
 }
-var b = new Buf { size: 5 };
+var b = Buf { size: 5 };

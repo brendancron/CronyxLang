@@ -10,6 +10,6 @@ type Vec<N, T> {
 
 fn first(v: Vec<Succ<Zero>, int>): int {
     match v {
-        Vec::Nil => { return 0; }
+        Vec.Nil => { return 0; }
     }
 }

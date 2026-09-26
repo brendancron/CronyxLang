@@ -27,7 +27,7 @@ Structs and enums share the `type` keyword: a body of `name: type` fields makes 
 
 ## Constructing a variant
 
-To create a value, write the enum name, two colons, and the variant name — no `new`, unlike a struct:
+To create a value, write the enum name, a dot, and the variant name:
 
 ```cronyx
 type Direction {
@@ -37,10 +37,10 @@ type Direction {
     West,
 }
 
-var dir = Direction::South;
+var dir = Direction.South;
 ```
 
-The `::` is how Cronyx says "look inside `Direction` for `South`." It's a different operator from the dot you'd use for struct field access — `.` means "field of a value," `::` means "name inside a type."
+A variant is named through its type: `Direction.South` is the `South` inside `Direction`. It's the same dot you'd use for a field or a method — on a type, it reaches a variant.
 
 ## Matching on an enum
 
@@ -54,13 +54,13 @@ type Direction {
     West,
 }
 
-var dir = Direction::South;
+var dir = Direction.South;
 
 match dir {
-    Direction::North => { print("north"); }
-    Direction::South => { print("south"); }
-    Direction::East  => { print("east");  }
-    Direction::West  => { print("west");  }
+    Direction.North => { print("north"); }
+    Direction.South => { print("south"); }
+    Direction.East  => { print("east");  }
+    Direction.West  => { print("west");  }
 }
 ```
 
@@ -70,7 +70,7 @@ south
 
 Read it as a list of "if it's *this* variant, run *this* block." Cronyx checks each arm in order and runs the body of the first one whose pattern matches. The arms aren't separated by anything — just whitespace and the `=>` arrow.
 
-The compiler also checks that you've covered every variant. If you delete the `Direction::West` arm, your program won't compile — Cronyx will tell you which case you forgot. This is one of the main reasons to reach for an enum: the type system makes "I forgot one" impossible.
+The compiler also checks that you've covered every variant. If you delete the `Direction.West` arm, your program won't compile — Cronyx will tell you which case you forgot. This is one of the main reasons to reach for an enum: the type system makes "I forgot one" impossible.
 
 ## Variants can hold data
 
@@ -93,18 +93,18 @@ type Shape {
 You construct them by passing arguments:
 
 ```cronyx
-var p  = Shape::Point;
-var c  = Shape::Circle(10);
-var r  = Shape::Rect(3, 4);
+var p  = Shape.Point;
+var c  = Shape.Circle(10);
+var r  = Shape.Rect(3, 4);
 ```
 
 When you `match` on a value with a tuple variant, you give names to the payload fields and they become available in that arm:
 
 ```cronyx
-match Shape::Circle(10) {
-    Shape::Point      => { print("point"); }
-    Shape::Circle(r)  => { print(r); }
-    Shape::Rect(w, h) => { print(w + h); }
+match Shape.Circle(10) {
+    Shape.Point      => { print("point"); }
+    Shape.Circle(r)  => { print(r); }
+    Shape.Rect(w, h) => { print(w + h); }
 }
 ```
 
@@ -112,7 +112,7 @@ match Shape::Circle(10) {
 10
 ```
 
-Inside the `Shape::Circle(r) => { ... }` arm, `r` is bound to whatever int the matched value carried — `10` in this case. The names are local to the arm, so you can reuse them: another arm could also call its variable `r`.
+Inside the `Shape.Circle(r) => { ... }` arm, `r` is bound to whatever int the matched value carried — `10` in this case. The names are local to the arm, so you can reuse them: another arm could also call its variable `r`.
 
 ### Struct variants
 
@@ -127,23 +127,23 @@ type CardEffect {
 }
 ```
 
-You construct them with the struct-construction syntax we saw last chapter, minus the `new`:
+You construct them with the struct-construction syntax we saw last chapter, after the variant name:
 
 ```cronyx
-var dmg  = CardEffect::Damage { amount: 15 };
-var heal = CardEffect::Heal   { amount: 5  };
-var draw = CardEffect::Draw   { count: 3   };
-var none = CardEffect::None;
+var dmg  = CardEffect.Damage { amount: 15 };
+var heal = CardEffect.Heal   { amount: 5  };
+var draw = CardEffect.Draw   { count: 3   };
+var none = CardEffect.None;
 ```
 
 And you match them with the same shape, binding the fields by name:
 
 ```cronyx
 match dmg {
-    CardEffect::Damage { amount } => { print(amount); }
-    CardEffect::Heal   { amount } => { print(amount); }
-    CardEffect::Draw   { count  } => { print(count);  }
-    CardEffect::None              => { print("none"); }
+    CardEffect.Damage { amount } => { print(amount); }
+    CardEffect.Heal   { amount } => { print(amount); }
+    CardEffect.Draw   { count  } => { print(count);  }
+    CardEffect.None              => { print("none"); }
 }
 ```
 
@@ -164,8 +164,8 @@ type Color {
     Blue,
 }
 
-match Color::Green {
-    Color::Red => { print("red"); }
+match Color.Green {
+    Color.Red => { print("red"); }
     _          => { print("other"); }
 }
 ```
@@ -190,13 +190,13 @@ type Shape {
 
 fn describe_area(s: Shape) {
     match s {
-        Shape::Circle(r)  => { print(r * r * 3); }
-        Shape::Rect(w, h) => { print(w * h); }
+        Shape.Circle(r)  => { print(r * r * 3); }
+        Shape.Rect(w, h) => { print(w * h); }
     }
 }
 
-describe_area(Shape::Circle(5));
-describe_area(Shape::Rect(4, 6));
+describe_area(Shape.Circle(5));
+describe_area(Shape.Rect(4, 6));
 ```
 
 ```

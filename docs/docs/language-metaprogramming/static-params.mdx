@@ -90,9 +90,9 @@ type Box<T> {
     value: T
 }
 
-var p1 = new Pair { first: 1, second: "one" };
-var p2 = new Pair { first: true, second: 99 };
-var b  = new Box { value: [1, 2, 3] };
+var p1 = Pair { first: 1, second: "one" };
+var p2 = Pair { first: true, second: 99 };
+var b  = Box { value: [1, 2, 3] };
 
 print(p1.first);
 print(p1.second);
@@ -109,13 +109,13 @@ true
 2
 ```
 
-`new Pair { first: 1, second: "one" }` produces a `Pair<int, string>`; `new Pair { first: true, second: 99 }` produces a `Pair<bool, int>`. They're different types, sharing nothing but the source-level declaration.
+`Pair { first: 1, second: "one" }` produces a `Pair<int, string>`; `Pair { first: true, second: 99 }` produces a `Pair<bool, int>`. They're different types, sharing nothing but the source-level declaration.
 
 That means you can't accidentally pass a `Pair<int, string>` where a `Pair<bool, int>` was expected — they're as distinct to the type system as `int` and `string` are, even though they came from the same generic declaration.
 
 ### Writing the arguments, and members in the body
 
-The arguments can be written at the construction too — `new Box<int> { value: 5 }` — and a type can carry its own methods, written after its fields:
+The arguments can be written at the construction too — `Box<int> { value: 5 }` — and a type can carry its own methods, written after its fields:
 
 ```cronyx
 type Box<T> {
@@ -128,9 +128,9 @@ type Box<T> {
     }
 }
 
-var a = new Box<int> { value: 5 };
-var b = new Box<string> { value: "hello" };
-var c = new Box<int> { value: 7 };
+var a = Box<int> { value: 5 };
+var b = Box<string> { value: "hello" };
+var c = Box<int> { value: 7 };
 
 print(a.get() + c.get());
 print(b.get());
@@ -145,7 +145,7 @@ hello
 
 Fields come first, separated by commas; the members follow, and the first `fn` or `meta` is what ends the fields. A member function that takes `self` is a method.
 
-A member can also be a `meta` block, and a type with one has to be given its arguments where it's constructed: `new Box<int> { ... }`, not `new Box { ... }`. The block runs once for each distinct argument list, the first time the walk reaches a `new Box<...>` with those arguments — `Box<int>` is compiled once however many boxes of `int` you build, and a `Box` nothing constructs never runs its meta block at all. Inside it, `T` is the type this copy was made for.
+A member can also be a `meta` block, and a type with one has to be given its arguments where it's constructed: `Box<int> { ... }`, not `Box { ... }`. The block runs once for each distinct argument list, the first time the walk reaches a `Box<...> { ... }` with those arguments — `Box<int>` is compiled once however many boxes of `int` you build, and a `Box` nothing constructs never runs its meta block at all. Inside it, `T` is the type this copy was made for.
 
 ## Type packs: a parameter list as a parameter
 
@@ -157,12 +157,12 @@ type Command<...Args> {
     apply: (...Args) -> unit
 }
 
-var rename = new Command {
+var rename = Command {
     name: "rename",
     apply: (from: string, to: string) => { print(from + " -> " + to); }
 };
 
-var quit = new Command {
+var quit = Command {
     name: "quit",
     apply: () => { print("bye"); }
 };
@@ -200,12 +200,12 @@ fn label<...Args>(c: Command<...Args>): string {
     return "<" + c.name + ">";
 }
 
-var rename: Command<string, string> = new Command {
+var rename: Command<string, string> = Command {
     name: "rename",
     apply: (from: string, to: string) => { print(from + " -> " + to); }
 };
 
-var quit: Command<> = new Command {
+var quit: Command<> = Command {
     name: "quit",
     apply: () => { print("bye"); }
 };
@@ -262,8 +262,8 @@ type Buf<n: int> {
     }
 }
 
-var small = new Buf<2> { items: [1, 2] };
-var large = new Buf<8> { items: [1, 2] };
+var small = Buf<2> { items: [1, 2] };
+var large = Buf<8> { items: [1, 2] };
 
 print(small.capacity());
 print(small.has_room());
@@ -281,15 +281,15 @@ Buf<2>
 Each argument list makes its own type, named by its arguments. `Buf<2>` and `Buf<8>` are as distinct as `int` and `string`, so a variable holding one can't be given the other:
 
 ```cronyx
-var a = new Buf<4> { items: [] };
-a = new Buf<8> { items: [] };
+var a = Buf<4> { items: [] };
+a = Buf<8> { items: [] };
 ```
 
 ```
 Expected Buf<4>, got Buf<8>.
 ```
 
-For now, a type like this is named where it's constructed — `new Buf<4> { ... }` — and not in an annotation: `var b: Buf<4>` isn't accepted yet.
+For now, a type like this is named where it's constructed — `Buf<4> { ... }` — and not in an annotation: `var b: Buf<4>` isn't accepted yet.
 
 ## Try it
 

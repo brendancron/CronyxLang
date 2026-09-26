@@ -11,7 +11,7 @@ impl Order {
 }
 
 run {
-    var o = new Order { note: "boots" };
+    var o = Order { note: "boots" };
     o.audit();
 } handle log {
     fn emit(message) {

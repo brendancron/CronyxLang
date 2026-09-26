@@ -3,8 +3,8 @@
 type Counter { value: int }
 
 impl Counter {
-    fn zero(): Counter { return new Counter { value: 0 }; }
-    fn at(start: int): Counter { return new Counter { value: start }; }
+    fn zero(): Counter { return Counter { value: 0 }; }
+    fn at(start: int): Counter { return Counter { value: start }; }
     fn bump(self): int { self.value = self.value + 1; return self.value; }
 }
 

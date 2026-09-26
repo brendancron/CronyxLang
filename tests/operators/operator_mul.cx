@@ -7,11 +7,11 @@ impl Mul<int> for Vec2 {
     type Output = Vec2;
 
     fn mul(self, rhs: int): Vec2 {
-        return new Vec2 { x: self.x * rhs, y: self.y * rhs };
+        return Vec2 { x: self.x * rhs, y: self.y * rhs };
     }
 }
 
-var v = new Vec2 { x: 2, y: 4 };
+var v = Vec2 { x: 2, y: 4 };
 var scaled = v * 3;
 print(scaled.x);
 print(scaled.y);

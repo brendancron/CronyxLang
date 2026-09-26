@@ -7,13 +7,13 @@ type Shape {
 }
 
 fn make(): <Ask> Shape {
-    return Shape::Rect { w: 2, h: get() };
+    return Shape.Rect { w: 2, h: get() };
 }
 
 run {
     match make() {
-        Shape::Rect { w, h } => { print(str(w) + "x" + str(h)); }
-        Shape::Circle { radius } => { print(radius); }
+        Shape.Rect { w, h } => { print(str(w) + "x" + str(h)); }
+        Shape.Circle { radius } => { print(radius); }
     }
 } handle Ask {
     ctl get() { resume 4; }

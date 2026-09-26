@@ -14,9 +14,9 @@ fn two_of(a: int, b: string) {
     print(str(a) + b);
 }
 
-var none: Slot<> = new Slot { use: nothing };
-var one: Slot<int> = new Slot { use: one_of };
-var two: Slot<int, string> = new Slot { use: two_of };
+var none: Slot<> = Slot { use: nothing };
+var one: Slot<int> = Slot { use: one_of };
+var two: Slot<int, string> = Slot { use: two_of };
 
 none.use();
 one.use(1);

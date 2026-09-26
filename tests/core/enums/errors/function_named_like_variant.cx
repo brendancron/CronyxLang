@@ -1,0 +1,7 @@
+type Shape { Circle(int) }
+
+impl Shape {
+    fn Circle(r: int): Shape {
+        return Shape.Circle(r * 2);
+    }
+}

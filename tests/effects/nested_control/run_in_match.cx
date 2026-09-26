@@ -5,13 +5,13 @@ type Color { Red, Blue }
 fn use(): <Ask> int { return get(); }
 
 fn main(): unit {
-    var c = Color::Red;
+    var c = Color.Red;
     match c {
-        Color::Red => {
+        Color.Red => {
             run { print(use()); }
             handle Ask { ctl get() { resume 5; print("after"); } }
         }
-        Color::Blue => { }
+        Color.Blue => { }
     }
 }
 

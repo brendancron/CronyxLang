@@ -6,7 +6,7 @@ trait Show { fn show(self): string; }
 
 fn derive(shape: TypeShape) for Eq {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var check = code(true);
             for (f in fields) {
                 var field = f.name;
@@ -16,15 +16,15 @@ fn derive(shape: TypeShape) for Eq {
                 fn eq(self, other: t): bool { return check; }
             }
         }
-        TypeShape::Sum(t, variants) => {}
-        TypeShape::Scalar => {}
-        TypeShape::Other => {}
+        TypeShape.Sum(t, variants) => {}
+        TypeShape.Scalar => {}
+        TypeShape.Other => {}
     }
 }
 
 fn derive(shape: TypeShape) for Show {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var label = str(t);
             var text = code(label);
             for (f in fields) {
@@ -35,15 +35,15 @@ fn derive(shape: TypeShape) for Show {
                 fn show(self): string { return text; }
             }
         }
-        TypeShape::Sum(t, variants) => {}
-        TypeShape::Scalar => {}
-        TypeShape::Other => {}
+        TypeShape.Sum(t, variants) => {}
+        TypeShape.Scalar => {}
+        TypeShape.Other => {}
     }
 }
 
 derive Eq, Show for Dog;
 
-var rex = new Dog { name: "rex", age: 3 };
-var older = new Dog { name: "rex", age: 4 };
+var rex = Dog { name: "rex", age: 3 };
+var older = Dog { name: "rex", age: 4 };
 print(str(rex.eq(rex)) + " " + str(rex.eq(older)));
 print(rex.show());

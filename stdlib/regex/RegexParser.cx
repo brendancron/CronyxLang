@@ -11,7 +11,7 @@ type ParseResult {
 }
 
 fn found(node: int, pos: int): ParseResult {
-    return new ParseResult { node: node, pos: pos };
+    return ParseResult { node: node, pos: pos };
 }
 
 fn parse(pattern: string): RegexAst {

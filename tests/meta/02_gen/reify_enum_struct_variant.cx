@@ -3,10 +3,10 @@ type Effect {
     None,
 }
 meta {
-    var e = Effect::Damage { amount: 15 };
+    var e = Effect.Damage { amount: 15 };
     gen var ee = e;
 }
 match ee {
-    Effect::Damage { amount } => { print(amount); }
-    Effect::None => { print("none"); }
+    Effect.Damage { amount } => { print(amount); }
+    Effect.None => { print("none"); }
 }

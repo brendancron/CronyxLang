@@ -57,8 +57,8 @@ impl Describe for Rectangle {
     }
 }
 
-var c = new Circle { radius: 5 };
-var r = new Rectangle { width: 3, height: 4 };
+var c = Circle { radius: 5 };
+var r = Rectangle { width: 3, height: 4 };
 
 print(c.describe());
 print(r.describe());
@@ -109,8 +109,8 @@ impl Show for Color {
     }
 }
 
-var p = new Point { x: 1, y: 2 };
-var c = new Color { r: 255, g: 128, b: 0 };
+var p = Point { x: 1, y: 2 };
+var c = Color { r: 255, g: 128, b: 0 };
 
 print(p.show());
 print(c.show());
@@ -158,8 +158,8 @@ fn notify<T: Summary>(item: T) {
     print("Breaking news: " + item.summarize());
 }
 
-var a = new Article { title: "Cronyx 0.1.4", author: "brendancron" };
-var t = new Tweet { username: "cronyx_lang", content: "traits are here" };
+var a = Article { title: "Cronyx 0.1.4", author: "brendancron" };
+var t = Tweet { username: "cronyx_lang", content: "traits are here" };
 
 notify(a);
 notify(t);
@@ -329,8 +329,8 @@ fn print_area<T: Area>(shape: T) {
     print(shape.area());
 }
 
-var c = new Circle { radius: 5 };
-var r = new Rectangle { width: 4, height: 6 };
+var c = Circle { radius: 5 };
+var r = Rectangle { width: 4, height: 6 };
 
 print_area(c);
 print_area(r);

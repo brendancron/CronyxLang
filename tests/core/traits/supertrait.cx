@@ -37,5 +37,5 @@ fn announce<T: Greeted>(x: T) {
     print(x.greeting() + " (" + x.name() + ")");
 }
 
-announce(new Dog { call: "rex" });
-announce(new Robot { serial: 7 });
+announce(Dog { call: "rex" });
+announce(Robot { serial: 7 });

@@ -71,14 +71,14 @@ Enums report their declared name:
 type Color { Red, Green, Blue }
 type Shape { Circle(int), Rectangle(int, int) }
 
-var c = Color::Red;
-var s = Shape::Circle(5);
+var c = Color.Red;
+var s = Shape.Circle(5);
 
 print(typeof(c).name);  // Color
 print(typeof(s).name);  // Shape
 ```
 
-(Notice that `typeof(Shape::Circle(5)).name` returns `Shape`, not `Shape::Circle` — `typeof` reports the type, and a variant isn't its own type.)
+(Notice that `typeof(Shape.Circle(5)).name` returns `Shape`, not `Shape.Circle` — `typeof` reports the type, and a variant isn't its own type.)
 
 Functions report their signature:
 

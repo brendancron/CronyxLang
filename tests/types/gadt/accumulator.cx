@@ -9,10 +9,10 @@ type Expr<T> {
 
 fn eval<T>(e: Expr<T>, acc: T): T {
     match e {
-        Expr::Lit(n)     => { return acc + n; }
-        Expr::BoolLit(b) => { return b; }
+        Expr.Lit(n)     => { return acc + n; }
+        Expr.BoolLit(b) => { return b; }
     }
 }
 
-print(eval(Expr::Lit(40), 2));
-print(eval(Expr::BoolLit(true), false));
+print(eval(Expr.Lit(40), 2));
+print(eval(Expr.BoolLit(true), false));

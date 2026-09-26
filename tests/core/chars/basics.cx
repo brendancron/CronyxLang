@@ -8,7 +8,7 @@ letters[0] = 'z';
 print(str(letters) + " " + str(letters.len()) + " " + str(letters.contains('y')));
 
 fn repeat(c: char, times: int): Array<char> {
-    var out = new Array<char>(times, c);
+    var out = Array<char>(times, c);
     return out;
 }
 print(str(repeat('!', 3)) + " " + str(typeof(repeat).name));

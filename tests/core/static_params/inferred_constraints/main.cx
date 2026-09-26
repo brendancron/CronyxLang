@@ -7,7 +7,7 @@ impl Add<Vec2> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
     }
 }
 
@@ -24,6 +24,6 @@ fn sum<T>(xs: Array<T>): T {
 print(sum([1, 2, 3]));
 print(sum(["a", "b", "c"]));
 
-var v = sum([new Vec2 { x: 1, y: 1 }, new Vec2 { x: 2, y: 2 }, new Vec2 { x: 3, y: 3 }]);
+var v = sum([Vec2 { x: 1, y: 1 }, Vec2 { x: 2, y: 2 }, Vec2 { x: 3, y: 3 }]);
 print(v.x);
 print(v.y);

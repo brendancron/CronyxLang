@@ -14,29 +14,29 @@ fn identity<T>(x: T): T {
     return x;
 }
 
-var some_int = Option::Some(3);
-var some_str = Option::Some("hi");
-var nothing: Option<bool> = Option::None;
+var some_int = Option.Some(3);
+var some_str = Option.Some("hi");
+var nothing: Option<bool> = Option.None;
 
 match some_int {
-    Option::Some(n) => { print(n); }
-    Option::None    => { print("none"); }
+    Option.Some(n) => { print(n); }
+    Option.None    => { print("none"); }
 }
 
 match some_str {
-    Option::Some(s) => { print(s); }
-    Option::None    => { print("none"); }
+    Option.Some(s) => { print(s); }
+    Option.None    => { print("none"); }
 }
 
 match nothing {
-    Option::Some(b) => { print(b); }
-    Option::None    => { print("none"); }
+    Option.Some(b) => { print(b); }
+    Option.None    => { print("none"); }
 }
 
 print(typeof(some_int).name);
 print(typeof(some_str).name);
 
-var boxed = new Box { value: 7 };
+var boxed = Box { value: 7 };
 print(boxed.get());
 print(typeof(boxed).name);
 

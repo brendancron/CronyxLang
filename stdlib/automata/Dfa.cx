@@ -23,7 +23,7 @@ fn new(start: int): Dfa {
     var alphabet: List<int> = [];
     var transitions: List<DfaTransition> = [];
     var accept: List<int> = [];
-    return new Dfa {
+    return Dfa {
         states: states,
         alphabet: alphabet,
         transitions: transitions,
@@ -71,7 +71,7 @@ fn subset_construction(nfa: Nfa): Dfa {
     var transitions: List<DfaTransition> = [];
     var accept: List<int> = [];
     for (symbol in nfa.alphabet) { alphabet.push(symbol); }
-    var dfa = new Dfa {
+    var dfa = Dfa {
         states: states,
         alphabet: alphabet,
         transitions: transitions,
@@ -79,7 +79,7 @@ fn subset_construction(nfa: Nfa): Dfa {
         accept: accept
     };
 
-    var state_map: List<SubsetState> = [new SubsetState { id: 0, nfa_states: start_closure }];
+    var state_map: List<SubsetState> = [SubsetState { id: 0, nfa_states: start_closure }];
     if (any_accept(nfa, start_closure)) { dfa.accept.push(0); }
 
     // Walked by index: a state is appended once and visited once.
@@ -95,11 +95,11 @@ fn subset_construction(nfa: Nfa): Dfa {
                     target = next_id;
                     next_id = next_id + 1;
                     dfa.states.push(target);
-                    state_map.push(new SubsetState { id: target, nfa_states: closure });
+                    state_map.push(SubsetState { id: target, nfa_states: closure });
                     if (any_accept(nfa, closure)) { dfa.accept.push(target); }
                 }
                 dfa.transitions.push(
-                    new DfaTransition { src: current.id, on: symbol, to: target });
+                    DfaTransition { src: current.id, on: symbol, to: target });
             }
         }
         at = at + 1;
@@ -134,7 +134,7 @@ impl Dfa {
     fn add_state(self, id: int) { self.states.push(id); }
     fn add_symbol(self, symbol: int) { self.alphabet.push(symbol); }
     fn add_transition(self, src: int, on: int, to: int) {
-        self.transitions.push(new DfaTransition { src: src, on: on, to: to });
+        self.transitions.push(DfaTransition { src: src, on: on, to: to });
     }
     fn add_accept(self, id: int) { self.accept.push(id); }
     fn step(self, state: int, symbol: int): int { return dfa_step(self, state, symbol); }

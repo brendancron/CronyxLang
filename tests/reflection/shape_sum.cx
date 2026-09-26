@@ -1,11 +1,11 @@
 type Card { Damage(int), Heal { amount: int }, Skip }
 
-match typeof(Card::Skip).shape {
-    TypeShape::Sum(name, variants) => {
+match typeof(Card.Skip).shape {
+    TypeShape.Sum(name, variants) => {
         print(variants.len());
         for (variant in variants) { print(str(variant.name) + " " + str(variant.arity)); }
     }
-    TypeShape::Scalar => { print("scalar"); }
-    TypeShape::Product(name, fields) => { print("product"); }
-    TypeShape::Other => { print("other"); }
+    TypeShape.Scalar => { print("scalar"); }
+    TypeShape.Product(name, fields) => { print("product"); }
+    TypeShape.Other => { print("other"); }
 }

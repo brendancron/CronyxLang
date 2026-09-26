@@ -7,8 +7,8 @@ impl Slot<...Args> {
     fn label(self): string { return self.tag; }
 }
 
-var two = new Slot { tag: "two", intent: (1, "x") };
-var none = new Slot { tag: "none", intent: () };
+var two = Slot { tag: "two", intent: (1, "x") };
+var none = Slot { tag: "none", intent: () };
 
 print(two.label());
 print(none.label());

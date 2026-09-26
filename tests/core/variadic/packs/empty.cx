@@ -6,7 +6,7 @@ fn nothing() {
     print("none");
 }
 
-var none = new Slot { use: nothing };
+var none = Slot { use: nothing };
 
 none.use();
 print(typeof(none).name);

@@ -72,7 +72,7 @@ for (a in f.attrs) {
     if (str(a.name) == "rename") {
         for (arg in a.args) {
             match arg {
-                AttrArg::Str(v) => { label = v; }
+                AttrArg.Str(v) => { label = v; }
                 _ => {}
             }
         }

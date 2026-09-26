@@ -9,12 +9,12 @@ type Query<T> {
 
 fn run_query<T>(q: Query<T>): T {
     match q {
-        Query::Count  => { return 3; }
-        Query::Name   => { return "widgets"; }
-        Query::Exists => { return true; }
+        Query.Count  => { return 3; }
+        Query.Name   => { return "widgets"; }
+        Query.Exists => { return true; }
     }
 }
 
-print(run_query(Query::Count));
-print(run_query(Query::Name));
-print(run_query(Query::Exists));
+print(run_query(Query.Count));
+print(run_query(Query.Name));
+print(run_query(Query.Exists));

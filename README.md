@@ -18,7 +18,7 @@ trait Named {
 
 fn derive(shape: TypeShape) for Named {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var label = str(t);
             gen impl Named for t {
                 fn type_name(self): string { return label; }
@@ -40,7 +40,7 @@ fn describe(p: Point) {
 }
 
 run {
-    describe(new Point { x: 1, y: 2 });
+    describe(Point { x: 1, y: 2 });
 } handle log {
     fn log(msg: string) { print("[log] " + msg); }
 }

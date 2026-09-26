@@ -354,6 +354,9 @@ and call s : Ast.expr =
       loop (finish_call s callee)
     (* `f { it * 2 }` — the parentheses a call would need are what the braces
        stand in for, so there is nothing between the callee and the lambda. *)
+    | Token.Left_brace when starts_fields s ->
+      ignore (advance s);
+      loop (Ast.at callee.Ast.span (`New (type_path s callee, record_fields s)))
     | Token.Left_brace when not s.no_brace && callable callee ->
       loop (Ast.at callee.Ast.span (`Call (callee, trailing_lambda s [])))
     | Token.Left_bracket ->
@@ -363,6 +366,12 @@ and call s : Ast.expr =
       loop (Ast.at callee.Ast.span (`Index (callee, index)))
     | Token.Less ->
       (match static_arguments s with
+       | Some static_args when starts_fields s ->
+         ignore (advance s);
+         loop
+           (Ast.at
+              callee.Ast.span
+              (`New_generic (type_path s callee, static_args, record_fields s)))
        | Some static_args ->
          ignore (consume s Token.Left_paren "Expected '(' after static arguments.");
          loop
@@ -380,13 +389,16 @@ and call s : Ast.expr =
          let label =
            match (peek s).Token.token_type with
            | Token.Identifier name -> name
-           (* An ordinary word after a dot, which lets a module export `new`. *)
-           | _ when Scanner.keyword (peek s).Token.lexeme <> None ->
-             (peek s).Token.lexeme
            | _ -> raise (error s (peek s) "Expected a field after '.'.")
          in
          ignore (advance s);
          (match matches s [ Token.Left_paren ] with
+          (* Only a variant takes fields after a dot; `T.V(x)` and `T.V` look
+             like a call and a field until the checker knows `T`. *)
+          | None when starts_fields s ->
+            let ty = type_path s callee in
+            ignore (advance s);
+            loop (Ast.at callee.Ast.span (`New_variant (ty, label, Ast.P_fields (record_fields s))))
           | Some _ ->
             loop
               (Ast.at
@@ -404,8 +416,24 @@ and call s : Ast.expr =
   in
   loop (primary s)
 
+(* `{ name:` opens fields and nothing else: a block starts with no such
+   statement, and a lambda's parameters end in an arrow. So it needs no
+   [no_brace], and `match Point { x: 1 } { … }` reads. *)
+and starts_fields s =
+  check s Token.Left_brace
+  && (match (peek_at s 1).Token.token_type with
+      | Token.Identifier _ -> true
+      | _ -> false)
+  && (peek_at s 2).Token.token_type = Token.Colon
+
+and type_path s (callee : Ast.expr) =
+  match callee.Ast.it with
+  | `Var ty -> ty
+  | `Field ({ Ast.it = `Var m; _ }, ty) -> m ^ "." ^ ty
+  | _ -> raise (error s (peek s) "Expected a type name before the fields.")
+
 (* `f<int>(x)` and `a < b > (c)` are the same shape, so this is accepted only
-   when a call follows; position and errors are put back when none does. *)
+   when a call or fields follow; position and errors are put back when none does. *)
 and static_arguments s : Ast.expr Ast.static_arg list option =
   let start = s.current
   and errors = s.errors in
@@ -437,7 +465,7 @@ and static_arguments s : Ast.expr Ast.static_arg list option =
       Some args)
     else None
   with
-  | Some args when check s Token.Left_paren -> Some args
+  | Some args when check s Token.Left_paren || starts_fields s -> Some args
   | _ -> restore ()
   | exception Parse_error -> restore ()
 
@@ -638,32 +666,7 @@ and primary s : Ast.expr =
     Ast.at sp (`Bool false)
   | Token.Identifier name ->
     ignore (advance s);
-    (* `a.b` is a field until a `::` proves the dot was a module path. *)
-    let name =
-      if check s Token.Dot && (peek_at s 2).Token.token_type = Token.Colon_colon
-      then qualified s name
-      else name
-    in
-    if check s Token.Colon_colon
-    then (
-      ignore (advance s);
-      let variant = consume_identifier s "Expected a variant name." in
-      let payload =
-        match (peek s).Token.token_type with
-        (* At least one, or `T::V()` and `T::V` would both write the same
-           thing. *)
-        | Token.Left_paren ->
-          ignore (advance s);
-          let items = comma_separated ~closer:Token.Right_paren s expression in
-          ignore (consume s Token.Right_paren "Expected ')' after arguments.");
-          Ast.P_tuple items
-        | Token.Left_brace when not s.no_brace ->
-          ignore (advance s);
-          Ast.P_fields (record_fields s)
-        | _ -> Ast.P_none
-      in
-      Ast.at sp (`New_variant (name, variant, payload)))
-    else Ast.at sp (`Var name)
+    Ast.at sp (`Var name)
   | Token.Run ->
     ignore (advance s);
     run_expr s sp
@@ -679,56 +682,6 @@ and primary s : Ast.expr =
     let e = expression s in
     ignore (consume s Token.Right_paren "Expected ')' after the captured expression.");
     Ast.at sp (`Code e)
-  | Token.New ->
-    ignore (advance s);
-    let name = qualified s (consume_identifier s "Expected a type name after 'new'.") in
-    if check s Token.Colon_colon
-    then
-      ignore
-        (error
-           s
-           (peek s)
-           (Printf.sprintf "A variant is written '%s::…', without 'new'." name));
-    (* A value may stand among the arguments, `new Buf<4> { … }`, so they are
-       read the way a static call's are. *)
-    let static_args =
-      match matches s [ Token.Less ] with
-      | None -> []
-      | Some _ ->
-        let args =
-          listed_until s Token.Greater (fun s ->
-            let start = s.current
-            and errors = s.errors in
-            match type_argument s with
-            | t when check s Token.Comma || check s Token.Greater -> Ast.St_type t
-            | _ ->
-              s.current <- start;
-              s.errors <- errors;
-              Ast.St_value (term s)
-            | exception Parse_error ->
-              s.current <- start;
-              s.errors <- errors;
-              Ast.St_value (term s))
-        in
-        ignore (consume s Token.Greater "Expected '>' after type arguments.");
-        args
-    in
-    (match matches s [ Token.Left_paren ] with
-     | Some _ ->
-       let type_args =
-         List.map
-           (function
-             | Ast.St_type t -> t
-             | Ast.St_value _ ->
-               raise (error s (peek s) (Printf.sprintf "'%s' takes types here, not values." name)))
-           static_args
-       in
-       Ast.at sp (`New_call (name, type_args, arguments s))
-     | None ->
-       ignore (consume s Token.Left_brace "Expected '{' after type name.");
-       (match static_args with
-        | [] -> Ast.at sp (`New (name, record_fields s))
-        | static_args -> Ast.at sp (`New_generic (name, static_args, record_fields s))))
   | Token.Left_brace when not s.no_brace ->
     ignore (advance s);
     Ast.at sp (`Record_lit (record_fields s))
@@ -787,10 +740,8 @@ and declaration s : Ast.stmt option =
       (* Registration is by `for Trait`, so every deriver is free to be called
          `derive` — a keyword, hence read here. *)
       let read_name s =
-        match matches s [ Token.Derive; Token.New ] with
-        | Some { Token.token_type = Token.Derive; _ } -> "derive"
-        (* In declaration position `new` cannot be read as the operator. *)
-        | Some _ -> "new"
+        match matches s [ Token.Derive ] with
+        | Some _ -> "derive"
         | None -> consume_identifier s "Expected function name."
       in
       let before_body s name =
@@ -925,13 +876,7 @@ and parameters ?(packs = []) s : Ast.param list =
   List.map fst params
 
 and fn_decl
-  ?(read_name =
-    fun s ->
-      (* In declaration position `new` cannot be read as the operator. No
-         other keyword is allowed here. *)
-      match matches s [ Token.New ] with
-      | Some _ -> "new"
-      | None -> consume_identifier s "Expected function name.")
+  ?(read_name = fun s -> consume_identifier s "Expected function name.")
   ?(before_body = fun _ name -> name)
   s
   sp
@@ -1542,8 +1487,16 @@ and match_stmt s sp : Ast.stmt =
           Ast.Pat_wild
         | _ ->
           let ty = consume_identifier s "Expected a pattern." in
-          ignore (consume s Token.Colon_colon "Expected '::' after the type name.");
-          let variant = consume_identifier s "Expected a variant name." in
+          ignore (consume s Token.Dot "Expected '.' after the type name.");
+          let ty, variant =
+            let next = consume_identifier s "Expected a variant name." in
+            (* `geom.Shape.Circle`: the last name is the variant. *)
+            if check s Token.Dot
+            then (
+              ignore (advance s);
+              ty ^ "." ^ next, consume_identifier s "Expected a variant name.")
+            else ty, next
+          in
           let payload =
             match (peek s).Token.token_type with
             | Token.Left_paren ->

@@ -64,7 +64,6 @@ let keyword = function
   | "handle" -> Some Token.Handle
   | "handler" -> Some Token.Handler
   | "match" -> Some Token.Match
-  | "new" -> Some Token.New
   | "resume" -> Some Token.Resume
   | "return" -> Some Token.Return
   | "run" -> Some Token.Run
@@ -180,7 +179,7 @@ let scan_token s =
   | '}' -> add_token s Token.Right_brace
   | ',' -> add_token s Token.Comma
   | ';' -> add_token s Token.Semicolon
-  | ':' -> add_token s (if matches s ':' then Token.Colon_colon else Token.Colon)
+  | ':' -> add_token s Token.Colon
   | '.' ->
     if peek s = '.' && peek_next s = '.'
     then (

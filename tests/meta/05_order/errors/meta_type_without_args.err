@@ -1,1 +1,1 @@
-[5:9] 'Box' runs a meta block, so its arguments must be written: new Box<…> { … }.
+[5:9] 'Box' runs a meta block, so its arguments must be written: Box<…> { … }.

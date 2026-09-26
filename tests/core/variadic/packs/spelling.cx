@@ -19,8 +19,8 @@ fn only(a: int) {
     print(a);
 }
 
-var two = new Slot { tag: "two", use: pair };
-var one = new Slot { tag: "one", use: only };
+var two = Slot { tag: "two", use: pair };
+var one = Slot { tag: "one", use: only };
 
 print(any_arity(two));
 print(any_arity(one));

@@ -5,4 +5,4 @@ impl Circle {
 fn report(shape) {
     print(shape.perimeter());
 }
-report(new Circle { radius: 2 });
+report(Circle { radius: 2 });

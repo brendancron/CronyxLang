@@ -12,7 +12,7 @@ trait Describe {
 
 fn derive(shape: TypeShape) for Describe {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var tname = str(t);
             var text = code(tname);
             for (f in fields) {
@@ -20,10 +20,10 @@ fn derive(shape: TypeShape) for Describe {
                     var written = str(a.name);
                     for (arg in a.args) {
                         match arg {
-                            AttrArg::Str(v) => { written = written + "=" + v; }
-                            AttrArg::Int(v) => { written = written + "=" + str(v); }
-                            AttrArg::Float(v) => { written = written + "=" + str(v); }
-                            AttrArg::Bool(v) => { written = written + "=" + str(v); }
+                            AttrArg.Str(v) => { written = written + "=" + v; }
+                            AttrArg.Int(v) => { written = written + "=" + str(v); }
+                            AttrArg.Float(v) => { written = written + "=" + str(v); }
+                            AttrArg.Bool(v) => { written = written + "=" + str(v); }
                         }
                     }
                     var head = code(written);
@@ -40,4 +40,4 @@ fn derive(shape: TypeShape) for Describe {
 
 derive Describe for Config;
 
-print(new Config { timeout: 30 }.describe());
+print(Config { timeout: 30 }.describe());

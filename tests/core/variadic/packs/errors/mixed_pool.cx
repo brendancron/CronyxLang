@@ -2,7 +2,7 @@ type Slot<...Args> {
     use: (...Args) -> unit
 }
 
-var two = new Slot { use: (a: int, b: string) => { print(str(a) + b); } };
-var one = new Slot { use: (a: int) => { print(a); } };
+var two = Slot { use: (a: int, b: string) => { print(str(a) + b); } };
+var one = Slot { use: (a: int) => { print(a); } };
 
 var both = [two, one];

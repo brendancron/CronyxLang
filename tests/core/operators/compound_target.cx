@@ -32,13 +32,13 @@ print(grid);
 type Point { x: int, y: int }
 type Shape { origin: Point, size: int }
 
-var p = new Point { x: 1, y: 2 };
+var p = Point { x: 1, y: 2 };
 p.x += 5;
 p.y *= 10;
 p.x++;
 print(str(p.x) + " " + str(p.y));
 
-var s = new Shape { origin: new Point { x: 0, y: 0 }, size: 1 };
+var s = Shape { origin: Point { x: 0, y: 0 }, size: 1 };
 s.origin.x += 7;
 s.origin.y--;
 s.size += s.origin.x;
@@ -75,7 +75,7 @@ impl IndexSet<int> for Ring {
     }
 }
 
-var r = new Ring { items: [10, 20, 30], head: 1 };
+var r = Ring { items: [10, 20, 30], head: 1 };
 r[0] += 5;
 print(r.items);
 

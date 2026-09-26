@@ -7,12 +7,12 @@ impl Add<Vec2> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
     }
 }
 
-var v1 = new Vec2 { x: 1, y: 2 };
-var v2 = new Vec2 { x: 3, y: 4 };
+var v1 = Vec2 { x: 1, y: 2 };
+var v2 = Vec2 { x: 3, y: 4 };
 var v3 = v1 + v2;
 print(v3.x);
 print(v3.y);

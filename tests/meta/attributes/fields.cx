@@ -14,7 +14,7 @@ trait Show {
 
 fn derive(shape: TypeShape) for Show {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             var tname = str(t);
             var text = code(tname);
             for (f in fields) {
@@ -29,7 +29,7 @@ fn derive(shape: TypeShape) for Show {
                     if (attr == "rename") {
                         for (arg in a.args) {
                             match arg {
-                                AttrArg::Str(v) => { label = v; }
+                                AttrArg.Str(v) => { label = v; }
                                 _ => {}
                             }
                         }
@@ -50,5 +50,5 @@ fn derive(shape: TypeShape) for Show {
 
 derive Show for Person;
 
-var p = new Person { name: "ada", password: "hunter2", age: 36 };
+var p = Person { name: "ada", password: "hunter2", age: 36 };
 print(p.show());

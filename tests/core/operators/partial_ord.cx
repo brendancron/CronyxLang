@@ -2,14 +2,14 @@ type Money { cents: int }
 
 impl PartialOrd for Money {
     fn partial_cmp(self, rhs: Money): Option<Ordering> {
-        if (self.cents < rhs.cents) { return Option::Some(Ordering::Less); }
-        if (self.cents > rhs.cents) { return Option::Some(Ordering::Greater); }
-        return Option::Some(Ordering::Equal);
+        if (self.cents < rhs.cents) { return Option.Some(Ordering.Less); }
+        if (self.cents > rhs.cents) { return Option.Some(Ordering.Greater); }
+        return Option.Some(Ordering.Equal);
     }
 }
 
-var a = new Money { cents: 100 };
-var b = new Money { cents: 250 };
+var a = Money { cents: 100 };
+var b = Money { cents: 250 };
 
 print(a < b);
 print(a > b);

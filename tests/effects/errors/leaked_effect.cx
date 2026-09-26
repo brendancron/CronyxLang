@@ -7,9 +7,9 @@ type Q<T> { Num -> Q<int>, Text -> Q<string> }
 
 fn ask<T>(q: Q<T>): T {
     match q {
-        Q::Num  => { note("num"); return 7; }
-        Q::Text => { return "hi"; }
+        Q.Num  => { note("num"); return 7; }
+        Q.Text => { return "hi"; }
     }
 }
 
-print(ask(Q::Num));
+print(ask(Q.Num));

@@ -2,4 +2,4 @@ type Pair<A, B> {
     first: A,
     second: B
 }
-var p: Pair<int> = new Pair { first: 1, second: 2 };
+var p: Pair<int> = Pair { first: 1, second: 2 };

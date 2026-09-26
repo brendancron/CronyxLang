@@ -239,7 +239,7 @@ xs[0] += 10;
 xs[2]++;
 print(xs);
 
-var p = new Point { x: 1, y: 2 };
+var p = Point { x: 1, y: 2 };
 p.x *= 5;
 p.y--;
 print(p.x);
@@ -336,12 +336,12 @@ impl Add<Vec2> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
     }
 }
 
-var a = new Vec2 { x: 1, y: 2 };
-var b = new Vec2 { x: 3, y: 4 };
+var a = Vec2 { x: 1, y: 2 };
+var b = Vec2 { x: 3, y: 4 };
 var sum = a + b;
 print(sum.x);
 print(sum.y);
@@ -364,13 +364,13 @@ impl Add<Vec2> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
     }
 }
 
-var total = new Vec2 { x: 0, y: 0 };
-total += new Vec2 { x: 1, y: 2 };
-total += new Vec2 { x: 3, y: 4 };
+var total = Vec2 { x: 0, y: 0 };
+total += Vec2 { x: 1, y: 2 };
+total += Vec2 { x: 3, y: 4 };
 print(total.x);
 print(total.y);
 ```
@@ -392,11 +392,11 @@ impl Mul<Vec2> for int {
     type Output = Vec2;
 
     fn mul(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self * rhs.x, y: self * rhs.y };
+        return Vec2 { x: self * rhs.x, y: self * rhs.y };
     }
 }
 
-var v = 3 * new Vec2 { x: 1, y: 2 };
+var v = 3 * Vec2 { x: 1, y: 2 };
 print(v.x);
 print(v.y);
 ```
@@ -423,7 +423,7 @@ You rarely need to implement `Eq` — `==` already compares any two values of a 
 
 ## Try it
 
-Using the `Vec2` above, add an impl so that `v * 3` works as well as `3 * v`. Then print both `x` fields of `new Vec2 { x: 1, y: 2 } * 3`.
+Using the `Vec2` above, add an impl so that `v * 3` works as well as `3 * v`. Then print both `x` fields of `Vec2 { x: 1, y: 2 } * 3`.
 
 A working answer:
 
@@ -437,11 +437,11 @@ impl Mul<int> for Vec2 {
     type Output = Vec2;
 
     fn mul(self, rhs: int): Vec2 {
-        return new Vec2 { x: self.x * rhs, y: self.y * rhs };
+        return Vec2 { x: self.x * rhs, y: self.y * rhs };
     }
 }
 
-var v = new Vec2 { x: 1, y: 2 } * 3;
+var v = Vec2 { x: 1, y: 2 } * 3;
 print(v.x);
 print(v.y);
 ```

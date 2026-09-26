@@ -28,10 +28,10 @@ fn entry_to_rule(entry) {
     if (val.kind == 0) {
         return LexRule {
             name:       entry.key,
-            pattern:    LexPattern::Literal(val.prim.s),
+            pattern:    LexPattern.Literal(val.prim.s),
             skip:       false,
-            next_state: Option::None,
-            action:     Option::None,
+            next_state: Option.None,
+            action:     Option.None,
         };
     }
 
@@ -48,22 +48,22 @@ fn find_pattern(table) {
     var i = 0;
     while (i < table.len()) {
         var e = table[i];
-        if (e.key == "regex")   { return LexPattern::Regex(e.val.s); }
-        if (e.key == "literal") { return LexPattern::Literal(e.val.s); }
-        if (e.key == "match")   { return LexPattern::Literal(e.val.s); }
+        if (e.key == "regex")   { return LexPattern.Regex(e.val.s); }
+        if (e.key == "literal") { return LexPattern.Literal(e.val.s); }
+        if (e.key == "match")   { return LexPattern.Literal(e.val.s); }
         i += 1;
     }
-    return LexPattern::Literal("");
+    return LexPattern.Literal("");
 }
 
 fn find_str(table, key: string) {
     var i = 0;
     while (i < table.len()) {
         var e = table[i];
-        if (e.key == key) { return Option::Some(e.val.s); }
+        if (e.key == key) { return Option.Some(e.val.s); }
         i += 1;
     }
-    return Option::None;
+    return Option.None;
 }
 
 fn find_bool(table, key: string) {

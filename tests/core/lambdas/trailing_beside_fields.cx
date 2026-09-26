@@ -1,0 +1,18 @@
+type Point { x: int, y: int }
+type Shape { Circle(int), Rect { w: int, h: int } }
+
+fn apply(f: (int) -> int): int { return f(10); }
+
+var ps = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
+print(apply { it + 1 });
+print(apply { n -> n * 2 });
+
+match Shape.Rect { w: 2, h: 3 } {
+    Shape.Rect { w, h } => { print(w * h); }
+    _ => { print(0); }
+}
+
+var total = 0;
+for (p in ps) { total += p.x; }
+print(total);
+if (ps[0] == Point { x: 1, y: 2 }) { print("same"); }

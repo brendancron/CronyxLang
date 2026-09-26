@@ -60,7 +60,7 @@ Before the walk starts, every written top-level declaration, and the members of 
 
 ### Templates
 
-A function or type that takes a static *value* parameter is instantiated by the walk, and so is one taking only types whose body runs a `meta` block or reaches something that does. Such a template is instantiated when a call to it (or a `new` of it) is reached — depth first, so an instantiation that calls another makes that one before it finishes — and remembered under its name and its static arguments. The memo is shared by the whole program, modules included (`05_order/01_basic`, `02_nested`, `06_modules/template_two_importers`), and a template is visited on entry the same way a function is, so mutual recursion between templates terminates on its base cases (`05_order/20_template_mutual`).
+A function or type that takes a static *value* parameter is instantiated by the walk, and so is one taking only types whose body runs a `meta` block or reaches something that does. Such a template is instantiated when a call to it (or a construction of it) is reached — depth first, so an instantiation that calls another makes that one before it finishes — and remembered under its name and its static arguments. The memo is shared by the whole program, modules included (`05_order/01_basic`, `02_nested`, `06_modules/template_two_importers`), and a template is visited on entry the same way a function is, so mutual recursion between templates terminates on its base cases (`05_order/20_template_mutual`).
 
 A template whose parameters are only types and which runs no `meta` is not instantiated here: it is checked once, generically, and `Type_mono` copies it after checking, when inference has said which types it is used at.
 
@@ -70,7 +70,7 @@ There is **no limit** on instantiation. `fib<n + 1>` recursing without a base ca
 
 ### Methods, impls and trait objects
 
-The walk works out a value's type only from what it can see without the checker: `new X`, an annotation, a static argument, a literal, a `var` initialised from one of those, or a function's declared return type. That is enough to reach methods:
+The walk works out a value's type only from what it can see without the checker: `X { … }`, an annotation, a static argument, a literal, a `var` initialised from one of those, or a function's declared return type. That is enough to reach methods:
 
 - A method call on a receiver of known type reaches that type's method. An inherent impl is reached a method at a time; a trait impl is reached whole, because a trait's methods are a unit and a table of them is what dispatch needs (`05_order/08_static_invoke`, `12_methods`: `unused` never runs its `meta`).
 - A value converted to a trait object — passed to a parameter or assigned to a variable written as the trait — reaches its type's impl of that trait, whole, whether or not a method is ever called through it. Only the impls of types actually converted run their `meta`: in `05_order/09_dyn_invoke`, `Cow` implements `Speaker` and never prints.
@@ -84,7 +84,7 @@ Raw AST, not a value — but every name in it is checked against the meta enviro
 
 **If the name is not bound at compile time**, it is emitted as an identifier and resolved later, in the program the code is spliced into.
 
-**If it is bound**, its value is *reified* — turned back into the syntax that denotes it. A number becomes a literal, a tuple a tuple literal, an array an array literal, and an anonymous record a record literal (`02_gen/reify_tuple_field`, `reify_record_anonymous`). A value of a declared type keeps it: a struct is written as `new P { … }` and an enum value as `E::B(…)`, `E::A` or `E::C { … }`, recursively (`reify_struct`, `reify_generic_struct`, `reify_enum_unit`, `reify_enum_payload`, `reify_enum_struct_variant`, `reify_nested`). The interpreter carries the declared type's name on a record or variant it builds, read off the node's annotation, because the structure alone does not say it. Type arguments are not written: the checker infers them again, as it does for a `new Box<int> { … }` written by hand.
+**If it is bound**, its value is *reified* — turned back into the syntax that denotes it. A number becomes a literal, a tuple a tuple literal, an array an array literal, and an anonymous record a record literal (`02_gen/reify_tuple_field`, `reify_record_anonymous`). A value of a declared type keeps it: a struct is written as `P { … }` and an enum value as `E.B(…)`, `E.A` or `E.C { … }`, recursively (`reify_struct`, `reify_generic_struct`, `reify_enum_unit`, `reify_enum_payload`, `reify_enum_struct_variant`, `reify_nested`). The interpreter carries the declared type's name on a record or variant it builds, read off the node's annotation, because the structure alone does not say it. Type arguments are not written: the checker infers them again, as it does for a `Box<int> { … }` written by hand.
 
 **If its value cannot be reified**, that is an error at the `gen`: *'f' is a function and cannot be written into generated code.* (`02_gen/errors/reify_fn`), and *'s' is a trait object and cannot be written into generated code.* (`02_gen/errors/reify_object`). A closure has no literal form, and an object's type is not a declaration to rebuild. See [Reify](Reify.md).
 
@@ -320,9 +320,9 @@ type Box<T> {
 }
 ```
 
-A type whose members are only functions is a type and an inherent impl, exactly as if the impl had been written separately. A type that takes a value parameter (`type Buf<n: int>`), or whose members run a meta block, is a **type template**: it is instantiated per argument list when `new Name<args> { … }` is reached, its meta blocks run then with the value arguments bound, and its functions become methods of the copy (`05_order/10_box`, `11_buf`, `12_methods`). One nothing constructs never runs its `meta` (`05_order/26_unreached_type`).
+A type whose members are only functions is a type and an inherent impl, exactly as if the impl had been written separately. A type that takes a value parameter (`type Buf<n: int>`), or whose members run a meta block, is a **type template**: it is instantiated per argument list when `Name<args> { … }` is reached, its meta blocks run then with the value arguments bound, and its functions become methods of the copy (`05_order/10_box`, `11_buf`, `12_methods`). One nothing constructs never runs its `meta` (`05_order/26_unreached_type`).
 
-A copy is named by what it was made from — `Box<int>`, `Buf<4>` — which is the name `typeof` and diagnostics show, and `Buf<4>` and `Buf<8>` are different types: *Expected Buf<4>, got Buf<8>.* (`05_order/errors/distinct_instances`). Construction needs `new`; a unit type is written as its bare name, `Cat`.
+A copy is named by what it was made from — `Box<int>`, `Buf<4>` — which is the name `typeof` and diagnostics show, and `Buf<4>` and `Buf<8>` are different types: *Expected Buf<4>, got Buf<8>.* (`05_order/errors/distinct_instances`). Construction needs the arguments, `Buf<4> { … }`; a unit type is written as its bare name, `Cat`.
 
 A type's meta block may generate only its methods — *A type's meta block can generate only its methods.* Not built: field defaults, a meta block generating fields, and a value argument in a type annotation (`var b: Buf<4>`).
 
@@ -414,7 +414,7 @@ trait Hash {
 
 fn derive(shape: TypeShape) for Hash {
     match shape {
-        TypeShape::Product(t, fields) => {
+        TypeShape.Product(t, fields) => {
             gen impl Hash for t {
                 fn hash(self): int { … built with `code`, above … }
             }

@@ -17,14 +17,14 @@ fn pair(): (int, int,) {
     return (1, 2,);
 }
 
-var p = new Pair<int, string,> { xs: [1, 2,], a: 3, b: "s", };
+var p = Pair<int, string,> { xs: [1, 2,], a: 3, b: "s", };
 var (left, right,) = pair();
 
 print(add(left, right,));
 print(p.xs);
 print(p.b);
 
-match (Shape::Circle(4, 5,)) {
-    Shape::Circle(w, h,) => { print(add(w, h,)); }
-    Shape::Square { w, } => { print(w); }
+match (Shape.Circle(4, 5,)) {
+    Shape.Circle(w, h,) => { print(add(w, h,)); }
+    Shape.Square { w, } => { print(w); }
 }

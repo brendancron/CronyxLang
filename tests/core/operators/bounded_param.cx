@@ -4,7 +4,7 @@ impl Add<Vec2> for Vec2 {
     type Output = Vec2;
 
     fn add(self, rhs: Vec2): Vec2 {
-        return new Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
     }
 }
 
@@ -14,4 +14,4 @@ fn double(x) {
 
 print(double(21));
 print(double("ab"));
-print(double(new Vec2 { x: 1, y: 2 }).y);
+print(double(Vec2 { x: 1, y: 2 }).y);

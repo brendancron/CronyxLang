@@ -21,8 +21,8 @@ fn one(): int {
     return 7;
 }
 
-var two = new Slot { use: add, intent: (1, 2) };
-var none = new Slot { use: one, intent: () };
+var two = Slot { use: add, intent: (1, 2) };
+var none = Slot { use: one, intent: () };
 
 print(two.fire());
 print(none.fire());
