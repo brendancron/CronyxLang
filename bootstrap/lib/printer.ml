@@ -6,11 +6,24 @@ let string_of_unop : Ast.unop -> string = function
   | Ast.Neg -> "-"
   | Ast.Not -> "!"
 
-let string_of_row = function
+let rec string_of_row entries =
+  match entries with
   | [] -> ""
-  | labels -> Printf.sprintf " <%s>" (String.concat ", " labels)
+  | entries ->
+    Printf.sprintf
+      " <%s>"
+      (String.concat ", " (List.map string_of_row_entry entries))
 
-let rec string_of_type_expr (t : Ast.type_expr) : string =
+and string_of_row_entry (label, args) =
+  match args with
+  | [] -> label
+  | args ->
+    Printf.sprintf
+      "%s<%s>"
+      label
+      (String.concat ", " (List.map string_of_type_expr args))
+
+and string_of_type_expr (t : Ast.type_expr) : string =
   match t.Ast.it with
   | Ast.Ty_name name -> name
   | Ast.Ty_assoc (owner, member) -> string_of_type_expr owner ^ "." ^ member
@@ -348,9 +361,22 @@ let rec string_of_typed_expr (e : Ast.typed_expr) : string =
         (string_of_typed_expr r)
         label
         (string_of_typed_expr v)
-    | `Method_call (receiver, name, as_function, args) ->
+    | `Bound_call (receiver, name, d, args) ->
       Printf.sprintf
-        "(. %s %s%s)"
+        "(. %s %s:%s%s)"
+        (string_of_typed_expr receiver)
+        name
+        (match d.Ast.dp_targets with
+         | [] -> d.Ast.dp_trait
+         | targets ->
+           Printf.sprintf
+             "%s<%s>"
+             d.Ast.dp_trait
+             (String.concat ", " (List.map Types.string_of_ty targets)))
+        (String.concat "" (List.map (fun a -> " " ^ string_of_typed_expr a) args))
+    | `Dyn_call (receiver, name, _, args) ->
+      Printf.sprintf
+        "(dyn. %s %s%s)"
         (string_of_typed_expr receiver)
         name
         (String.concat "" (List.map (fun a -> " " ^ string_of_typed_expr a) args))

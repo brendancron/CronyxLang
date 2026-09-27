@@ -1,0 +1,20 @@
+trait To<T> {
+    fn to(self): T;
+}
+
+type Flag { raw: int }
+
+impl To<string> for Flag {
+    fn to(self): string { return "flag " + str(self.raw); }
+}
+
+impl To<bool> for Flag {
+    fn to(self): bool { return self.raw != 0; }
+}
+
+fn shown(value: To<string>): string { return value.to(); }
+
+fn truthy(value: To<bool>): bool { return value.to(); }
+
+print(shown(Flag { raw: 1 }));
+print(str(truthy(Flag { raw: 0 })));

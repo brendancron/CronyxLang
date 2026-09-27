@@ -1,0 +1,15 @@
+trait To<T> {
+    fn to(self): T;
+}
+
+type Flag { raw: int }
+
+impl To<string> for Flag {
+    fn to(self): string { return "flag"; }
+}
+
+impl To<bool> for Flag {
+    fn to(self): bool { return self.raw != 0; }
+}
+
+print(str(Flag { raw: 1 }.to<int>()));

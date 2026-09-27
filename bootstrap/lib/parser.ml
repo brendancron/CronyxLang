@@ -174,14 +174,21 @@ and typed_field s =
   ignore (consume s Token.Colon "Expected ':' after field name.");
   label, type_expr s
 
-and row_annotation s : string list =
+and row_annotation s : (string * Ast.type_expr list) list =
   match matches s [ Token.Less ] with
   | None -> []
   | Some _ ->
-    let labels =
-      listed_until s Token.Greater (fun s ->
-        consume_identifier s "Expected an effect name.")
+    let entry s =
+      let label = consume_identifier s "Expected an effect name." in
+      if check s Token.Less
+      then (
+        ignore (advance s);
+        let args = listed_until s Token.Greater type_argument in
+        ignore (consume s Token.Greater "Expected '>' after effect arguments.");
+        label, args)
+      else label, []
     in
+    let labels = listed_until s Token.Greater entry in
     ignore (consume s Token.Greater "Expected '>' after effect row.");
     labels
 

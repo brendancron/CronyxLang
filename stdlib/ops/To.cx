@@ -1,0 +1,17 @@
+// A type with more than one `To` impl is converted by a call that writes which
+// target it means, `x.to<string>()`; these have one apiece, so `x.to()` says it.
+trait To<T> {
+    fn to(self): T;
+}
+
+impl To<string> for int {
+    fn to(self): string { return str(self); }
+}
+
+impl To<string> for bool {
+    fn to(self): string { return str(self); }
+}
+
+impl To<string> for string {
+    fn to(self): string { return self; }
+}

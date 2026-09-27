@@ -12,10 +12,6 @@ let declared_types : (string, Types.ty) Hashtbl.t = Hashtbl.create 16
    rather than through an entry chosen here. *)
 let traits : (string, unit) Hashtbl.t = Hashtbl.create 8
 
-(* Every impl of a method was checked against the trait's signature, so any one
-   of them says what a call through the vtable performs. *)
-let trait_methods : (string * string, Types.ty) Hashtbl.t = Hashtbl.create 16
-
 let supers : (string, string list) Hashtbl.t = Hashtbl.create 8
 
 (* What a table for the trait owes a slot for, which [Verify] reads back. *)
@@ -41,9 +37,6 @@ let rec record (s : Ast.typed_stmt) =
         let entry = Ast.impl_method_name trait type_name m.Ast.md_name in
         Hashtbl.replace declared_rows entry (row_of m.Ast.md_ann);
         Hashtbl.replace declared_types entry m.Ast.md_ann;
-        Option.iter
-          (fun (name, _) -> Hashtbl.replace trait_methods (name, m.Ast.md_name) m.Ast.md_ann)
-          trait;
         List.iter record m.Ast.md_body)
       impl.Ast.ib_methods
   | `Block body | `Fn (_, _, _, body) -> List.iter record body
@@ -105,26 +98,11 @@ let fresh () =
   incr counter;
   Ast.generated [ "answer"; string_of_int !counter ]
 
-(* A method reached through an object may be a supertrait's, and the impl that
-   registered it did so under the trait that declared it. *)
-let rec method_type trait name =
-  match Hashtbl.find_opt trait_methods (trait, name) with
-  | Some ty -> Some ty
-  | None ->
-    List.find_map
-      (fun super -> method_type super name)
-      (Option.value ~default:[] (Hashtbl.find_opt supers trait))
-
 let is_trait name = Hashtbl.mem traits name
 
 let rec methods_of trait =
   Option.value ~default:[] (Hashtbl.find_opt declared_methods trait)
   @ List.concat_map methods_of (Option.value ~default:[] (Hashtbl.find_opt supers trait))
-
-let is_object (t : Types.ty) =
-  match Types.type_name t with
-  | Some name -> Hashtbl.mem traits name
-  | None -> false
 
 let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
   let span = e.Ast.span
@@ -183,7 +161,7 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
          `Call (fn_ref span name [ a; b ] ann, [ a; b ])
        (* Spelled out, so a third emission form has to be decided here. *)
        | Some { Registry.emit = Registry.Primitive; _ } | None -> `Binop (op, a, b))
-    | `Coerce (inner, trait, methods) ->
+    | `Coerce (inner, trait, slots) ->
       let data = expr registry inner in
       let owner =
         match Types.type_name data.Ast.ann with
@@ -195,8 +173,8 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
             (Types.string_of_ty data.Ast.ann)
             trait
       in
-      let slot name : string * Ast.resolved_expr =
-        let entry = Registry.entry_for_method registry owner name in
+      let slot (name, dispatch) : string * Ast.resolved_expr =
+        let entry = Registry.dispatched dispatch owner name in
         ( name
         , { Ast.it = `Var entry
           ; span
@@ -207,39 +185,29 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
                  fail span "'%s' has no '%s' to put in a '%s'." owner name trait)
           } )
       in
-      `Object (data, List.map slot methods)
-    | `Method_call (receiver, name, _, args) when is_object receiver.Ast.ann ->
-      let receiver = expr registry receiver in
-      let performs =
-        match Option.bind (Types.type_name receiver.Ast.ann) (fun t -> method_type t name) with
-        | Some ty -> ty
-        (* A purity this could not check would be evidence the call never
-           passes. *)
-        | None -> fail span "No impl of '%s' was registered to dispatch on." name
-      in
-      `Dyn_call (receiver, name, performs, arguments registry args)
-    | `Method_call (receiver, name, _, args) ->
+      `Object (data, List.map slot slots)
+    (* A vtable dispatches on the value it holds, so the impl is not chosen
+       here; the row the call performs was read off the trait. *)
+    | `Dyn_call (receiver, name, performs, args) ->
+      `Dyn_call (expr registry receiver, name, performs, arguments registry args)
+    | `Bound_call (receiver, name, dispatch, args) ->
       let receiver = expr registry receiver in
       let args = arguments registry args in
       let owner =
         match Types.type_name receiver.Ast.ann with
         | Some owner -> owner
+        (* Nothing instantiated the body this call is in, so the bound was never
+           discharged and there is no impl to name. *)
         | None ->
           fail
             receiver.Ast.span
             "Cannot call '%s': the receiver's type is not known here."
             name
       in
-      (* A receiver the checker could not name is an array by here. *)
-      if String.equal name Types.array_len && args = [] && Types.is_array receiver.Ast.ann
-      then `Array_len receiver
-      else if String.equal name Types.array_len && args = [] && receiver.Ast.ann = Types.Str
-      then `Str_len receiver
-      else (
-                let all =
-          if Registry.is_associated registry owner name then args else receiver :: args
-        in
-        `Call (fn_ref span (Registry.entry_for_method registry owner name) all ann, all))
+      let all =
+        if Registry.is_associated registry owner name then args else receiver :: args
+      in
+      `Call (fn_ref span (Registry.dispatched dispatch owner name) all ann, all)
     | `Collection_lit items ->
       let items = List.map (expr registry) items in
       if Types.is_array ann
@@ -545,7 +513,6 @@ let program ~registry (p : Ast.typed_stmt list)
   Hashtbl.reset declared_rows;
   Hashtbl.reset declared_types;
   Hashtbl.reset traits;
-  Hashtbl.reset trait_methods;
   Hashtbl.reset supers;
   Hashtbl.reset declared_methods;
   List.iter record p;

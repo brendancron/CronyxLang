@@ -1,0 +1,42 @@
+effect Yield<T> {
+    ctl yield(value: T): unit;
+}
+
+fn counted(high: int): <Yield<int>> unit {
+    var i = 0;
+    while (i < high) {
+        yield(i);
+        i = i + 1;
+    }
+}
+
+fn spelled(text: string): <Yield<string>> unit {
+    for (word in text.split(' ')) {
+        yield(word);
+    }
+}
+
+// Unwritten, so the argument is inferred rather than pinned: this one is
+// `Yield<int>` because that is what it yields.
+fn doubled(n: int): <Yield> unit {
+    yield(n);
+    yield(n * 2);
+}
+
+run {
+    counted(3);
+} handle Yield {
+    ctl yield(n) { print(str(n)); resume; }
+}
+
+run {
+    spelled("a b");
+} handle Yield {
+    ctl yield(w) { print(w); resume; }
+}
+
+run {
+    doubled(5);
+} handle Yield {
+    ctl yield(v) { print(str(v)); resume; }
+}

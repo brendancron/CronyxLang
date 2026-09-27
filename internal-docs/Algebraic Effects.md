@@ -163,10 +163,14 @@ Independently, CPS is the representation a compiler backend needs, so the pass i
 
 ```ocaml
 type row =
-  { labels : string list          (* effect names; duplicates significant *)
-  ; tail : row_var ref option     (* None = closed, Some = open *)
+  { labels : (string * ty list) list  (* effect names at their arguments *)
+  ; tail : int option                 (* None = closed, Some = open *)
   }
 ```
+
+An entry carries what the effect was instantiated at, so `Yield<int>` and `Yield<string>` are different things to handle. A written row may pin those arguments — `fn counted(high: int): <Yield<int>> unit` — and writing the effect bare leaves them to inference, one variable per entry, which is what every row inferred rather than written already does. Finding a label is also agreeing on what it was instantiated at: the arguments unify rather than being compared, so a signature that pins the wrong one is an error where it is written.
+
+An effect's parameters are bound before any signature is read, because a row naming the effect has to know how many arguments it carries — a row read first would close over the wrong arity and fail at the `perform`, not at the annotation.
 
 Effect labels rather than operation names, because `handle exception` discharges the whole effect — there is no syntax for discharging one operation and leaving a sibling outstanding. This requires a `handle` clause to implement **every** operation its effect declares; make that a checked error.
 

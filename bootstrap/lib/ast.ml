@@ -66,7 +66,7 @@ and type_expr_kind =
   | Ty_app of string * type_expr list
   | Ty_tuple of type_expr list
   | Ty_record of (string * type_expr) list
-  | Ty_fn of type_expr list * type_expr * string list
+  | Ty_fn of type_expr list * type_expr * (string * type_expr list) list
   (* The callee takes an `Array<T>`; the call site fills it. *)
   | Ty_variadic of type_expr
   (* `...Args`: the parameter list a pack stands for, spliced where it stands. *)
@@ -99,10 +99,12 @@ type type_param =
   ; tp_ty : type_expr option
   }
 
-(* [row = None] leaves the effect row to inference; [Some labels] closes it. *)
+(* [row = None] leaves the effect row to inference; [Some labels] closes it. An
+   effect taking parameters may be written at its arguments — `<Yield<int>>` —
+   and is otherwise left to inference at every one of them. *)
 type signature =
   { ret : type_expr option
-  ; row : string list option
+  ; row : (string * type_expr list) list option
   ; static_params : static_param list
   }
 
@@ -281,18 +283,35 @@ type ('s, 'ann) method_defs =
 (* Method-or-function is a typing question, the name a loading one. *)
 type 'e method_call = [ `Method_call of 'e * string * string * 'e list ]
 
-(* A value on its way into a trait-typed position. The concrete type is still
-   on the inner expression's annotation; the names are the slots a vtable owes,
-   in the order the trait declared them. *)
-type 'e coercions = [ `Coerce of 'e * string * string list ]
+(* Which impl a call reaches: the trait, and the arguments that tell two impls of
+   it on one type apart. A bound is where these come from, so a call inside a
+   generic body carries what the bound said rather than deciding later from the
+   receiver's type and the method's name, which cannot say. *)
+type 'ty dispatch =
+  { dp_trait : string
+  ; dp_targets : 'ty list
+  }
+
+(* A receiver whose type is still a variable. Which impl answers is settled when
+   the copy is made, from the dispatch. *)
+type ('e, 'ty) bound_calls = [ `Bound_call of 'e * string * 'ty dispatch * 'e list ]
+
+(* A value on its way into a trait-typed position. The concrete type is still on
+   the inner expression's annotation; each slot the vtable owes names a method
+   and the dispatch that picks the impl answering it, in the order the trait
+   declared them. *)
+type ('e, 'ty) coercions =
+  [ `Coerce of 'e * string * (string * 'ty dispatch) list ]
+
+(* The method's own type travels with the call: a row cannot be read off a
+   vtable, and evidence is owed by what the method performs. *)
+type ('e, 'ty) dyn_calls = [ `Dyn_call of 'e * string * 'ty * 'e list ]
 
 (* What a coercion becomes: the data beside the functions chosen for it, and a
    call that reads its target out of that table rather than from a name. *)
 type 'e objects =
   [ `Object of 'e * (string * 'e) list
-  (* The method's own type travels with the call: a row cannot be read off a
-     vtable, and evidence is owed by what the method performs. *)
-  | `Dyn_call of 'e * string * Types.ty * 'e list
+  | ('e, Types.ty) dyn_calls
   ]
 
 (* A bare name parses as [St_type] whichever it is. *)
@@ -508,8 +527,9 @@ and typed_expr_kind =
   | typed_expr collection
   | typed_expr arrays
   | typed_expr strings
-  | typed_expr method_call
-  | typed_expr coercions
+  | (typed_expr, Types.ty) bound_calls
+  | (typed_expr, Types.ty) dyn_calls
+  | (typed_expr, Types.ty) coercions
   | typed_expr reflect
   | (typed_expr, typed_stmt) lambdas
   | (typed_expr, typed_stmt, typed_stmt handler) run_expr
@@ -700,17 +720,22 @@ let type_head (t : type_expr option) =
 
 let method_name type_name method_ = generated [ type_name; method_ ]
 
-(* `Index<int>` and `Index<Range>` on one list each bring a `get`. *)
+let written_type (t : type_expr) =
+  match t.it with
+  | Ty_name n | Ty_app (n, _) -> n
+  | _ -> "_"
+
+(* `Index<int>` and `Index<Range>` on one list each bring a `get`, so the trait
+   and its arguments are in the name. A dispatch names the same entry from the
+   types a bound gave: [Types.type_name] and [written_type] agree on the head. *)
+let dispatched_method_name type_name trait targets method_ =
+  generated ([ type_name; trait ] @ targets @ [ method_ ])
+
 let impl_method_name trait type_name method_ =
   match trait with
   | None -> method_name type_name method_
   | Some (name, args) ->
-    let written (t : type_expr) =
-      match t.it with
-      | Ty_name n | Ty_app (n, _) -> n
-      | _ -> "_"
-    in
-    generated ([ type_name; name ] @ List.map written args @ [ method_ ])
+    dispatched_method_name type_name name (List.map written_type args) method_
 
 let map_static_arg (f : 'a -> 'b) (a : 'a static_arg) : 'b static_arg =
   match a with
@@ -734,15 +759,41 @@ let map_method_call (f : 'a -> 'b) (e : 'a method_call) : 'b method_call =
   | `Method_call (receiver, name, as_function, args) ->
     `Method_call (f receiver, name, as_function, List.map f args)
 
-let map_coercion (f : 'a -> 'b) (e : 'a coercions) : 'b coercions =
+let map_coercion (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) coercions)
+  : ('b, 'u) coercions
+  =
   match e with
-  | `Coerce (inner, trait, methods) -> `Coerce (f inner, trait, methods)
+  | `Coerce (inner, trait, slots) ->
+    `Coerce
+      ( f inner
+      , trait
+      , List.map
+          (fun (name, d) ->
+            name, { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets })
+          slots )
+
+let map_bound_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) bound_calls)
+  : ('b, 'u) bound_calls
+  =
+  match e with
+  | `Bound_call (receiver, name, d, args) ->
+    `Bound_call
+      ( f receiver
+      , name
+      , { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets }
+      , List.map f args )
+
+let map_dyn_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) dyn_calls)
+  : ('b, 'u) dyn_calls
+  =
+  match e with
+  | `Dyn_call (receiver, name, ty, args) ->
+    `Dyn_call (f receiver, name, g ty, List.map f args)
 
 let map_object (f : 'a -> 'b) (e : 'a objects) : 'b objects =
   match e with
   | `Object (data, vtable) -> `Object (f data, List.map (fun (l, v) -> l, f v) vtable)
-  | `Dyn_call (receiver, name, ty, args) ->
-    `Dyn_call (f receiver, name, ty, List.map f args)
+  | #dyn_calls as d -> (map_dyn_call f (fun t -> t) d :> 'b objects)
 
 let map_method_def (fs : 's1 -> 's2) (fa : 'a1 -> 'a2) (m : ('s1, 'a1) method_def)
   : ('s2, 'a2) method_def

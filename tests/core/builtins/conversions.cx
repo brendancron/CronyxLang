@@ -1,6 +1,6 @@
-// Rendering a value is `str`, or the `ToString` trait for a type that wants a
-// say in it. Parsing one is fallible, so it is an `impl TryFrom<string>` and
-// the failure is an effect rather than a sentinel.
+// Rendering a value is `str`, or `To<string>` for a type that wants a say in
+// it. Parsing one is fallible, so it is an `impl TryFrom<string>` and the
+// failure is an effect rather than a sentinel.
 effect Fallible { final ctl invalid(text: string); }
 
 trait TryFrom<S> { fn from(source: S): <Fallible> Self; }

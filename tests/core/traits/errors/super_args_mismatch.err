@@ -1,0 +1,1 @@
+[15:1] 'Derived' for 'Box' needs 'Base<int>', and has Base<string>.

@@ -21,6 +21,15 @@ type entry =
   ; emit : emission
   }
 
+(* [targets] is the trait's arguments as they were written, which is what one
+   impl's method is told apart by: `To<string>` and `To<bool>` on one type each
+   bring a `to`. *)
+type method_entry =
+  { mangled : string
+  ; trait : string option
+  ; targets : string list
+  }
+
 type t =
   {     containers : (string, container) Hashtbl.t
   ; (* Keyed by what the index is, so one type may be read by an int and
@@ -29,8 +38,8 @@ type t =
   ; constructors : (string, string) Hashtbl.t
   ; associated : (string * string, unit) Hashtbl.t
   ; (* An impl mangles its methods with the trait, so the written name alone
-       does not name a function. *)
-    entries : (string * string, string) Hashtbl.t
+       does not name a function, and one type may hold several of one name. *)
+    entries : (string * string, method_entry list) Hashtbl.t
   ; exact : (Ast.binop * Types.ty * Types.ty, entry) Hashtbl.t
   ; (* `-x`. One operand, so it cannot share [exact]'s key. *)
     unary : (Ast.unop * Types.ty, entry) Hashtbl.t
@@ -84,15 +93,55 @@ let indexed t name index =
 
 let is_indexed t name = overloads t name <> []
 
-(* The first stands: a call written by name cannot say which impl. *)
-let register_entry t owner method_ mangled =
-  if not (Hashtbl.mem t.entries (owner, method_))
-  then Hashtbl.replace t.entries (owner, method_) mangled
+let register_entry t owner method_ entry =
+  let known = Option.value ~default:[] (Hashtbl.find_opt t.entries (owner, method_)) in
+  Hashtbl.replace t.entries (owner, method_) (known @ [ entry ])
 
+let method_entries t owner method_ =
+  Option.value ~default:[] (Hashtbl.find_opt t.entries (owner, method_))
+
+(* The impl a method came from, as a diagnostic says it: `To<bool>`, or the type
+   itself for an impl that answers no trait. A name from another module carries
+   that module's prefix, which the program never wrote. *)
+let describe_entry owner e =
+  let written name =
+    match String.rindex_opt name '#' with
+    | Some at -> String.sub name (at + 1) (String.length name - at - 1)
+    | None -> name
+  in
+  match e.trait with
+  | None -> written owner
+  | Some trait ->
+    Printf.sprintf
+      "%s<%s>"
+      (written trait)
+      (String.concat ", " (List.map written e.targets))
+
+(* The written targets pick one, so `f.to<bool>()` reaches the impl that a call
+   by name alone could not. *)
+let entry_with_targets t owner method_ targets =
+  let matches e =
+    List.length e.targets = List.length targets
+    && List.for_all2 String.equal e.targets targets
+  in
+  List.find_opt matches (method_entries t owner method_)
+
+(* A bound names the entry outright, so a call it dispatched asks no table which
+   impl it reaches. *)
+let dispatched (d : Types.ty Ast.dispatch) owner method_ =
+  let written t = Option.value (Types.type_name t) ~default:"_" in
+  Ast.dispatched_method_name
+    owner
+    d.Ast.dp_trait
+    (List.map written d.Ast.dp_targets)
+    method_
+
+(* A call left ambiguous is rejected before here, so the head is the one entry
+   a receiver's method has. *)
 let entry_for_method t owner method_ =
-  match Hashtbl.find_opt t.entries (owner, method_) with
-  | Some mangled -> mangled
-  | None -> Ast.method_name owner method_
+  match method_entries t owner method_ with
+  | entry :: _ -> entry.mangled
+  | [] -> Ast.method_name owner method_
 
 (* No receiver is passed. The checker knows which these are; the passes that
    build the call have to be told. *)
