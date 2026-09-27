@@ -1,0 +1,15 @@
+effect Yield<T> {
+    ctl yield(value: T): unit;
+}
+
+// The first use fixes what the row carries, so the second has to agree with it.
+fn both() {
+    yield(1);
+    yield("two");
+}
+
+run {
+    both();
+} handle Yield {
+    ctl yield(v) { print(str(v)); resume; }
+}

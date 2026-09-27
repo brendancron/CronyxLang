@@ -159,6 +159,8 @@ The prelude is still a string in `lib/prelude.ml` rather than a unit the loader 
 
 **Re-exports, `module { }` blocks, module values.** Each is one more concept doing one job.
 
+**Exporting an effect.** A declaration an import can reach is a function, a type or a trait; an effect is none of them, so a module performs only the effects it declares. That keeps which transform a function gets a property of the file that declared the effect, which is what [Algebraic Effects](Algebraic%20Effects.md) needs to be able to ship a compiled dependency at all: a performed operation and its declaration are read together or not at all. `tests/effects/errors/across_modules` and `tests/effects/errors/named_import` pin both halves — the operation is undefined, and the effect's own name is not exported.
+
 **Packages.** They arrive as the boundary where cycles are *rejected* and interfaces are shipped — remediation 6's territory. Cycles staying legal within a program is coherent precisely because a program is one unit, the way they are legal inside a Rust crate and illegal between them.
 
 **A functor feature.** Not because functors are unwanted, but because a function with static parameters whose `meta` block reads a module's description and emits declarations already covers what one is used for. Building a second abstraction mechanism beside static params is how a language ends up with two ways to do everything.

@@ -1,0 +1,38 @@
+trait Base<A> {
+    fn base(self): A;
+}
+
+trait Derived<A>: Base<A> {
+    fn derived(self): A;
+}
+
+type Box { n: int }
+
+impl Base<int> for Box {
+    fn base(self): int { return self.n; }
+}
+
+impl Derived<int> for Box {
+    fn derived(self): int { return self.n * 2; }
+}
+
+impl Base<string> for Tag {
+    fn base(self): string { return self.label; }
+}
+
+type Tag { label: string }
+
+impl Derived<string> for Tag {
+    fn derived(self): string { return self.label + "!"; }
+}
+
+fn reached<X: Derived<int>>(x: X): int { return x.base() + x.derived(); }
+
+fn spoken<X: Derived<string>>(x: X): string { return x.base() + " " + x.derived(); }
+
+print(str(reached(Box { n: 10 })));
+print(spoken(Tag { label: "hi" }));
+
+fn through(x: Derived<int>): int { return x.base(); }
+
+print(str(through(Box { n: 7 })));

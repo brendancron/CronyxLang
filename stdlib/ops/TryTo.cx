@@ -1,0 +1,15 @@
+// A conversion that may not be possible. `Option` rather than an effect: there
+// is one way to fail and nothing to say about it, so a handler would only be
+// asked to produce a value the caller already has a branch for.
+trait TryTo<T> {
+    fn try_to(self): Option<T>;
+}
+
+// A string converts to either, so both calls write which: `s.try_to<int>()`.
+impl TryTo<int> for string {
+    fn try_to(self): Option<int> { return self.to_int(); }
+}
+
+impl TryTo<float> for string {
+    fn try_to(self): Option<float> { return self.to_float(); }
+}

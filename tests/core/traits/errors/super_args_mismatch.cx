@@ -1,0 +1,19 @@
+trait Base<A> {
+    fn base(self): A;
+}
+
+trait Derived<A>: Base<A> {
+    fn derived(self): A;
+}
+
+type Box { n: int }
+
+impl Base<string> for Box {
+    fn base(self): string { return str(self.n); }
+}
+
+impl Derived<int> for Box {
+    fn derived(self): int { return self.n * 2; }
+}
+
+print(str(Box { n: 1 }.derived()));

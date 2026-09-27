@@ -1,0 +1,32 @@
+trait To<T> {
+    fn to(self): T;
+}
+
+type Flag { raw: int }
+
+impl To<string> for Flag {
+    fn to(self): string { return "flag " + str(self.raw); }
+}
+
+impl To<bool> for Flag {
+    fn to(self): bool { return self.raw != 0; }
+}
+
+fn shown<T: To<string>>(value: T): string { return value.to(); }
+
+fn truthy<T: To<bool>>(value: T): bool { return value.to(); }
+
+var on = Flag { raw: 1 };
+var off = Flag { raw: 0 };
+
+print(shown(on));
+print(str(truthy(on)));
+print(str(truthy(off)));
+
+type Plain { n: int }
+
+impl To<string> for Plain {
+    fn to(self): string { return "plain " + str(self.n); }
+}
+
+print(shown(Plain { n: 7 }));

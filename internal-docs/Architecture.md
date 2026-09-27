@@ -49,17 +49,19 @@ Rewrites the surface control forms into the smaller set later passes handle — 
 
 Hindley-Milner inference with effect rows over what the walk emitted, under the `strict` policy, producing a tree in which every node carries its type. It is the only pass that reports more than one error, so a program with two unrelated mistakes says both; every other pass stops at the first.
 
+Which impl a method call reaches is also settled here, because this is where the receiver's type, the trait, and the trait's arguments are all in hand. A call on a receiver whose type is known becomes a plain call on the impl's function; one on a type variable keeps a node carrying the *dispatch* its bound gave it; one on a trait object becomes a dynamic call. No later pass re-derives the answer from the receiver's type and the method's name, which could not tell two impls of one trait apart. See [Elaboration](Elaboration.md).
+
 ### Type Monomorphize
 
-Copies a generic body per concrete type its call sites use, because an operator or method inside it cannot be selected while the type is still a variable. What it copies takes only types — written `<T>` parameters, and the implicit ones inference gives an unannotated parameter — and holds no `meta` block; any other template was already instantiated by the walk. Only bodies holding something type-directed are copied; one that merely moves values around keeps a single copy and stays generic.
+Copies a generic body per concrete type its call sites use, because an operator or method inside it cannot be selected while the type is still a variable. A copy fixes its receivers' types, so a call carrying a dispatch names its impl here. What it copies takes only types — written `<T>` parameters, and the implicit ones inference gives an unannotated parameter — and holds no `meta` block; any other template was already instantiated by the walk. Only bodies holding something type-directed are copied; one that merely moves values around keeps a single copy and stays generic.
 
 A trait type is concrete here, so a body taking a trait object is copied once and shared by every implementer — which is the whole point of having asked for one.
 
 ### Resolve
 
-Turns every construct whose meaning depended on a type into a primitive or a call — operators, compound assignment, indexing, collection literals, method calls. It also flattens every `impl` into ordinary functions, so nothing downstream knows that methods or operators exist.
+Turns every construct whose meaning depended on a type into a primitive or a call — operators, compound assignment, indexing, collection literals, and whatever calls through a bound the copies left. It also flattens every `impl` into ordinary functions, so nothing downstream knows that methods or operators exist.
 
-A coercion to a trait type becomes the value beside a table of the functions that trait's methods flattened to, and a method call on a trait-typed receiver becomes a call through that table. The table is built here because this is where the set of concrete types is final and every impl is already in hand.
+A coercion to a trait type becomes the value beside a table of the functions that trait's methods flattened to, and a dynamic call reads its target out of that table. The table is built here because this is where the set of concrete types is final and every impl is already in hand; which impl fills each slot was decided by the coercion, and this pass only names the function.
 
 ### Reflect
 

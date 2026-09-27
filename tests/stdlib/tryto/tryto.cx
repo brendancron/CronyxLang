@@ -1,0 +1,36 @@
+import { TryTo } from "std/ops/TryTo";
+import { To } from "std/ops/To";
+
+type Celsius { degrees: int }
+
+impl TryTo<Celsius> for int {
+    fn try_to(self): Option<Celsius> {
+        if (self < 0 - 273) { return Option.None; }
+        return Option.Some(Celsius { degrees: self });
+    }
+}
+
+fn reading<T: TryTo<Celsius>>(source: T): string {
+    match source.try_to() {
+        Option.Some(c) => { return c.degrees.to(); }
+        Option.None => { return "impossible"; }
+    }
+}
+
+match "42".try_to<int>() {
+    Option.Some(n) => { print(n.to()); }
+    Option.None => { print("not an int"); }
+}
+
+match "1.5".try_to<float>() {
+    Option.Some(x) => { print(str(x)); }
+    Option.None => { print("not a float"); }
+}
+
+match "seven".try_to<int>() {
+    Option.Some(n) => { print(n.to()); }
+    Option.None => { print("not an int"); }
+}
+
+print(reading(20));
+print(reading(0 - 300));

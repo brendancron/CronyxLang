@@ -1,0 +1,4 @@
+flag 1
+true
+false
+plain 7

@@ -1,0 +1,13 @@
+effect Yield<T> {
+    ctl yield(value: T): unit;
+}
+
+fn spelled(text: string): <Yield<int>> unit {
+    yield(text);
+}
+
+run {
+    spelled("a");
+} handle Yield {
+    ctl yield(v) { print(str(v)); resume; }
+}

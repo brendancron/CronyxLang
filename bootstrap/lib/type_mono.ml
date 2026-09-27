@@ -27,7 +27,7 @@ let rec type_directed_expr self (e : Ast.typed_expr) =
     || type_directed_expr c
   | `Compound_field (_, a, _, b) ->
     Types.has_generic e.Ast.ann || type_directed_expr a || type_directed_expr b
-  | `Method_call (receiver, _, _, args) ->
+  | `Bound_call (receiver, _, _, args) | `Dyn_call (receiver, _, _, args) ->
     operand receiver
     || type_directed_expr receiver
     || List.exists type_directed_expr args
@@ -119,10 +119,19 @@ let rec subst_expr ?(rows = []) mapping (e : Ast.typed_expr) : Ast.typed_expr =
     | #Ast.nominal as n -> (Ast.map_nominal (subst_expr mapping) n :> Ast.typed_expr_kind)
     | #Ast.collection as c ->
       (Ast.map_collection (subst_expr mapping) c :> Ast.typed_expr_kind)
-    | #Ast.method_call as m ->
-      (Ast.map_method_call (subst_expr mapping) m :> Ast.typed_expr_kind)
+    (* The dispatch is types, so a copy's targets are the copy's own. *)
+    | #Ast.bound_calls as b ->
+      (Ast.map_bound_call
+         (subst_expr mapping)
+         (Types.subst_generic ~rows mapping)
+         b
+       :> Ast.typed_expr_kind)
+    | #Ast.dyn_calls as d ->
+      (Ast.map_dyn_call (subst_expr mapping) (Types.subst_generic ~rows mapping) d
+       :> Ast.typed_expr_kind)
     | #Ast.coercions as c ->
-      (Ast.map_coercion (subst_expr mapping) c :> Ast.typed_expr_kind)
+      (Ast.map_coercion (subst_expr mapping) (Types.subst_generic ~rows mapping) c
+       :> Ast.typed_expr_kind)
     | #Ast.reflect as r -> (Ast.map_reflect (subst_expr mapping) r :> Ast.typed_expr_kind)
     | `Lambda (params, signature, body) ->
       `Lambda (params, signature, List.map (subst_stmt mapping) body)
@@ -203,21 +212,21 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
     match e.Ast.it with
     | `Lambda (params, signature, body) ->
       `Lambda (params, signature, List.map (rewrite_stmt state) body)
-        | `Method_call (receiver, name, as_function, args) ->
+    | `Bound_call (receiver, name, dispatch, args) ->
       let receiver = rewrite state receiver in
       let args = List.map (rewrite state) args in
-      (* A trait impl's method is mangled with the trait it answers, so the
-         registry is what says which entry a receiver's method is. *)
+      (* The receiver is a type by now or the body is still generic, and the
+         bound already said which impl a type answers with. *)
       let owned =
-        match Types.type_name receiver.Ast.ann with
-        | Some owner -> Some (Registry.entry_for_method state.registry owner name)
-        | None -> None
+        Option.map
+          (fun owner -> Registry.dispatched dispatch owner name)
+          (Types.type_name receiver.Ast.ann)
       in
       (match owned with
        | Some mangled when Hashtbl.mem state.generic mangled ->
          let at = method_call_type state mangled receiver args e.Ast.ann in
          if Types.has_generic at
-         then `Method_call (receiver, name, as_function, args)
+         then `Bound_call (receiver, name, dispatch, args)
          else (
            let copy = copy_for state mangled at in
            let passed =
@@ -226,7 +235,7 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
              | _ -> receiver :: args
            in
            `Call ({ receiver with Ast.it = `Var copy; ann = at }, passed))
-       | _ -> `Method_call (receiver, name, as_function, args))
+       | _ -> `Bound_call (receiver, name, dispatch, args))
     | `Call (callee, args) ->
       let args = List.map (rewrite state) args in
       (match callee.Ast.it with
@@ -249,7 +258,10 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
     | #Ast.nominal as n -> (Ast.map_nominal (rewrite state) n :> Ast.typed_expr_kind)
     | #Ast.collection as c ->
       (Ast.map_collection (rewrite state) c :> Ast.typed_expr_kind)
-    | #Ast.coercions as c -> (Ast.map_coercion (rewrite state) c :> Ast.typed_expr_kind)
+    | #Ast.coercions as c ->
+      (Ast.map_coercion (rewrite state) (fun t -> t) c :> Ast.typed_expr_kind)
+    | #Ast.dyn_calls as d ->
+      (Ast.map_dyn_call (rewrite state) (fun t -> t) d :> Ast.typed_expr_kind)
     | #Ast.reflect as r -> (Ast.map_reflect (rewrite state) r :> Ast.typed_expr_kind)
     | #Ast.run_expr as r ->
       (Ast.map_run_expr

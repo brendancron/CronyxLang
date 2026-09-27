@@ -1,0 +1,5 @@
+import "signal";
+
+fn halt(): int {
+    return stop("no reason");
+}

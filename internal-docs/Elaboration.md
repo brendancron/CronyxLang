@@ -275,6 +275,54 @@ An `impl` without a trait gives the methods to the type alone; naming a trait ad
 
 Dispatch needs the receiver's type where the call is written. A receiver whose type is still a variable has no answer, which is the same wall [`Polymorphism forces monomorphization`](#polymorphism-forces-monomorphization) describes for operators, and it lifts at the same time.
 
+### A second impl of one method is picked by writing its target
+
+A trait taking arguments may be implemented more than once for one type, and then `(type, method)` names several functions:
+
+```cronyx
+impl To<string> for Flag { fn to(self): string { … } }
+impl To<bool>   for Flag { fn to(self): bool   { … } }
+```
+
+Indexing tells its two `get`s apart by the index that is passed, and a conversion has nothing passed to tell them apart by — `f.to()` names both. So the target is written at the call:
+
+```cronyx
+f.to<string>()
+f.to<bool>()
+```
+
+The written arguments select an impl the same way the mangled name records them, and the call is lowered to that function directly. A bare `f.to()` on a type with several is an error naming them, rather than the first impl silently answering. A type with a single impl is unaffected: `p.to()` is how it is called, and writing the target is allowed but never required.
+
+This is selection from what the call writes, not from the type it is checked against. `var flag: bool = f.to();` is still an error: the checker infers the right-hand side before it compares against the annotation, so the annotation cannot reach the choice.
+
+### Which impl a call reaches is decided once
+
+A method call is resolved where the information to resolve it exists, and the decision travels with the call rather than being rebuilt later. `Typecheck` knows the receiver's type, the trait, and its arguments; `Type_mono` and `Resolve` know only a tree. So the checker settles it:
+
+- **A receiver whose type is known** becomes a plain `Call` on the impl's function. There is no method node left for a later pass to interpret, and no table for it to consult.
+- **A receiver that is still a type variable** becomes a `Bound_call` carrying a *dispatch* — the trait its bound named, and that trait's arguments. `Type_mono` names the entry from the dispatch once the copy fixes the receiver's type, and what is left reaches `Resolve` the same way.
+- **A receiver that is a trait object** becomes a `Dyn_call`, which dispatches on the table the value carries. A `Coerce` builds that table, and each slot carries the dispatch that picks the impl filling it — so an object of `To<bool>` holds `To<bool>`'s method and not whichever impl was registered first.
+
+The dispatch is what makes a bound work at all when a type has several impls:
+
+```cronyx
+fn shown<T: To<string>>(value: T): string { return value.to(); }
+fn truthy<T: To<bool>>(value: T): bool { return value.to(); }
+```
+
+Both bodies are written the obvious way, and each reaches the impl its bound names. A scheme that re-derived the entry from `(type, method)` at instantiation could not: by then the bound is gone, and the two calls look identical.
+
+A method a *supertrait* declares is dispatched under that supertrait, not under the bound that reached it, which is why the dispatch records the declaring trait rather than the one written. A supertrait's own arguments are written in its parent's parameters, so they are read with those bound:
+
+```cronyx
+trait Base<A> { fn base(self): A; }
+trait Derived<A>: Base<A> { fn derived(self): A; }
+
+fn reached<X: Derived<int>>(x: X): int { return x.base(); }
+```
+
+`base` is `Base`'s, at `A = int`, and the bound says so only through `Derived`. That substitution is also what an impl owes: `impl Derived<int>` is satisfied by `impl Base<int>` and by no other, so a type carrying `Base<string>` instead is rejected where the impl is written rather than found missing at run time.
+
 ## What this replaces
 
 The previous approach dispatched at runtime: a `HashMap` keyed by `(trait, type_name)`, consulted on every evaluation of an operator whose left operand was a struct, and reached only after falling through a match on the builtin cases. Selection here happens once, at compile time, and the builtin cases are entries rather than a fallthrough.

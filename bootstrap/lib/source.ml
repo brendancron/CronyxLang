@@ -25,7 +25,26 @@ let string_of_unop = function
   | Ast.Neg -> "-"
   | Ast.Not -> "!"
 
-let rec type_expr (t : Ast.type_expr) =
+let rec row_annotation entries =
+  match entries with
+  | [] -> ""
+  | entries ->
+    Printf.sprintf
+      " <%s>"
+      (String.concat
+         ", "
+         (List.map
+            (fun (label, args) ->
+              match args with
+              | [] -> label
+              | args ->
+                Printf.sprintf
+                  "%s<%s>"
+                  label
+                  (String.concat ", " (List.map type_expr args)))
+            entries))
+
+and type_expr (t : Ast.type_expr) =
   match t.Ast.it with
   | Ast.Ty_name name -> name
   | Ast.Ty_assoc (owner, member) -> type_expr owner ^ "." ^ member
@@ -45,9 +64,7 @@ let rec type_expr (t : Ast.type_expr) =
     Printf.sprintf
       "(%s) ->%s %s"
       (String.concat ", " (List.map type_expr params))
-      (match row with
-       | [] -> ""
-       | labels -> Printf.sprintf " <%s>" (String.concat ", " labels))
+      (row_annotation row)
       (type_expr ret)
 
 let annotation = function
@@ -76,8 +93,8 @@ let signature (sg : Ast.signature) =
     Printf.sprintf
       ":%s %s"
       (match sg.Ast.row with
-       | None | Some [] -> ""
-       | Some labels -> Printf.sprintf " <%s>" (String.concat ", " labels))
+       | None -> ""
+       | Some entries -> row_annotation entries)
       (type_expr ret)
 
 let rec expr (e : Ast.expr) : string =

@@ -627,10 +627,18 @@ let rec settle (t : infer_ty) : infer_ty =
 let rec rewrite_row label args (r : infer_row) : infer_row =
   match repr_row r with
   | RCons (l, found, rest) when String.equal l label ->
+    (* Read before unifying: a link a failure leaves behind would otherwise be
+       printed as what the row carried. *)
+    let performed = entry string_of_infer_ty (l, args)
+    and carried = entry string_of_infer_ty (l, found) in
     (try List.iter2 unify args found with
      | Invalid_argument _ ->
        error "Effect '%s' is used with %d argument(s) and %d here." l
-         (List.length found) (List.length args));
+         (List.length found) (List.length args)
+     (* The row was fixed by an earlier use, and blaming the types alone would
+        name this one without saying what it has to agree with. *)
+     | Type_error _ ->
+       error "This performs '%s', and the row already carries '%s'." performed carried);
     rest
   | RCons (l, found, rest) -> RCons (l, found, rewrite_row label args rest)
   | RVar ({ contents = RUnbound _ } as v) ->

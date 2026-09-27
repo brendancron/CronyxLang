@@ -1,0 +1,8 @@
+import "lib";
+import "signal";
+
+run {
+    print(lib.halt());
+} handle Signal {
+    final ctl stop(reason) { print("stopped: " + reason); }
+}

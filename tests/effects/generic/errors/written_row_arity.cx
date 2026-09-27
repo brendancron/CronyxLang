@@ -1,0 +1,13 @@
+effect Yield<T> {
+    ctl yield(value: T): unit;
+}
+
+fn counted(high: int): <Yield<int, bool>> unit {
+    yield(high);
+}
+
+run {
+    counted(1);
+} handle Yield {
+    ctl yield(n) { print(str(n)); resume; }
+}
