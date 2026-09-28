@@ -1,0 +1,9 @@
+import "../Colour";
+
+/** A circle, and the shade it is drawn in. */
+type Disc {
+    radius: int,
+
+    /** Drawn in this. */
+    shade: Colour.Shade,
+}

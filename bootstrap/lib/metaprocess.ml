@@ -49,6 +49,7 @@ let derived_eq span target : Ast.stmt =
                                 , [ at (`Var "self"); at (`Var "rhs") ] )))))
                   ]
               ; md_ann = ()
+              ; md_attrs = []
               }
             ]
         } ))
@@ -1178,6 +1179,13 @@ let rec fn_parts (s : Ast.stmt) =
   | `Attributed (_, inner) -> fn_parts inner
   | _ -> None
 
+(* [fn_parts] drops the wrapper, so a function inside a type body would arrive
+   at the impl it becomes with its attributes gone. *)
+let rec fn_attrs (s : Ast.stmt) =
+  match s.Ast.it with
+  | `Attributed (list, inner) -> list @ fn_attrs inner
+  | _ -> []
+
 let parts (e : entry) =
   match fn_parts e.written with
   | Some parts -> parts
@@ -2038,6 +2046,7 @@ and instantiate_type w (tt : type_template) static_args span =
             ; md_signature = sg
             ; md_body = with_values values (substitute_values values body)
             ; md_ann = ()
+            ; md_attrs = fn_attrs f
             })
           functions
       in
@@ -2339,7 +2348,13 @@ let types_of w (p : Ast.program) =
   let method_of (f : Ast.stmt) =
     match fn_parts f with
     | Some (name, params, sg, body) ->
-      { Ast.md_name = name; md_params = params; md_signature = sg; md_body = body; md_ann = () }
+      { Ast.md_name = name
+      ; md_params = params
+      ; md_signature = sg
+      ; md_body = body
+      ; md_ann = ()
+      ; md_attrs = fn_attrs f
+      }
     | None -> fail f.Ast.span "A type holds functions and meta blocks after its fields."
   in
   let template name params decl members =

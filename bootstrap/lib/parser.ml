@@ -47,6 +47,17 @@ let consume_identifier s message =
     name
   | _ -> raise (error s (peek s) message)
 
+(* `sig.Beep`: a declaration named through the module it was written in. The
+   parser only records the spelling; `Loader` is what resolves the qualification,
+   which is why the same helper serves `derive`, an effect and a handler. *)
+let rec qualified_name s message =
+  let head = consume_identifier s message in
+  if check s Token.Dot
+  then (
+    ignore (advance s);
+    head ^ "." ^ qualified_name s message)
+  else head
+
 let matches_binop s ops =
   let token_type = (peek s).Token.token_type in
   if List.mem token_type ops
@@ -179,7 +190,7 @@ and row_annotation s : (string * Ast.type_expr list) list =
   | None -> []
   | Some _ ->
     let entry s =
-      let label = consume_identifier s "Expected an effect name." in
+      let label = qualified_name s "Expected an effect name." in
       if check s Token.Less
       then (
         ignore (advance s);
@@ -769,13 +780,20 @@ and declaration s : Ast.stmt option =
     | Token.Type ->
       ignore (advance s);
       Some (type_decl s sp)
-    | Token.At ->
+    | Token.At | Token.Doc _ ->
       let list = attributes s in
       (match declaration s with
        | None -> None
        | Some inner ->
          if not (attachable inner)
-         then raise (error s tok "An attribute belongs to a declaration.");
+         then
+           raise
+             (error
+                s
+                tok
+                (match tok.Token.token_type with
+                 | Token.Doc _ -> "A doc comment belongs to a declaration."
+                 | _ -> "An attribute belongs to a declaration."));
          Some (Ast.at sp (`Attributed (list, inner))))
     | Token.Trait ->
       ignore (advance s);
@@ -793,20 +811,14 @@ and declaration s : Ast.stmt option =
        | None -> None)
     | Token.Derive ->
       ignore (advance s);
-      (* `named.Named`: the loader resolves a qualified name like any other. *)
-      let rec qualified s message =
-        let head = consume_identifier s message in
-        if check s Token.Dot
-        then (
-          ignore (advance s);
-          head ^ "." ^ qualified s message)
-        else head
-      in
       let traits =
-        comma_separated ~ends:(Token.For, "for") s (fun s -> qualified s "Expected a trait name.")
+        comma_separated
+          ~ends:(Token.For, "for")
+          s
+          (fun s -> qualified_name s "Expected a trait name.")
       in
       ignore (consume s Token.For "Expected 'for' after the traits to derive.");
-      let target = qualified s "Expected the type to derive for." in
+      let target = qualified_name s "Expected the type to derive for." in
       ignore (consume s Token.Semicolon "Expected ';' after a derive.");
       Some (Ast.at sp (`Derive (traits, target)))
     | Token.Meta ->
@@ -1156,6 +1168,7 @@ and trait_decl s sp : Ast.stmt =
       ignore (consume s Token.Semicolon "Expected ';' after an associated type.");
       loop (bound :: assoc) acc)
     else (
+      let attrs = attributes s in
       ignore (consume s Token.Fn "Expected a method signature.");
       let method_name = consume_identifier s "Expected a method name." in
       let static_params = static_params s in
@@ -1165,7 +1178,11 @@ and trait_decl s sp : Ast.stmt =
       ignore (consume s Token.Semicolon "Expected ';' after a method signature.");
       loop
         assoc
-        ({ Ast.ms_name = method_name; ms_params = params; ms_signature = signature }
+        ({ Ast.ms_name = method_name
+         ; ms_params = params
+         ; ms_signature = signature
+         ; ms_attrs = attrs
+         }
          :: acc))
   in
   let assoc, methods = loop [] [] in
@@ -1212,6 +1229,7 @@ and impl_decl s sp : Ast.stmt =
       ignore (consume s Token.Semicolon "Expected ';' after an associated type.");
       loop ((bound, value) :: assoc) acc)
     else (
+      let attrs = attributes s in
       ignore (consume s Token.Fn "Expected a method.");
       let method_name = consume_identifier s "Expected a method name." in
       let static_params = static_params s in
@@ -1226,6 +1244,7 @@ and impl_decl s sp : Ast.stmt =
          ; md_signature = signature
          ; md_body = block s
          ; md_ann = ()
+         ; md_attrs = attrs
          }
          :: acc))
   in
@@ -1237,10 +1256,14 @@ and impl_decl s sp : Ast.stmt =
    deriver reads, so there is nothing to evaluate and no stage that could. *)
 and attributes s =
   let rec loop acc =
-    match matches s [ Token.At ] with
-    | None -> List.rev acc
-    | Some at ->
-      let sp = Ast.span_of_token at in
+    let tok = peek s in
+    let sp = Ast.span_of_token tok in
+    match tok.Token.token_type with
+    | Token.Doc text ->
+      ignore (advance s);
+      loop ({ Ast.a_name = Ast.doc_attr; a_args = [ Ast.A_str text ]; a_span = sp } :: acc)
+    | Token.At ->
+      ignore (advance s);
       let name = consume_identifier s "Expected an attribute name." in
       let args =
         match matches s [ Token.Left_paren ] with
@@ -1255,6 +1278,7 @@ and attributes s =
           args
       in
       loop ({ Ast.a_name = name; a_args = args; a_span = sp } :: acc)
+    | _ -> List.rev acc
   in
   loop []
 
@@ -1380,7 +1404,7 @@ and handler_decl s sp : Ast.stmt =
   Ast.at sp (`Handler_decl (name, handler s))
 
 and handler s : Ast.stmt Ast.handler =
-  let handled = consume_identifier s "Expected an effect name." in
+  let handled = qualified_name s "Expected an effect name." in
   ignore (consume s Token.Left_brace "Expected '{' after effect name.");
   let rec loop acc =
     if check s Token.Right_brace || is_at_end s
@@ -1413,7 +1437,7 @@ and handler_clauses s : Ast.stmt Ast.handler_clause list =
       loop (Ast.Inline (handler s) :: acc)
     | Token.With ->
       ignore (advance s);
-      loop (Ast.Named (consume_identifier s "Expected a handler name.") :: acc)
+      loop (Ast.Named (qualified_name s "Expected a handler name.") :: acc)
     | _ -> List.rev acc
   in
   let handlers = loop [] in

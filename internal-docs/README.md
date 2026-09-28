@@ -27,5 +27,6 @@ This is separate from `docs/`, which is the Docusaurus site published for langua
 | [Attributes.md](Attributes.md)                               | `@name(…)` on a field or a variant, and why it cannot reach runtime   |
 | [Testing.md](Testing.md)                                     | `cx test`, and why a failed assertion is an effect                    |
 | [Attributes and Test Frameworks.md](Attributes%20and%20Test%20Frameworks.md) | Attributes as values, and a test runner written in Cronyx rather than in the compiler |
+| [Generated Documentation.md](Generated%20Documentation.md) | `cx docs`, doc comments, and where the API surface comes from |
 | [TODO.md](TODO.md)                                           | Decisions deferred deliberately, and what each one is waiting on      |
 | [GADT Refinement.md](GADT%20Refinement.md)                   | Refining a type parameter in a match arm, and the choice of how       |

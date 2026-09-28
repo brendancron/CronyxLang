@@ -1,0 +1,44 @@
+/** A point in the plane. */
+type Point {
+    /** How far along. */
+    x: int,
+
+    /**
+     * How far up.
+     *
+     * Measured from the origin.
+     */
+    y: int,
+}
+
+/** How dark it is. */
+@table("shades")
+type Shade {
+    /** No light at all. */
+    Dark,
+    Light,
+}
+
+meta {
+    print("Point: " + typeof(Point).doc);
+    match typeof(Point).shape {
+        TypeShape.Product(t, fields) => {
+            for (f in fields) {
+                print(str(f.name) + ": [" + f.doc + "]");
+            }
+        }
+        _ => {}
+    }
+    print("Shade: " + typeof(Shade).doc);
+    for (a in typeof(Shade).attrs) {
+        print("attr: " + str(a.name));
+    }
+    match typeof(Shade).shape {
+        TypeShape.Sum(t, variants) => {
+            for (v in variants) {
+                print(str(v.name) + ": [" + v.doc + "]");
+            }
+        }
+        _ => {}
+    }
+}

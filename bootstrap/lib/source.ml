@@ -225,7 +225,11 @@ and stmt depth (s : Ast.stmt) : string =
   let line = line depth in
   let braced head body = line (Printf.sprintf "%s {" head) ^ block (depth + 1) body ^ line "}" in
   match s.Ast.it with
-  | `Attributed (list, inner) -> line (String.trim (attrs list)) ^ stmt depth inner
+  | `Attributed (list, inner) ->
+    (match String.trim (attrs ~depth list) with
+     | "" -> ""
+     | written -> pad depth ^ written ^ "\n")
+    ^ stmt depth inner
   (* Printed back as it was written, rather than as the expression it is. *)
   | `Expr { Ast.it = `Run_expr (body, handlers, None); _ } when body.Ast.vb_value = None ->
     line "run {" ^ block (depth + 1) body.Ast.vb_stmts ^ handlers_of depth handlers
@@ -361,8 +365,9 @@ and stmt depth (s : Ast.stmt) : string =
         (List.map
            (fun (m : Ast.method_sig) ->
              Printf.sprintf
-               "%sfn %s(%s)%s;\n"
+               "%s%sfn %s(%s)%s;\n"
                (pad (depth + 1))
+               (attrs ~depth:(depth + 1) m.Ast.ms_attrs)
                m.Ast.ms_name
                (String.concat ", " (List.map param m.Ast.ms_params))
                (signature m.Ast.ms_signature))
@@ -412,7 +417,23 @@ and nested depth (s : Ast.stmt) =
   | `Block body -> block (depth + 1) body
   | _ -> stmt (depth + 1) s
 
-and attrs (list : Ast.attr list) =
+(* The border goes back on every line, which is what makes printing a doc the
+   inverse of scanning one: the scanner strips a border only when every line
+   carries one, so a body whose own lines begin with `*` -- a Markdown list --
+   comes back with them. *)
+and doc_comment depth text =
+  match String.split_on_char '\n' text with
+  | [] -> ""
+  | [ only ] -> Printf.sprintf "/** %s */\n%s" only (pad depth)
+  | lines ->
+    let bordered l = if String.equal l "" then pad depth ^ " *" else pad depth ^ " * " ^ l in
+    Printf.sprintf
+      "/**\n%s\n%s */\n%s"
+      (String.concat "\n" (List.map bordered lines))
+      (pad depth)
+      (pad depth)
+
+and attrs ?(depth = 0) (list : Ast.attr list) =
   let arg = function
     | Ast.A_str text -> Printf.sprintf "%S" text
     | Ast.A_int value -> string_of_int value
@@ -423,12 +444,16 @@ and attrs (list : Ast.attr list) =
     ""
     (List.map
        (fun (a : Ast.attr) ->
-         Printf.sprintf
-           "@%s%s "
-           a.Ast.a_name
-           (match a.Ast.a_args with
-            | [] -> ""
-            | args -> Printf.sprintf "(%s)" (String.concat ", " (List.map arg args))))
+         match a.Ast.a_name, a.Ast.a_args with
+         | name, [ Ast.A_str text ] when String.equal name Ast.doc_attr ->
+           doc_comment depth text
+         | name, args ->
+           Printf.sprintf
+             "@%s%s "
+             name
+             (match args with
+              | [] -> ""
+              | args -> Printf.sprintf "(%s)" (String.concat ", " (List.map arg args))))
        list)
 
 and type_decl ?(members = []) depth name params body =
@@ -461,7 +486,7 @@ and type_decl ?(members = []) depth name params body =
               Printf.sprintf
                 "%s%s%s: %s"
                 (pad (depth + 1))
-                (attrs f.Ast.f_attrs)
+                (attrs ~depth:(depth + 1) f.Ast.f_attrs)
                 f.Ast.f_name
                 (type_expr f.Ast.f_ty))
             fields)
@@ -473,7 +498,7 @@ and type_decl ?(members = []) depth name params body =
               Printf.sprintf
                 "%s%s%s%s%s%s"
                 (pad (depth + 1))
-                (attrs v.Ast.v_attrs)
+                (attrs ~depth:(depth + 1) v.Ast.v_attrs)
                 v.Ast.v_name
                 (match v.Ast.v_params with
                  | [] -> ""
@@ -562,7 +587,8 @@ and method_def depth (m : (Ast.stmt, unit) Ast.method_def) =
   let line = line depth in
   line
     (Printf.sprintf
-       "fn %s%s(%s)%s {"
+       "%sfn %s%s(%s)%s {"
+       (attrs ~depth m.Ast.md_attrs)
        m.Ast.md_name
        (static_params m.Ast.md_signature.Ast.static_params)
        (String.concat ", " (List.map param m.Ast.md_params))

@@ -1,0 +1,6 @@
+/** A point in the plane. */
+type Point {
+    /** How far along. */
+    x: int,
+    y: int,
+}

@@ -1,0 +1,9 @@
+Point: A point in the plane.
+x: [How far along.]
+y: [How far up.
+
+Measured from the origin.]
+Shade: How dark it is.
+attr: table
+Dark: [No light at all.]
+Light: []

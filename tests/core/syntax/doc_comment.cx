@@ -1,0 +1,44 @@
+/** How many times it ran. */
+var count = 0;
+
+/** Adds one. */
+fn bump() {
+    count = count + 1;
+}
+
+/** Two numbers side by side. */
+type Pair {
+    /** The left one. */
+    left: int,
+    right: int,
+}
+
+/** Anything with a written form. */
+trait Show {
+    /** The written form. */
+    @cheap
+    fn show(self): string;
+}
+
+/** A pair shows as its sum. */
+impl Show for Pair {
+    /** Adds the two and writes that. */
+    fn show(self): string {
+        return str(self.left + self.right);
+    }
+}
+
+impl Pair {
+    /** The larger of the two. */
+    @cheap
+    fn wider(self): int {
+        if (self.left > self.right) { return self.left; }
+        return self.right;
+    }
+}
+
+bump();
+bump();
+print(count);
+print(Pair { left: 1, right: 2 }.show());
+print(Pair { left: 1, right: 2 }.wider());

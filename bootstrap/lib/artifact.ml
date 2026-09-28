@@ -11,6 +11,10 @@
 type unit_interface =
   { namespace : string
   ; exports : string list
+  (* An effect's operations, which are members and so are absent from
+     [exports]: a consumer writing `sig.boop` needs to know that `boop` keeps
+     the name it was written with rather than taking the unit's. *)
+  ; operations : string list
   }
 
 (* Every file this artifact was built from, and what it held. A `meta` block

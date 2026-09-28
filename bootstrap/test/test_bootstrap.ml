@@ -65,6 +65,8 @@ let cases =
   ; "tests/effects/flip/flip"
   ; "tests/effects/recover/recover"
   ; "tests/effects/handler/handler"
+  ; "tests/effects/named_import/main"
+  ; "tests/effects/qualified_op/main"
   ; "tests/effects/stream/stream"
   ; "tests/effects/run_value/value"
   ; "tests/effects/run_value/return_clause"
@@ -98,6 +100,8 @@ let cases =
   ; "tests/core/strings/string_methods"
   ; "tests/core/strings/escapes"
   ; "tests/core/syntax/trailing_comma"
+  ; "tests/core/syntax/block_comment"
+  ; "tests/core/syntax/doc_comment"
   ; "tests/core/strings/string_index"
   ; "tests/core/chars/basics"
   ; "tests/core/chars/unicode"
@@ -313,6 +317,7 @@ let cases =
   ; "tests/meta/attributes/arguments"
   ; "tests/meta/attributes/without_derive"
   ; "tests/meta/attributes/declarations"
+  ; "tests/meta/attributes/doc_comments"
   ; "tests/core/records/nominal"
   ; "tests/core/enums/tuple_variants"
   ; "tests/core/enums/struct_variants"
@@ -444,6 +449,8 @@ let error_cases =
   ; "tests/meta/derive/errors/two_derivers"
   ; "tests/meta/attributes/errors/not_a_literal"
   ; "tests/meta/attributes/errors/not_a_declaration"
+  ; "tests/meta/attributes/errors/doc_not_a_declaration"
+  ; "tests/core/syntax/errors/unterminated_block_comment"
   ; "tests/reflection/errors/no_such_name"
   ; "tests/meta/code/errors/outside_meta"
   ; "tests/meta/code/errors/not_a_name"
@@ -474,7 +481,6 @@ let error_cases =
     (* An effect is declared where it is performed: nothing exports one, so a
        module reaches neither the operation nor the effect's own name. *)
   ; "tests/effects/errors/across_modules/main"
-  ; "tests/effects/errors/named_import/main"
   ; "tests/core/chars/errors/not_a_string"
   ; "tests/core/chars/errors/char_is_not_a_byte"
   ; "tests/core/strings/errors/immutable"
@@ -981,6 +987,52 @@ print(xs.len() < 3);
              false))
          expectations)
 
+(* Every file the library ships, reached by a fixture or not. Two modules under
+   `stdlib/lex/` rotted to a syntax the language had dropped, and stayed broken
+   because nothing compiled them: no fixture imported either, and both this
+   suite and `cx-parity.sh` only walk `tests/`. Parsing is the right depth --
+   `stdlib/ops/` legitimately fails to *check* on its own, since those modules
+   name builtins that exist only in a linked program. *)
+let run_stdlib_parses root =
+  let rec walk acc path =
+    if Sys.is_directory path
+    then
+      Array.fold_left
+        (fun acc entry -> walk acc (Filename.concat path entry))
+        acc
+        (Sys.readdir path)
+    else if Filename.check_suffix path ".cx"
+    then path :: acc
+    else acc
+  in
+  let files = List.sort String.compare (walk [] (Filename.concat root "stdlib")) in
+  let broken =
+    List.filter_map
+      (fun path ->
+        let named message = Some (Printf.sprintf "%s: %s" path message) in
+        match Source_map.File.load path with
+        | Error message -> named message
+        | Ok file ->
+          (match Scanner.scan_tokens file with
+           | Error (e :: _) -> named e.Scanner.message
+           | Error [] -> named "does not scan"
+           | Ok tokens ->
+             (match Parser.parse tokens with
+              | Error (e :: _) -> named e.Parser.message
+              | Error [] -> named "does not parse"
+              | Ok _ -> None)))
+      files
+  in
+  match broken with
+  | [] ->
+    Printf.printf "ok   every stdlib file parses (%d)\n" (List.length files);
+    true
+  | broken ->
+    Printf.printf
+      "FAIL stdlib files that do not parse:\n%s\n"
+      (String.concat "\n" (List.map (fun m -> "  " ^ m) broken));
+    false
+
 let () =
   match repo_root () with
   | None ->
@@ -998,7 +1050,7 @@ let () =
       @ List.map (run_round_trip root) cases
       @ List.map (run_expected_failing root) expected_failing
       @ List.map (run_known_unsound root) known_unsound
-      @ [ run_partition root; run_rendering (); run_prelude_walk () ]
+      @ [ run_partition root; run_rendering (); run_prelude_walk (); run_stdlib_parses root ]
     in
     let failed = List.length (List.filter not results) in
     Printf.printf "\n%d/%d passed\n" (List.length results - failed) (List.length results);

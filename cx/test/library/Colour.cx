@@ -1,0 +1,6 @@
+/** How dark a thing is. */
+type Shade {
+    /** No light at all. */
+    Dark,
+    Light,
+}

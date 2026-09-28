@@ -279,8 +279,23 @@ let rec declared_name (s : Ast.stmt) =
   | `Type_decl (name, _, _) -> Some name
   | `Type_members (decl, _) -> declared_name decl
   | `Trait_decl (name, _, _) -> Some name
+  (* An effect and a handler are declarations like any other: both carry the
+     unit's name and both are imported by it. Their *operations* are not --
+     an operation is a member of its effect, reached through it. *)
+  | `Effect_decl (name, _, _) -> Some name
+  | `Handler_decl (name, _) -> Some name
   | `Attributed (_, inner) -> declared_name inner
   | _ -> None
+
+(* An operation is a member, so it keeps the name it was written with wherever
+   it is called. `Typecheck` already refuses two effects that declare one
+   operation name, so a member name is unique across a linked program without
+   being mangled to say so. *)
+let rec operations (s : Ast.stmt) =
+  match s.Ast.it with
+  | `Effect_decl (_, _, ops) -> List.map (fun (o : Ast.op_decl) -> o.Ast.op_name) ops
+  | `Attributed (_, inner) -> operations inner
+  | _ -> []
 
 let rec is_declaration (s : Ast.stmt) =
   match s.Ast.it with
@@ -342,14 +357,18 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
       | Ast.Ty_record fields ->
         Ast.Ty_record (List.map (fun (l, t) -> l, type_expr t) fields)
       | Ast.Ty_fn (params, ret, row) ->
-        Ast.Ty_fn (List.map type_expr params, type_expr ret, row)
+        Ast.Ty_fn (List.map type_expr params, type_expr ret, effect_row row)
     in
     { t with Ast.it }
+  (* A written row names effects, which are declarations and so are resolved
+     like one. *)
+  and effect_row row =
+    List.map (fun (label, args) -> resolve_type label, List.map type_expr args) row
   in
   let param (p : Ast.param) = { p with Ast.ty = Option.map type_expr p.Ast.ty } in
   let signature (sg : Ast.signature) =
-    { sg with
-      Ast.ret = Option.map type_expr sg.Ast.ret
+    { Ast.ret = Option.map type_expr sg.Ast.ret
+    ; row = Option.map effect_row sg.Ast.row
     ; static_params =
         List.map
           (fun (c : Ast.static_param) ->
@@ -357,7 +376,17 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
           sg.Ast.static_params
     }
   in
-  let rec expr locals (e : Ast.expr) : Ast.expr =
+  (* An arm's name is an operation, which is a member and keeps the name it was
+     written with. What is resolved is the effect a handler names and the
+     handler a `with` names, both of which are declarations. *)
+  let rec handler_clause locals (c : Ast.stmt Ast.handler_clause) =
+    match c with
+    | Ast.Inline h ->
+      Ast.Inline
+        { (Ast.map_handler (stmt locals) h) with Ast.handled = resolve_type h.Ast.handled }
+    | Ast.Named name -> Ast.Named (resolve_type name)
+
+  and expr locals (e : Ast.expr) : Ast.expr =
     let go = expr locals in
     let it : Ast.expr_kind =
       match e.Ast.it with
@@ -428,12 +457,7 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
       | #Ast.static_call as c -> (Ast.map_static_call go c :> Ast.expr_kind)
       | #Ast.reflect as r -> (Ast.map_reflect go r :> Ast.expr_kind)
       | #Ast.run_expr as r ->
-        let clause (c : Ast.stmt Ast.handler_clause) =
-          match c with
-          | Ast.Inline h -> Ast.Inline (Ast.map_handler (stmt locals) h)
-          | Ast.Named name -> Ast.Named name
-        in
-        (Ast.map_run_expr go (stmt locals) clause r :> Ast.expr_kind)
+        (Ast.map_run_expr go (stmt locals) (handler_clause locals) r :> Ast.expr_kind)
     in
     { e with Ast.it }
   and stmt locals (s : Ast.stmt) : Ast.stmt =
@@ -534,13 +558,23 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
           , Option.map (expr inner) step
           , stmt inner body )
       | #Ast.effects as e ->
-        let clause (c : Ast.stmt Ast.handler_clause) =
-          match c with
-          | Ast.Inline h -> Ast.Inline (Ast.map_handler (stmt locals) h)
-          | Ast.Named name -> Ast.Named name
+        let clause = handler_clause locals in
+        let e =
+          match e with
+          | `Effect_decl (name, params, ops) ->
+            `Effect_decl
+              ( (if Hashtbl.mem own name then rename name else name)
+              , params
+              , ops )
+          | other -> other
         in
         (Ast.map_effects (expr locals) (stmt locals) clause e :> Ast.stmt_kind)
-      | `Handler_decl (name, h) -> `Handler_decl (name, Ast.map_handler (stmt locals) h)
+      | `Handler_decl (name, h) ->
+        `Handler_decl
+          ( (if Hashtbl.mem own name then rename name else name)
+          , { (Ast.map_handler (stmt locals) h) with
+              Ast.handled = resolve_type h.Ast.handled
+            } )
             | `Match (scrutinee, cases) ->
         `Match
           ( expr locals scrutinee
@@ -575,25 +609,15 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
 (* [entry_namespace] is the name a consumer reaches this package by, which is
    the package's own rather than its entry file's: `src/lib.cx` is imported as
    the package. *)
-let package ?(roots = anywhere) ?entry_namespace ?seeds entry_path =
-  let entry_unit, rest = load roots ?namespace:entry_namespace ?seeds entry_path in
-  (* A file run on its own keeps its declarations under the names it wrote; a
-     package carries them under its own, because a consumer will link them
-     beside somebody else's. *)
-  let plain_entry = Option.is_none entry_namespace in
-  (* Every unit of the package being compiled, not only its entry. A unit that
-     already names a package came from somewhere else. *)
-  let owned (u : unit_) =
-    match entry_namespace with
-    | Some package when String.equal u.package "" -> { u with package }
-    | _ -> u
-  in
-  let entry_unit = owned entry_unit in
-  let rest = List.map owned rest in
+(* [entry_unit] is the file being run, when there is one. A library has none:
+   its modules are all imported and none is a program, so nothing keeps plain
+   names and no statements run. *)
+let assemble roots ~plain_entry ~entry_unit ~rest =
+  let all = Option.to_list entry_unit @ rest in
   let table = Hashtbl.create 8 in
   (* Keyed by file rather than by namespace: two packages may each hold a unit
      of the same name, and only the path tells them apart. *)
-  List.iter (fun u -> Hashtbl.replace table u.path (u, exports u)) (entry_unit :: rest);
+  List.iter (fun u -> Hashtbl.replace table u.path (u, exports u)) all;
   let resolve_unit u ~entry =
     let own = Hashtbl.create 8 in
     List.iter (fun name -> Hashtbl.replace own name ()) (exports u);
@@ -607,7 +631,8 @@ let package ?(roots = anywhere) ?entry_namespace ?seeds entry_path =
           match resolve_import roots span ~from:u.path written with
           | File path ->
             (match Hashtbl.find_opt table (normalize path) with
-             | Some (unit_, exports) -> Some (unit_, exports)
+             | Some (unit_, exports) ->
+               Some (unit_, exports, List.concat_map operations unit_.program)
              | None -> None)
           | Compiled (package, interface) ->
             (* The declarations are already in the program, mangled by whoever
@@ -618,18 +643,35 @@ let package ?(roots = anywhere) ?entry_namespace ?seeds entry_path =
                 ; package
                 ; program = []
                 }
-              , interface.Artifact.exports )
+              , interface.Artifact.exports
+              , interface.Artifact.operations )
         in
         match found with
         | None -> fail span "Module '%s' was not loaded." target
-        | Some (target_unit, target_exports) ->
+        | Some (target_unit, target_exports, target_operations) ->
           let is_entry =
-            plain_entry && String.equal target_unit.path entry_unit.path
+            plain_entry
+            &&
+            match entry_unit with
+            | Some e -> String.equal target_unit.path e.path
+            | None -> false
+          in
+          (* `sig.boop` names an operation, which is a member and keeps the name
+             it was written with; `sig.Beep` names the effect, which carries the
+             unit's. A dependency reached as an artifact has no program here, so
+             its operations come from the interface it recorded. *)
+          let target_ops =
+            match target_unit.program with
+            | [] -> target_operations
+            | program -> List.concat_map operations program
           in
           let bind under =
             if Hashtbl.mem aliases under
             then fail span "'%s' is already bound. Import one of them with `as`." under;
-            Hashtbl.replace aliases under (fun name -> renamed target_unit ~entry:is_entry name)
+            Hashtbl.replace aliases under (fun name ->
+              if List.mem name target_ops
+              then name
+              else renamed target_unit ~entry:is_entry name)
           in
           (match decl with
            | Ast.Qualified _ -> bind target
@@ -668,9 +710,50 @@ let package ?(roots = anywhere) ?entry_namespace ?seeds entry_path =
   ( List.concat_map
       (fun u -> List.map (deferred u) (declarations_of u ~entry:false ~keep:false))
       rest
-    @ declarations_of entry_unit ~entry:plain_entry ~keep:true
+    @ (match entry_unit with
+       | None -> []
+       | Some u -> declarations_of u ~entry:plain_entry ~keep:true)
   , List.map
-      (fun u -> { Artifact.namespace = u.namespace; exports = exports u })
-      (entry_unit :: rest) )
+      (fun u ->
+        { Artifact.namespace = u.namespace
+        ; exports = exports u
+        ; operations = List.concat_map operations u.program
+        })
+      all )
+
+let package ?(roots = anywhere) ?entry_namespace ?seeds entry_path =
+  let entry_unit, rest = load roots ?namespace:entry_namespace ?seeds entry_path in
+  (* Every unit of the package being compiled, not only its entry. A unit that
+     already names a package came from somewhere else. *)
+  let owned (u : unit_) =
+    match entry_namespace with
+    | Some package when String.equal u.package "" -> { u with package }
+    | _ -> u
+  in
+  assemble
+    roots
+    (* A file run on its own keeps its declarations under the names it wrote; a
+       package carries them under its own, because a consumer will link them
+       beside somebody else's. *)
+    ~plain_entry:(Option.is_none entry_namespace)
+    ~entry_unit:(Some (owned entry_unit))
+    ~rest:(List.map owned rest)
+
+(* A set of modules with no program among them: the standard library, which is
+   not a package and has no entry to be loaded from. Every module is a module,
+   so nothing keeps plain names and no top-level statement is kept. *)
+let library ?(roots = anywhere) ~package:name paths =
+  match paths with
+  | [] -> [], []
+  | first :: _ ->
+    (* No [namespace] argument, so the file that happens to be walked first is
+       named after itself like every other rather than after the library. *)
+    let entry_unit, rest = load roots ~seeds:paths first in
+    let owned (u : unit_) = if String.equal u.package "" then { u with package = name } else u in
+    assemble
+      roots
+      ~plain_entry:false
+      ~entry_unit:None
+      ~rest:(List.map owned (entry_unit :: rest))
 
 let program ?roots entry_path = fst (package ?roots entry_path)

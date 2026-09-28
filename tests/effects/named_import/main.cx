@@ -1,8 +1,8 @@
-import "lib";
 import { Signal } from "signal";
 
 run {
-    print(lib.halt());
+    stop("no reason");
+    print("unreachable");
 } handle Signal {
     final ctl stop(reason) { print("stopped: " + reason); }
 }

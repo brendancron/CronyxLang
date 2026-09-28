@@ -81,6 +81,122 @@ let line_comment s =
     ignore (advance s)
   done
 
+let rstrip line =
+  let n = ref (String.length line) in
+  while !n > 0 && (match line.[!n - 1] with ' ' | '\t' | '\r' -> true | _ -> false) do
+    decr n
+  done;
+  String.sub line 0 !n
+
+let blank line = String.equal (String.trim line) ""
+
+let rec drop_blank = function
+  | line :: rest when blank line -> drop_blank rest
+  | lines -> lines
+
+(* The `*` down the left of a doc comment is border rather than text, and it
+   comes off only when every line carries one. Stripping line by line would eat
+   the bullets of a comment whose body is a Markdown list and whose lines
+   therefore start with `*` for their own reasons. *)
+let undecorate lines =
+  let bordered line =
+    let rest = String.trim line in
+    blank rest || Char.equal rest.[0] '*'
+  in
+  if not (List.for_all bordered lines)
+  then lines
+  else
+    List.map
+      (fun line ->
+        let n = String.length line in
+        let i = ref 0 in
+        while !i < n && (match line.[!i] with ' ' | '\t' -> true | _ -> false) do
+          incr i
+        done;
+        if !i >= n || not (Char.equal line.[!i] '*')
+        then ""
+        else (
+          incr i;
+          if !i < n && Char.equal line.[!i] ' ' then incr i;
+          String.sub line !i (n - !i)))
+      lines
+
+let outdent lines =
+  let indent line =
+    if blank line
+    then None
+    else (
+      let n = String.length line in
+      let i = ref 0 in
+      while !i < n && Char.equal line.[!i] ' ' do
+        incr i
+      done;
+      Some !i)
+  in
+  let common =
+    List.fold_left
+      (fun acc line ->
+        match indent line, acc with
+        | None, acc -> acc
+        | Some i, None -> Some i
+        | Some i, Some j -> Some (min i j))
+      None
+      lines
+  in
+  match common with
+  | None | Some 0 -> lines
+  | Some k ->
+    List.map (fun l -> if blank l then "" else String.sub l k (String.length l - k)) lines
+
+(* The first line opens beside the `/**` and so has no indentation of its own
+   to measure; the rest are outdented together, which keeps a fenced block
+   indented relative to the prose around it. *)
+let doc_text raw =
+  match List.map rstrip (String.split_on_char '\n' raw) with
+  | [] -> ""
+  | first :: rest ->
+    let lines = String.trim first :: outdent (undecorate rest) in
+    String.concat "\n" (List.rev (drop_blank (List.rev (drop_blank lines))))
+
+(* `/*` nests, so commenting out a region that already holds a comment ends
+   where it was written to end rather than at the first `*/` inside it.
+
+   A doc comment is `/**` followed by neither `*` nor `/`, which leaves `/**/`
+   an empty comment and `/*** … ***/` a banner. *)
+let block_comment s =
+  let doc =
+    Char.equal (peek s) '*'
+    && (not (Char.equal (peek_next s) '*'))
+    && not (Char.equal (peek_next s) '/')
+  in
+  if doc then ignore (advance s);
+  let from = s.current in
+  let rec scan depth =
+    if is_at_end s
+    then None
+    else (
+      let c = advance s in
+      if Char.equal c '*' && Char.equal (peek s) '/'
+      then (
+        ignore (advance s);
+        if depth = 1 then Some (s.current - 2) else scan (depth - 1))
+      else if Char.equal c '/' && Char.equal (peek s) '*'
+      then (
+        ignore (advance s);
+        scan (depth + 1))
+      else scan depth)
+  in
+  match scan 1 with
+  | None -> error s "Unterminated block comment."
+  | Some stop ->
+    if doc
+    then (
+      let text = doc_text (String.sub s.source from (stop - from)) in
+      (* Escaped, so a multi-line comment stays one line of `--dump-tokens`. *)
+      s.tokens
+      <- Token.make (Token.Doc text) ~lexeme:(String.escaped text) ~span:(span_here s)
+         :: s.tokens)
+
 (* Anything else after a backslash is a typo more often than an intent. *)
 let escaped s =
   if is_at_end s
@@ -220,6 +336,8 @@ let scan_token s =
   | '/' ->
     if matches s '/'
     then line_comment s
+    else if matches s '*'
+    then block_comment s
     else add_token s (if matches s '=' then Token.Slash_equal else Token.Slash)
   | '%' -> add_token s (if matches s '=' then Token.Percent_equal else Token.Percent)
   | '@' -> add_token s Token.At
