@@ -1,0 +1,32 @@
+/** Anything with a written form. */
+trait Show {
+    /** The written form. */
+    fn show(self): string;
+}
+
+/** How dark it is. */
+type Shade {
+    /** No light at all. */
+    Dark,
+    Light,
+}
+
+impl Show for Shade {
+    /** Writes the variant's own name. */
+    fn show(self): string {
+        match self {
+            Shade.Dark => { return "dark"; }
+            _ => { return "light"; }
+        }
+    }
+}
+
+/** Asking for a colour that was never set. */
+effect Missing {
+    final ctl absent(what: string);
+}
+
+/** Reports a missing colour and carries on. */
+handler quiet : Missing {
+    final ctl absent(what) { print("missing: " + what); }
+}

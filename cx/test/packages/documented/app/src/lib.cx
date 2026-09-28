@@ -1,0 +1,6 @@
+import "shapes";
+
+/** The point both axes pass through. */
+fn origin(): shapes.Point {
+    return shapes.Point { x: 0, y: 0 };
+}

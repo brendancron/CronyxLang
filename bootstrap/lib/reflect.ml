@@ -44,13 +44,39 @@ let declared_attrs (ty : Types.ty) =
 
 let field_ty =
   Types.Named
-    (Types.field_name, [], [ "attrs", Types.array attr_ty; "name", Types.name ])
+    ( Types.field_name
+    , []
+    , [ "attrs", Types.array attr_ty; "doc", Types.Str; "name", Types.name ] )
 
 let variant_ty =
   Types.Named
     ( Types.variant_name
     , []
-    , [ "arity", Types.Int; "attrs", Types.array attr_ty; "name", Types.name ] )
+    , [ "arity", Types.Int
+      ; "attrs", Types.array attr_ty
+      ; "doc", Types.Str
+      ; "name", Types.name
+      ] )
+
+let field_fields = [ "attrs", Types.array attr_ty; "doc", Types.Str; "name", Types.name ]
+
+let variant_fields =
+  [ "arity", Types.Int
+  ; "attrs", Types.array attr_ty
+  ; "doc", Types.Str
+  ; "name", Types.name
+  ]
+
+(* A doc comment is carried as an attribute and presented as a doc, so it is
+   taken out of the list before anything sees it: `attrs` never reports one and
+   there is no `@doc` to match on. *)
+let doc_of (list : Ast.attr list) =
+  match List.find_opt (fun (a : Ast.attr) -> String.equal a.Ast.a_name Ast.doc_attr) list with
+  | Some { Ast.a_args = [ Ast.A_str text ]; _ } -> text
+  | _ -> ""
+
+let written (list : Ast.attr list) =
+  List.filter (fun (a : Ast.attr) -> not (String.equal a.Ast.a_name Ast.doc_attr)) list
 
 let attrs_at span (list : Ast.attr list) =
   let arg (a : Ast.attr_arg) =
@@ -88,11 +114,13 @@ let shape_of span (ty : Types.ty) =
   | Types.Unit -> one "Scalar"
   | Types.Named (name, _, fields) when not (String.equal name Types.array_name) ->
     let each (label, _) =
+      let carried = Typecheck.attrs_of name label in
       record_at
         span
         Types.field_name
-        [ "attrs", Types.array attr_ty; "name", Types.name ]
-        [ "attrs", attrs_at span (Typecheck.attrs_of name label)
+        field_fields
+        [ "attrs", attrs_at span (written carried)
+        ; "doc", string_at span (doc_of carried)
         ; "name", name_at span label
         ]
     in
@@ -113,12 +141,14 @@ let shape_of span (ty : Types.ty) =
         | Ast.P_tuple items -> List.length items
         | Ast.P_fields items -> List.length items
       in
+      let carried = Typecheck.attrs_of name label in
       record_at
         span
         Types.variant_name
-        [ "arity", Types.Int; "attrs", Types.array attr_ty; "name", Types.name ]
+        variant_fields
         [ "arity", node span Types.Int (`Int arity)
-        ; "attrs", attrs_at span (Typecheck.attrs_of name label)
+        ; "attrs", attrs_at span (written carried)
+        ; "doc", string_at span (doc_of carried)
         ; "name", name_at span label
         ]
     in
@@ -136,7 +166,9 @@ let rec expr (e : Ast.resolved_expr) : Ast.reflected_expr =
     | `Field ({ Ast.it = `Typeof inner; _ }, "shape") ->
       (shape_of e.Ast.span inner.Ast.ann).Ast.it
     | `Field ({ Ast.it = `Typeof inner; _ }, "attrs") ->
-      (attrs_at e.Ast.span (declared_attrs inner.Ast.ann)).Ast.it
+      (attrs_at e.Ast.span (written (declared_attrs inner.Ast.ann))).Ast.it
+    | `Field ({ Ast.it = `Typeof inner; _ }, "doc") ->
+      (string_at e.Ast.span (doc_of (declared_attrs inner.Ast.ann))).Ast.it
     | `Typeof _ ->
       fail
         e.Ast.span

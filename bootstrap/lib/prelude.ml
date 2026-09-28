@@ -14,8 +14,8 @@ type AttrArg {
     Bool(bool),
 }
 type Attr { name: Name, args: Array<AttrArg> }
-type TypeField { name: Name, attrs: Array<Attr> }
-type TypeVariant { name: Name, arity: int, attrs: Array<Attr> }
+type TypeField { name: Name, doc: string, attrs: Array<Attr> }
+type TypeVariant { name: Name, arity: int, doc: string, attrs: Array<Attr> }
 type TypeShape {
     Scalar,
     Product(Name, Array<TypeField>),

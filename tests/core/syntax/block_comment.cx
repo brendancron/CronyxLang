@@ -1,0 +1,13 @@
+/* One line. */
+var a = 1;
+
+/* Spanning
+   more than one. */
+var b = 2;
+
+/* Nesting, so /* this */ does not end it. */
+var c = 3;
+
+var d = 4; /**/ var e = 5; /***/
+
+print(a + b + c + d + e);

@@ -1,0 +1,100 @@
+{
+  "format": 1,
+  "compiler": "<version>",
+  "root": "std",
+  "packages": [
+    {
+      "name": "std",
+      "version": "<version>",
+      "units": [
+        {
+          "namespace": "Colour",
+          "doc": null,
+          "entries": [
+            {
+              "id": "std#Colour#Shade",
+              "package": "std",
+              "unit": "Colour",
+              "name": "Shade",
+              "kind": "type",
+              "exported": true,
+              "doc": "How dark a thing is.",
+              "attrs": [],
+              "generics": [],
+              "body": {
+                "form": "variants",
+                "variants": [
+                  {
+                    "name": "Dark",
+                    "generics": [],
+                    "payload": {
+                      "form": "none"
+                    },
+                    "result": null,
+                    "doc": "No light at all.",
+                    "attrs": []
+                  },
+                  {
+                    "name": "Light",
+                    "generics": [],
+                    "payload": {
+                      "form": "none"
+                    },
+                    "result": null,
+                    "doc": null,
+                    "attrs": []
+                  }
+                ]
+              },
+              "impls": []
+            }
+          ]
+        },
+        {
+          "namespace": "Round",
+          "doc": null,
+          "entries": [
+            {
+              "id": "std#Round#Disc",
+              "package": "std",
+              "unit": "Round",
+              "name": "Disc",
+              "kind": "type",
+              "exported": true,
+              "doc": "A circle, and the shade it is drawn in.",
+              "attrs": [],
+              "generics": [],
+              "body": {
+                "form": "fields",
+                "fields": [
+                  {
+                    "name": "radius",
+                    "type": {
+                      "kind": "name",
+                      "name": "int",
+                      "ref": null,
+                      "param": false
+                    },
+                    "doc": null,
+                    "attrs": []
+                  },
+                  {
+                    "name": "shade",
+                    "type": {
+                      "kind": "name",
+                      "name": "Shade",
+                      "ref": "std#Colour#Shade"
+                    },
+                    "doc": "Drawn in this.",
+                    "attrs": []
+                  }
+                ]
+              },
+              "impls": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -40,6 +40,11 @@ let bad_packages =
    not what the program prints. *)
 let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "crashing_test" ]
 
+(* Paired with an `expected.json` of the documentation index, which is compared
+   twice: once built cold and once over the artifacts the first build left, so
+   the index is a function of the source rather than of the cache. *)
+let doc_packages = [ "documented/app" ]
+
 let repo_root () =
   let marker = Filename.concat "cx" (Filename.concat "test" "manifests") in
   let rec up dir =
@@ -354,6 +359,188 @@ let package_case dir name =
     Printf.printf "FAIL package/%s\n  %s\n" name (diagnostics ~root:dir root errors);
     false
 
+let replaced ~from ~into text =
+  let n = String.length from in
+  let buf = Buffer.create (String.length text) in
+  let rec go i =
+    if i + n <= String.length text && String.equal (String.sub text i n) from
+    then (
+      Buffer.add_string buf into;
+      go (i + n))
+    else if i < String.length text
+    then (
+      Buffer.add_char buf text.[i];
+      go (i + 1))
+    else Buffer.contents buf
+  in
+  go 0
+
+(* The compiler's version is in the index and moves every release, so the
+   fixture names it rather than pinning it. *)
+let indexed root =
+  match Cx.Docs.of_package root with
+  | Error errors -> Error errors
+  | Ok index ->
+    Ok
+      (replaced
+         ~from:("\"" ^ Release.version ^ "\"")
+         ~into:"\"<version>\""
+         (Cx.Json.to_string index))
+
+(* Cold and warm both, as a package fixture is: an index built over cached
+   artifacts must be the index built from source, byte for byte. *)
+let doc_package_case dir name =
+  let root = Filename.concat dir name in
+  let expected = read_file (Filename.concat root "expected.json") in
+  clean dir;
+  match indexed root, indexed root with
+  | Ok cold, Ok warm ->
+    compare_case ("docs/" ^ name) ~expected ~actual:cold
+    && compare_case ("docs/" ^ name ^ " (again)") ~expected ~actual:warm
+  | Error errors, _ | _, Error errors ->
+    Printf.printf "FAIL docs/%s\n  %s\n" name (diagnostics ~root:dir root errors);
+    false
+
+(* The renderer's contract is that every reference resolves and that every
+   declaration has somewhere to be. A diff of generated HTML would check neither
+   and would break on any change of style, so the pages are crawled instead. *)
+let render_packages = [ "documented/app"; "geom" ]
+
+let html_files dir =
+  let rec walk acc path =
+    if Sys.is_directory path
+    then
+      Array.fold_left
+        (fun acc entry -> walk acc (Filename.concat path entry))
+        acc
+        (Sys.readdir path)
+    else if Filename.check_suffix path ".html"
+    then path :: acc
+    else acc
+  in
+  List.sort String.compare (walk [] dir)
+
+(* Every `href="…"` in a page, as written. *)
+let hrefs text =
+  let opener = "href=\"" in
+  let n = String.length opener in
+  let rec go i acc =
+    if i + n > String.length text
+    then List.rev acc
+    else if String.equal (String.sub text i n) opener
+    then (
+      let start = i + n in
+      match String.index_from_opt text start '"' with
+      | None -> List.rev acc
+      | Some stop -> go stop (String.sub text start (stop - start) :: acc))
+    else go (i + 1) acc
+  in
+  go 0 []
+
+let contains ~needle text =
+  let n = String.length needle in
+  let rec go i =
+    if i + n > String.length text
+    then false
+    else if String.equal (String.sub text i n) needle
+    then true
+    else go (i + 1)
+  in
+  go 0
+
+let split_fragment href =
+  match String.index_opt href '#' with
+  | None -> href, ""
+  | Some at ->
+    String.sub href 0 at, String.sub href (at + 1) (String.length href - at - 1)
+
+let run_render_case dir name =
+  let root = Filename.concat dir name in
+  clean dir;
+  match Cx.Docs.render root with
+  | Error errors ->
+    Printf.printf "FAIL render/%s\n  %s\n" name (diagnostics ~root:dir root errors);
+    false
+  | Ok _ ->
+    let out = Cx.Docs.directory root in
+    let broken = ref [] in
+    let note message = broken := message :: !broken in
+    List.iter
+      (fun page ->
+        let text = read_file page in
+        List.iter
+          (fun href ->
+            let path, fragment = split_fragment href in
+            let target =
+              if String.equal path "" then page else Filename.concat (Filename.dirname page) path
+            in
+            if not (Sys.file_exists target)
+            then note (Printf.sprintf "%s -> %s (no such page)" page href)
+            else if (not (String.equal fragment ""))
+                    && not (contains ~needle:(Printf.sprintf "id=\"%s\"" fragment) (read_file target))
+            then note (Printf.sprintf "%s -> %s (no such anchor)" page href))
+          (hrefs text))
+      (html_files out);
+    (* And nothing the index holds is missing a page to be on. *)
+    (match Cx.Docs.of_package root with
+     | Error _ -> note "the index could not be built a second time"
+     | Ok index ->
+       List.iter
+         (fun package ->
+           let pkg = Cx.Json.text (Cx.Json.field "name" package) in
+           List.iter
+             (fun unit_ ->
+               let ns = Cx.Json.text (Cx.Json.field "namespace" unit_) in
+               let page = Filename.concat out (Filename.concat pkg (ns ^ ".html")) in
+               let text = if Sys.file_exists page then read_file page else "" in
+               List.iter
+                 (fun entry ->
+                   let anchor = Cx.Site.slug (Cx.Json.text (Cx.Json.field "id" entry)) in
+                   if not (contains ~needle:(Printf.sprintf "id=\"%s\"" anchor) text)
+                   then note (Printf.sprintf "%s is in the index with no page" anchor))
+                 (Cx.Json.items (Cx.Json.field "entries" unit_)))
+             (Cx.Json.items (Cx.Json.field "units" package)))
+         (Cx.Json.items (Cx.Json.field "packages" index)));
+    (match List.rev !broken with
+     | [] ->
+       Printf.printf "ok   render/%s\n" name;
+       true
+     | broken ->
+       Printf.printf
+         "FAIL render/%s\n%s\n"
+         name
+         (String.concat "\n" (List.map (fun m -> "  " ^ m) broken));
+       false)
+
+(* `cx docs std` documents the toolchain's library, which is not a package and
+   has no entry. `CRONYX_STDLIB` is what points the whole thing somewhere else,
+   so a fixture library stands in for the real one -- and the real one is put
+   back afterwards, since every other case here needs it. *)
+let run_library_case dir =
+  let restore =
+    match Toolchain.stdlib () with
+    | Some real -> fun () -> Unix.putenv "CRONYX_STDLIB" real
+    | None -> fun () -> ()
+  in
+  Unix.putenv "CRONYX_STDLIB" dir;
+  let outcome =
+    match Cx.Docs.of_stdlib () with
+    | Error errors ->
+      Printf.printf "FAIL library\n  %s\n" (diagnostics ~root:dir dir errors);
+      false
+    | Ok index ->
+      compare_case
+        "library"
+        ~expected:(read_file (Filename.concat dir "expected.json"))
+        ~actual:
+          (replaced
+             ~from:("\"" ^ Release.version ^ "\"")
+             ~into:"\"<version>\""
+             (Cx.Json.to_string index))
+  in
+  restore ();
+  outcome
+
 (* The `cx` a spawned test runs in. This suite calls `Cx.Test` in-process, so
    `Sys.executable_name` here is the harness rather than `cx`, and a runner that
    spawned itself would run this whole suite once per test. *)
@@ -402,7 +589,7 @@ let unclaimed_packages dir =
   let claimed = Hashtbl.create 8 in
   List.iter
     (fun name -> Hashtbl.replace claimed name ())
-    (packages @ bad_packages @ test_packages);
+    (packages @ bad_packages @ test_packages @ doc_packages);
   let rec walk prefix =
     let full = if String.equal prefix "" then dir else Filename.concat dir prefix in
     Sys.readdir full
@@ -419,6 +606,7 @@ let unclaimed_packages dir =
       then
         if Sys.file_exists (Filename.concat path "expected.txt")
            || Sys.file_exists (Filename.concat path "expected.err")
+           || Sys.file_exists (Filename.concat path "expected.json")
         then if Hashtbl.mem claimed name then [] else [ name ]
         else []
       else walk name)
@@ -1169,6 +1357,11 @@ let () =
       (run_partition dir :: List.map (run_accepted dir) accepted)
       @ List.map (run_rejected dir) rejected
       @ (run_package_partition packages_dir :: List.map (package_case packages_dir) packages)
+      @ List.map (doc_package_case packages_dir) doc_packages
+      @ List.map (run_render_case packages_dir) render_packages
+      @ [ run_library_case
+            (Filename.concat root (Filename.concat "cx" (Filename.concat "test" "library")))
+        ]
       @ List.map (bad_package_case packages_dir) bad_packages
       @ List.map (test_package_case packages_dir) test_packages
       @ List.map run_preamble preambles

@@ -146,7 +146,14 @@ let erase (p : Ast.program) : Ast.program =
   let method_of (f : Ast.stmt) : (Ast.stmt, unit) Ast.method_def option =
     match Metaprocess.fn_parts (fn f) with
     | Some (name, params, sg, body) ->
-      Some { Ast.md_name = name; md_params = params; md_signature = sg; md_body = body; md_ann = () }
+      Some
+        { Ast.md_name = name
+        ; md_params = params
+        ; md_signature = sg
+        ; md_body = body
+        ; md_ann = ()
+        ; md_attrs = Metaprocess.fn_attrs f
+        }
     | None -> None
   in
   List.concat_map

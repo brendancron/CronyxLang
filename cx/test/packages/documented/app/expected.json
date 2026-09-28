@@ -1,0 +1,264 @@
+{
+  "format": 1,
+  "compiler": "<version>",
+  "root": "app",
+  "packages": [
+    {
+      "name": "app",
+      "version": "0.1.0",
+      "units": [
+        {
+          "namespace": "app",
+          "doc": null,
+          "entries": [
+            {
+              "id": "app#origin",
+              "package": "app",
+              "unit": "app",
+              "name": "origin",
+              "kind": "fn",
+              "exported": true,
+              "doc": "The point both axes pass through.",
+              "attrs": [],
+              "static": [],
+              "params": [],
+              "ret": {
+                "kind": "name",
+                "name": "Point",
+                "ref": "shapes#Point"
+              },
+              "row": null
+            }
+          ]
+        },
+        {
+          "namespace": "ink",
+          "doc": null,
+          "entries": [
+            {
+              "id": "app#ink#Missing",
+              "package": "app",
+              "unit": "ink",
+              "name": "Missing",
+              "kind": "effect",
+              "exported": true,
+              "doc": "Asking for a colour that was never set.",
+              "attrs": [],
+              "generics": [],
+              "ops": [
+                {
+                  "name": "absent",
+                  "kind": "final ctl",
+                  "generics": [],
+                  "params": [
+                    {
+                      "name": "what",
+                      "type": {
+                        "kind": "name",
+                        "name": "string",
+                        "ref": null,
+                        "param": false
+                      }
+                    }
+                  ],
+                  "ret": null
+                }
+              ]
+            },
+            {
+              "id": "app#ink#Shade",
+              "package": "app",
+              "unit": "ink",
+              "name": "Shade",
+              "kind": "type",
+              "exported": true,
+              "doc": "How dark it is.",
+              "attrs": [],
+              "generics": [],
+              "body": {
+                "form": "variants",
+                "variants": [
+                  {
+                    "name": "Dark",
+                    "generics": [],
+                    "payload": {
+                      "form": "none"
+                    },
+                    "result": null,
+                    "doc": "No light at all.",
+                    "attrs": []
+                  },
+                  {
+                    "name": "Light",
+                    "generics": [],
+                    "payload": {
+                      "form": "none"
+                    },
+                    "result": null,
+                    "doc": null,
+                    "attrs": []
+                  }
+                ]
+              },
+              "impls": [
+                "app#ink#Shade#impl#app#ink#Show"
+              ]
+            },
+            {
+              "id": "app#ink#Show",
+              "package": "app",
+              "unit": "ink",
+              "name": "Show",
+              "kind": "trait",
+              "exported": true,
+              "doc": "Anything with a written form.",
+              "attrs": [],
+              "generics": [],
+              "supers": [],
+              "assoc": [],
+              "methods": [
+                {
+                  "name": "show",
+                  "doc": "The written form.",
+                  "attrs": [],
+                  "static": [],
+                  "params": [
+                    {
+                      "name": "self",
+                      "type": null
+                    }
+                  ],
+                  "ret": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  },
+                  "row": null
+                }
+              ]
+            },
+            {
+              "id": "app#ink#Shade#impl#app#ink#Show",
+              "package": "app",
+              "unit": "ink",
+              "name": "Show for Shade",
+              "kind": "impl",
+              "exported": true,
+              "doc": null,
+              "attrs": [],
+              "trait": {
+                "name": "Show",
+                "ref": "app#ink#Show",
+                "args": []
+              },
+              "for": {
+                "kind": "name",
+                "name": "Shade",
+                "ref": "app#ink#Shade"
+              },
+              "generics": [],
+              "assoc": [],
+              "methods": [
+                {
+                  "name": "show",
+                  "doc": "Writes the variant's own name.",
+                  "attrs": [],
+                  "static": [],
+                  "params": [
+                    {
+                      "name": "self",
+                      "type": null
+                    }
+                  ],
+                  "ret": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  },
+                  "row": null
+                }
+              ]
+            },
+            {
+              "id": "app#ink#quiet",
+              "package": "app",
+              "unit": "ink",
+              "name": "quiet",
+              "kind": "handler",
+              "exported": true,
+              "doc": "Reports a missing colour and carries on.",
+              "attrs": [],
+              "handles": {
+                "name": "Missing",
+                "ref": "app#ink#Missing",
+                "args": []
+              },
+              "arms": [
+                {
+                  "name": "absent",
+                  "kind": "final ctl",
+                  "params": [
+                    "what"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "shapes",
+      "version": "0.2.0",
+      "units": [
+        {
+          "namespace": "shapes",
+          "doc": null,
+          "entries": [
+            {
+              "id": "shapes#Point",
+              "package": "shapes",
+              "unit": "shapes",
+              "name": "Point",
+              "kind": "type",
+              "exported": true,
+              "doc": "A point in the plane.",
+              "attrs": [],
+              "generics": [],
+              "body": {
+                "form": "fields",
+                "fields": [
+                  {
+                    "name": "x",
+                    "type": {
+                      "kind": "name",
+                      "name": "int",
+                      "ref": null,
+                      "param": false
+                    },
+                    "doc": "How far along.",
+                    "attrs": []
+                  },
+                  {
+                    "name": "y",
+                    "type": {
+                      "kind": "name",
+                      "name": "int",
+                      "ref": null,
+                      "param": false
+                    },
+                    "doc": null,
+                    "attrs": []
+                  }
+                ]
+              },
+              "impls": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -14,6 +14,15 @@ let package ?roots ?entry_namespace ?seeds path
   | linked -> Ok linked
   | exception Loader.Failed e -> Diagnostic.one Diagnostic.Load e.Loader.span e.Loader.message
 
+(* The standard library, which is not a package and has no entry: a set of
+   modules, loaded for what they declare. *)
+let library ?roots ~package paths
+  : (Ast.program * Artifact.unit_interface list, Diagnostic.error list) result
+  =
+  match Loader.library ?roots ~package paths with
+  | linked -> Ok linked
+  | exception Loader.Failed e -> Diagnostic.one Diagnostic.Load e.Loader.span e.Loader.message
+
 (* A whole program, from its roots. [on_code] sees it once this is done. *)
 let metaprocess ?(on_code = fun _ -> ()) ~out program =
   match Metaprocess.program ~out program with

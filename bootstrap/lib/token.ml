@@ -43,6 +43,8 @@ type token_type =
   | Char of Uchar.t
   | Int of int
   | Float of float
+  (* The one comment that reaches the parser. *)
+  | Doc of string
   (* Keywords. *)
   | Ctl
   | Final
@@ -124,6 +126,7 @@ let token_type_to_string = function
   | Char _ -> "CHAR"
   | Int _ -> "INT"
   | Float _ -> "FLOAT"
+  | Doc _ -> "DOC"
   | Ctl -> "CTL"
   | Final -> "FINAL"
   | Effect -> "EFFECT"
@@ -167,6 +170,7 @@ let literal_to_string = function
     Buffer.contents buf
   | Int n -> string_of_int n
   | Float n -> float_to_string n
+  | Doc text -> String.escaped text
   | _ -> "null"
 
 let to_string { token_type; lexeme; span } =

@@ -244,13 +244,17 @@ type type_defs = [ `Type_decl of string * type_param list * type_body ]
 (* Only [stmt_kind] carries this, so `Desugar` unwrapping one is what erases
    every declaration attribute: no later stage's type can hold one, and a pass
    that tried to read one would not compile. A member's attributes cannot use
-   this — a field is not a statement — so they stay on the field itself. *)
+   this — a field, a variant and a method are not statements — so they stay on
+   the member itself. A method's die at [Resolve], which turns every impl into
+   plain functions, and [cps_stmt_kind] holds neither [type_defs] nor
+   [method_defs] to carry one further. *)
 type 's attributed = [ `Attributed of attr list * 's ]
 
 type method_sig =
   { ms_name : string
   ; ms_params : param list
   ; ms_signature : signature
+  ; ms_attrs : attr list
   }
 
 (* [tb_super] is a bound on `Self`, and a bound on this trait reaches their
@@ -268,6 +272,7 @@ type ('s, 'ann) method_def =
   ; md_signature : signature
   ; md_body : 's list
   ; md_ann : 'ann
+  ; md_attrs : attr list
   }
 
 type ('s, 'ann) impl_body =
@@ -704,6 +709,13 @@ let deriver_trait name =
   then Some (String.sub name n (String.length name - n))
   else None
 
+(* How a `/** … */` rides to the artifact: an attribute is already carried
+   everywhere one needs to go, so docs borrow the channel rather than build a
+   second one beside it. The name is generated, so `/**` is the only way to
+   write a doc and no `@doc` exists to be typed, printed or reflected — every
+   surface that meets one presents it as a comment. *)
+let doc_attr = generated [ "attr"; "doc" ]
+
 (* A module's top-level meta block, tagged with the prefix its unit's names are
    mangled under: it runs the first time the walk asks that unit for a name. *)
 let deferred_marker = generated [ "unit"; "meta" ]
@@ -803,6 +815,7 @@ let map_method_def (fs : 's1 -> 's2) (fa : 'a1 -> 'a2) (m : ('s1, 'a1) method_de
   ; md_signature = m.md_signature
   ; md_body = List.map fs m.md_body
   ; md_ann = fa m.md_ann
+  ; md_attrs = m.md_attrs
   }
 
 let map_method_defs (fs : 's1 -> 's2) (fa : 'a1 -> 'a2) (m : ('s1, 'a1) method_defs)

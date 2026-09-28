@@ -1,4 +1,4 @@
-import "std/lang/Error";
+import { Error } from "std/lang/Error";
 
 fn safe_divide(a, b) {
     if (b == 0) {

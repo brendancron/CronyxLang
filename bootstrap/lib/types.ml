@@ -219,8 +219,11 @@ let iattr_fields =
 let attr_ty = Named (attr_name, [], attr_fields)
 let attrs_ty = Named (array_name, [ attr_ty ], [])
 
+(* [doc] is the text of a `/** … */`, empty where there was none -- which is
+   also what an empty one normalizes to, so nothing is lost by not
+   distinguishing them. *)
 let reflection_fields =
-  [ "attrs", attrs_ty; "name", Str; "shape", Sum (shape_name, []) ]
+  [ "attrs", attrs_ty; "doc", Str; "name", Str; "shape", Sum (shape_name, []) ]
 
 let ireflected =
   INamed
@@ -229,7 +232,10 @@ let ireflected =
     , FCons
         ( "attrs"
         , INamed (array_name, [ INamed (attr_name, [], iattr_fields) ], FEmpty)
-        , FCons ("name", IStr, FCons ("shape", ISum (shape_name, []), FEmpty)) ) )
+        , FCons
+            ( "doc"
+            , IStr
+            , FCons ("name", IStr, FCons ("shape", ISum (shape_name, []), FEmpty)) ) ) )
 
 let reflected = Named (reflection_name, [], reflection_fields)
 

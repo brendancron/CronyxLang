@@ -1,8 +1,8 @@
+import "signal";
 import "lib";
-import { Signal } from "signal";
 
 run {
     print(lib.halt());
-} handle Signal {
+} handle signal.Signal {
     final ctl stop(reason) { print("stopped: " + reason); }
 }

@@ -9,7 +9,11 @@ let usage =
   \  publish         upload the package here to a registry\n\
   \  version         print the toolchain version\n\
   \  run [file.cx]   compile and execute a program, or the package here\n\
-  \  test [filter]   run the package's @test functions\n\n\
+  \  test [filter]   run the package's @test functions\n\
+  \  docs [std]      render the reference for the package here, or the library\n\n\
+   options for `docs`:\n\
+  \  --json          write the index to stdout and render nothing\n\
+  \  --no-open       render, but do not open a browser\n\n\
    options for `build`, `run` and `test`:\n\
   \  --locked        fail if the lockfile would change\n\
   \  --offline       resolve from ~/.cronyx/registry alone, never the registry\n\
@@ -212,6 +216,57 @@ let no_arguments command = function
     Driver.die ("unknown option: " ^ arg ^ "\n" ^ usage)
   | arg :: _ -> Driver.die (command ^ " takes no arguments, and was given " ^ arg ^ ".\n" ^ usage)
 
+let wrote page ~open_it =
+  Printf.printf "Wrote %s\n" page;
+  if open_it && not (Cx.Docs.opened page) then print_endline "Open it in a browser."
+
+let docs args =
+  let json = List.mem "--json" args in
+  let open_it = not (List.mem "--no-open" args) in
+  let subject = ref None in
+  List.iter
+    (fun arg ->
+      match arg with
+      | "--json" | "--no-open" -> ()
+      | "--locked" | "--offline" | "--frozen" -> ()
+      | _ when String.length arg > 1 && Char.equal arg.[0] '-' ->
+        Driver.die ("unknown option: " ^ arg ^ "\n" ^ usage)
+      | "std" -> subject := Some `Std
+      | _ ->
+        Driver.die
+          ("docs takes 'std' or nothing, and was given " ^ arg ^ ".\n" ^ usage))
+    args;
+  (* The library belongs to the toolchain rather than to a package, so this is
+     the one form that must work with no manifest anywhere above. *)
+  if Option.is_some !subject
+  then (
+    if json
+    then (
+      match Cx.Docs.of_stdlib () with
+      | Error errors -> Render.emit ~entry:"std" errors; exit 65
+      | Ok index -> print_string (Cx.Json.to_string index))
+    else (
+      match Cx.Docs.render_stdlib () with
+      | Error errors -> Render.emit ~entry:"std" errors; exit 65
+      | Ok page -> wrote page ~open_it);
+    exit 0);
+  let root = package_root () in
+  let mode =
+    mode_of
+      (List.filter
+         (fun a -> not (String.equal a "--json" || String.equal a "--no-open"))
+         args)
+  in
+  if json
+  then (
+    match Cx.Docs.of_package ~mode ~note root with
+    | Error errors -> report root errors
+    | Ok index -> print_string (Cx.Json.to_string index))
+  else (
+    match Cx.Docs.render ~mode ~note root with
+    | Error errors -> report root errors
+    | Ok page -> wrote page ~open_it)
+
 let publish () =
   let root = package_root () in
   match Cx.Publish.publish ~note root with
@@ -250,6 +305,7 @@ let () =
     no_arguments "publish" args;
     publish ()
   | "test" :: args -> test args
+  | "docs" :: args -> docs args
   | "version" :: args ->
     no_arguments "version" args;
     print_endline ("cx " ^ Release.version)
