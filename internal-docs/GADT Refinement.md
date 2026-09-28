@@ -241,6 +241,13 @@ Three steps, in this order.
    `T` means inside the arm. The store is untouched, so a constraint the arm
    places on anything else is ordinary and permanent.
 
+   Where the scrutinee's variable meets one the arm made fresh — `T` against
+   `If<A>`'s `A` — it is the fresh one that is bound, to `T`. Bound the other way,
+   the arm's types mention a generic nothing outside it names, and a copy
+   `Type_mono` makes of the function at `int` still has one: a self-call such as
+   `choose(eval(t), …)` then names a template that was never emitted
+   (`tests/types/gadt/self_call_in_generic_args`).
+
    Both leaks are closed. `tests/types/gadt/errors/leaked_constraint` and
    `tests/effects/errors/leaked_effect` are `error_cases` now, and
    `known_unsound` is empty. D's rejection is gone with it: an arm that
@@ -268,7 +275,9 @@ Covered by fixtures: refinement in a free function and in an `impl` method;
 a variant binding parameters the head does not mention, and one whose head is
 built from two at once (`tests/types/gadt/pair` — `Pair<A, B> -> Expr<(A, B)>`
 and `Fst<A, B>(Expr<(A, B)>) -> Expr<A>`); an accumulator of the refined type;
-polymorphic recursion; exhaustiveness against a concrete scrutinee, so
+polymorphic recursion, including a self-call at the arm's own type made from
+inside a generic call's arguments; a `match` expression checked against the
+refined type (`tests/types/gadt/match_expr`); exhaustiveness against a concrete scrutinee, so
 `eval_int(e: Expr<int>)` needs only the arms that can occur; a wildcard arm;
 length indexing, where `head` takes a vector that cannot be `Nil`. Reflection
 reads a GADT's shape, and a GADT crosses a module boundary.

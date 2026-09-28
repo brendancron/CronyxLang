@@ -109,7 +109,31 @@ let rec methods_of trait =
   Option.value ~default:[] (Hashtbl.find_opt declared_methods trait)
   @ List.concat_map methods_of (Option.value ~default:[] (Hashtbl.find_opt supers trait))
 
+(* The expressions a node evaluates as part of itself: not a lambda's body, which
+   runs later, nor what a `match` or `run` holds, which is lowered with it. *)
+let children (e : Ast.typed_expr) : Ast.typed_expr list =
+  match e.Ast.it with
+  | #Ast.lit | `Var _ | `Lambda _ | `Run_expr _ | `Match_expr _ -> []
+  | `Assign (_, a) | `Unop (_, a) | `Compound (_, _, a) | `Tuple_get (a, _) | `Spread a
+  | `Field (a, _) | `Array_len a | `Str_len a | `Typeof a | `Coerce (a, _, _) -> [ a ]
+  | `Binop (_, a, b) | `And (a, b) | `Or (a, b) | `Compound_field (_, a, _, b) | `Index (a, b)
+  | `Field_assign (a, _, b) | `Array_new (a, b) | `Array_get (a, b) | `Str_get (a, b) ->
+    [ a; b ]
+  | `Compound_index (_, a, b, c) | `Index_assign (a, b, c) | `Array_set (a, b, c) -> [ a; b; c ]
+  | `Call (callee, args) -> callee :: args
+  | `Bound_call (receiver, _, _, args) | `Dyn_call (receiver, _, _, args) -> receiver :: args
+  | `Tuple items | `Collection_lit items | `Array_lit items | `New_call (_, _, items) -> items
+  | `Record_lit fields | `New (_, fields) -> List.map snd fields
+  | `New_variant (_, _, payload) -> List.map snd (Ast.payload_fields payload)
+
+(* Lowered to statements run ahead of the expression holding it. *)
+let rec hoists (e : Ast.typed_expr) =
+  match e.Ast.it with
+  | `Run_expr _ | `Match_expr _ -> true
+  | _ -> List.exists hoists (children e)
+
 let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
+  let e = in_order registry e in
   let span = e.Ast.span
   and ann = e.Ast.ann in
   let it : Ast.resolved_expr_kind =
@@ -269,7 +293,27 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
        apart. *)
     | `Spread _ -> assert false
     | #Ast.ops as o -> (Ast.map_ops (expr registry) o :> Ast.resolved_expr_kind)
-    | #Ast.logic as l -> (Ast.map_logic (expr registry) l :> Ast.resolved_expr_kind)
+    (* What the right side hoisted runs only when the right side would. *)
+    | (`And (a, b) | `Or (a, b)) as logic ->
+      let a = expr registry a in
+      (match hoisting registry b, logic with
+       | ([], b), `And _ -> `And (a, b)
+       | ([], b), `Or _ -> `Or (a, b)
+       | (before, b), _ ->
+         let temp = fresh () in
+         let at it : Ast.resolved_stmt = { Ast.it; span; ann = Types.Unit } in
+         let var : Ast.resolved_expr = { Ast.it = `Var temp; span; ann = Types.Bool } in
+         let test =
+           match logic with
+           | `And _ -> var
+           | `Or _ -> { var with Ast.it = `Unop (Ast.Not, var) }
+         in
+         let decided = at (`Expr { b with Ast.it = `Assign (temp, b) }) in
+         hoisted :=
+           at (`If (test, at (`Block (before @ [ decided ])), None))
+           :: at (`Var_decl (temp, None, Some a))
+           :: !hoisted;
+         `Var temp)
     | #Ast.tuple as t -> (Ast.map_tuple (expr registry) t :> Ast.resolved_expr_kind)
         | `New_call _ -> assert false
     | `New (_, fields) ->
@@ -334,6 +378,17 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
       in
       hoisted := run :: { Ast.it = `Var_decl (answer, None, None); span; ann } :: !hoisted;
       `Var answer
+    | `Match_expr (scrutinee, cases) ->
+      let answer = fresh () in
+      let scrutinee = expr registry scrutinee in
+      let arm =
+        valued_arm registry (fun v -> `Expr { v with Ast.it = `Assign (answer, v) })
+      in
+      let matched : Ast.resolved_stmt =
+        { Ast.it = `Match (scrutinee, List.map arm cases); span; ann }
+      in
+      hoisted := matched :: { Ast.it = `Var_decl (answer, None, None); span; ann } :: !hoisted;
+      `Var answer
     | #Ast.reflect as r ->
       (Ast.map_reflect (expr registry) r :> Ast.resolved_expr_kind)
   in
@@ -360,18 +415,93 @@ and once (x : Ast.typed_expr) : Ast.typed_expr * Ast.typed_expr =
     hoisted := declared :: !hoisted;
     { x with Ast.it = `Assign (temp, x) }, { x with Ast.it = `Var temp }
 
+and hoisting registry (e : Ast.typed_expr) =
+  let saved = !hoisted in
+  hoisted := [];
+  let e = expr registry e in
+  let before = List.rev !hoisted in
+  hoisted := saved;
+  before, e
+
+(* An operand that hoists runs ahead of the whole expression, so each operand
+   before it is evaluated into a temporary first, keeping the order the source
+   wrote. A name or a literal is left in place: spilling an assignment's target
+   would assign the copy, and a callee's name is what picks a builtin. *)
+and in_order registry (e : Ast.typed_expr) : Ast.typed_expr =
+  let rec spill (child : Ast.typed_expr) : Ast.typed_expr =
+    match child.Ast.it with
+    | `Var _ | #Ast.lit -> child
+    | `Spread inner -> { child with Ast.it = `Spread (spill inner) }
+    | _ ->
+      let temp = fresh () in
+      let value = expr registry child in
+      hoisted :=
+        { Ast.it = `Var_decl (temp, None, Some value); span = child.Ast.span; ann = child.Ast.ann }
+        :: !hoisted;
+      { child with Ast.it = `Var temp }
+  in
+  let rec ordered = function
+    | child :: rest when List.exists hoists rest ->
+      let child = spill child in
+      child :: ordered rest
+    | children -> children
+  in
+  let two a b k =
+    match ordered [ a; b ] with
+    | [ a; b ] -> { e with Ast.it = k a b }
+    | _ -> assert false
+  in
+  let fields pairs = List.combine (List.map fst pairs) (ordered (List.map snd pairs)) in
+  match e.Ast.it with
+  | `Binop (op, a, b) -> two a b (fun a b -> `Binop (op, a, b))
+  | `Index (a, b) -> two a b (fun a b -> `Index (a, b))
+  | `Array_new (a, b) -> two a b (fun a b -> `Array_new (a, b))
+  | `Array_get (a, b) -> two a b (fun a b -> `Array_get (a, b))
+  | `Str_get (a, b) -> two a b (fun a b -> `Str_get (a, b))
+  | `Index_assign (target, index, v) -> two index v (fun index v -> `Index_assign (target, index, v))
+  | `Array_set (target, index, v) -> two index v (fun index v -> `Array_set (target, index, v))
+  | `Call (callee, args) ->
+    (match ordered (callee :: args) with
+     | callee :: args -> { e with Ast.it = `Call (callee, args) }
+     | [] -> assert false)
+  | `Bound_call (receiver, name, dispatch, args) ->
+    (match ordered (receiver :: args) with
+     | receiver :: args -> { e with Ast.it = `Bound_call (receiver, name, dispatch, args) }
+     | [] -> assert false)
+  | `Dyn_call (receiver, name, performs, args) ->
+    (match ordered (receiver :: args) with
+     | receiver :: args -> { e with Ast.it = `Dyn_call (receiver, name, performs, args) }
+     | [] -> assert false)
+  | `Tuple items -> { e with Ast.it = `Tuple (ordered items) }
+  | `Collection_lit items -> { e with Ast.it = `Collection_lit (ordered items) }
+  | `Array_lit items -> { e with Ast.it = `Array_lit (ordered items) }
+  | `New_call (name, types, args) -> { e with Ast.it = `New_call (name, types, ordered args) }
+  | `Record_lit pairs -> { e with Ast.it = `Record_lit (fields pairs) }
+  | `New (name, pairs) -> { e with Ast.it = `New (name, fields pairs) }
+  | `New_variant (ty, variant, Ast.P_tuple items) ->
+    { e with Ast.it = `New_variant (ty, variant, Ast.P_tuple (ordered items)) }
+  | `New_variant (ty, variant, Ast.P_fields pairs) ->
+    { e with Ast.it = `New_variant (ty, variant, Ast.P_fields (fields pairs)) }
+  | _ -> e
+
 (* Whatever the value expression hoists belongs inside the block, in front of it. *)
 and valued registry (b : (Ast.typed_expr, Ast.typed_stmt) Ast.valued_block) =
   let stmts = block registry b.Ast.vb_stmts in
   match b.Ast.vb_value with
   | None -> stmts, None
   | Some v ->
-    let saved = !hoisted in
-    hoisted := [];
-    let v = expr registry v in
-    let before = List.rev !hoisted in
-    hoisted := saved;
+    let before, v = hoisting registry v in
     stmts @ before, Some v
+
+and valued_arm registry finish (pattern, b) =
+  let stmts, value = valued registry b in
+  ( pattern
+  , stmts
+    @ Option.fold
+        ~none:[]
+        ~some:(fun (v : Ast.resolved_expr) ->
+          [ { Ast.it = finish v; span = v.Ast.span; ann = v.Ast.ann } ])
+        value )
 
 (* A `return` in an arm is the answer for the whole block. A nested function's
    is its own, and a nested `run`'s arms already answered for theirs. *)
@@ -456,8 +586,27 @@ and stmt_of registry (s : Ast.typed_stmt) : Ast.resolved_stmt list =
   | `Expr ({ Ast.it = `Run_expr _; _ } as inner) ->
     ignore (expr registry inner);
     []
+  | `Expr { Ast.it = `Match_expr (scrutinee, cases); _ } ->
+    let arm = valued_arm registry (fun v -> `Expr v) in
+    [ node (`Match (expr registry scrutinee, List.map arm cases)) ]
   (* [`Block] and [`Fn] hold statement lists, where an expansion can land. *)
   | `Block body -> [ node (`Block (block registry body)) ]
+  (* A condition that hoisted statements runs them on every test, so they are
+     written once before the loop and again at the end of its body. Resolving
+     the condition twice gives each copy names of its own. *)
+  | `While (cond, body) ->
+    (match hoisting registry cond with
+     | [], cond -> [ node (`While (cond, one registry body)) ]
+     | before, first ->
+       let temp = fresh () in
+       let var : Ast.resolved_expr = { Ast.it = `Var temp; span; ann = Types.Bool } in
+       let body = one registry body in
+       let again, next = hoisting registry cond in
+       let retest = node (`Expr { next with Ast.it = `Assign (temp, next) }) in
+       before
+       @ [ node (`Var_decl (temp, None, Some first))
+         ; node (`While (var, node (`Block ((body :: again) @ [ retest ]))))
+         ])
   | `Fn (name, params, signature, body) ->
     [ node (`Fn (name, params, signature, block registry body)) ]
   | #Ast.stmts as st ->

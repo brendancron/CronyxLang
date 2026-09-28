@@ -1,0 +1,17 @@
+effect Ask { ctl ask(): int; }
+
+type Shape { Point, Circle(int) }
+
+fn size(s: Shape): int {
+    return match s {
+        Shape.Point => ask(),
+        Shape.Circle(r) => r * ask(),
+    };
+}
+
+run {
+    print(size(Shape.Circle(4)));
+    print(size(Shape.Point));
+} handle Ask {
+    ctl ask() { resume 10; }
+}

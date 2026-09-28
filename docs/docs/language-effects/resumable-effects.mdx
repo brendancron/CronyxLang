@@ -131,7 +131,7 @@ print(total);
 42
 ```
 
-The block's value is the value of its last expression. A `return` clause transforms it on the way out:
+The block's value is the value of its last expression, which may follow any number of statements — `run { var x = ask(); x * 2 }` — as long as it has no semicolon after it. A `return` clause transforms it on the way out:
 
 ```cronyx
 effect Ask { ctl ask(): int; }

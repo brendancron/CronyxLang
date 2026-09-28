@@ -1,0 +1,7 @@
+false
+true
+evaluated
+true
+3
+0
+1

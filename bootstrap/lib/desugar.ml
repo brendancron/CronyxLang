@@ -97,6 +97,7 @@ let rec expr (e : expr) : desugared_expr =
        checker's to infer again. *)
     | `New_generic (name, _, fields) -> `New (name, List.map (fun (l, v) -> l, expr v) fields)
     | #run_expr as r -> (map_run_expr expr stmt (clause sp) r :> desugared_expr_kind)
+    | #match_expr as m -> (map_match_expr expr stmt m :> desugared_expr_kind)
     | #reflect as r -> (map_reflect expr r :> desugared_expr_kind)
     (* One arriving here stood where no meta program would have run it. *)
     | `Code _ ->

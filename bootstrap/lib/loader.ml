@@ -458,6 +458,14 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
       | #Ast.reflect as r -> (Ast.map_reflect go r :> Ast.expr_kind)
       | #Ast.run_expr as r ->
         (Ast.map_run_expr go (stmt locals) (handler_clause locals) r :> Ast.expr_kind)
+      | `Match_expr (scrutinee, cases) ->
+        `Match_expr
+          ( go scrutinee
+          , List.map
+              (fun (p, b) ->
+                let p, inner = pattern locals p in
+                p, Ast.map_valued_block (expr inner) (stmt inner) b)
+              cases )
     in
     { e with Ast.it }
   and stmt locals (s : Ast.stmt) : Ast.stmt =
@@ -575,32 +583,25 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
           , { (Ast.map_handler (stmt locals) h) with
               Ast.handled = resolve_type h.Ast.handled
             } )
-            | `Match (scrutinee, cases) ->
+      | `Match (scrutinee, cases) ->
         `Match
           ( expr locals scrutinee
           , List.map
               (fun (p, body) ->
-                let payload =
-                  match p with
-                  | Ast.Pat_variant (_, _, payload) -> payload
-                  | Ast.Pat_wild -> Ast.P_none
-                in
-                let p =
-                  match p with
-                  | Ast.Pat_variant (ty, variant, payload) ->
-                    Ast.Pat_variant (resolve_type ty, variant, payload)
-                  | Ast.Pat_wild -> Ast.Pat_wild
-                in
-                let inner =
-                  List.fold_left
-                    (fun acc (_, binding) -> S.add binding acc)
-                    locals
-                    (Ast.payload_fields payload)
-                in
+                let p, inner = pattern locals p in
                 p, List.map (stmt inner) body)
               cases )
     in
     { s with Ast.it }
+  and pattern locals (p : Ast.pattern) =
+    match p with
+    | Ast.Pat_wild -> Ast.Pat_wild, locals
+    | Ast.Pat_variant (ty, variant, payload) ->
+      ( Ast.Pat_variant (resolve_type ty, variant, payload)
+      , List.fold_left
+          (fun acc (_, binding) -> S.add binding acc)
+          locals
+          (Ast.payload_fields payload) )
   in
   List.map (stmt S.empty) program
 

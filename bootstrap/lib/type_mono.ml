@@ -70,6 +70,13 @@ let rec type_directed_expr self (e : Ast.typed_expr) =
          ~none:false
          ~some:(fun c -> Option.fold ~none:false ~some:type_directed_expr c.Ast.rc_body.Ast.vb_value)
          clause
+  | `Match_expr (scrutinee, cases) ->
+    type_directed_expr scrutinee
+    || List.exists
+         (fun (_, (b : (Ast.typed_expr, Ast.typed_stmt) Ast.valued_block)) ->
+           List.exists (type_directed self) b.Ast.vb_stmts
+           || Option.fold ~none:false ~some:type_directed_expr b.Ast.vb_value)
+         cases
   | #Ast.lit | `Var _ -> false
 
 and type_directed self (s : Ast.typed_stmt) =
@@ -142,6 +149,8 @@ let rec subst_expr ?(rows = []) mapping (e : Ast.typed_expr) : Ast.typed_expr =
          (Ast.map_handler (subst_stmt mapping))
          r
        :> Ast.typed_expr_kind)
+    | #Ast.match_expr as m ->
+      (Ast.map_match_expr (subst_expr mapping) (subst_stmt mapping) m :> Ast.typed_expr_kind)
   in
   { e with Ast.it; ann = Types.subst_generic ~rows mapping e.Ast.ann }
 
@@ -270,6 +279,8 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
          (Ast.map_handler (rewrite_stmt state))
          r
        :> Ast.typed_expr_kind)
+    | #Ast.match_expr as m ->
+      (Ast.map_match_expr (rewrite state) (rewrite_stmt state) m :> Ast.typed_expr_kind)
   in
   { e with Ast.it }
 

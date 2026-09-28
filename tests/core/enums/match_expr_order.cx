@@ -1,0 +1,27 @@
+type Coin { Heads, Tails }
+
+type Pair { left: int, right: int }
+
+fn at(label: string, value: int): int {
+    print(label);
+    return value;
+}
+
+fn add(a: int, b: int, c: int): int { return a + b + c; }
+
+print(at("left", 1) + match Coin.Heads { Coin.Heads => at("match", 2), _ => 0 });
+print(add(at("first", 1), match Coin.Tails { Coin.Tails => at("match", 2), _ => 0 }, at("last", 3)));
+
+var pair = Pair { left: at("left", 1), right: match Coin.Heads { Coin.Heads => at("match", 2), _ => 0 } };
+print(pair.left + pair.right);
+
+var items = [at("one", 1), at("two", 2), match Coin.Heads { Coin.Heads => at("match", 3), _ => 0 }];
+print(items[0] + items[1] + items[2]);
+
+var xs = [0, 0];
+xs[at("index", 1)] = match Coin.Heads { Coin.Heads => at("match", 9), _ => 0 };
+print(xs[1]);
+
+var total = 5;
+total += match Coin.Heads { Coin.Heads => at("match", 1), _ => 0 };
+print(total);

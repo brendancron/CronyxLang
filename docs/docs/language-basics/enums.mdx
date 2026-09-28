@@ -176,6 +176,68 @@ other
 
 Use `_` sparingly. The exhaustiveness check is one of an enum's biggest benefits — every wildcard you add is a place where adding a new variant *won't* trigger a "you forgot to handle this" error.
 
+## Match as an expression
+
+A `match` can also stand anywhere a value is wanted, and it evaluates to whichever arm ran. An arm is then either an expression followed by a comma, or a block whose last expression — written without a semicolon — is its value:
+
+```cronyx
+type Shape {
+    Point,
+    Circle(int),
+    Rect(int, int),
+}
+
+fn area(s: Shape): int {
+    return match s {
+        Shape.Point      => 0,
+        Shape.Circle(r)  => 3 * r * r,
+        Shape.Rect(w, h) => { w * h }
+    };
+}
+
+var name = match Shape.Circle(2) {
+    Shape.Circle(r) => "circle",
+    _               => "something else",
+};
+
+print(area(Shape.Rect(3, 4)));
+print(name);
+```
+
+```
+12
+circle
+```
+
+Every arm has to produce the same type, and the match still has to cover every variant. A `return` inside an arm returns from the enclosing function, just as it would in the statement form.
+
+A block arm can do some work before it produces its value:
+
+```cronyx
+type Shape {
+    Circle(int),
+    Rect(int, int),
+}
+
+var label = match Shape.Rect(2, 3) {
+    Shape.Rect(w, h) => {
+        var area = w * h;
+        print(area);
+        "rect"
+    }
+    Shape.Circle(r) => "circle",
+};
+
+print(label);
+```
+
+```
+6
+rect
+```
+
+The semicolon matters: `{ "rect" }` is the string, and `{ "rect"; }` is a statement, so the block's value is `unit`. If you add one by accident, the compiler reports the arm whose type doesn't match the others.
+
 ## Try it
 
 Write a `type Shape` with a `Circle(int)` and a `Rect(int, int)` variant. Then write a function `describe_area(s: Shape)` that uses `match` to print the area of each shape. (Use `r * r * 3` as a stand-in for `π·r²`, so everything stays an `int`.)

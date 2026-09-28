@@ -1115,7 +1115,9 @@ and snapshot_fields (f : infer_fields) : infer_fields =
 
 (* Written nowhere: what a constructor says holds inside one arm, so it applies
    to what that arm sees rather than to the store. *)
-let solve (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
+(* Where two variables meet, one in [fresh] is the one bound, so a refinement
+   says what the arm's own variables are in terms of the scrutinee's. *)
+let solve ?(fresh = []) (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
   let bindings = ref [] in
   let rec through t =
     match repr t with
@@ -1129,6 +1131,10 @@ let solve (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
     match through a, through b with
     | IVar { contents = Unbound (left, _) }, IVar { contents = Unbound (right, _) }
       when left = right -> true
+    | (IVar { contents = Unbound (kept, _) } as other), IVar { contents = Unbound (id, _) }
+      when List.mem id fresh && not (List.mem kept fresh) ->
+      bindings := (id, other) :: !bindings;
+      true
     | IVar { contents = Unbound (id, _) }, other | other, IVar { contents = Unbound (id, _) } ->
       bindings := (id, other) :: !bindings;
       true

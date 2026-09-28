@@ -688,6 +688,10 @@ and primary s : Ast.expr =
   | Token.Run ->
     ignore (advance s);
     run_expr s sp
+  | Token.Match ->
+    ignore (advance s);
+    let scrutinee, cases = match_cases s in
+    Ast.at sp (`Match_expr (scrutinee, cases))
   | Token.Typeof ->
     ignore (advance s);
     ignore (consume s Token.Left_paren "Expected '(' after 'typeof'.");
@@ -1448,26 +1452,42 @@ and handler_clauses s : Ast.stmt Ast.handler_clause list =
 (* The same construct as one standing where a value is wanted, so an arm's
    `return` means the same thing here; nothing reads the answer. *)
 and run_stmt s sp : Ast.stmt =
-  let it = run_expr s sp in
+  let it =
+    match run_expr s sp with
+    | { Ast.it = `Run_expr (body, handlers, None); _ } as e ->
+      { e with Ast.it = `Run_expr ({ Ast.vb_stmts = unread_block body; vb_value = None }, handlers, None) }
+    | e -> e
+  in
   (* `with` takes a terminator; `handle` closes with its own brace. *)
   ignore (matches s [ Token.Semicolon ]);
   Ast.at sp (`Expr it)
 
-(* The opening brace is already consumed. *)
+(* The opening brace is already consumed. An expression the closing brace
+   follows directly is the block's value; with a `;` it is a statement. *)
 and valued_block s : (Ast.expr, Ast.stmt) Ast.valued_block =
-  let mark = s.current
-  and errors = s.errors in
-  let restore () =
-    s.current <- mark;
-    s.errors <- errors;
-    { Ast.vb_stmts = block s; vb_value = None }
+  let rec loop acc =
+    if check s Token.Right_brace || is_at_end s
+    then (
+      ignore (consume s Token.Right_brace "Expected '}' after block.");
+      { Ast.vb_stmts = List.rev acc; vb_value = None })
+    else (
+      let mark = s.current
+      and errors = s.errors in
+      let statement () =
+        s.current <- mark;
+        s.errors <- errors;
+        match declaration s with
+        | Some st -> loop (st :: acc)
+        | None -> loop acc
+      in
+      match expression s with
+      | value when check s Token.Right_brace ->
+        ignore (advance s);
+        { Ast.vb_stmts = List.rev acc; vb_value = Some value }
+      | _ -> statement ()
+      | exception Parse_error -> statement ())
   in
-  match expression s with
-  | value when check s Token.Right_brace ->
-    ignore (advance s);
-    { Ast.vb_stmts = []; vb_value = Some value }
-  | _ -> restore ()
-  | exception Parse_error -> restore ()
+  loop []
 
 and run_expr s sp : Ast.expr =
   ignore (consume s Token.Left_brace "Expected '{' after 'run'.");
@@ -1502,6 +1522,22 @@ and resume_stmt s sp : Ast.stmt =
   Ast.at sp (`Resume value)
 
 and match_stmt s sp : Ast.stmt =
+  let scrutinee, cases = match_cases s in
+  Ast.at sp (`Match (scrutinee, List.map (fun (p, b) -> p, unread_block b) cases))
+
+(* A block whose value nothing reads. A `match` ending it is a statement, or its
+   arms would have to agree on a value nothing reads. *)
+and unread_block (b : (Ast.expr, Ast.stmt) Ast.valued_block) : Ast.stmt list =
+  let as_stmt (v : Ast.expr) : Ast.stmt =
+    match v.Ast.it with
+    | `Match_expr (scrutinee, cases) ->
+      Ast.at v.Ast.span (`Match (scrutinee, List.map (fun (p, b) -> p, unread_block b) cases))
+    | _ -> Ast.at v.Ast.span (`Expr v)
+  in
+  b.Ast.vb_stmts @ Option.to_list (Option.map as_stmt b.Ast.vb_value)
+
+(* An arm is a braced block or a bare expression, which a comma ends. *)
+and match_cases s =
   let saved = s.no_brace in
   s.no_brace <- true;
   let scrutinee = expression s in
@@ -1556,12 +1592,17 @@ and match_stmt s sp : Ast.stmt =
           Ast.Pat_variant (ty, variant, payload)
       in
       ignore (consume s Token.Fat_arrow "Expected '=>' after a pattern.");
-      ignore (consume s Token.Left_brace "Expected '{' after '=>'.");
-      loop ((pattern, block s) :: acc))
+      let body =
+        if Option.is_some (matches s [ Token.Left_brace ])
+        then valued_block s
+        else { Ast.vb_stmts = []; vb_value = Some (expression s) }
+      in
+      ignore (matches s [ Token.Comma ]);
+      loop ((pattern, body) :: acc))
   in
   let cases = loop [] in
   ignore (consume s Token.Right_brace "Expected '}' after match cases.");
-  Ast.at sp (`Match (scrutinee, cases))
+  scrutinee, cases
 
 and return_stmt s sp : Ast.stmt =
   let value = if check s Token.Semicolon then None else Some (expression s) in

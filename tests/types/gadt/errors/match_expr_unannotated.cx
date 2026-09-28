@@ -1,0 +1,6 @@
+type Expr<T> { Lit(int) -> Expr<int>, BoolLit(bool) -> Expr<bool> }
+
+fn eval<T>(e: Expr<T>): T {
+    var value = match e { Expr.Lit(n) => n, Expr.BoolLit(b) => b };
+    return value;
+}

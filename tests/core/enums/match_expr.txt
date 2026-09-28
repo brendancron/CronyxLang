@@ -1,0 +1,11 @@
+circle
+15
+5
+none
+negative
+fine
+p
+not p
+11
+101
+statement

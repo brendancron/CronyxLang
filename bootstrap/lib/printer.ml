@@ -115,6 +115,7 @@ let rec string_of_expr (e : Ast.expr) : string =
   | `Code e -> Printf.sprintf "(code %s)" (string_of_expr e)
   | `Lambda (params, _, _) ->
     Printf.sprintf "(fn (%s) ...)" (String.concat " " (List.map string_of_param params))
+  | `Match_expr (scrutinee, _) -> Printf.sprintf "(match %s ...)" (string_of_expr scrutinee)
   | `Run_expr (_, handlers, _) ->
     Printf.sprintf
       "(run ...%s)"
@@ -315,6 +316,7 @@ let rec string_of_typed_expr (e : Ast.typed_expr) : string =
     | `Bytes b -> Printf.sprintf "(bytes %d)" (String.length b)
     | `Lambda (params, _, _) ->
       Printf.sprintf "(fn (%s) ...)" (String.concat " " (List.map string_of_param params))
+    | `Match_expr (scrutinee, _) -> Printf.sprintf "(match %s ...)" (string_of_typed_expr scrutinee)
     | `Run_expr (_, handlers, _) ->
       Printf.sprintf
         "(run ...%s)"
