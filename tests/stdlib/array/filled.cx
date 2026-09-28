@@ -1,0 +1,17 @@
+import { filled } from "std/collections/Array";
+
+var row = filled<1, int>([3], 0);
+print(row);
+print(typeof(row).name);
+
+var grid = filled<2, int>([2, 3], 0);
+grid[0][1] = 7;
+print(grid);
+print(typeof(grid).name);
+
+var cube = filled<3, string>([2, 2, 2], "x");
+cube[1][0][1] = "y";
+print(cube);
+print(typeof(cube).name);
+
+print(filled<2, int>([0, 4], 0));

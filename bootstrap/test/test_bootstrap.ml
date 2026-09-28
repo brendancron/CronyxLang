@@ -117,6 +117,7 @@ let cases =
   ; "tests/reflection/shape_scalar"
   ; "tests/core/math/modulus"
   ; "tests/stdlib/list/list"
+  ; "tests/stdlib/array/filled"
   ; "tests/stdlib/list/effectful"
   ; "tests/core/lambdas/basics"
   ; "tests/core/lambdas/trailing"
@@ -536,6 +537,8 @@ let runtime_cases =
   ; "tests/core/collections/index_out_of_range"
   ; "tests/core/slices/negative_index"
   ; "tests/core/builtins/chr_invalid"
+  ; "tests/stdlib/array/filled_arity"
+  ; "tests/core/builtins/panic"
   ]
 
 (* The fixtures live outside the dune project root, so find them at runtime. *)

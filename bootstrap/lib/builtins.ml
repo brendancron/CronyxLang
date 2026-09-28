@@ -33,6 +33,7 @@ let functions : (string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
   ; ("chr", fun () -> [ Types.IInt ], Types.IChr)
   ; ("__parse_int", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IInt ])
   ; ("__parse_float", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IFloat ])
+  ; ("panic", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "same"
     , fun () ->
         let t = Types.fresh () in
@@ -122,6 +123,12 @@ let values ~out =
         then Value.Tuple [ Value.Bool true; Value.Float (float_of_string text) ]
         else Value.Tuple [ Value.Bool false; Value.Float 0.0 ]
       | _ -> Value.fail span "Cannot apply to_float to these arguments.")
+  (* Nothing in Cronyx can raise, so code that must refuse an argument has no
+     way to say so without reaching the interpreter's own failure. *)
+  ; one "panic" (fun span v ->
+      match v with
+      | Value.Str s -> Value.fail span "%s" (Utf8.encode s)
+      | _ -> Value.fail span "Cannot apply panic to these arguments.")
   ; two "same" (fun _ a b -> Value.Bool (Value.same a b))
   ; two "__structural_eq" (fun _ a b -> Value.Bool (Value.values_equal a b))
   ; one "readfile" (fun span v ->
