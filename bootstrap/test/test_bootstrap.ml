@@ -914,12 +914,80 @@ let run_rendering () =
         false))
     renderings
 
+
+(* The prelude is walked with the program rather than prepended after, so its
+   `meta` blocks run and its declarations answer to reachability like any
+   module's. Prepending it again would leave the walk's output with no prelude
+   in it at all; walking it without reachability would leave every prelude
+   function in. Both show up here. *)
+let run_prelude_walk () =
+  let path = "<prelude walk>" in
+  let source = "var xs: List<int> = [1, 2];
+print(xs.len() < 3);
+" in
+  let parsed =
+    match Scanner.scan_tokens (Source_map.File.create ~path ~text:source) with
+    | Error _ -> Error "the probe does not scan"
+    | Ok tokens ->
+      (match Parser.parse tokens with
+       | Ok program -> Ok program
+       | Error _ -> Error "the probe does not parse")
+  in
+  let walked =
+    Result.bind parsed (fun program ->
+      match Metaprocess.program ~out:(fun _ -> ()) program with
+      | Ok processed -> Ok (Bootstrap.Source.program processed)
+      | Error e -> Error ("the probe does not metaprocess: " ^ e.Metaprocess.message))
+  in
+  match walked with
+  | Error message ->
+    Printf.printf "FAIL prelude is walked
+  %s
+" message;
+    false
+  | Ok printed ->
+    let mentions needle =
+      let n = String.length needle in
+      let rec go i = i + n <= String.length printed
+                     && (String.equal (String.sub printed i n) needle || go (i + 1))
+      in
+      go 0
+    in
+    let expectations =
+      [ "the prelude reaches the walk", mentions "type List", true
+      ; "a prelude function a later pass calls survives", mentions "__is_less", true
+      ; "an unreached prelude function is dropped", mentions "fn assert", false
+      ]
+    in
+    List.for_all
+      Fun.id
+      (List.map
+         (fun (what, actual, expected) ->
+           if Bool.equal actual expected
+           then (
+             Printf.printf "ok   prelude walk: %s
+" what;
+             true)
+           else (
+             Printf.printf
+               "FAIL prelude walk: %s
+  expected it %sin the walk's output
+"
+               what
+               (if expected then "" else "not ");
+             false))
+         expectations)
+
 let () =
   match repo_root () with
   | None ->
     prerr_endline "could not locate the repo root (set CRONYX_REPO_ROOT)";
     exit 1
   | Some root ->
+    (* `Toolchain` takes this over everything else, so an installed toolchain in
+       the environment would have the suite check a standard library other than
+       the one beside these fixtures. *)
+    Unix.putenv "CRONYX_STDLIB" (Filename.concat root "stdlib");
     let results =
       List.map (run_case root) cases
       @ List.map (run_error_case root) error_cases
@@ -927,7 +995,7 @@ let () =
       @ List.map (run_round_trip root) cases
       @ List.map (run_expected_failing root) expected_failing
       @ List.map (run_known_unsound root) known_unsound
-      @ [ run_partition root; run_rendering () ]
+      @ [ run_partition root; run_rendering (); run_prelude_walk () ]
     in
     let failed = List.length (List.filter not results) in
     Printf.printf "\n%d/%d passed\n" (List.length results - failed) (List.length results);

@@ -10,7 +10,7 @@ let program ?(on_types = fun _ -> ()) (source : Ast.program)
   : (Ast.cps_stmt list, Diagnostic.error list) result
   =
   let* desugared =
-    match Desugar.program (Prelude.program () @ source) with
+    match Desugar.program source with
     | Ok desugared -> Ok desugared
     | Error e -> Diagnostic.one Diagnostic.Desugar e.Desugar.span e.Desugar.message
   in

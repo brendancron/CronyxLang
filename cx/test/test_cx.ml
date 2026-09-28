@@ -1158,6 +1158,9 @@ let () =
     prerr_endline "cannot find the repo root; set CRONYX_REPO_ROOT";
     exit 1
   | Some root ->
+    (* As above: the fixtures check this tree's standard library, not whichever
+       one the machine has installed. *)
+    Unix.putenv "CRONYX_STDLIB" (Filename.concat root "stdlib");
     let dir = Filename.concat root (Filename.concat "cx" (Filename.concat "test" "manifests")) in
     let packages_dir =
       Filename.concat root (Filename.concat "cx" (Filename.concat "test" "packages"))
