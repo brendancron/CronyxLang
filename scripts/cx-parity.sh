@@ -6,6 +6,11 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
+# `Toolchain` takes this over everything else, so an installed toolchain in the
+# environment would be compared instead of this tree.
+CRONYX_STDLIB="$root/stdlib"
+export CRONYX_STDLIB
+
 dune build 2>&1
 bootstrap=_build/default/bootstrap/bin/main.exe
 cx=_build/default/cx/bin/main.exe

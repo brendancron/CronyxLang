@@ -86,6 +86,11 @@ let ordering_test (op : Ast.binop) =
   | Ast.Greater_equal -> Some "__is_greater_equal"
   | _ -> None
 
+(* This pass calls these, and nothing in a program names one, so the walk that
+   decides what is emitted has to be told they are reached. *)
+let synthesized =
+  List.filter_map ordering_test [ Ast.Less; Ast.Less_equal; Ast.Greater; Ast.Greater_equal ]
+
 let ordering_result = Types.Sum ("Option", [ Types.Sum ("Ordering", []) ])
 
 (* Where a `run` in expression position leaves the statements it lowers to, for

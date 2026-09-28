@@ -2486,20 +2486,13 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
     }
   in
   try
-    List.iter
-      (fun (s : Ast.stmt) ->
-        List.iter (fun name -> Hashtbl.replace w.known name ()) (declared_names s);
-        List.iter (fun name -> Hashtbl.replace w.known_methods name ()) (method_names s);
-        match s.Ast.it with
-        | `Trait_decl (name, _, _) -> Hashtbl.replace w.traits name ()
-        | _ -> ())
-      (Prelude.program ());
     Hashtbl.iter (fun name _ -> Hashtbl.replace w.known name ()) (Builtins.env ~out:ignore).Value.vars;
-    let p = lift_templates (types_of w p) in
+    let p = lift_templates (types_of w (Prelude.program () @ p)) in
     List.iter (collect w) p;
     w.standing <- List.filter_map (fun s -> if is_standing s then Some (standing_of w s) else None) p;
     List.iter (fun st -> if st.is_plain then walk_standing w st) w.standing;
     let roots = w.roots in
+    List.iter (fun name -> ignore (reach w ~deps:roots name)) Resolve.synthesized;
     let root_hooks =
       let base = runtime_hooks w ~deps:roots ~current:None ~statics:[] ~env:(Hashtbl.create 16) in
       { base with

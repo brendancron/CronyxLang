@@ -1,0 +1,28 @@
+
+// The depth is a static parameter because it is the return type: the copy
+// `filled<2, int>` is the one that returns `Array<Array<int>>`. A level passes
+// on the extents it has not spent, so `dims.len() == n` says the same thing at
+// every depth and only the outermost call can be the one that broke it.
+//
+// Every slot gets a subtree of its own. `Array<T>(len, v)` puts the one `v` in
+// all of them, so the seed is written over from 1 up; left alone it would alias
+// every row to the first. The leaf is `fill` itself, which a `T` with identity
+// shares across the whole result.
+fn filled<n: int, T>(dims: Array<int>, fill: T) {
+    if (dims.len() != n) {
+        panic("filled<" + str(n) + "> takes " + str(n) + " dimensions, but " + str(dims.len()) + " were given.");
+    }
+    meta if (n == 0) {
+        gen return fill;
+    } else {
+        gen var len = dims[0];
+        gen var rest = dims[1:];
+        gen var out = Array(len, filled<n - 1, T>(rest, fill));
+        gen var i = 1;
+        gen while (i < len) {
+            out[i] = filled<n - 1, T>(rest, fill);
+            i = i + 1;
+        }
+        gen return out;
+    }
+}

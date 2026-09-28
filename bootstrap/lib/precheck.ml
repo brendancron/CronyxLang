@@ -172,7 +172,7 @@ let erase (p : Ast.program) : Ast.program =
     p
 
 let program (p : Ast.program) : Diagnostic.error list =
-  match Desugar.program (Prelude.program () @ erase p) with
+  match Desugar.program (erase (Prelude.program () @ p)) with
   | Error _ -> []
   | Ok desugared ->
     (match Typecheck.check ~policy:Typecheck.partial ~registry:(Registry.builtins ()) desugared with
