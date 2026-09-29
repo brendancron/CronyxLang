@@ -41,21 +41,37 @@ Three things had to hold for that.
 
 **A `return` crossing a `run` leaves it.** Converted code hands its result to a continuation, and a call comes back — so a `return` reached while an arm was resuming would let that arm carry on. A converted function is therefore a wrapper around its own body: the `return` stores its value and leaves the body, unwinding runs whatever the arms deferred, and the wrapper hands the value on once there is nothing left to leave. Ordering is the reason for the wrapper rather than a direct call: `tests/effects/return_past_arm_defer` wants the `defer` to have run before the caller sees the value.
 
-## Planned: `print` is an effect
+## `print` is an effect
 
-`print` and `clock` are the two entries in `builtins.ml` that exist because they do I/O. The plan for `print` is an effect declared in the prelude with a handler installed at the program's root:
+`print` is a library function in `core` over one operation:
 
 ```cronyx
-effect out { fn print(s: string): unit; }
+effect Console { fn write(to: Stream, text: string): unit; }
+
+fn print<T>(value: T) { write(Stream.Out, str(value) + "\n"); }
 ```
 
-Output then goes wherever the innermost handler sends it — a file, a buffer, a test harness — without a writer threaded through every call and without `System.out` at each use. It is the canonical use of the feature.
+Output goes wherever the innermost handler sends it — the terminal, a buffer, a
+test's list — without a writer threaded through every call
+(`tests/core/print/captured`).
 
-Three consequences, recorded so they are not rediscovered:
-
-- **An operation has a declared signature**, so `print` takes one string. That removes the variadic question rather than answering it, and makes string interpolation the ergonomic companion.
-- **Printing becomes visible in a row.** Any function that prints carries `<out>`, so the program root must be handled implicitly or every program starts with a `run`.
-- **It depends on containment**, which landed as step 11 of the same document. Under row equality a function that printed could not call anything.
+- **Printing is visible in a row.** A function that prints carries `<Console>`,
+  so a written row that leaves it out is refused, and so is a callback typed as
+  pure that prints: `(int) -> unit` must be `(int) -> <Console> unit`.
+- **The program root handles it.** Each top-level statement runs as a function
+  handed to the prelude's `__root`, which handles `Console` by calling the
+  natives `__write_out` and `__write_err`, so no program starts with a `run`.
+  In place, statement by statement, rather than the top level moved into one
+  function: a statement is then checked where it stands, a `var` keeps its
+  annotation and stays global for the functions beside it, and an error names
+  the statement that caused it. A `meta` block runs under the same root.
+- **It is synchronous.** Every operation is `fn`, so a function that prints is
+  not put through continuations for it. Console output is synchronous in every
+  mainstream runtime, async ones included; waiting belongs to reading, which
+  comes through a `Reader`.
+- **It is its own effect.** `Cps` picks its translation per effect, so sharing
+  one with anything that can wait would put every printing function through
+  continuations. Koka separates `console` from `fsys` the same way.
 
 ## Reference architecture
 
@@ -312,7 +328,7 @@ Resuming carries on with the next iteration, and resuming twice runs it twice, w
 
 ## What a `run` block delimits
 
-The body ends the delimited computation rather than continuing the program. Completing it returns to whoever entered it — the `resume` that re-entered it, or the block itself — and what follows the block runs once, after the handler is done.
+The body ends the delimited computation rather than continuing the program. Completing it under a `resume` of this block's own handler returns to that `resume`; completing it otherwise — first time through, or once this block's arm has finished — goes on to what follows the block. So what follows runs once for this block's handler, however often it resumes.
 
 That is what makes a multi-shot handler behave. Resuming twice runs the body twice and the sequel once:
 
@@ -323,7 +339,9 @@ print("done");
 
 The body's terminal continuation used to be the rest of the program, so `done` printed once per resumption plus once more. `effects/flip` is multi-shot and did not catch it, because nothing follows its `run` block; `effects/multishot_sequel` does.
 
-Statements after a block stay where they were written rather than being wrapped in a continuation, which is what lets a `return` among them return from the function it is in.
+**What follows is part of any outer continuation.** It is reached from the body's end, not from the block returning, so a continuation an outer handler captures inside the body runs through it: an outer handler resuming twice runs what follows this block twice, and an outer arm abandoning its own block abandons this one with it rather than stopping here and carrying on (`effects/resume_through_run`, `effects/abandon_through_run`). A block counts its own handler's resumptions in progress, which is how its end tells the two apart. For the same reason a block whose body suspends counts as suspending whether or not its own handlers need continuations, or a block around it is compiled as if nothing inside could.
+
+What follows is a `Frame` the body's end calls, which is what lets a `return` among those statements return from the function it is in.
 
 **A `return` out of the block itself is rejected.** Once an operation suspends, the rest of the body is a continuation function, and returning from *that* is not returning from the enclosing function. Travelling back out through the handler that resumed into it is what a continuation is for, and the enclosing function has none — handling the effect discharged its row, so nothing converted it. Saying so beats the alternative, which was answering with whatever the code after the block returned.
 

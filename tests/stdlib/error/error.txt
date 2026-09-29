@@ -1,3 +1,0 @@
-5
-done
-error: division by zero

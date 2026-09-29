@@ -164,7 +164,7 @@ package's own name, plus what each unit exports — and links the artifacts
 rather than reading a dependency's source. `Artifact` is `Marshal` of the
 compiler's own types with the version that wrote them, which is sound because
 the compiler that reads one is always the compiler that wrote it. An artifact
-is the package loaded and mangled, not metaprocessed: which copy of a template
+is the package loaded and mangled, not metaprocessed: which instance of a comptime function
 exists is decided by the program that uses it, so the walk runs once over the
 linked program, from the package root (`Build.within`) because an artifact's
 paths are relative to it. A file a `meta` block reads is therefore not an input
@@ -191,7 +191,7 @@ lowered is gone from the type, which is what stops a later pass from meeting it.
 **Metaprocessing is a walk from the roots.** The entry's top-level statements
 are walked in source order, and a declaration is metaprocessed the first time
 the walk reaches it, once; what nothing reaches is never metaprocessed or
-emitted. A template taking a static *value*, or holding a `meta` block, is
+emitted. A comptime function — one taking a static *value*, or holding a `meta` block — is
 instantiated when a call to it is reached, memoized by name and arguments across
 the whole program, because a value can decide a type. `Type_mono` copies the
 rest — bodies generic only over types — after checking, because inference is

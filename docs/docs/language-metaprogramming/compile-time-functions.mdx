@@ -113,9 +113,9 @@ print(power#0(2));
 print(power#1(5));
 ```
 
-Each copy gets a name of its own (the `#0` suffixes). Notice `compiling power<2>` printed once, although both `power<3>` and the top-level `power<2>(5)` asked for it: **a function is compiled once per static argument list**, the first time the walk reaches a call with that list. Recursive and mutually recursive templates end the same way — a call to a copy that's already being compiled just refers to it.
+Each copy gets a name of its own (the `#0` suffixes). Notice `compiling power<2>` printed once, although both `power<3>` and the top-level `power<2>(5)` asked for it: **a function is compiled once per static argument list**, the first time the walk reaches a call with that list. Recursive and mutually recursive comptime functions end the same way — a call to a copy that's already being compiled just refers to it.
 
-The compiler doesn't put a limit on how deep this goes. A template whose arguments never reach a base case keeps asking for new copies, and compiling it doesn't finish, just as a recursive function with no base case never returns.
+The compiler doesn't put a limit on how deep this goes. A comptime function whose arguments never reach a base case keeps asking for new copies, and compiling it doesn't finish, just as a recursive function with no base case never returns.
 
 ### What crosses into a meta block
 
@@ -281,6 +281,6 @@ Dump it with `--dump-code` and count the copies: six, one for each `n` from `0` 
 
 ## What's next
 
-You can now factor compile-time work into functions: plain ones called from meta blocks, templates that write a body per argument, and generators that add declarations.
+You can now factor compile-time work into functions: plain ones called from meta blocks, comptime functions that write a body per argument, and generators that add declarations.
 
 Next up: **deriving** — the most common generator of all, a function that reads a type's fields and writes a trait impl for it, invoked with one line.

@@ -1,0 +1,3 @@
+effect Signal {
+    final ctl stop(reason: string);
+}

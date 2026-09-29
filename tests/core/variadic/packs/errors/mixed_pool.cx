@@ -1,5 +1,5 @@
 type Slot<...Args> {
-    use: (...Args) -> unit
+    use: (...Args) -> <Console> unit
 }
 
 var two = Slot { use: (a: int, b: string) => { print(str(a) + b); } };

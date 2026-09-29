@@ -45,6 +45,11 @@ let is_unknown t =
 let top_row : Types.infer_row option ref = ref None
 let effect_sites : (string, Source_map.Span.t) Hashtbl.t = Hashtbl.create 8
 
+(* Each top-level statement is the body of a function handed to the root, so
+   its row stands in for the top level's while it is checked: otherwise every
+   site would be the whole statement. Set by the call, read by its lambda. *)
+let root_argument = ref false
+
 let note_effect_sites span row =
   match !top_row with
   | Some top when top == row ->
@@ -176,6 +181,21 @@ let ctx_fn_params : (string, (string * Types.infer_ty) list) Hashtbl.t =
    where it stands, as it does in Koka. *)
 let ctx_row_params : (string, Types.infer_row) Hashtbl.t = Hashtbl.create 8
 
+(* Keyed by the parameter's own variable, so entering its scope again finds the
+   same row: a signature is read when it is hoisted and again when its body is
+   checked, and a fresh row each time makes the body's `E` a different variable
+   from the signature's -- which a nested function then generalizes over. *)
+let param_rows : (Types.infer_ty * Types.infer_row) list ref = ref []
+
+let row_of_param var =
+  match List.assq_opt var !param_rows with
+  | Some row -> row
+  | None ->
+    let row = Types.fresh_row () in
+    Types.declare_row row;
+    param_rows := (var, row) :: !param_rows;
+    row
+
 let with_type_params assoc f =
   let saved =
     List.map
@@ -187,9 +207,7 @@ let with_type_params assoc f =
     (fun (name, var) ->
       Hashtbl.replace ctx_type_params name var;
       Types.name_param name var;
-      let row = Types.fresh_row () in
-      Types.declare_row row;
-      Hashtbl.replace ctx_row_params name row)
+      Hashtbl.replace ctx_row_params name (row_of_param var))
     assoc;
   Fun.protect
     ~finally:(fun () ->
@@ -289,7 +307,8 @@ let reset_effects () =
   Hashtbl.reset ctx_variadic;
   Hashtbl.reset ctx_methods;
   Hashtbl.reset ctx_type_params;
-  Hashtbl.reset ctx_fn_params
+  Hashtbl.reset ctx_fn_params;
+  param_rows := []
 
 let new_env parent = { bindings = Hashtbl.create 16; parent }
 let bind env name scheme = Hashtbl.replace env.bindings name scheme
@@ -1055,7 +1074,10 @@ let element_of registry (target : checked_expr) =
   match Types.concrete target.Ast.ann with
   | Some Types.Str -> Types.IChr
   | Some other ->
-    (match Types.container_element (Types.of_ty other) with
+    (* The target's own type, not [of_ty] of it: that gives an open row a fresh
+       tail, and the element stops sharing the row variable its container was
+       declared with. *)
+    (match Types.container_element target.Ast.ann with
      | Some (name, elem)
        when String.equal name Types.array_name || Registry.is_indexed registry name ->
        elem
@@ -1180,6 +1202,22 @@ let declared_variant env ty variant =
   match lookup env ty, Hashtbl.find_opt ctx_types ty with
   | None, Some (Sum (_, variants)) -> List.assoc_opt variant variants
   | _ -> None
+
+(* An effect's argument is a type, so a parameter standing in a row would be
+   matched by name where the effect is declared and carried by nothing where it
+   is used: a handler's arm and a call site would each get a row of their own. *)
+let rec row_param_in names (t : Ast.type_expr) =
+  let within = List.find_map (row_param_in names) in
+  match t.Ast.it with
+  | Ast.Ty_fn (params, ret, row) ->
+    (match List.find_opt (fun (label, _) -> List.mem label names) row with
+     | Some (label, _) -> Some (label, t.Ast.span)
+     | None -> within ((ret :: params) @ List.concat_map snd row))
+  | Ast.Ty_app (_, args) | Ast.Ty_tuple args -> within args
+  | Ast.Ty_record fields -> within (List.map snd fields)
+  | Ast.Ty_variadic inner | Ast.Ty_spread inner | Ast.Ty_assoc (inner, _) | Ast.Ty_bind (_, inner) ->
+    row_param_in names inner
+  | Ast.Ty_name _ -> None
 
 let rec infer_expr env ctx (e : Ast.desugared_expr) : checked_expr =
   located ctx e (fun () -> infer_expr_impl env ctx e)
@@ -1346,6 +1384,10 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     infer_expr env ctx { e with Ast.it = `New_call (name, type_args, args) }
   | `Call (callee, args) ->
     let callee_node = infer_expr env ctx callee in
+    root_argument
+    := (match callee.Ast.it, !top_row with
+        | `Var name, Some top -> String.equal name Ast.root_function && top == ctx.row
+        | _ -> false);
     let args = name_implicit_params callee_node.Ast.ann args in
     (* A literal is unified with itself before a coercion could reach inside
        it, so an argument whose parameter mentions a trait is checked rather
@@ -1716,6 +1758,11 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
               name
               (List.length rest)
               (List.length args);
+          let dynamic =
+            match Types.repr receiver.Ast.ann with
+            | Types.INamed (named, _) -> String.equal named trait
+            | _ -> false
+          in
           let fn =
             Types.IFn
               ( receiver.Ast.ann
@@ -1723,12 +1770,30 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
               , annotated_or_fresh m.Ast.ms_signature.Ast.ret
               , (match m.Ast.ms_signature.Ast.row with
                  | Some labels -> row_of_labels ~span labels
+                 (* A table's slot holds an impl compiled for the trait's
+                    signature, so a row the trait leaves unwritten is empty: a
+                    call made where more is handled must not pass that too. *)
+                 | None when dynamic -> Types.REmpty
                  | None -> Types.fresh_row ()) )
           in
           let ret = Types.fresh () in
           let row = Types.fresh_row () in
+          (* The written row is what the call passes evidence for, and what it
+             adds to its context -- not all its context may hold, which a closed
+             row unified with the context would insist on. *)
+          let rec opened (r : Types.infer_row) =
+            match Types.repr_row r with
+            | Types.REmpty -> Types.fresh_row ()
+            | Types.RCons (label, args, rest) -> Types.RCons (label, args, opened rest)
+            | open_ -> open_
+          in
+          let unified =
+            match fn with
+            | Types.IFn (params, answer, r) -> Types.IFn (params, answer, opened r)
+            | other -> other
+          in
           Types.unify
-            fn
+            unified
             (Types.IFn
                ( receiver.Ast.ann :: List.map (fun (a : checked_expr) -> a.Ast.ann) args
                , ret
@@ -1891,8 +1956,14 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       (fun (p : Ast.param) ty -> bind scope p.Ast.name (Types.mono ty))
       params
       param_types;
+    let at_root = !root_argument in
+    root_argument := false;
+    let saved = !top_row in
+    if at_root then top_row := Some row;
     let body =
-      in_function_body ctx ~ret:declared_ret ~row (fun () -> infer_block scope ctx body)
+      Fun.protect
+        ~finally:(fun () -> top_row := saved)
+        (fun () -> in_function_body ctx ~ret:declared_ret ~row (fun () -> infer_block scope ctx body))
     in
     node (Types.IFn (param_types, declared_ret, row)) (`Lambda (params, signature, body))
   (* The declared type when no value answers, so `typeof(Dog)` works. *)
@@ -3141,6 +3212,24 @@ and infer_stmt_impl env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
           ; body = op_type
           })
       ops);
+    (* After the operations are bound, so a handler naming one still checks. *)
+    List.iter
+      (fun (o : Ast.op_decl) ->
+        let shared = List.filter (fun p -> not (List.mem p o.Ast.op_tparams)) params in
+        List.iter
+          (fun t ->
+            match row_param_in shared t with
+            | Some (param, at) ->
+              fail
+                at
+                "'%s' is a parameter of '%s', and an effect's parameter cannot stand in a \
+                 row."
+                param
+                name
+            | None -> ())
+          (Option.to_list o.Ast.op_ret
+           @ List.filter_map (fun (p : Ast.param) -> p.Ast.ty) o.Ast.op_params))
+      ops;
     node (`Effect_decl (name, params, ops))
   | `Run (body, handlers) ->
     let (body, _), handlers =
@@ -3503,16 +3592,43 @@ and infer_handler env ctx assigned ~answer ~args (h : Ast.desugared_stmt Ast.han
              then Types.unify answer Types.IUnit);
           body)
     in
+    (* Tied to a variable outside the arm is settled too, only later: whatever
+       that variable becomes, every call site would be held to it. *)
+    let outer_types = env_free_vars env
+    and outer_rows = env_free_row_vars env in
     List.iter
       (fun (name, var) ->
-        match Types.repr var with
-        | Types.IVar { contents = Types.Unbound _ } -> ()
+        (match Types.repr var with
+         | Types.IVar { contents = Types.Unbound (id, _) } ->
+           if List.mem id outer_types
+           then
+             Types.error
+               "This handler ties '%s' to a type from outside it, but '%s' is handled \
+                once for every type its call sites use."
+               name
+               a.Ast.arm_name
+         | settled ->
+           Types.error
+             "This handler settles '%s' at %s, but '%s' is handled once for every \
+              type its call sites use."
+             name
+             (Types.string_of_infer_ty settled)
+             a.Ast.arm_name);
+        match Types.repr_row (row_of_param var) with
+        | Types.RVar { contents = Types.RUnbound id } ->
+          if List.mem id outer_rows
+          then
+            Types.error
+              "This handler ties '%s' to a row from outside it, but '%s' is handled \
+               once for every row its call sites use."
+              name
+              a.Ast.arm_name
         | settled ->
           Types.error
-            "This handler settles '%s' at %s, but '%s' is handled once for every \
-             type its call sites use."
+            "This handler settles '%s' at <%s>, but '%s' is handled once for every \
+             row its call sites use."
             name
-            (Types.string_of_infer_ty settled)
+            (Types.string_of_infer_row settled)
             a.Ast.arm_name)
       own;
     { Ast.arm_name = a.Ast.arm_name
@@ -3759,14 +3875,25 @@ let check_with ~registry (program : Ast.desugared_stmt list)
   each (declare_impls registry);
   each (hoist env);
   let assigned = assigned_names program in
+  let infer s =
+    try Some (infer_stmt env ctx assigned s) with
+    | Located e ->
+      errors := e :: !errors;
+      None
+  in
+  (* Effects first, whatever their order: the walk emits a declaration where it
+     reaches it, which is after a function in another module that handles the
+     effect, and a handler needs the effect's operations. *)
   let checked =
-    List.filter_map
-      (fun s ->
-        try Some (infer_stmt env ctx assigned s) with
-        | Located e ->
-          errors := e :: !errors;
-          None)
+    List.map
+      (fun (s : Ast.desugared_stmt) ->
+        match s.Ast.it with
+        | `Effect_decl _ -> `Checked (infer s)
+        | _ -> `Pending s)
       program
+    |> List.filter_map (function
+      | `Checked result -> result
+      | `Pending s -> infer s)
   in
   let errors =
     List.fold_left

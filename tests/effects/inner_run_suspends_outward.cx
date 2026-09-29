@@ -3,7 +3,7 @@
 effect E { ctl ask(): int; }
 effect Log { fn note(): unit; }
 
-fn f(): <E> int {
+fn f(): <E, Console> int {
     var t = 0;
     run {
         note();

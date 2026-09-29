@@ -1,0 +1,3 @@
+import { async, interleaved, pause } from "std/effects/Async";
+
+interleaved([ () => { pause(); } ]);

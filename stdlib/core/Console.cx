@@ -1,0 +1,60 @@
+/**
+ * The terminal: standard output and standard error.
+ *
+ * ```
+ * print("hello");                 // standard output, and a newline
+ * eprint("warning: no config");   // standard error
+ * ```
+ *
+ * In core because every program's top level runs under `__root`, which
+ * handles `Console`, and a test captures output by handling it too:
+ *
+ * ```
+ * var said: List<string> = [];
+ * run { print("hi"); } handle Console {
+ *     fn write(to, text) { said.push(text); }
+ * }
+ * ```
+ *
+ * Writing is synchronous, as console output is in every mainstream runtime,
+ * so a function that prints is not put through continuations for it.
+ */
+
+/** Which of the two output streams. */
+type Stream {
+    /** Standard output. */
+    Out,
+
+    /** Standard error. */
+    Err
+}
+
+/** The process's standard streams. */
+effect Console {
+    /** Writes the text to the stream as it is, with nothing added. */
+    fn write(to: Stream, text: string): unit;
+}
+
+/** Writes a value and a newline to standard output. */
+fn print<T>(value: T) {
+    write(Stream.Out, str(value) + "\n");
+}
+
+/** Writes a value and a newline to standard error. */
+fn eprint<T>(value: T) {
+    write(Stream.Err, str(value) + "\n");
+}
+
+/** What each statement of a program's top level runs under. */
+fn __root<T, E>(main: () -> <Console, E> T): <E> T {
+    return run {
+        main()
+    } handle Console {
+        fn write(to, text) {
+            match to {
+                Stream.Out => { __write_out(text); }
+                Stream.Err => { __write_err(text); }
+            }
+        }
+    };
+}

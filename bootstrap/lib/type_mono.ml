@@ -4,12 +4,17 @@ type state =
   { registry : Registry.t
   ; generic : (string, Ast.typed_stmt) Hashtbl.t
   ; copies : (string * Types.ty, string) Hashtbl.t
-  ; (* So a copy asking for another copy of its own template is recognized. *)
+  ; (* So an instance asking for another instance of its own generic is recognized. *)
     origin : (string, string) Hashtbl.t
   ; mutable emitted : Ast.typed_stmt list
   ; mutable changed : bool
   ; mutable rewriting : string option
   ; mutable recursive : string option
+  (* The variables the declarations around the body being rewritten own. *)
+  ; mutable owned : int list
+  (* Names a body binds itself, which a generic of the same name does not
+     reach: a local `fn print` is not the prelude's. *)
+  ; mutable shadowed : string list
   }
 
 (* A call the body makes to itself at another type is deliberately not counted:
@@ -204,7 +209,7 @@ let copy_for state name (at : Types.ty) =
      | _ -> ());
     copy
 
-(* From the template, not the call site: CPS reads it off the callee. *)
+(* From the generic, not the call site: CPS reads it off the callee. *)
 let method_call_type state name (receiver : Ast.typed_expr) args result =
   let row =
     match Hashtbl.find_opt state.generic name with
@@ -216,11 +221,123 @@ let method_call_type state name (receiver : Ast.typed_expr) args result =
     , result
     , row )
 
+(* What a body reads or assigns, first use first, and every name it binds.
+   Shadowing is not tracked -- a name bound anywhere inside counts as bound
+   throughout -- so a capture can be missed but never invented. *)
+let names_in (params : Ast.param list) (body : Ast.typed_stmt list) =
+  let used = ref [] and bound = Hashtbl.create 16 in
+  let bind name = Hashtbl.replace bound name () in
+  let bind_params = List.iter (fun (p : Ast.param) -> bind p.Ast.name) in
+  let bind_patterns cases = List.iter (fun (p, _) -> List.iter bind (Ast.pattern_names p)) cases in
+  let rec expr (e : Ast.typed_expr) =
+    (match e.Ast.it with
+     | `Var name | `Assign (name, _) ->
+       if not (List.mem_assoc name !used) then used := (name, e.Ast.span) :: !used
+     | `Lambda (ps, _, _) -> bind_params ps
+     | `Match_expr (_, cases) -> bind_patterns cases
+     | `Run_expr (_, _, Some c) -> bind c.Ast.rc_param
+     | _ -> ());
+    ignore (children e)
+  and seen e =
+    expr e;
+    e
+  and seen_stmt s =
+    stmt s;
+    s
+  and handler (h : Ast.typed_stmt Ast.handler) =
+    List.iter (fun (a : Ast.typed_stmt Ast.arm) -> List.iter bind a.Ast.arm_params) h.Ast.arms;
+    Ast.map_handler seen_stmt h
+  and children (e : Ast.typed_expr) : Ast.typed_expr_kind =
+    match e.Ast.it with
+    | `Lambda (ps, sg, b) -> `Lambda (ps, sg, List.map seen_stmt b)
+    | #Ast.lit as l -> l
+    | #Ast.arrays as a -> (Ast.map_arrays seen a :> Ast.typed_expr_kind)
+    | #Ast.strings as x -> (Ast.map_strings seen x :> Ast.typed_expr_kind)
+    | #Ast.vars as v -> (Ast.map_vars seen v :> Ast.typed_expr_kind)
+    | #Ast.ops as o -> (Ast.map_ops seen o :> Ast.typed_expr_kind)
+    | #Ast.logic as l -> (Ast.map_logic seen l :> Ast.typed_expr_kind)
+    | #Ast.compound as c -> (Ast.map_compound seen c :> Ast.typed_expr_kind)
+    | #Ast.indexing as i -> (Ast.map_indexing seen i :> Ast.typed_expr_kind)
+    | #Ast.tuple as t -> (Ast.map_tuple seen t :> Ast.typed_expr_kind)
+    | #Ast.spread as x -> (Ast.map_spread seen x :> Ast.typed_expr_kind)
+    | #Ast.record as r -> (Ast.map_record seen r :> Ast.typed_expr_kind)
+    | #Ast.nominal as n -> (Ast.map_nominal seen n :> Ast.typed_expr_kind)
+    | #Ast.collection as c -> (Ast.map_collection seen c :> Ast.typed_expr_kind)
+    | #Ast.bound_calls as b -> (Ast.map_bound_call seen Fun.id b :> Ast.typed_expr_kind)
+    | #Ast.coercions as c -> (Ast.map_coercion seen Fun.id c :> Ast.typed_expr_kind)
+    | #Ast.dyn_calls as d -> (Ast.map_dyn_call seen Fun.id d :> Ast.typed_expr_kind)
+    | #Ast.reflect as r -> (Ast.map_reflect seen r :> Ast.typed_expr_kind)
+    | #Ast.run_expr as r -> (Ast.map_run_expr seen seen_stmt handler r :> Ast.typed_expr_kind)
+    | #Ast.match_expr as m -> (Ast.map_match_expr seen seen_stmt m :> Ast.typed_expr_kind)
+  and stmt (s : Ast.typed_stmt) =
+    (match s.Ast.it with
+     | `Var_decl (name, _, _) -> bind name
+     | `Var_tuple (names, _) -> List.iter bind names
+     | `Fn (name, ps, _, _) ->
+       bind name;
+       bind_params ps
+     | `Match (_, cases) -> bind_patterns cases
+     | _ -> ());
+    let (_ : Ast.typed_stmt_kind) =
+      match s.Ast.it with
+      | #Ast.stmts as st -> (Ast.map_stmts seen seen_stmt st :> Ast.typed_stmt_kind)
+      | #Ast.effects as ef -> (Ast.map_effects seen seen_stmt handler ef :> Ast.typed_stmt_kind)
+      | #Ast.type_defs as t -> t
+      | #Ast.method_defs as m -> (Ast.map_method_defs seen_stmt Fun.id m :> Ast.typed_stmt_kind)
+      | #Ast.matching as m -> (Ast.map_matching seen seen_stmt m :> Ast.typed_stmt_kind)
+    in
+    ()
+  in
+  bind_params params;
+  List.iter stmt body;
+  List.rev !used, bound
+
+(* A variable at a call that no declaration around it owns is one nothing
+   constrains -- `attempt` around work that throws nothing has no `X` -- so any
+   type will do, and one is needed for the call to get an instance at all. An
+   owned one is left for the instance of its owner to settle. *)
+let settled state (t : Types.ty) =
+  fst (Types.variables t)
+  |> List.filter (fun id -> not (List.mem id state.owned))
+  |> List.sort_uniq compare
+  |> List.map (fun id -> id, Types.Unit)
+
+let owning state (ann : Types.ty) f =
+  let saved = state.owned in
+  state.owned <- fst (Types.variables ann) @ saved;
+  Fun.protect ~finally:(fun () -> state.owned <- saved) f
+
+(* A nested function that is itself one of the generics is reached through the
+   table as before; any other name the body binds hides a generic's. *)
+let binding state params body f =
+  let _, bound = names_in params body in
+  let rec own_generics (s : Ast.typed_stmt) =
+    match s.Ast.it with
+    | `Fn (name, _, _, _) ->
+      (match Hashtbl.find_opt state.generic name with
+       | Some registered when registered == s -> [ name ]
+       | _ -> [])
+    | `Block inner | `Run (inner, _) -> List.concat_map own_generics inner
+    | `If (_, t, e) -> own_generics t @ Option.fold ~none:[] ~some:own_generics e
+    | `While (_, inner) -> own_generics inner
+    | `Match (_, cases) -> List.concat_map (fun (_, inner) -> List.concat_map own_generics inner) cases
+    | _ -> []
+  in
+  let reachable = List.concat_map own_generics body in
+  let hidden =
+    Hashtbl.fold (fun name () acc -> if List.mem name reachable then acc else name :: acc) bound []
+  in
+  let saved = state.shadowed in
+  state.shadowed <- hidden @ saved;
+  Fun.protect ~finally:(fun () -> state.shadowed <- saved) f
+
 let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
+  let ann = ref e.Ast.ann in
   let it : Ast.typed_expr_kind =
     match e.Ast.it with
     | `Lambda (params, signature, body) ->
-      `Lambda (params, signature, List.map (rewrite_stmt state) body)
+      binding state params body (fun () ->
+        `Lambda (params, signature, List.map (rewrite_stmt state) body))
     | `Bound_call (receiver, name, dispatch, args) ->
       let receiver = rewrite state receiver in
       let args = List.map (rewrite state) args in
@@ -234,6 +351,7 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
       (match owned with
        | Some mangled when Hashtbl.mem state.generic mangled ->
          let at = method_call_type state mangled receiver args e.Ast.ann in
+         let at = Types.subst_generic (settled state at) at in
          if Types.has_generic at
          then `Bound_call (receiver, name, dispatch, args)
          else (
@@ -249,10 +367,28 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
       let args = List.map (rewrite state) args in
       (match callee.Ast.it with
        | `Var name
-         when Hashtbl.mem state.generic name && not (Types.has_generic callee.Ast.ann) ->
-         let copy = copy_for state name callee.Ast.ann in
-         `Call ({ callee with Ast.it = `Var copy }, args)
+         when Hashtbl.mem state.generic name
+              && (not (List.mem name state.shadowed))
+              && not
+                   (Types.has_generic
+                      (Types.subst_generic (settled state callee.Ast.ann) callee.Ast.ann)) ->
+         let mapping = settled state callee.Ast.ann in
+         let at = Types.subst_generic mapping callee.Ast.ann in
+         let copy = copy_for state name at in
+         ann := Types.subst_generic mapping e.Ast.ann;
+         `Call ({ callee with Ast.it = `Var copy; ann = at }, List.map (subst_expr mapping) args)
        | _ -> `Call (rewrite state callee, args))
+    (* A generic passed as a value gets an instance at the type it is passed
+       at, as a call does; the name alone would reach nothing once only its
+       instances are emitted. *)
+    | `Var name when Hashtbl.mem state.generic name && not (List.mem name state.shadowed) ->
+      let mapping = settled state e.Ast.ann in
+      let at = Types.subst_generic mapping e.Ast.ann in
+      if Types.has_generic at
+      then `Var name
+      else (
+        ann := at;
+        `Var (copy_for state name at))
     | #Ast.lit as l -> l
     | #Ast.arrays as a -> (Ast.map_arrays (rewrite state) a :> Ast.typed_expr_kind)
     | #Ast.strings as s -> (Ast.map_strings (rewrite state) s :> Ast.typed_expr_kind)
@@ -271,7 +407,9 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
       (Ast.map_coercion (rewrite state) (fun t -> t) c :> Ast.typed_expr_kind)
     | #Ast.dyn_calls as d ->
       (Ast.map_dyn_call (rewrite state) (fun t -> t) d :> Ast.typed_expr_kind)
-    | #Ast.reflect as r -> (Ast.map_reflect (rewrite state) r :> Ast.typed_expr_kind)
+    (* Answered from the annotation and never evaluated, so what it names is
+       the generic itself, not an instance of it. *)
+    | #Ast.reflect as r -> (r :> Ast.typed_expr_kind)
     | #Ast.run_expr as r ->
       (Ast.map_run_expr
          (rewrite state)
@@ -282,11 +420,23 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
     | #Ast.match_expr as m ->
       (Ast.map_match_expr (rewrite state) (rewrite_stmt state) m :> Ast.typed_expr_kind)
   in
-  { e with Ast.it }
+  { e with Ast.it; ann = !ann }
 
 and rewrite_stmt state (s : Ast.typed_stmt) : Ast.typed_stmt =
   let it : Ast.typed_stmt_kind =
     match s.Ast.it with
+    | `Fn (name, params, signature, body) ->
+      owning state s.Ast.ann (fun () ->
+        binding state params body (fun () ->
+          `Fn (name, params, signature, List.map (rewrite_stmt state) body)))
+    | `Impl_decl (trait, type_name, params, impl) ->
+      let method_ (m : (Ast.typed_stmt, Types.ty) Ast.method_def) =
+        owning state m.Ast.md_ann (fun () ->
+          binding state m.Ast.md_params m.Ast.md_body (fun () ->
+            { m with Ast.md_body = List.map (rewrite_stmt state) m.Ast.md_body }))
+      in
+      `Impl_decl
+        (trait, type_name, params, { impl with Ast.ib_methods = List.map method_ impl.Ast.ib_methods })
     | #Ast.stmts as st ->
       (Ast.map_stmts (rewrite state) (rewrite_stmt state) st :> Ast.typed_stmt_kind)
     | #Ast.effects as e ->
@@ -304,14 +454,73 @@ and rewrite_stmt state (s : Ast.typed_stmt) : Ast.typed_stmt =
   in
   { s with Ast.it }
 
-let rec collect state (s : Ast.typed_stmt) =
+type error =
+  { span : Ast.span
+  ; message : string
+  }
+
+exception Failed of error
+
+(* What a function declared in a body inherits from the functions around it. A
+   variable of theirs is settled when they are copied, so it makes nothing
+   generic here. *)
+type scope =
+  { owner : string option
+  ; generics : int list
+  ; rows : int list
+  ; locals : string list
+  }
+
+let top = { owner = None; generics = []; rows = []; locals = [] }
+
+let within scope name params body ann =
+  let generics, rows = Types.variables ann in
+  let _, bound = names_in params body in
+  { owner = Some name
+  ; generics = generics @ scope.generics
+  ; rows = rows @ scope.rows
+  ; locals = Hashtbl.fold (fun local () acc -> local :: acc) bound scope.locals
+  }
+
+(* An instance is emitted at the top of the program, away from the body that
+   declared its generic, so it cannot see that body's locals. *)
+let refuse_captures owner name params body locals =
+  let used, bound = names_in params body in
+  let captured =
+    List.filter
+      (fun (local, _) ->
+        List.mem local locals && (not (Hashtbl.mem bound local)) && not (String.equal local name))
+      used
+  in
+  match captured with
+  | [] -> ()
+  | (_, span) :: _ ->
+    let quoted = String.concat ", " (List.map (fun (local, _) -> "'" ^ local ^ "'") captured) in
+    raise
+      (Failed
+         { span
+         ; message =
+             Printf.sprintf
+               "'%s' is compiled once per type or effect row it is called at, so it cannot \
+                read %s from '%s'. Pass %s in, or declare '%s' outside '%s'."
+               name
+               quoted
+               owner
+               (if List.length captured = 1 then "it" else "them")
+               name
+               owner
+         })
+
+let rec collect state scope (s : Ast.typed_stmt) =
   match s.Ast.it with
-  | `Fn (name, _, _, body) ->
-    if (Types.has_generic s.Ast.ann && type_directed name s)
-       || Types.row_polymorphic s.Ast.ann
-    then Hashtbl.replace state.generic name s;
-    List.iter (collect state) body
-    | `Impl_decl (trait, type_name, _, impl) ->
+  | `Fn (name, params, _, body) ->
+    let own = List.filter (fun id -> not (List.mem id scope.generics)) (fst (Types.variables s.Ast.ann)) in
+    if (own <> [] && type_directed name s) || Types.row_polymorphic ~inherited:scope.rows s.Ast.ann
+    then (
+      Option.iter (fun owner -> refuse_captures owner name params body scope.locals) scope.owner;
+      Hashtbl.replace state.generic name s);
+    List.iter (collect state (within scope name params body s.Ast.ann)) body
+  | `Impl_decl (trait, type_name, _, impl) ->
     List.iter
       (fun (m : (Ast.typed_stmt, Types.ty) Ast.method_def) ->
         let mangled = Ast.impl_method_name trait type_name m.Ast.md_name in
@@ -325,30 +534,25 @@ let rec collect state (s : Ast.typed_stmt) =
               Ast.it = `Fn (mangled, m.Ast.md_params, m.Ast.md_signature, m.Ast.md_body)
             ; ann = m.Ast.md_ann
             };
-        List.iter (collect state) m.Ast.md_body)
+        List.iter
+          (collect state (within scope mangled m.Ast.md_params m.Ast.md_body m.Ast.md_ann))
+          m.Ast.md_body)
       impl.Ast.ib_methods
-  | `Block body -> List.iter (collect state) body
+  | `Block body -> List.iter (collect state scope) body
   | `If (_, then_branch, else_branch) ->
-    collect state then_branch;
-    Option.iter (collect state) else_branch
-  | `While (_, body) -> collect state body
-  | `Run (body, _) -> List.iter (collect state) body
+    collect state scope then_branch;
+    Option.iter (collect state scope) else_branch
+  | `While (_, body) -> collect state scope body
+  | `Run (body, _) -> List.iter (collect state scope) body
   | `Match (_, cases) ->
-    List.iter (fun (_, body) -> List.iter (collect state) body) cases
+    List.iter (fun (_, body) -> List.iter (collect state scope) body) cases
   | _ -> ()
 
-(* A template's own body still names types nothing can select on. *)
-let is_template state (s : Ast.typed_stmt) =
+(* A monomorphized generic's own body still names types nothing can select on. *)
+let is_monomorphized state (s : Ast.typed_stmt) =
   match s.Ast.it with
   | `Fn (name, _, _, _) -> Hashtbl.mem state.generic name
   | _ -> false
-
-type error =
-  { span : Ast.span
-  ; message : string
-  }
-
-exception Diverged of error
 
 (* Each round of draining specializes one level deeper, and real nesting is
    shallow — a chain of generic calls each needing a copy of the next. A
@@ -367,18 +571,20 @@ let program ~registry (p : Ast.typed_stmt list) : Ast.typed_stmt list =
     ; changed = false
     ; rewriting = None
     ; recursive = None
+    ; owned = []
+    ; shadowed = []
     }
   in
-  List.iter (collect state) p;
+  List.iter (collect state top) p;
   if Hashtbl.length state.generic = 0
   then p
   else (
     let rewritten =
       List.filter_map
-        (fun s -> if is_template state s then None else Some (rewrite_stmt state s))
+        (fun s -> if is_monomorphized state s then None else Some (rewrite_stmt state s))
         p
     in
-    (* A copy may itself call a template at a type nothing has asked for yet. *)
+    (* An instance may itself call a generic at a type nothing has asked for yet. *)
     let rec drain depth acc =
       if depth > depth_limit
       then (
@@ -389,7 +595,7 @@ let program ~registry (p : Ast.typed_stmt list) : Ast.typed_stmt list =
           | None -> Source_map.Span.nowhere
         in
         raise
-          (Diverged
+          (Failed
              { span
              ; message =
                  Printf.sprintf

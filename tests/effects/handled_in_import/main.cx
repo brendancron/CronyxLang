@@ -1,0 +1,5 @@
+import "selective";
+import "qualified";
+
+print(selective.guarded());
+print(qualified.guarded());

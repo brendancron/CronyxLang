@@ -1,0 +1,17 @@
+// A type parameter that appears only as an effect's argument is still the
+// function's own: each call settles it afresh.
+effect Throw<X> { final ctl throw(err: X); }
+
+fn quiet<X, T, E>(fallback: T, f: () -> <Throw<X>, E> T): <E> T {
+    var out = fallback;
+    run { out = f(); } handle Throw { final ctl throw(e) { print("swallowed " + str(e)); } }
+    return out;
+}
+
+fn a(): int { throw("a failed"); return 1; }
+fn b(): int { throw(42); return 2; }
+
+fn one(): int { return quiet(0, a); }
+fn two(): int { return quiet(0, b); }
+
+print(one() + two());

@@ -1,0 +1,13 @@
+type Reason { Timeout }
+type Event { Started(int, string), Failed(Reason), Batch(List<int>), Done }
+
+match typeof(Event.Done).shape {
+    TypeShape.Sum(name, variants) => {
+        for (variant in variants) {
+            var carried = "";
+            for (p in variant.payload) { carried = carried + " " + str(p); }
+            print(str(variant.name) + " " + str(variant.arity) + ":" + carried);
+        }
+    }
+    _ => { print("not a sum"); }
+}

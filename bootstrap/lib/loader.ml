@@ -310,6 +310,12 @@ let rec operations (s : Ast.stmt) =
   | `Attributed (_, inner) -> operations inner
   | _ -> []
 
+let rec effects_of (s : Ast.stmt) =
+  match s.Ast.it with
+  | `Effect_decl (name, _, ops) -> [ name, List.map (fun (o : Ast.op_decl) -> o.Ast.op_name) ops ]
+  | `Attributed (_, inner) -> effects_of inner
+  | _ -> []
+
 let rec is_declaration (s : Ast.stmt) =
   match s.Ast.it with
   | `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Effect_decl _
@@ -336,7 +342,7 @@ let rec bound_by (s : Ast.stmt) =
   | `Block body -> List.concat_map bound_by body
   | _ -> []
 
-let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
+let rewrite ~aliases ~direct ~own ~foreign ~rename ~from (program : Ast.program) =
   let module S = Set.Make (String) in
     let resolve_local name =
     match Hashtbl.find_opt direct name with
@@ -421,7 +427,19 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
          | contents -> `Bytes contents
          | exception Sys_error _ -> fail e.Ast.span "Cannot embed '%s'." path)
       | `Code inner -> `Code (go inner)
-      | `Var name when not (S.mem name locals) -> `Var (resolve_local name)
+      | `Var name when not (S.mem name locals) ->
+        (match Hashtbl.find_opt foreign name with
+         | Some (declaring, namespace) ->
+           fail
+             e.Ast.span
+             "'%s' is an operation of '%s', which this file does not import by name. Write \
+              '%s.%s', or import { %s } from its module."
+             name
+             declaring
+             namespace
+             name
+             declaring
+         | None -> `Var (resolve_local name))
       (* A method call unless `math` names a module and nothing took the name. *)
       | `Method_call ({ Ast.it = `Var receiver; _ }, name, _, args)
         when (not (S.mem receiver locals)) && Hashtbl.mem aliases receiver ->
@@ -652,11 +670,24 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
   (* Keyed by file rather than by namespace: two packages may each hold a unit
      of the same name, and only the path tells them apart. *)
   List.iter (fun u -> Hashtbl.replace table u.path (u, exports u)) all;
+  (* An operation keeps its written name, so without this a file could perform
+     one from a module it never named, and which module a name comes from would
+     stop being something the file says. *)
+  let known_operations =
+    List.concat_map
+      (fun u ->
+        List.concat_map effects_of u.program
+        |> List.concat_map (fun (declaring, ops) ->
+          List.map (fun op -> op, (declaring, u.namespace)) ops))
+      all
+  in
   let resolve_unit u ~entry =
     let own = Hashtbl.create 8 in
     List.iter (fun name -> Hashtbl.replace own name ()) (exports u);
     let aliases = Hashtbl.create 4 in
     let direct = Hashtbl.create 4 in
+    let reachable = Hashtbl.create 8 in
+    List.iter (fun op -> Hashtbl.replace reachable op ()) (List.concat_map operations u.program);
     List.iter
       (fun (decl, span) ->
         let written = path_of decl in
@@ -718,14 +749,29 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                  then fail span "Module '%s' does not export '%s'." target name;
                  if Hashtbl.mem direct name
                  then fail span "'%s' is already imported." name;
-                 Hashtbl.replace direct name (renamed target_unit ~entry:is_entry name))
+                 Hashtbl.replace direct name (renamed target_unit ~entry:is_entry name);
+                 (* An artifact records its operations but not whose they are. *)
+                 let brought =
+                   match target_unit.program with
+                   | [] -> target_ops
+                   | program ->
+                     List.concat_map effects_of program
+                     |> List.filter (fun (declaring, _) -> String.equal declaring name)
+                     |> List.concat_map snd
+                 in
+                 List.iter (fun op -> Hashtbl.replace reachable op ()) brought)
                names
            | Ast.Wildcard _ -> ()))
       (imports u.program);
+    let foreign = Hashtbl.create 8 in
+    List.iter
+      (fun (op, owner) -> if not (Hashtbl.mem reachable op) then Hashtbl.replace foreign op owner)
+      known_operations;
     rewrite
       ~aliases
       ~direct
       ~own
+      ~foreign
       ~rename:(fun name -> renamed u ~entry name)
       ~from:u.path
       u.program

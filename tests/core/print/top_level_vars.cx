@@ -1,0 +1,14 @@
+/** Counted by `bump`. */
+var count = 0;
+var names: List<string> = ["a"];
+var (left, right) = (1, 2);
+
+fn bump() { count = count + 1; }
+fn add(name: string) { names.push(name); }
+
+bump();
+bump();
+add("b");
+print(count);
+print(names.len());
+print(left + right);

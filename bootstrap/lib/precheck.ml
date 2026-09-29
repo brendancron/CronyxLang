@@ -7,34 +7,15 @@ module S = Metaprocess.Shadowed
 let unknown_name = Ast.generated [ "meta"; "unknown" ]
 let unknown span : Ast.expr = Ast.at span (`Var unknown_name)
 
-let traits (p : Ast.program) =
-  let found = Hashtbl.create 16 in
-  let rec note (s : Ast.stmt) =
-    match s.Ast.it with
-    | `Trait_decl (name, _, _) -> Hashtbl.replace found name ()
-    | `Attributed (_, inner) -> note inner
-    | _ -> ()
-  in
-  List.iter note (Prelude.program ());
-  List.iter note p;
-  found
-
-let is_value traits (p : Ast.static_param) =
-  match p.Ast.sp_ty with
-  | None -> false
-  | Some { Ast.it = Ast.Ty_name name; _ } | Some { Ast.it = Ast.Ty_app (name, _); _ } ->
-    not (Hashtbl.mem traits name)
-  | Some _ -> true
-
 (* A value parameter is checked as a local of its declared type: its value is
    what a meta block would read, its type is known now. *)
 let erase (p : Ast.program) : Ast.program =
-  let traits = traits p in
-  let templates = Hashtbl.create 16 in
+  let traits = Metaprocess.declared_traits (Prelude.program () @ p) in
+  let comptime = Hashtbl.create 16 in
   let rec note (s : Ast.stmt) =
     (match Metaprocess.fn_parts s with
-     | Some (name, _, sg, _) when List.exists (is_value traits) sg.Ast.static_params ->
-       Hashtbl.replace templates name sg.Ast.static_params
+     | Some (name, _, sg, _) when List.exists (Metaprocess.value_param traits) sg.Ast.static_params ->
+       Hashtbl.replace comptime name sg.Ast.static_params
      | _ -> ());
     match s.Ast.it with
     | `Fn (_, _, _, body) | `Block body -> List.iter note body
@@ -63,14 +44,14 @@ let erase (p : Ast.program) : Ast.program =
         (fun _ e ->
           match e.Ast.it with
           | `Static_call (({ Ast.it = `Var name; _ } as callee), static_args, args)
-            when Hashtbl.mem templates name ->
-            let declared = Hashtbl.find templates name in
+            when Hashtbl.mem comptime name ->
+            let declared = Hashtbl.find comptime name in
             if List.length declared <> List.length static_args
             then e
             else (
               let kept =
                 List.filter_map
-                  (fun ((p : Ast.static_param), a) -> if is_value traits p then None else Some a)
+                  (fun ((p : Ast.static_param), a) -> if Metaprocess.value_param traits p then None else Some a)
                   (List.combine declared static_args)
               in
               match kept with
@@ -83,7 +64,7 @@ let erase (p : Ast.program) : Ast.program =
     match Metaprocess.fn_parts s with
     | None -> s
     | Some (name, params, sg, body) ->
-      let values, types = List.partition (is_value traits) sg.Ast.static_params in
+      let values, types = List.partition (Metaprocess.value_param traits) sg.Ast.static_params in
       ran_meta := false;
       let body = List.map nested (Metaprocess.tblock hooks S.empty body) in
       let locals =
@@ -179,7 +160,7 @@ let erase (p : Ast.program) : Ast.program =
     p
 
 let program (p : Ast.program) : Diagnostic.error list =
-  match Desugar.program (erase (Prelude.program () @ p)) with
+  match Desugar.program (Compile.under_root (erase (Prelude.program () @ p))) with
   | Error _ -> []
   | Ok desugared ->
     (match Typecheck.check ~policy:Typecheck.partial ~registry:(Registry.builtins ()) desugared with

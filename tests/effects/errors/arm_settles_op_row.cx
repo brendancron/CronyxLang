@@ -1,0 +1,8 @@
+effect Spawn {
+    fn spawn<E>(task: () -> <E> unit): unit;
+}
+
+fn runner<E>(main: () -> <Spawn, E> unit): <E> unit {
+    fn run_task(task: () -> <E> unit): <E> unit { task(); }
+    run { main(); } handle Spawn { fn spawn(t) { run_task(t); } }
+}

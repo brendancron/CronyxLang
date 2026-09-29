@@ -1,0 +1,1 @@
+[7:5] This handler ties 'E' to a row from outside it, but 'spawn' is handled once for every row its call sites use.

@@ -1,0 +1,17 @@
+import { async, block_on, all, promise, resolve, await, Promise } from "std/effects/Async";
+
+var ready: Promise<int> = promise();
+
+block_on {
+    all([
+        () => {
+            all([ () => { print("inner got " + str(await(ready))); } ]);
+            print("inner scope done");
+        },
+        () => {
+            print("outer resolving");
+            resolve(ready, 7);
+        }
+    ]);
+    print("all done");
+};

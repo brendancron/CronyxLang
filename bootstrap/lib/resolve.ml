@@ -251,11 +251,16 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
         | Some name ->
           (match Registry.container registry name, Registry.container_element registry name (Types.of_ty ann) with
            | Some make, Some element ->
+             (* The items' own type where there are any: [of_ty] gives an open
+                row a fresh tail, so the entry's element would differ from the
+                items in a way no printing shows and [Verify] rejects. *)
+             let element =
+               match items with
+               | (first : Ast.resolved_expr) :: _ -> first.Ast.ann
+               | [] -> Types.resolve element
+             in
              let elements : Ast.resolved_expr =
-               { Ast.it = `Array_lit items
-               ; span
-               ; ann = Types.array (Types.resolve element)
-               }
+               { Ast.it = `Array_lit items; span; ann = Types.array element }
              in
              `Call (fn_ref span make.Registry.entry [ elements ] ann, [ elements ])
            | _ -> unbuildable ()))

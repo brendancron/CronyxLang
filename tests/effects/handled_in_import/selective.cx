@@ -1,0 +1,10 @@
+import { Signal } from "signal";
+
+fn guarded(): string {
+    run {
+        stop("selective");
+    } handle Signal {
+        final ctl stop(reason) { print("caught " + reason); }
+    }
+    return "not stopped";
+}

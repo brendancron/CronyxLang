@@ -5,7 +5,7 @@
 effect E { ctl ask(): int; }
 effect Inner { ctl tick(): int; }
 
-fn f(): <E> int {
+fn f(): <E, Console> int {
     run {
         var n = tick();
         return n + 1;

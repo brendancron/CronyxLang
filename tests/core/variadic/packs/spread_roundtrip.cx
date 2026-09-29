@@ -1,4 +1,4 @@
-fn apply_all<...Args>(f: (...Args) -> unit, args: ...Args) {
+fn apply_all<...Args>(f: (...Args) -> <Console> unit, args: ...Args) {
     f(...args);
 }
 

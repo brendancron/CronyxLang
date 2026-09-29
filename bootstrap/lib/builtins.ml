@@ -50,7 +50,8 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
        telling the time."
     , fun () -> [], Types.IFloat )
   ; selected_test, "", (fun () -> [], Types.IInt)
-  ; ("print", "Writes a value and a newline to standard output.", fun () -> [ Types.fresh () ], Types.IUnit)
+  ; ("__write_out", "", fun () -> [ Types.IStr ], Types.IUnit)
+  ; ("__write_err", "", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "str"
     , "The value's written form -- the same one `print` writes."
     , fun () -> [ Types.fresh () ], Types.IStr )
@@ -131,10 +132,21 @@ let values ~out =
       | [ a ] -> f span a
       | _ -> Value.fail span "Cannot apply %s to these arguments." name)
   in
-  [ one "print" (fun _ v ->
-      out (Value.string_of_value v);
-      out "\n";
-      Value.Unit)
+  [ one "__write_out" (fun span v ->
+      match v with
+      | Value.Str text ->
+        out (Utf8.encode text);
+        Value.Unit
+      | _ -> Value.fail span "__write_out takes a string.")
+  ; one "__write_err" (fun span v ->
+      match v with
+      | Value.Str text ->
+        (* So the two streams interleave in the order the program wrote them. *)
+        flush stdout;
+        prerr_string (Utf8.encode text);
+        flush stderr;
+        Value.Unit
+      | _ -> Value.fail span "__write_err takes a string.")
   ; one "str" (fun _ v -> Value.Str (Utf8.decode (Value.string_of_value v)))
   ; one "ord" (fun span v ->
       match v with

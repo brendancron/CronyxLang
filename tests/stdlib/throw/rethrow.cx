@@ -1,0 +1,34 @@
+import { Throw, Result, attempt, rethrow, Wraps } from "std/lang/Throw";
+
+type IoError { NotFound(string) }
+type ParseError { BadLine(int) }
+type LoadError { Io(IoError), Parse(ParseError) }
+derive Wraps for LoadError;
+
+fn read(path: string): string {
+    if (path == "missing.toml") { throw(IoError.NotFound(path)); }
+    return "port = x";
+}
+
+fn parse(text: string): int {
+    if (text == "port = x") { throw(ParseError.BadLine(1)); }
+    return 8080;
+}
+
+fn load(path: string): <Throw<LoadError>> int {
+    var text = rethrow { read(path) };
+    return rethrow { parse(text) };
+}
+
+for (path in ["missing.toml", "config.toml"]) {
+    var outcome = attempt { load(path) };
+    match outcome {
+        Result.Ok(port) => { print(port); }
+        Result.Err(e) => {
+            match e {
+                LoadError.Io(io) => { print("io: " + str(io)); }
+                LoadError.Parse(bad) => { print("parse: " + str(bad)); }
+            }
+        }
+    }
+}

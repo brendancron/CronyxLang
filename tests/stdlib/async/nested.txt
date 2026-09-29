@@ -1,0 +1,4 @@
+outer resolving
+inner got 7
+inner scope done
+all done

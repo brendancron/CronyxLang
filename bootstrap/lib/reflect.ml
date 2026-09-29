@@ -109,11 +109,18 @@ let shape_of span (ty : Types.ty) =
       | _ -> []
     in
     let each (label, (declared : Typecheck.variant_decl)) =
-      let arity =
-        match declared.Typecheck.vd_payload with
-        | Ast.P_none -> 0
-        | Ast.P_tuple items -> List.length items
-        | Ast.P_fields items -> List.length items
+      let carried_types = Ast.payload_fields declared.Typecheck.vd_payload |> List.map snd in
+      let arity = List.length carried_types in
+      (* A `Name` is an identifier, so `List<int>` has none to give. *)
+      let plain (t : Types.infer_ty) =
+        match Types.repr t with
+        | Types.INamed (name, []) | Types.ISum (name, []) -> Some name
+        | Types.INamed _ | Types.ISum _ -> None
+        | t -> Types.infer_type_name t
+      in
+      let payload =
+        let names = List.filter_map plain carried_types in
+        if List.length names = arity then names else []
       in
       let carried = Typecheck.attrs_of name label in
       record_at
@@ -123,6 +130,7 @@ let shape_of span (ty : Types.ty) =
         ; "attrs", attrs_at span (written carried)
         ; "doc", string_at span (doc_of carried)
         ; "name", name_at span label
+        ; "payload", array_at span Types.name (List.map (name_at span) payload)
         ]
     in
     shape_at

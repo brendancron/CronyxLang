@@ -25,6 +25,9 @@ type effects =
   (* Whether the statement being compiled sits inside a `run` the enclosing
      function has not left. *)
   ; mutable inside_run : bool
+  (* The own type of each function in scope where conversion is, whose row says
+     what evidence it takes. See [scoped]. *)
+  ; functions : (string, Types.ty) Hashtbl.t
   }
 
 let evidence_name op = Ast.generated [ "ev"; op ]
@@ -236,6 +239,72 @@ let convert_cps
   =
   ref (fun _ _ _ _ -> [])
 
+(* What a body can name as a declared function: those it declares, over what
+   is already in scope, less its parameters and locals, which shadow a function
+   of the same name. By scope rather than by name alone, because two functions
+   may each declare a `helper`, and `Type_mono` copies a function with the ones
+   it declares, at a different row in each copy. *)
+let scoped info (params : Ast.param list) (body : Ast.reflected_stmt list) f =
+  let declared = ref []
+  and shadowed = ref (List.map (fun (p : Ast.param) -> p.Ast.name) params) in
+  let rec walk (s : Ast.reflected_stmt) =
+    match s.Ast.it with
+    | `Fn (name, _, _, _) -> declared := (name, s.Ast.ann) :: !declared
+    | `Var_decl (name, _, _) -> shadowed := name :: !shadowed
+    | `Var_tuple (names, _) -> shadowed := names @ !shadowed
+    | `Block inner | `Run (inner, _) -> List.iter walk inner
+    | `If (_, t, e) ->
+      walk t;
+      Option.iter walk e
+    | `While (_, inner) | `Defer inner -> walk inner
+    | `Match (_, cases) -> List.iter (fun (_, inner) -> List.iter walk inner) cases
+    | _ -> ()
+  in
+  List.iter walk body;
+  let touched = !shadowed @ List.map fst !declared in
+  let saved = List.map (fun name -> name, Hashtbl.find_opt info.functions name) touched in
+  List.iter (Hashtbl.remove info.functions) !shadowed;
+  List.iter (fun (name, ty) -> Hashtbl.replace info.functions name ty) !declared;
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter
+        (fun (name, previous) ->
+          match previous with
+          | Some ty -> Hashtbl.replace info.functions name ty
+          | None -> Hashtbl.remove info.functions name)
+        (List.rev saved))
+    f
+
+(* A function passed where the row is wider than its own is called with evidence
+   it does not take, so it goes through a lambda of the wider shape that passes
+   it only its own. *)
+let adapted info (e : Ast.reflected_expr) name : Ast.reflected_expr option =
+  match Hashtbl.find_opt info.functions name, e.Ast.ann with
+  | Some own, Types.Fn (params, ret, row) ->
+    let own_row = row_of own in
+    if evidence_of_row info own_row = evidence_of_row info row
+       && is_delimited info own_row = is_delimited info row
+    then None
+    else (
+      let span = e.Ast.span in
+      let names = List.map (fun _ -> fresh "a") params in
+      let args =
+        List.map2 (fun name ty : Ast.reflected_expr -> { Ast.it = `Var name; span; ann = ty }) names params
+      in
+      let callee : Ast.reflected_expr =
+        { Ast.it = `Var name; span; ann = Types.Fn (params, ret, own_row) }
+      in
+      let call : Ast.reflected_expr = { Ast.it = `Call (callee, args); span; ann = ret } in
+      Some
+        { e with
+          Ast.it =
+            `Lambda
+              ( List.map (fun name -> { Ast.name; ty = None; implicit = false }) names
+              , { Ast.ret = None; row = None; static_params = [] }
+              , [ { Ast.it = `Return (Some call); span; ann = ret } ] )
+        })
+  | _ -> None
+
 let rec expr info (e : Ast.reflected_expr) : Ast.cps_expr =
   let widened = ref (widen info e.Ast.ann) in
   let it : Ast.cps_expr_kind =
@@ -243,6 +312,7 @@ let rec expr info (e : Ast.reflected_expr) : Ast.cps_expr =
     | #Ast.lit as l -> l
     (* A call site passes the same arguments whichever it reached. *)
     | `Lambda (params, signature, body) ->
+      scoped info params body (fun () ->
       let row = row_of e.Ast.ann in
       let evidence =
         evidence_of_row info row
@@ -257,11 +327,17 @@ let rec expr info (e : Ast.reflected_expr) : Ast.cps_expr =
           ( params @ evidence @ [ { Ast.name = own; ty = None; implicit = false } ]
           , signature
           , !convert_cps info own e.Ast.span body ))
-      else `Lambda (params @ evidence, signature, !convert_body info body)
+      else `Lambda (params @ evidence, signature, !convert_body info body))
     | `Var name ->
-      (* A bare reference would escape with the wrong arity. *)
-      widened := widen info e.Ast.ann;
-      `Var name
+      (match adapted info e name with
+       | Some lambda ->
+         let converted = expr info lambda in
+         widened := converted.Ast.ann;
+         converted.Ast.it
+       | None ->
+         (* A bare reference would escape with the wrong arity. *)
+         widened := widen info e.Ast.ann;
+         `Var name)
     | `Call (callee, args) ->
       let args = List.map (expr info) args in
       (match callee.Ast.it with
@@ -339,7 +415,7 @@ let rec suspends info (e : Ast.reflected_expr) =
 
 let rec suspends_stmt info (s : Ast.reflected_stmt) =
   match s.Ast.it with
-  | `Expr e | `Return (Some e) | `Var_decl (_, _, Some e) -> suspends info e
+  | `Expr e | `Return (Some e) | `Var_decl (_, _, Some e) | `Var_tuple (_, e) -> suspends info e
   | `Block body -> List.exists (suspends_stmt info) body
   | `If (c, t, e) ->
     suspends info c
@@ -349,7 +425,8 @@ let rec suspends_stmt info (s : Ast.reflected_stmt) =
         | None -> false)
   | `While (c, body) -> suspends info c || suspends_stmt info body
   | `Resume _ -> true
-  | `Run (_, handlers) -> handlers_delimited info handlers
+  | `Run (body, handlers) ->
+    handlers_delimited info handlers || List.exists (suspends_stmt info) body
   | `Match (scrutinee, cases) ->
     suspends info scrutinee
     || List.exists (fun (_, body) -> List.exists (suspends_stmt info) body) cases
@@ -650,6 +727,16 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
           let next = fresh "k" in
           cont_decl span next [ !bound ] (delimited span body) :: invoke info span next c
         | None -> unsupported span "This effect cannot be sequenced yet.")
+     | `Var_tuple (names, e) when suspends info e ->
+       (match extract info e with
+        | Some (c, rebuild) ->
+          let tmp = fresh "v" in
+          let body =
+            cps info ret k ~at:span ({ s with Ast.it = `Var_tuple (names, rebuild tmp) } :: rest)
+          in
+          let next = fresh "k" in
+          cont_decl span next [ tmp ] (delimited span body) :: invoke info span next c
+        | None -> unsupported span "This effect cannot be sequenced yet.")
      | `If (cond, then_branch, else_branch) when suspends_stmt info s || holds_return s ->
        let join = fresh "join" in
        let branch b = node span (`Block (cps info ret join ~at:span [ b ])) in
@@ -814,10 +901,28 @@ and invoke info span next (c : Ast.reflected_expr) : Ast.cps_stmt list =
     ]
   | _ -> unsupported span "This effect cannot be sequenced yet."
 
-(* An arm that never calls it abandons the rest of the body: abort. *)
+(* An arm that never calls it abandons the rest of the body: abort.
+
+   [after] is reached through [finished], so it is part of any continuation an
+   outer handler captures inside the body, and runs once per outer resumption;
+   an outer arm that abandons its block returns past this one without reaching
+   it. Only this block's own resumptions end at [finished] without going on:
+   they return to the arm that resumed, which is what [resuming] counts. *)
 and run info ret span k handlers body rest : Ast.cps_stmt list =
   let after = fresh "after" in
   let finished = fresh "finished" in
+  let resuming = fresh "resuming" in
+  let int n : Ast.cps_expr = { Ast.it = `Int n; span; ann = Types.Int } in
+  let counter = var span Types.Int resuming in
+  let step op : Ast.cps_stmt =
+    node
+      span
+      (`Expr
+        { Ast.it = `Assign (resuming, { Ast.it = `Binop (op, counter, int 1); span; ann = Types.Int })
+        ; span
+        ; ann = Types.Int
+        })
+  in
   let installed =
     List.concat_map
       (fun (h : Ast.reflected_stmt Ast.handler) ->
@@ -839,20 +944,56 @@ and run info ret span k handlers body rest : Ast.cps_stmt list =
             if not (Hashtbl.mem info.delimited h.Ast.handled)
             then arm_decl span name a.Ast.arm_params (sequence_body info a.Ast.arm_body)
             else (
-              let arm_body =
-                match a.Ast.arm_kind with
-                | Ast.Op_fn -> cps info continuation continuation ~at:span a.Ast.arm_body
-                | Ast.Op_ctl | Ast.Op_final ->
-                  cps info finished finished ~at:span a.Ast.arm_body
-              in
-              frame_decl span name (a.Ast.arm_params @ [ continuation ]) arm_body))
+              match a.Ast.arm_kind with
+              | Ast.Op_fn ->
+                frame_decl
+                  span
+                  name
+                  (a.Ast.arm_params @ [ continuation ])
+                  (cps info continuation continuation ~at:span a.Ast.arm_body)
+              | Ast.Op_final ->
+                frame_decl
+                  span
+                  name
+                  (a.Ast.arm_params @ [ continuation ])
+                  (cps info finished finished ~at:span a.Ast.arm_body)
+              | Ast.Op_ctl ->
+                let raw = fresh "resume" in
+                let value = fresh "x" in
+                let counted =
+                  frame_decl
+                    span
+                    continuation
+                    [ value ]
+                    [ step Ast.Add
+                    ; call span raw [ var span Types.Unit value ]
+                    ; step Ast.Sub
+                    ]
+                in
+                frame_decl
+                  span
+                  name
+                  (a.Ast.arm_params @ [ raw ])
+                  (counted :: cps info finished finished ~at:span a.Ast.arm_body)))
           h.Ast.arms)
       handlers
   in
   (* What follows the block runs once after the handler is done, not once
      per resumption. *)
+  let reached = fresh "x" in
   (frame_decl span after [ fresh "x" ] (cps info ret k ~at:span rest)
-   :: frame_decl span finished [ fresh "x" ] []
+   :: node span (`Var_decl (resuming, None, Some (int 0)))
+   :: frame_decl
+        span
+        finished
+        [ reached ]
+        [ node
+            span
+            (`If
+              ( { Ast.it = `Binop (Ast.Equal, counter, int 0); span; ann = Types.Bool }
+              , call span after [ var span Types.Unit reached ]
+              , None ))
+        ]
    :: arms)
   @ with_bound info installed (fun () ->
       let previous = info.inside_run in
@@ -860,7 +1001,6 @@ and run info ret span k handlers body rest : Ast.cps_stmt list =
       Fun.protect
         ~finally:(fun () -> info.inside_run <- previous)
         (fun () -> cps info ret finished ~at:span body))
-  @ [ call span after [ ignored span ] ]
 
 (* ---- evidence-only translation ---- *)
 
@@ -875,6 +1015,7 @@ and stmt info (s : Ast.reflected_stmt) : Ast.cps_stmt option =
         , List.map (fun (p, body) -> p, List.map (block info) body) cases ))
   | `Resume _ -> unsupported s.Ast.span "'resume' outside a handler."
   | `Fn (name, params, signature, body) ->
+    scoped info params body (fun () ->
     let row = row_of s.Ast.ann in
     let evidence =
       evidence_of_row info row |> List.map (fun op -> { Ast.name = evidence_name op; ty = None; implicit = false })
@@ -942,7 +1083,7 @@ and stmt info (s : Ast.reflected_stmt) : Ast.cps_stmt option =
                   , node span (`Block [ call span own [ var span Types.Unit stash ] ])
                   , None ))
             ] )))
-    else keep (`Fn (name, params @ evidence, signature, sequence_body info body))
+    else keep (`Fn (name, params @ evidence, signature, sequence_body info body)))
   | `Run (body, handlers) when handlers_delimited info handlers ->
     unsupported
       s.Ast.span
@@ -1015,11 +1156,13 @@ let collect (p : Ast.reflected_stmt list) =
     ; bound = Hashtbl.create 8
     ; leaving = None
     ; inside_run = false
+    ; functions = Hashtbl.create 32
     }
   in
   List.iter
     (fun (s : Ast.reflected_stmt) ->
       match s.Ast.it with
+      | `Fn (name, _, _, _) -> Hashtbl.replace info.functions name s.Ast.ann
       | `Effect_decl (name, _, ops) ->
         Hashtbl.replace
           info.operations

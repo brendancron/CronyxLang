@@ -1,0 +1,3 @@
+swallowed a failed
+swallowed 42
+0

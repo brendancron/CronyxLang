@@ -243,36 +243,6 @@
               "row": null
             },
             {
-              "id": "builtin#print",
-              "package": "std",
-              "unit": "builtins",
-              "name": "print",
-              "kind": "fn",
-              "line": null,
-              "exported": true,
-              "doc": "Writes a value and a newline to standard output.",
-              "attrs": [],
-              "static": [],
-              "params": [
-                {
-                  "name": "",
-                  "type": {
-                    "kind": "name",
-                    "name": "T",
-                    "ref": null,
-                    "param": true
-                  }
-                }
-              ],
-              "ret": {
-                "kind": "name",
-                "name": "unit",
-                "ref": null,
-                "param": false
-              },
-              "row": null
-            },
-            {
               "id": "builtin#readfile",
               "package": "std",
               "unit": "builtins",

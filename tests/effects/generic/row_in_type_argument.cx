@@ -1,0 +1,21 @@
+effect Log { fn log(s: string): unit; }
+
+fn each<E>(actions: List<() -> <E> unit>): <E> unit {
+    for (action in actions) { action(); }
+}
+
+fn apply<E>(actions: Array<(int) -> <E> unit>, n: int): <E> unit {
+    for (action in actions) { action(n); }
+}
+
+fn task() { log("task"); }
+
+run {
+    var actions: List<() -> <Log> unit> = [];
+    actions.push(task);
+    actions.push(task);
+    each(actions);
+    apply([ (n) => { log(str(n)); } ], 3);
+} handle Log {
+    fn log(s) { print(s); }
+}

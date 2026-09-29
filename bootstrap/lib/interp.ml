@@ -231,7 +231,10 @@ and closure ?(is_continuation = false) ?(returns = true) env name params body =
                 captured
           in
           let saved = current in
-          active_scopes := missing @ current;
+          (* A live frame re-entered is still one frame. Listing it twice would
+             have every continuation made from here capture it twice, and the
+             list double with each resumption. *)
+          active_scopes := missing @ List.filter (fun frame -> not (List.memq frame missing)) current;
           Fun.protect
             ~finally:(fun () -> active_scopes := saved)
             (fun () ->

@@ -28,7 +28,7 @@ Two things had to exist for that copy to be correct.
 by the time `Type_mono` ran, "open in a variable" and "empty" were the same
 thing and there was nothing to copy per. `row` now holds `tail : int option`,
 and `match_rows` reads off what an instantiation settled it to — a difference
-between a template's row and an instantiation's can only come from a variable,
+between a generic's row and an instance's can only come from a variable,
 since a row the definition closed is one the call site would already have been
 rejected against.
 

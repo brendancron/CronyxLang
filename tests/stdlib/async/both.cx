@@ -1,0 +1,14 @@
+import { async, block_on, both, interleaved, pause } from "std/effects/Async";
+
+fn user(): string { pause(); return "ada"; }
+fn count(): int { return 3; }
+
+block_on {
+    var (name, n) = both(user, count);
+    print(name + " has " + str(n));
+    interleaved([
+        () => { print("x"); pause(); print("x again"); },
+        () => { print("y"); }
+    ]);
+    print("interleaved done");
+};

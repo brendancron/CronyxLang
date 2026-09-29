@@ -1,0 +1,16 @@
+import { async, block_on, all } from "std/effects/Async";
+
+var retry: List<(int) -> unit> = [];
+
+block_on {
+    all([
+        () => {
+            var attempt: int = suspend { retry.push(it); };
+            print("attempt " + str(attempt));
+        },
+        () => {
+            retry[0](1);
+            retry[0](2);
+        }
+    ]);
+};

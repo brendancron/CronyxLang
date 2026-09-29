@@ -1,0 +1,10 @@
+import { async, block_on, all, promise, await, Promise } from "std/effects/Async";
+
+var config: Promise<string> = promise();
+
+block_on {
+    all([
+        () => { print("loader: got " + await(config)); },
+        () => { print("reader: done"); }
+    ]);
+};

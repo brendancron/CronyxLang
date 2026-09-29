@@ -5,7 +5,7 @@ effect Ask { ctl next(): int; }
 
 var count = 3;
 
-fn drain(): <Ask> unit {
+fn drain(): <Ask, Console> unit {
     while (next() > 0) {
         print("tick");
     }

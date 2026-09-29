@@ -154,7 +154,7 @@ let row_of ~known ~params = function
 
 (* `<T>`, `<T: Ord>` and `<n: int>` are one syntax and three different things: a
    generic, a generic with a bound, and a *value* the declaration is instantiated
-   at -- which is what makes it a template rather than a generic. The written
+   at -- which is what makes it comptime rather than generic. The written
    type does not say which, since a bound and a value type are both a type
    expression; only whether its head names a trait does, which is the same
    question `Metaprocess.is_value` asks. *)

@@ -1,11 +1,11 @@
 effect sched {
     ctl tick(): unit;
-    ctl spawn(t: () -> <sched> unit): unit;
+    ctl spawn(t: () -> <sched, Console> unit): unit;
 }
 
-var queue: List<() -> unit> = [];
+var queue: List<() -> <Console> unit> = [];
 
-fn run_one(task: () -> <sched> unit) {
+fn run_one(task: () -> <sched, Console> unit) {
     run {
         task();
     } handle sched {
@@ -14,9 +14,9 @@ fn run_one(task: () -> <sched> unit) {
     }
 }
 
-fn child(): <sched> unit { print("child a"); tick(); print("child b"); }
+fn child(): <sched, Console> unit { print("child a"); tick(); print("child b"); }
 
-fn parent(): <sched> unit {
+fn parent(): <sched, Console> unit {
     print("parent a");
     spawn(child);
     tick();

@@ -1,0 +1,23 @@
+effect Tick { ctl tick(): int; }
+
+fn two(): (int, int) {
+    return (tick(), 2);
+}
+
+run {
+    var (a, b) = two();
+    print(a + b);
+    var (c, d) = (tick(), tick());
+    print(str(c) + " " + str(d));
+} handle Tick {
+    ctl tick() { resume 1; }
+}
+
+effect Pick { ctl pick(): (int, string); }
+
+run {
+    var (n, word) = pick();
+    print(word + " " + str(n));
+} handle Pick {
+    ctl pick() { resume (1, "one"); resume (2, "two"); }
+}

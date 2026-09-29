@@ -732,6 +732,9 @@ let generated parts =
   | [] | [ _ ] -> invalid_arg "Ast.generated: a generated name needs two parts"
   | parts -> String.concat "#" parts
 
+(* The prelude's function each top-level statement runs under. *)
+let root_function = "__root"
+
 (* By trait rather than by the name written, so every deriver may be called
    `derive`. *)
 let deriver_name trait = generated [ "derive"; trait ]

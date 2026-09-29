@@ -1,0 +1,1 @@
+[7:35] 'say' is compiled once per type or effect row it is called at, so it cannot read 'prefix' from 'report'. Pass it in, or declare 'say' outside 'report'.

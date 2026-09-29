@@ -1,0 +1,2 @@
+[3:1] Unhandled effect 'async': no handler encloses this.
+[3:1] Unhandled effect 'Throw<X>': no handler encloses this.

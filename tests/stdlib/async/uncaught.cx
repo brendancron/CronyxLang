@@ -1,0 +1,9 @@
+import { async, block_on, all } from "std/effects/Async";
+import { Throw } from "std/lang/Throw";
+
+type LoadError { Missing(string) }
+
+block_on {
+    all([ () => { throw(LoadError.Missing("config.toml")); } ]);
+    print("unreachable");
+};

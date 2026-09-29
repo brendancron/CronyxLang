@@ -1,0 +1,12 @@
+fn report() {
+    var calls = 0;
+    fn keep<T>(x: T): T {
+        calls = calls + 1;
+        return x;
+    }
+    print(keep(1));
+    print(keep(true));
+    print(calls);
+}
+
+report();

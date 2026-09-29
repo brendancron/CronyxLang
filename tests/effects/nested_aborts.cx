@@ -4,7 +4,7 @@
 effect Inner { final ctl stop(): int; }
 effect Outer { final ctl halt(): int; }
 
-fn f(which: bool): <Outer> unit {
+fn f(which: bool): <Outer, Console> unit {
     run {
         if (which) { stop(); } else { halt(); }
         print("body done");

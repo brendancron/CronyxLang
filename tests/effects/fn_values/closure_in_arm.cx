@@ -1,8 +1,8 @@
 effect E { ctl op(): unit; }
 
-fn work(): <E> unit { print("w1"); op(); print("w2"); }
+fn work(): <E, Console> unit { print("w1"); op(); print("w2"); }
 
-var more: List<() -> <E> unit> = [];
+var more: List<() -> <E, Console> unit> = [];
 var pending: List<() -> unit> = [];
 
 run {

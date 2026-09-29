@@ -1,1 +1,1 @@
-[lib.cx 4:12] Undefined variable 'stop'.
+[lib.cx 4:12] 'stop' is an operation of 'Signal', which this file does not import by name. Write 'signal.stop', or import { Signal } from its module.

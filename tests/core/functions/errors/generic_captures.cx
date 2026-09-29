@@ -1,0 +1,12 @@
+trait Show { fn show(self): string; }
+impl Show for int { fn show(self): string { return "int " + str(self); } }
+impl Show for bool { fn show(self): string { return "bool " + str(self); } }
+
+fn report() {
+    var prefix = "> ";
+    fn say<T: Show>(x: T) { print(prefix + x.show()); }
+    say(1);
+    say(true);
+}
+
+report();

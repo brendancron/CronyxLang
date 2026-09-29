@@ -24,11 +24,28 @@ Owner: [Type System.md](Type%20System.md)
 
 One word carries three meanings, and the rename of comptime params to static params left the third one wrong.
 
-`Types.Generic` and the helpers around it — `has_generic`, `subst_generic`, `match_generic`, `Type_mono`'s template table — are a type variable `resolve` decided is quantified rather than not-yet-known. That is not the feature a reader thinks of on seeing the word, and it never reaches a diagnostic, so renaming it is internal and free. `Quantified` is what [Type System.md](Type%20System.md) already calls it in prose; `Rigid` is the standard HM term but invites confusion with a flexible/rigid distinction Cronyx does not make.
+`Types.Generic` and the helpers around it — `has_generic`, `subst_generic`, `match_generic`, `Type_mono`'s table of generics — are a type variable `resolve` decided is quantified rather than not-yet-known. That is not the feature a reader thinks of on seeing the word, and it never reaches a diagnostic, so renaming it is internal and free. `Quantified` is what [Type System.md](Type%20System.md) already calls it in prose; `Rigid` is the standard HM term but invites confusion with a flexible/rigid distinction Cronyx does not make.
 
 The prose sense — "generic code", "a generic function" — is now the old name for a function with static params, in six compiler comments and across the internal docs. The exception is the user docs, where "other languages call these generics" is the pointer that makes the feature findable and should stay.
 
 The third is a dozen fixture paths (`typeof_generic`, `generic_bound`, `generic_impl_operator`, `tests/effects/generic/`), where the word means "has type params". Mechanical once the first is decided.
+
+## Instances of a nested generic
+
+Owner: [Static Params.md](Static%20Params.md)
+
+`Type_mono` emits every instance at the top of the program, so an instance of a function declared in a body cannot see that body's locals. A nested function that is monomorphized over its own parameters — a type that picks an impl, or a row that decides its evidence — and reads a local of the function around it is rejected rather than compiled (`core/functions/errors/generic_captures`):
+
+```cronyx
+fn report() {
+    var prefix = "> ";
+    fn say<T: Show>(x: T) { print(prefix + x.show()); }
+    say(1);
+    say(true);
+}
+```
+
+The fix is to emit a nested generic's instances in the body that declared it, one set per instance of the enclosing function when that is monomorphized too, which makes `drain` and the memo of instances per scope rather than per program. A nested function using only its enclosing function's parameters is unaffected: copying the enclosing function settles them (`effects/async/interleaved`). The walk lifts a comptime function declared in a body for the same reason ([Static Params](Static%20Params.md#comptime-functions-in-a-body)), so the two would move together.
 
 ## A flat type reaching a trait object
 
@@ -76,7 +93,7 @@ Owner: [Metaprocessing.md](Metaprocessing.md)
 
 The design is an effect in the prelude, `effect Gen { fn emit(item: Code): unit; }`, with `gen S` performing it and a `meta` block handling it by splicing what it collects. What is built is the behaviour without the effect: `gen` is lowered to a native call that appends to whichever block is collecting, and whether a function performs `Gen` is worked out by the walk — it holds a `gen` outside any meta block, or calls something that does — which is what rejects calling one at run time.
 
-The walk misses one case the checker would not: a template holding a bare `gen` has its copy dropped rather than rejected, so `fib<10>()` reports `Undefined variable 'fib#0'` instead of that it performs `Gen` (`03_derive/errors/gen_in_template`, in `expected_failing`).
+The walk misses one case the checker would not: a comptime function holding a bare `gen` has its instance dropped rather than rejected, so `fib<10>()` reports `Undefined variable 'fib#0'` instead of that it performs `Gen` (`03_derive/errors/gen_in_comptime`, in `expected_failing`).
 
 The effect is what would let a program handle `Gen` itself, and so test a deriver by collecting what it would generate rather than generating it. It needs `Code` to hold declarations and statements as well as expressions, which is the open question about `code` itself, so the two go together.
 
@@ -118,6 +135,12 @@ run {
 This prints `1` then `2`, and the same holds when the body is a function. A variable bound after the operation is bound again on each resumption, which is why the user docs' `wants_tea` differs per branch — `multiple-resumption.mdx` still says each resumption gets its own copy of the block's locals.
 
 Sharing is what a closure-based continuation gives, and what Koka does for mutable locals; copying would cost a snapshot of the frame per `ctl`. Deciding which is the semantics settles either the docs or a fixture.
+
+## An operation resumed at most once
+
+Owner: [Algebraic Effects.md](Algebraic%20Effects.md)
+
+A `ctl` arm may resume any number of times, and that is the one reason `Cps` exists rather than OCaml 5's handlers, whose continuations are one-shot. Most operations never need more than one: `suspend` resumes the task it parked exactly once, and so would any I/O. A kind promising at most one resumption — `once ctl`, say — would be checked where it can be and at runtime where the continuation escapes into a closure, as `suspend`'s does (`ready.push { resume it; }`), and could be compiled by switching stacks instead of converting its callers. [Async](Async.md#a-task-is-woken-once) guards the same thing by hand with `__once`, and would stop needing to.
 
 ## `defer` under a `ctl` arm that does not resume
 

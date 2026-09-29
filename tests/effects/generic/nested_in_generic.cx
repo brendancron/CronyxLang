@@ -1,0 +1,21 @@
+effect Log { fn log(s: string): unit; }
+
+fn each<E>(actions: List<() -> <E> unit>): <E> unit {
+    var count = 0;
+
+    fn one(action: () -> <E> unit): <E> unit {
+        count = count + 1;
+        action();
+    }
+
+    for (action in actions) { one(action); }
+    print(count);
+}
+
+fn task() { log("task"); }
+
+run {
+    each([ task, task ]);
+} handle Log {
+    fn log(s) { print(s); }
+}

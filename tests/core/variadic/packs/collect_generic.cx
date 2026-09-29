@@ -1,4 +1,4 @@
-fn hold<...Args>(f: (...Args) -> unit, args: ...Args): (...Args) {
+fn hold<...Args>(f: (...Args) -> <Console> unit, args: ...Args): (...Args) {
     return args;
 }
 
