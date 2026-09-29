@@ -1,0 +1,60 @@
+/**
+ * Conversions, and the traits that describe them.
+ *
+ * ```
+ * print(str(3.into()));
+ * ```
+ */
+
+/** Anything that converts, and what it converts to. */
+trait Into<T> {
+    /** What the conversion produces. */
+    type Output;
+
+    /** The converted value. */
+    fn into(self): Output;
+}
+
+/** A conversion that may also fail. */
+trait TryInto<T>: Into<T> {
+    fn try_into(self): Output;
+}
+
+/** Numbers convert by widening. */
+impl Into<float> for int {
+    /** Widening never loses the integer. */
+    type Output = float;
+
+    fn into(self): float { return self.to_float(); }
+}
+
+/** A string is already written. */
+impl Into<string> for string {
+    type Output = string;
+
+    fn into(self): string { return self; }
+}
+
+/** Whichever of the two is written longer. */
+fn wordier<T: Into<string>>(a: T, b: T): string {
+    var left = a.into();
+    var right = b.into();
+    if (left.len() > right.len()) { return left; }
+    return right;
+}
+
+/** A tuple of `n` copies, which is `n` types rather than one value. */
+fn repeated<n: int, T>(value: T): Array<T> {
+    return Array(n, value);
+}
+
+/** Values handed out one at a time. */
+effect Feed<T> {
+    /** Hands the next value over, and waits to be resumed. */
+    ctl next(): T;
+}
+
+/** Runs its body with nothing left to give. */
+handler empty : Feed {
+    ctl next() { panic("the feed is empty"); }
+}

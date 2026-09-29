@@ -44,7 +44,9 @@ type token_type =
   | Int of int
   | Float of float
   (* The one comment that reaches the parser. *)
-  | Doc of string
+  (* The text, and whether a blank line follows it -- which is what tells a doc
+     comment about the module from one about the declaration below it. *)
+  | Doc of string * bool
   (* Keywords. *)
   | Ctl
   | Final
@@ -170,7 +172,7 @@ let literal_to_string = function
     Buffer.contents buf
   | Int n -> string_of_int n
   | Float n -> float_to_string n
-  | Doc text -> String.escaped text
+  | Doc (text, _) -> String.escaped text
   | _ -> "null"
 
 let to_string { token_type; lexeme; span } =

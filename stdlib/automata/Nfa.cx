@@ -1,4 +1,14 @@
-// `on` is a symbol, or `epsilon` for a transition that consumes nothing.
+/**
+ * The nondeterministic finite automaton.
+ *
+ * States are integers and transitions are a flat list, so nothing here
+ * recurses. A transition on `epsilon()` consumes no input, which is what lets a
+ * fragment be joined to another without rewriting either.
+ *
+ * `std/regex/RegexNfa` builds one from a pattern, and
+ * `std/automata/Dfa.subset_construction` turns one into a DFA.
+ */
+
 fn epsilon(): int { return 0 - 1; }
 
 type Transition {

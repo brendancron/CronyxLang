@@ -1691,7 +1691,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        let projected name = Types.project receiver.Ast.ann name in
        let in_scope =
          ("Self", receiver.Ast.ann)
-         :: List.map (fun name -> name, projected name) trait_body.Ast.tb_assoc
+         :: List.map (fun name -> name, projected name) (Ast.assoc_names trait_body.Ast.tb_assoc)
          @ (if List.length trait_params = List.length bound_args
             then List.combine trait_params bound_args
             else [])
@@ -2184,9 +2184,7 @@ and declare_traits (body : Ast.desugared_stmt list) =
       | `Trait_decl (name, params, trait_body) ->
         (* A program's own declaration replaces the prelude's; two of its own
            are still a mistake. *)
-        let from_prelude (span : Ast.span) =
-          String.equal (Source_map.Span.path span) Prelude.file
-        in
+        let from_prelude (span : Ast.span) = Prelude.owns (Source_map.Span.path span) in
         (match Hashtbl.find_opt ctx_trait_spans name with
          | Some declared when from_prelude declared && not (from_prelude s.Ast.span) -> ()
          | Some _ -> fail s.Ast.span "Trait '%s' is already declared." name
@@ -2230,7 +2228,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                  container reads as holding elements rather than slices. *)
               if not (Hashtbl.mem ctx_assoc (type_name, name))
               then Hashtbl.replace ctx_assoc (type_name, name) (infer_ty_of_annotation bound))
-            impl.Ast.ib_assoc);
+            (List.map (fun (a : Ast.assoc_def) -> a.Ast.as_name, a.Ast.as_ty) impl.Ast.ib_assoc));
         (match trait with
          | None -> ()
          | Some (trait_name, trait_args) ->
@@ -2247,7 +2245,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                   (List.length trait_args);
               List.iter
                 (fun name ->
-                  if not (List.mem_assoc name impl.Ast.ib_assoc)
+                  if not (Ast.assoc_binds impl.Ast.ib_assoc name)
                   then
                     fail
                       span
@@ -2255,7 +2253,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                       trait_name
                       type_name
                       name)
-                required.Ast.tb_assoc;
+                (Ast.assoc_names required.Ast.tb_assoc);
               List.iter
                 (fun (r : Ast.method_sig) ->
                   if not (supplies r.Ast.ms_name)
@@ -2363,7 +2361,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                    Ast.Neg
                    (self_concrete ())
                    { Registry.result =
-                       (match List.assoc_opt "Output" impl.Ast.ib_assoc with
+                       (match Ast.assoc_bound impl.Ast.ib_assoc "Output" with
                         | Some bound -> Types.concrete (infer_ty_of_annotation bound)
                         | None ->
                           fail span "'Neg' for '%s' is missing associated type 'Output'." type_name)
@@ -2421,7 +2419,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                   | _ -> fail span "'%s' takes one type argument." t
                 in
                 let result =
-                  match List.assoc_opt "Output" impl.Ast.ib_assoc with
+                  match Ast.assoc_bound impl.Ast.ib_assoc "Output" with
                   | Some bound -> concrete "Output" (infer_ty_of_annotation bound)
                   | None -> fail span "'%s' for '%s' is missing associated type 'Output'." t type_name
                 in
@@ -2512,7 +2510,7 @@ and associated_names trait =
     (List.concat_map
        (fun t ->
          match Hashtbl.find_opt ctx_traits t with
-         | Some (_, body) -> body.Ast.tb_assoc
+         | Some (_, body) -> Ast.assoc_names body.Ast.tb_assoc
          | None -> [])
        (trait_closure trait))
 
@@ -2525,7 +2523,7 @@ and conforms span ~trait ~args ~params ~required ~type_name ~type_params ~decl_p
       :: List.map
            (fun name ->
              ( name
-             , match List.assoc_opt name impl.Ast.ib_assoc with
+             , match Ast.assoc_bound impl.Ast.ib_assoc name with
                | Some bound -> infer_ty_of_annotation bound
                (* A supertrait's, bound by the impl that supplied it. *)
                | None ->
@@ -2691,9 +2689,7 @@ and declare_type_names (body : Ast.desugared_stmt list) =
       | `Type_decl (name, params, body) ->
         (* A program declaring a type the prelude also declares gets its own,
            the way it does for a trait. Two of its own are still a mistake. *)
-        let from_prelude (at : Ast.span) =
-          String.equal (Source_map.Span.path at) Prelude.file
-        in
+        let from_prelude (at : Ast.span) = Prelude.owns (Source_map.Span.path at) in
         (match Hashtbl.find_opt ctx_type_spans name with
          | Some declared when from_prelude declared && not (from_prelude s.Ast.span) -> ()
          | Some _ -> fail s.Ast.span "Type '%s' is already declared." name
@@ -3700,13 +3696,13 @@ let declare_builtins env =
       Hashtbl.replace ctx_types name (Opaque (List.init arity (fun _ -> Types.fresh ()))))
     Builtins.types;
   List.iter
-    (fun (owner, name, signature) ->
+    (fun (owner, name, _doc, signature) ->
       let params, ret = signature () in
       Hashtbl.replace ctx_methods (owner, name) ();
       bind env (Ast.method_name owner name) (pure params ret))
     Builtins.methods;
   List.iter
-    (fun (name, signature) ->
+    (fun (name, _doc, signature) ->
       let params, ret = signature () in
       bind env name (pure params ret))
     Builtins.functions;

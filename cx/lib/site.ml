@@ -21,8 +21,20 @@ let escape text =
   Buffer.contents buf
 
 (* `#` is in every id and must be percent-encoded in a fragment, which makes a
-   link unreadable in a status bar. A dot reads as the path it is. *)
-let slug id = String.map (fun c -> if Char.equal c '#' then '.' else c) id
+   link unreadable in a status bar. A dot reads as the path it is.
+
+   An impl's id also carries the trait's written arguments -- `Into<float>` --
+   and those go the same way: an angle bracket in an anchor is an angle bracket
+   in a URL. Folding them cannot collide, because what differed before the fold
+   still differs after it. *)
+let slug id =
+  String.map
+    (fun c ->
+      match c with
+      | '#' | '<' | '>' | ',' -> '.'
+      | ' ' -> '_'
+      | c -> c)
+    id
 
 (* ---- the doc comment ---- *)
 
@@ -110,9 +122,27 @@ let markdown text =
 
 type target =
   { t_package : string
-  ; t_unit : string
+  (* The page, as a path under the package and without its extension: a unit is
+     a file, and two files may share a namespace -- `core/Array.cx` and
+     `collections/Array.cx` -- so a page named after the namespace would be one
+     page for both of them. *)
+  ; t_page : string
   ; t_name : string
   }
+
+(* `collections/HashMap.cx` is `collections/HashMap.html`, and a unit with no
+   path -- the natives, which are in no file -- is its own name. A package's
+   modules all sit under `src/`, which says nothing and is the one segment a
+   consumer never writes, so it comes off. *)
+let without_src path =
+  if String.starts_with ~prefix:"src/" path
+  then String.sub path 4 (String.length path - 4)
+  else path
+
+let page_for ~namespace ~path =
+  match path with
+  | Some path -> Filename.remove_extension (without_src path)
+  | None -> namespace
 
 (* Every id in the build, so a reference knows whether it has a page to point at
    and how far away it is. *)
@@ -123,14 +153,21 @@ let targets index =
       let name = Json.text (Json.field "name" package) in
       List.iter
         (fun unit_ ->
-          let namespace = Json.text (Json.field "namespace" unit_) in
+          let page =
+            page_for
+              ~namespace:(Json.text (Json.field "namespace" unit_))
+              ~path:
+                (match Json.field "path" unit_ with
+                 | Json.String p -> Some p
+                 | _ -> None)
+          in
           List.iter
             (fun entry ->
               Hashtbl.replace
                 table
                 (Json.text (Json.field "id" entry))
                 { t_package = name
-                ; t_unit = namespace
+                ; t_page = page
                 ; t_name = Json.text (Json.field "name" entry)
                 })
             (Json.items (Json.field "entries" unit_)))
@@ -138,7 +175,13 @@ let targets index =
     (Json.items (Json.field "packages" index));
   table
 
-let page_of t = t.t_package ^ "/" ^ t.t_unit ^ ".html"
+let page_of t = t.t_package ^ "/" ^ t.t_page ^ ".html"
+
+(* How far up from a page to the root of the site: a page under a directory of
+   its own is one level further away than one beside the index. *)
+let depth_of page = List.length (String.split_on_char '/' page)
+
+let up depth = String.concat "" (List.init depth (fun _ -> "../"))
 
 (* Relative, so the directory can be opened from a file:// URL or served from
    anywhere without the paths meaning something different. *)
@@ -147,9 +190,9 @@ let link ~from ~table id label =
   | None -> escape label
   | Some t ->
     let href =
-      if String.equal t.t_package from.t_package && String.equal t.t_unit from.t_unit
+      if String.equal t.t_package from.t_package && String.equal t.t_page from.t_page
       then "#" ^ slug id
-      else "../" ^ page_of t ^ "#" ^ slug id
+      else up (depth_of from.t_page) ^ page_of t ^ "#" ^ slug id
     in
     Printf.sprintf "<a href=\"%s\">%s</a>" (escape href) (escape label)
 
@@ -191,12 +234,16 @@ let rec type_html ~from ~table node =
             (Json.items (Json.field "fields" node))))
   | "fn" ->
     Printf.sprintf
-      "(%s) -&gt; %s%s"
+      "(%s) -&gt;%s %s"
       (String.concat
          ", "
          (List.map (type_html ~from ~table) (Json.items (Json.field "params" node))))
+      (* A written function *type* carries a plain list rather than an option, so
+         an empty one is a row nobody wrote and printing `<>` would invent one. *)
+      (match Json.items (Json.field "row" node) with
+       | [] -> ""
+       | _ -> row_html ~from ~table (Json.field "row" node))
       (type_html ~from ~table (Json.field "ret" node))
-      (row_html ~from ~table (Json.field "row" node))
   | "variadic" -> "..." ^ type_html ~from ~table (Json.field "of" node)
   | "spread" -> "..." ^ type_html ~from ~table (Json.field "of" node)
   | "assoc" ->
@@ -212,7 +259,9 @@ let rec type_html ~from ~table node =
   | _ -> ""
 
 (* An absent row was left to inference and says nothing; a written empty one
-   says the function performs no effect, which is worth printing. *)
+   says the function performs no effect, which is worth printing. It stands
+   before the type it decorates -- `-> <E> bool`, not `-> bool <E>` -- because
+   that is where it is written and `--dump-code` prints it there. *)
 and row_html ~from ~table row =
   if Json.is_null row
   then ""
@@ -242,12 +291,17 @@ let params_html ~from ~table ps =
        (fun p ->
          let name = escape (Json.text (Json.field "name" p)) in
          let ty = Json.field "type" p in
-         if Json.is_null ty then name else name ^ ": " ^ type_html ~from ~table ty)
+         match String.equal name "", Json.is_null ty with
+         (* A native has no written parameter names. *)
+         | true, _ -> type_html ~from ~table ty
+         | false, true -> name
+         | false, false -> name ^ ": " ^ type_html ~from ~table ty)
        (Json.items ps))
 
-(* `<>` parameters, with a value parameter shown as the value it takes: that is
-   the difference between a template and a generic and the page should not make
-   a reader guess which one this is. *)
+(* `<>` parameters. A bound and a value are both written as a name with a type
+   and mean different things -- `<T: Ord>` is a generic the checker constrains,
+   `<n: int>` is a value a copy is made for -- so each is styled as what it is
+   and neither is left for a reader to infer. *)
 let statics_html ~from ~table ps =
   match Json.items ps with
   | [] -> ""
@@ -258,19 +312,58 @@ let statics_html ~from ~table ps =
          ", "
          (List.map
             (fun p ->
+              let form = Json.text (Json.field "form" p) in
               let name = escape (Json.text (Json.field "name" p)) in
               let name = if Json.flag (Json.field "pack" p) then "..." ^ name else name in
-              match Json.text (Json.field "form" p) with
-              | "value" -> name ^ ": " ^ type_html ~from ~table (Json.field "type" p)
-              | _ -> name)
+              let name =
+                Printf.sprintf
+                  "<span class=\"%s\">%s</span>"
+                  (if String.equal form "value" then "sv" else "tp")
+                  name
+              in
+              match form with
+              | "type" -> name
+              | _ -> name ^ ": " ^ type_html ~from ~table (Json.field "type" p))
             ps))
 
 let returns_html ~from ~table entry =
-  let ret = Json.field "ret" entry in
-  (if Json.is_null ret then "" else ": " ^ type_html ~from ~table ret)
-  ^ row_html ~from ~table (Json.field "row" entry)
+  let row = row_html ~from ~table (Json.field "row" entry) in
+  match Json.field "ret" entry with
+  (* A row with nothing to decorate still says the function performs no effect,
+     and `: <>` is how that is written. *)
+  | ret when Json.is_null ret -> if String.equal row "" then "" else ":" ^ row
+  | ret -> ":" ^ row ^ " " ^ type_html ~from ~table ret
 
 (* ---- pieces of a page ---- *)
+
+(* A trait's and an effect's parameters are bare names -- neither takes a bound
+   or a value -- so they are a list of strings rather than the `<>` parameters a
+   `fn` or a `type` carries. *)
+let names_html ns =
+  match Json.items ns with
+  | [] -> ""
+  | ns ->
+    Printf.sprintf
+      "&lt;%s&gt;"
+      (String.concat
+         ", "
+         (List.map
+            (fun n -> Printf.sprintf "<span class=\"tp\">%s</span>" (escape (Json.text n)))
+            ns))
+
+(* A trait written at arguments: `Index<Range>` is not `Index`, and an impl head
+   and a supertrait bound are both written that way. *)
+let applied_html ~from ~table node =
+  let head =
+    link ~from ~table (Json.text (Json.field "ref" node)) (Json.text (Json.field "name" node))
+  in
+  match Json.items (Json.field "args" node) with
+  | [] -> head
+  | args ->
+    Printf.sprintf
+      "%s&lt;%s&gt;"
+      head
+      (String.concat ", " (List.map (type_html ~from ~table) args))
 
 let doc_html entry =
   match Json.field "doc" entry with
@@ -361,10 +454,17 @@ let body_html ~from ~table entry =
                        (Json.items (Json.field "fields" payload))))
              | _ -> ""
            in
+           let result =
+             match Json.field "result" v with
+             | r when Json.is_null r -> ""
+             | r -> ": " ^ type_html ~from ~table r
+           in
            Printf.sprintf
-             "<div class=\"member\"><div class=\"sig\">%s%s</div>\n%s%s</div>\n"
+             "<div class=\"member\"><div class=\"sig\">%s%s%s%s</div>\n%s%s</div>\n"
              (escape (Json.text (Json.field "name" v)))
+             (names_html (Json.field "generics" v))
              written
+             result
              (attrs_html v)
              (doc_html v))
          (Json.items (Json.field "variants" body)))
@@ -388,29 +488,33 @@ let signature_html ~from ~table entry =
     let supers =
       match Json.items (Json.field "supers" entry) with
       | [] -> ""
-      | list ->
-        ": "
-        ^ String.concat
-            " + "
-            (List.map
-               (fun s ->
-                 link ~from ~table (Json.text (Json.field "ref" s)) (Json.text (Json.field "name" s)))
-               list)
+      | list -> ": " ^ String.concat " + " (List.map (applied_html ~from ~table) list)
     in
-    Printf.sprintf "%s %s%s" (kw "trait") name supers
+    Printf.sprintf
+      "%s %s%s%s"
+      (kw "trait")
+      name
+      (names_html (Json.field "generics" entry))
+      supers
   | "impl" ->
     let trait = Json.field "trait" entry in
-    let target = type_html ~from ~table (Json.field "for" entry) in
+    (* The parameters belong to the target, which is where they are written:
+       `impl Index<int> for List<T>`. *)
+    let target =
+      type_html ~from ~table (Json.field "for" entry)
+      ^ statics_html ~from ~table (Json.field "generics" entry)
+    in
     if Json.is_null trait
     then Printf.sprintf "%s %s" (kw "impl") target
     else
       Printf.sprintf
         "%s %s %s %s"
         (kw "impl")
-        (link ~from ~table (Json.text (Json.field "ref" trait)) (Json.text (Json.field "name" trait)))
+        (applied_html ~from ~table trait)
         (kw "for")
         target
-  | "effect" -> Printf.sprintf "%s %s" (kw "effect") name
+  | "effect" ->
+    Printf.sprintf "%s %s%s" (kw "effect") name (names_html (Json.field "generics" entry))
   | "handler" ->
     let handles = Json.field "handles" entry in
     Printf.sprintf
@@ -427,41 +531,73 @@ let signature_html ~from ~table entry =
       (if Json.is_null ty then "" else ": " ^ type_html ~from ~table ty)
   | _ -> name
 
+(* The impls a type or a trait carries. A trait's are the only way to reach an
+   impl for a primitive: `int` has no declaration and so no page to list it on. *)
+let impls_html ~from ~table ~label entry =
+  match Json.items (Json.field "impls" entry) with
+  | [] -> ""
+  | ids ->
+    Printf.sprintf
+      "<div class=\"impls\">%s %s</div>\n"
+      label
+      (String.concat
+         ", "
+         (List.map
+            (fun id ->
+              let id = Json.text id in
+              let name =
+                match Hashtbl.find_opt table id with
+                | Some t -> t.t_name
+                | None -> id
+              in
+              link ~from ~table id name)
+            ids))
+
+(* `type Item;` in a trait, and `type Item = int;` in an impl that binds it. *)
+let assoc_html ~from ~table entry =
+  String.concat
+    ""
+    (List.map
+       (fun a ->
+         let bound =
+           match Json.field "type" a with
+           | ty when Json.is_null ty -> ""
+           | ty -> " = " ^ type_html ~from ~table ty
+         in
+         Printf.sprintf
+           "<div class=\"member\"><div class=\"sig\"><span class=\"kw\">type</span> \
+            %s%s</div>\n%s%s</div>\n"
+           (escape (Json.text (Json.field "name" a)))
+           bound
+           (attrs_html a)
+           (doc_html a))
+       (Json.items (Json.field "assoc" entry)))
+
 let members_html ~from ~table entry =
   match Json.text (Json.field "kind" entry) with
   | "type" ->
-    body_html ~from ~table entry
-    ^ (match Json.items (Json.field "impls" entry) with
-       | [] -> ""
-       | ids ->
-         Printf.sprintf
-           "<div class=\"impls\">Implementations: %s</div>\n"
-           (String.concat
-              ", "
-              (List.map
-                 (fun id ->
-                   let id = Json.text id in
-                   let label =
-                     match Hashtbl.find_opt table id with
-                     | Some t -> t.t_name
-                     | None -> id
-                   in
-                   link ~from ~table id label)
-                 ids)))
-  | "trait" | "impl" ->
-    String.concat "" (List.map (method_html ~from ~table) (Json.items (Json.field "methods" entry)))
+    body_html ~from ~table entry ^ impls_html ~from ~table ~label:"Implements:" entry
+  | "trait" ->
+    assoc_html ~from ~table entry
+    ^ String.concat "" (List.map (method_html ~from ~table) (Json.items (Json.field "methods" entry)))
+    ^ impls_html ~from ~table ~label:"Implemented by:" entry
+  | "impl" ->
+    assoc_html ~from ~table entry
+    ^ String.concat "" (List.map (method_html ~from ~table) (Json.items (Json.field "methods" entry)))
   | "effect" ->
     String.concat
       ""
       (List.map
          (fun o ->
            Printf.sprintf
-             "<div class=\"member\"><div class=\"sig\"><span class=\"kw\">%s</span> %s(%s)%s</div>\n%s</div>\n"
+             "<div class=\"member\"><div class=\"sig\"><span class=\"kw\">%s</span> %s%s(%s)%s</div>\n%s%s</div>\n"
              (escape (Json.text (Json.field "kind" o)))
              (escape (Json.text (Json.field "name" o)))
+             (names_html (Json.field "generics" o))
              (params_html ~from ~table (Json.field "params" o))
              (let r = Json.field "ret" o in
               if Json.is_null r then "" else ": " ^ type_html ~from ~table r)
+             (attrs_html o)
              (doc_html o))
          (Json.items (Json.field "ops" entry)))
   | "handler" ->
@@ -477,17 +613,53 @@ let members_html ~from ~table entry =
          (Json.items (Json.field "arms" entry)))
   | _ -> ""
 
-let entry_html ~from ~table entry =
+(* Where the declaration was written. The line is the index's; the file is the
+   unit's, since a unit is one file. *)
+let source_html ~path entry =
+  match path, Json.field "line" entry with
+  | Some path, Json.Int line ->
+    Printf.sprintf
+      "<span class=\"where\">%s:%d</span>"
+      (escape path)
+      line
+  | _ -> ""
+
+let entry_html ~from ~table ~path entry =
   Printf.sprintf
-    "<section id=\"%s\" class=\"entry %s\">\n<h2><a class=\"self\" href=\"#%s\">%s</a></h2>\n<div class=\"sig head\">%s</div>\n%s%s%s</section>\n"
+    "<section id=\"%s\" class=\"entry %s\">\n<h2><a class=\"self\" href=\"#%s\">%s</a>%s</h2>\n<div class=\"sig head\">%s</div>\n%s%s%s</section>\n"
     (escape (slug (Json.text (Json.field "id" entry))))
     (escape (Json.text (Json.field "kind" entry)))
     (escape (slug (Json.text (Json.field "id" entry))))
     (escape (Json.text (Json.field "name" entry)))
+    (source_html ~path entry)
     (signature_html ~from ~table entry)
     (attrs_html entry)
     (doc_html entry)
     (members_html ~from ~table entry)
+
+(* A page reads by kind rather than by one alphabet through all of them: a
+   reader looking for a function is not helped by the impls sorted among them,
+   and an impl's title is its type's name, so two sections a page apart
+   otherwise carry the same heading. Within a kind the index's order stands. *)
+let kinds =
+  [ "type", "Types"
+  ; "trait", "Traits"
+  ; "effect", "Effects"
+  ; "handler", "Handlers"
+  ; "fn", "Functions"
+  ; "var", "Values"
+  ; "impl", "Implementations"
+  ]
+
+let grouped entries =
+  List.filter_map
+    (fun (kind, heading) ->
+      match
+        List.filter (fun e -> String.equal (Json.text (Json.field "kind" e)) kind) entries
+      with
+      | [] -> None
+      | mine -> Some (heading, mine))
+    kinds
 
 (* ---- pages ---- *)
 
@@ -520,6 +692,20 @@ h2 a.self { color: inherit; }
 .units { list-style: none; padding: 0; }
 .units li { padding: .3rem 0; }
 .kinds { color: var(--dim); font-size: .85rem; }
+h3 { font-size: .95rem; margin: 1.5rem 0 .25rem; color: var(--dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+h2.kind { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); margin: 2.5rem 0 0; border-bottom: 1px solid var(--rule);
+  padding-bottom: .25rem; }
+h2.kind + .entry { border-top: none; }
+.sv { font-style: italic; color: var(--accent); }
+.where { color: var(--dim); font-size: .75rem; font-weight: normal;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-left: .5rem; }
+.import { margin: 0 0 1.5rem; }
+.import code { background: var(--code); padding: .2rem .4rem; border-radius: 3px; }
+.search { width: 100%; padding: .5rem .6rem; margin: 0 0 1rem; font: inherit;
+  color: var(--fg); background: var(--bg); border: 1px solid var(--rule);
+  border-radius: 4px; }
 |}
 
 let document ~depth ~title body =
@@ -532,64 +718,253 @@ let document ~depth ~title body =
     up
     body
 
+(* What a consumer in another package writes to reach this unit -- inside a
+   package an import is a path relative to the file that wrote it, so there is
+   nothing general to print. A package's modules are under `src/`, which `cx`
+   is what mandates and which `Loader.in_package` puts back, so the segment
+   comes off here; and the root module is reached as the package itself. The
+   library has no `src/`: `stdlib/collections/HashMap.cx` is
+   `import "std/collections/HashMap"`. *)
+let import_of ~package ~namespace ~path =
+  match path with
+  | None -> None
+  | Some _ when String.equal package namespace -> Some package
+  | Some path ->
+    Some (package ^ "/" ^ Filename.remove_extension (without_src path))
+
 let unit_page ~table ~package ~version unit_ =
   let namespace = Json.text (Json.field "namespace" unit_) in
-  let from = { t_package = package; t_unit = namespace; t_name = namespace } in
+  let path =
+    match Json.field "path" unit_ with
+    | Json.String p -> Some p
+    | _ -> None
+  in
+  let page = page_for ~namespace ~path in
+  let from = { t_package = package; t_page = page; t_name = namespace } in
   let entries = Json.items (Json.field "entries" unit_) in
+  let section (heading, mine) =
+    Printf.sprintf
+      "<h2 class=\"kind\">%s</h2>\n%s"
+      (escape heading)
+      (String.concat "" (List.map (entry_html ~from ~table ~path) mine))
+  in
   let body =
     Printf.sprintf
-      "<h1>%s</h1>\n<div class=\"crumb\"><a href=\"../index.html\">index</a> / %s%s</div>\n%s"
+      "<h1>%s</h1>\n<div class=\"crumb\"><a href=\"%sindex.html\">index</a> / %s%s%s</div>\n%s%s%s"
       (escape namespace)
+      (up (depth_of page))
       (escape package)
       (match version with
        | None -> ""
        | Some v -> escape (" " ^ v))
-      (String.concat "" (List.map (entry_html ~from ~table) entries))
+      (match path with
+       | None -> ""
+       | Some p -> Printf.sprintf " / <span class=\"where\">%s</span>" (escape p))
+      (match import_of ~package ~namespace ~path with
+       | None -> ""
+       | Some target ->
+         Printf.sprintf "<div class=\"import\"><code>import \"%s\";</code></div>\n" (escape target))
+      (doc_html unit_)
+      (String.concat "" (List.map section (grouped entries)))
   in
-  document ~depth:1 ~title:(package ^ " / " ^ namespace) body
+  document ~depth:(depth_of page) ~title:(package ^ " / " ^ namespace) body
+
+(* ---- search ---- *)
+
+(* A reference is searched more than it is browsed, and thirty-four modules is
+   the last moment at which that is not true.
+
+   The data is the index, written beside the pages -- but *not* fetched: a
+   `file://` page asking for a sibling file is a cross-origin request, and every
+   browser refuses it, so a reference opened the way `cx docs` opens one would
+   have a dead search box. A `<script>` is under no such rule, so the same rows
+   are written a second time as an assignment to a global. `index.json` is for
+   every consumer that is not a browser reading a local file. *)
+let search_html =
+  {|<input id="q" class="search" type="search" placeholder="Search declarations" autocomplete="off">
+<ul id="results" class="units"></ul>
+<script src="search-index.js"></script>
+<script src="search.js"></script>
+|}
+
+let search_js =
+  {|(function () {
+  var rows = window.CX_INDEX || [];
+  var box = document.getElementById("q");
+  var out = document.getElementById("results");
+  if (!box || !out) return;
+  function render(matches) {
+    out.innerHTML = "";
+    matches.forEach(function (row) {
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.href = row.h;
+      a.textContent = row.n;
+      var where = document.createElement("span");
+      where.className = "kinds";
+      where.textContent = row.k + " — " + row.p + "/" + row.u;
+      li.appendChild(a);
+      li.appendChild(document.createTextNode(" "));
+      li.appendChild(where);
+      out.appendChild(li);
+    });
+  }
+  box.addEventListener("input", function () {
+    var q = box.value.trim().toLowerCase();
+    if (q === "") { out.innerHTML = ""; return; }
+    var matches = rows.filter(function (row) {
+      return row.n.toLowerCase().indexOf(q) >= 0;
+    });
+    matches.sort(function (a, b) {
+      var an = a.n.toLowerCase().indexOf(q) === 0 ? 0 : 1;
+      var bn = b.n.toLowerCase().indexOf(q) === 0 ? 0 : 1;
+      if (an !== bn) return an - bn;
+      if (a.n.length !== b.n.length) return a.n.length - b.n.length;
+      return a.n.localeCompare(b.n);
+    });
+    render(matches.slice(0, 60));
+  });
+})();
+|}
+
+(* One row per entry: what it is called, what it is, and where its anchor is.
+   The doc is not in it -- a name is what a reference is searched by, and the
+   whole of every doc comment would be the pages again in one file. *)
+let search_rows index =
+  let rows =
+    List.concat_map
+      (fun package ->
+        let name = Json.text (Json.field "name" package) in
+        List.concat_map
+          (fun unit_ ->
+            let namespace = Json.text (Json.field "namespace" unit_) in
+            let page =
+              page_for
+                ~namespace
+                ~path:
+                  (match Json.field "path" unit_ with
+                   | Json.String p -> Some p
+                   | _ -> None)
+            in
+            List.map
+              (fun entry ->
+                let id = Json.text (Json.field "id" entry) in
+                Json.Obj
+                  [ "n", Json.String (Json.text (Json.field "name" entry))
+                  ; "k", Json.String (Json.text (Json.field "kind" entry))
+                  ; "p", Json.String name
+                  ; "u", Json.String namespace
+                  ; "h", Json.String (name ^ "/" ^ page ^ ".html#" ^ slug id)
+                  ])
+              (Json.items (Json.field "entries" unit_)))
+          (Json.items (Json.field "units" package)))
+      (Json.items (Json.field "packages" index))
+  in
+  Json.List rows
+
+(* The directory a unit was written in, which is how the index page groups
+   them: `stdlib/collections/HashMap.cx` is imported as
+   `std/collections/HashMap`, and a flat alphabet of every module in a library
+   throws that away. A unit with no path -- one this package embeds rather than
+   owns -- groups under the root, which is also where a single-directory package
+   puts everything. *)
+let folder unit_ =
+  match Json.field "path" unit_ with
+  | Json.String path ->
+    let path = without_src path in
+    (match String.rindex_opt path '/' with
+     | None -> ""
+     | Some at -> String.sub path 0 at)
+  | _ -> ""
+
+let by_folder units =
+  let folders =
+    List.sort_uniq String.compare (List.map folder units)
+    (* The root's own modules first, then each directory. *)
+    |> List.sort (fun a b ->
+      match String.equal a "", String.equal b "" with
+      | true, false -> -1
+      | false, true -> 1
+      | _ -> String.compare a b)
+  in
+  List.map (fun f -> f, List.filter (fun u -> String.equal (folder u) f) units) folders
 
 let index_page index =
   let packages = Json.items (Json.field "packages" index) in
   let root = Json.text (Json.field "root" index) in
+  let unit_html ~package unit_ =
+    let namespace = Json.text (Json.field "namespace" unit_) in
+    let entries = Json.items (Json.field "entries" unit_) in
+    let kinds =
+      List.sort_uniq String.compare (List.map (fun e -> Json.text (Json.field "kind" e)) entries)
+    in
+    let summary =
+      (* The first sentence of the unit's own prose says more than a count of
+         its declarations, so the count stands aside for it. *)
+      match Json.field "doc" unit_ with
+      | Json.String text ->
+        let line =
+          match String.index_opt text '\n' with
+          | Some at -> String.sub text 0 at
+          | None -> text
+        in
+        (match String.index_opt line '.' with
+         | Some at -> String.sub line 0 (at + 1)
+         | None -> line)
+      | _ -> Printf.sprintf "%d — %s" (List.length entries) (String.concat ", " kinds)
+    in
+    Printf.sprintf
+      "<li><a href=\"%s\">%s</a> <span class=\"kinds\">%s</span></li>\n"
+      (escape
+         (package
+          ^ "/"
+          ^ page_for
+              ~namespace
+              ~path:
+                (match Json.field "path" unit_ with
+                 | Json.String p -> Some p
+                 | _ -> None)
+          ^ ".html"))
+      (escape namespace)
+      (escape summary)
+  in
   let package_html package =
     let name = Json.text (Json.field "name" package) in
     let version = Json.field "version" package in
+    let folder_html (dir, units) =
+      Printf.sprintf
+        "%s<ul class=\"units\">\n%s</ul>\n"
+        (if String.equal dir "" then "" else Printf.sprintf "<h3>%s/</h3>\n" (escape dir))
+        (String.concat "" (List.map (unit_html ~package:name) units))
+    in
     Printf.sprintf
-      "<h2>%s%s%s</h2>\n<ul class=\"units\">\n%s</ul>\n"
+      "<h2>%s%s%s</h2>\n%s"
       (escape name)
       (if Json.is_null version then "" else " " ^ escape (Json.text version))
       (if String.equal name root then " <span class=\"kinds\">(this package)</span>" else "")
-      (String.concat
-         ""
-         (List.map
-            (fun unit_ ->
-              let namespace = Json.text (Json.field "namespace" unit_) in
-              let entries = Json.items (Json.field "entries" unit_) in
-              let kinds =
-                List.sort_uniq
-                  String.compare
-                  (List.map (fun e -> Json.text (Json.field "kind" e)) entries)
-              in
-              Printf.sprintf
-                "<li><a href=\"%s\">%s</a> <span class=\"kinds\">%d — %s</span></li>\n"
-                (escape (name ^ "/" ^ namespace ^ ".html"))
-                (escape namespace)
-                (List.length entries)
-                (escape (String.concat ", " kinds)))
-            (Json.items (Json.field "units" package))))
+      (String.concat "" (List.map folder_html (by_folder (Json.items (Json.field "units" package)))))
   in
   document
     ~depth:0
     ~title:(root ^ " reference")
     (Printf.sprintf
-       "<h1>%s</h1>\n<div class=\"crumb\">Cronyx %s</div>\n%s"
+       "<h1>%s</h1>\n<div class=\"crumb\">Cronyx %s</div>\n%s%s"
        (escape root)
        (escape (Json.text (Json.field "compiler" index)))
+       search_html
        (String.concat "" (List.map package_html packages)))
 
 (* ---- writing ---- *)
 
 let ensure dir = if not (Sys.file_exists dir) then Sys.mkdir dir 0o755
+
+(* Every directory on the way, so a unit nested two deep has somewhere to be. *)
+let rec nested dir =
+  if not (Sys.file_exists dir)
+  then (
+    let parent = Filename.dirname dir in
+    if not (String.equal parent dir) then nested parent;
+    Sys.mkdir dir 0o755)
 
 let write_file path contents =
   Out_channel.with_open_bin path (fun out -> Out_channel.output_string out contents)
@@ -599,6 +974,15 @@ let write_file path contents =
 let write ~out_dir index =
   ensure out_dir;
   write_file (Filename.concat out_dir "style.css") style;
+  write_file (Filename.concat out_dir "search.js") search_js;
+  let rows = search_rows index in
+  write_file
+    (Filename.concat out_dir "search-index.js")
+    ("window.CX_INDEX = " ^ Json.to_string rows ^ ";\n");
+  (* The model is the interface: a renderer is one consumer of the index and an
+     editor or another site is the next, so the document it was built from is
+     written beside the pages rather than only under `--json`. *)
+  write_file (Filename.concat out_dir "index.json") (Json.to_string index);
   write_file (Filename.concat out_dir "index.html") (index_page index);
   let table = targets index in
   List.iter
@@ -614,9 +998,18 @@ let write ~out_dir index =
       List.iter
         (fun unit_ ->
           let namespace = Json.text (Json.field "namespace" unit_) in
-          write_file
-            (Filename.concat dir (namespace ^ ".html"))
-            (unit_page ~table ~package:name ~version unit_))
+          let page =
+            page_for
+              ~namespace
+              ~path:
+                (match Json.field "path" unit_ with
+                 | Json.String p -> Some p
+                 | _ -> None)
+          in
+          let target = Filename.concat dir (page ^ ".html") in
+          (* `collections/HashMap.html` is a directory and a file. *)
+          nested (Filename.dirname target);
+          write_file target (unit_page ~table ~package:name ~version unit_))
         (Json.items (Json.field "units" package)))
     (Json.items (Json.field "packages" index));
   Filename.concat out_dir "index.html"

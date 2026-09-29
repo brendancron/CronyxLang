@@ -1,3 +1,11 @@
+/**
+ * `RegexAst` to an NFA.
+ *
+ * Thompson's construction: every node becomes a fragment with one start and one
+ * end, joined by transitions that consume nothing. `std/automata/Dfa` is what
+ * makes the result deterministic.
+ */
+
 import { Nfa, Transition, epsilon } from "../automata/Nfa";
 import { RegexAst, RegexNode } from "RegexAst";
 

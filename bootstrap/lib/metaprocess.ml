@@ -311,7 +311,10 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
           ( Option.map (fun (t, args) -> named t, List.map type_expr args) trait
           , named type_name
           , params
-          , { Ast.ib_assoc = List.map (fun (n, t) -> n, type_expr t) impl.Ast.ib_assoc
+          , { Ast.ib_assoc =
+                List.map
+                  (fun (a : Ast.assoc_def) -> { a with Ast.as_ty = type_expr a.Ast.as_ty })
+                  impl.Ast.ib_assoc
             ; ib_methods =
                 List.map
                   (fun (m : (Ast.stmt, unit) Ast.method_def) ->
@@ -2208,6 +2211,16 @@ let rec is_type_level (s : Ast.stmt) =
   | `Attributed (_, inner) -> is_type_level inner
   | _ -> false
 
+(* A trait written with a doc comment or an attribute is an `Attributed` around
+   the declaration, and the trait table is what tells `<T: Ord>` from `<n: int>`
+   -- so missing one turns every bound naming it into a static value parameter
+   and the walk starts demanding arguments nobody wrote. *)
+let rec trait_declared (s : Ast.stmt) =
+  match s.Ast.it with
+  | `Trait_decl (name, _, _) -> Some name
+  | `Attributed (_, inner) -> trait_declared inner
+  | _ -> None
+
 let rec is_standing (s : Ast.stmt) =
   match s.Ast.it with
   | `Impl_decl _ | `Handler_decl _ -> true
@@ -2347,9 +2360,9 @@ let register w (s : Ast.stmt) =
   | None ->
     if is_type_level s
     then (
-      (match s.Ast.it with
-       | `Trait_decl (name, _, _) -> Hashtbl.replace w.traits name ()
-       | _ -> ());
+      (match trait_declared s with
+       | Some name -> Hashtbl.replace w.traits name ()
+       | None -> ());
       w.types <- s :: w.types;
       w.generated <- `Stmt s :: w.generated)
     else if is_standing s
@@ -2379,9 +2392,9 @@ let collect w (s : Ast.stmt) =
   match fn_parts s with
   | Some (name, _, _, _) -> add_entry w name s
   | None ->
-    (match s.Ast.it with
-     | `Trait_decl (name, _, _) -> Hashtbl.replace w.traits name ()
-     | _ -> ());
+    (match trait_declared s with
+     | Some name -> Hashtbl.replace w.traits name ()
+     | None -> ());
     if is_type_level s then w.types <- s :: w.types
 
 (* A type taking a value, or holding a meta block, is made per argument list;

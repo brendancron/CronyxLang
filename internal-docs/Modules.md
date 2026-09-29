@@ -149,7 +149,7 @@ shape decided by the program rather than by the compiler.
 
 `Ast.span` was `{ line; col }`, and concatenating four units would have made `[3:5]` name nothing. It now carries the file, threaded through the *token* so that no `span_of_token` call site changed. `Ast.locate ~entry` prints a bare `[3:5]` while a span is in the unit being compiled and `[lib.cx 2:12]` once it is not, rendered relative to the entry's directory.
 
-The prelude is still a string in `lib/prelude.ml` rather than a unit the loader reads, but it scans under the name `<prelude>`, so a diagnostic from inside it says so instead of pointing at a line in the user's file.
+The prelude is `stdlib/core/*.cx` rather than a string, but it is still not a unit the loader reads: `lib/prelude.ml` reads the files itself and hands the declarations to `Precheck` and `Metaprocess` as before. They keep plain names because the compiler and the syntax both produce them — `Option` for what `partial_cmp` answers, `Range` for what `a[1:]` becomes, `List` for what a literal builds — and a name the language itself produces cannot wait for an import. Each file scans under `<core>/List.cx` rather than under its path on disk, so a diagnostic from inside one names the file the reader has without putting this machine's directory layout in the message. `Prelude.owns` is that test, and what the checker asks when a program declares a type or a trait core also declares.
 
 ## What this does not do
 

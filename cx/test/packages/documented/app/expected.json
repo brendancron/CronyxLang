@@ -1,5 +1,5 @@
 {
-  "format": 1,
+  "format": 3,
   "compiler": "<version>",
   "root": "app",
   "packages": [
@@ -8,32 +8,9 @@
       "version": "0.1.0",
       "units": [
         {
-          "namespace": "app",
-          "doc": null,
-          "entries": [
-            {
-              "id": "app#origin",
-              "package": "app",
-              "unit": "app",
-              "name": "origin",
-              "kind": "fn",
-              "exported": true,
-              "doc": "The point both axes pass through.",
-              "attrs": [],
-              "static": [],
-              "params": [],
-              "ret": {
-                "kind": "name",
-                "name": "Point",
-                "ref": "shapes#Point"
-              },
-              "row": null
-            }
-          ]
-        },
-        {
           "namespace": "ink",
-          "doc": null,
+          "path": "src/ink.cx",
+          "doc": "Colours, and what goes wrong when one is missing.",
           "entries": [
             {
               "id": "app#ink#Missing",
@@ -41,6 +18,7 @@
               "unit": "ink",
               "name": "Missing",
               "kind": "effect",
+              "line": 28,
               "exported": true,
               "doc": "Asking for a colour that was never set.",
               "attrs": [],
@@ -61,7 +39,9 @@
                       }
                     }
                   ],
-                  "ret": null
+                  "ret": null,
+                  "doc": "Reports the name that was asked for, and does not come back.",
+                  "attrs": []
                 }
               ]
             },
@@ -71,6 +51,7 @@
               "unit": "ink",
               "name": "Shade",
               "kind": "type",
+              "line": 11,
               "exported": true,
               "doc": "How dark it is.",
               "attrs": [],
@@ -110,6 +91,7 @@
               "unit": "ink",
               "name": "Show",
               "kind": "trait",
+              "line": 5,
               "exported": true,
               "doc": "Anything with a written form.",
               "attrs": [],
@@ -136,6 +118,9 @@
                   },
                   "row": null
                 }
+              ],
+              "impls": [
+                "app#ink#Shade#impl#app#ink#Show"
               ]
             },
             {
@@ -144,6 +129,7 @@
               "unit": "ink",
               "name": "Show for Shade",
               "kind": "impl",
+              "line": 18,
               "exported": true,
               "doc": null,
               "attrs": [],
@@ -187,6 +173,7 @@
               "unit": "ink",
               "name": "quiet",
               "kind": "handler",
+              "line": 34,
               "exported": true,
               "doc": "Reports a missing colour and carries on.",
               "attrs": [],
@@ -206,6 +193,32 @@
               ]
             }
           ]
+        },
+        {
+          "namespace": "app",
+          "path": "src/lib.cx",
+          "doc": null,
+          "entries": [
+            {
+              "id": "app#origin",
+              "package": "app",
+              "unit": "app",
+              "name": "origin",
+              "kind": "fn",
+              "line": 3,
+              "exported": true,
+              "doc": "The point both axes pass through.",
+              "attrs": [],
+              "static": [],
+              "params": [],
+              "ret": {
+                "kind": "name",
+                "name": "Point",
+                "ref": "shapes#Point"
+              },
+              "row": null
+            }
+          ]
         }
       ]
     },
@@ -215,6 +228,7 @@
       "units": [
         {
           "namespace": "shapes",
+          "path": "src/lib.cx",
           "doc": null,
           "entries": [
             {
@@ -223,6 +237,7 @@
               "unit": "shapes",
               "name": "Point",
               "kind": "type",
+              "line": 1,
               "exported": true,
               "doc": "A point in the plane.",
               "attrs": [],

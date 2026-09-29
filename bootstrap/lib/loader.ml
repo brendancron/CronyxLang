@@ -14,6 +14,8 @@ let fail span fmt =
 type unit_ =
   { path : string (* normalized: what a span reports and what `visited` keys on *)
   ; namespace : string
+  (* The file's own doc comment, which belongs to no declaration in it. *)
+  ; doc : string option
   (* Empty for the package being compiled. Two packages may each hold a
      `parse.cx`, and package names come from a registry rather than from the
      author, so the name they mangle to has to carry the package. *)
@@ -115,6 +117,16 @@ let owner roots path =
       (List.hd roots)
       roots
 
+(* Where a file sits inside the root that owns it. Nothing a build machine
+   knows survives this, which is what lets an artifact's path be reported. *)
+let under roots path =
+  let root = canonical (owner roots path) in
+  let path = canonical path in
+  let prefix = if String.ends_with ~suffix:"/" root then root else root ^ "/" in
+  if String.starts_with ~prefix path
+  then String.sub path (String.length prefix) (String.length path - String.length prefix)
+  else Filename.basename path
+
 let with_extension path =
   if Filename.check_suffix path ".cx" then path else path ^ ".cx"
 
@@ -178,10 +190,10 @@ let parse_unit span path =
      | Error (e :: _) -> fail e.Scanner.span "%s" e.Scanner.message
      | Error [] -> fail span "'%s' does not scan." path
      | Ok tokens ->
-       (match Parser.parse tokens with
+       (match Parser.parse_unit tokens with
         | Error (e :: _) -> fail e.Parser.span "%s" e.Parser.message
         | Error [] -> fail span "'%s' does not parse." path
-        | Ok program -> program))
+        | Ok parsed -> parsed))
 
 (* Sorted, so the expansion does not depend on readdir order. *)
 let expand_wildcards roots ~from (program : Ast.program) =
@@ -246,8 +258,9 @@ let load roots ?namespace:entry_namespace ?(seeds = []) entry =
     if not (Hashtbl.mem visited path)
     then (
       Hashtbl.replace visited path ();
-      let program = expand_wildcards roots ~from:path (parse_unit span path) in
-      units := { path; namespace; package = package_of roots path; program } :: !units;
+      let program, doc = parse_unit span path in
+      let program = expand_wildcards roots ~from:path program in
+      units := { path; namespace; doc; package = package_of roots path; program } :: !units;
       List.iter
         (fun (decl, span) ->
           let written = path_of decl in
@@ -527,7 +540,10 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
           ( Option.map (fun (t, args) -> resolve_type t, List.map type_expr args) trait
           , resolve_type type_name
           , params
-          , { Ast.ib_assoc = List.map (fun (n, t) -> n, type_expr t) impl.Ast.ib_assoc
+          , { Ast.ib_assoc =
+                List.map
+                  (fun (a : Ast.assoc_def) -> { a with Ast.as_ty = type_expr a.Ast.as_ty })
+                  impl.Ast.ib_assoc
             ; ib_methods =
                 List.map
                   (fun (m : (Ast.stmt, unit) Ast.method_def) ->
@@ -630,7 +646,7 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
 (* [entry_unit] is the file being run, when there is one. A library has none:
    its modules are all imported and none is a program, so nothing keeps plain
    names and no statements run. *)
-let assemble roots ~plain_entry ~entry_unit ~rest =
+let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
   let all = Option.to_list entry_unit @ rest in
   let table = Hashtbl.create 8 in
   (* Keyed by file rather than by namespace: two packages may each hold a unit
@@ -658,6 +674,7 @@ let assemble roots ~plain_entry ~entry_unit ~rest =
             Some
               ( { path = ""
                 ; namespace = interface.Artifact.namespace
+                ; doc = None
                 ; package
                 ; program = []
                 }
@@ -734,6 +751,8 @@ let assemble roots ~plain_entry ~entry_unit ~rest =
   , List.map
       (fun u ->
         { Artifact.namespace = u.namespace
+        ; path = (if String.equal u.package own then Some (under roots u.path) else None)
+        ; doc = u.doc
         ; exports = exports u
         ; operations = List.concat_map operations u.program
         })
@@ -750,6 +769,7 @@ let package ?(roots = anywhere) ?entry_namespace ?seeds entry_path =
   in
   assemble
     roots
+    ~package:(Option.value entry_namespace ~default:"")
     (* A file run on its own keeps its declarations under the names it wrote; a
        package carries them under its own, because a consumer will link them
        beside somebody else's. *)
@@ -770,6 +790,7 @@ let library ?(roots = anywhere) ~package:name paths =
     let owned (u : unit_) = if String.equal u.package "" then { u with package = name } else u in
     assemble
       roots
+      ~package:name
       ~plain_entry:false
       ~entry_unit:None
       ~rest:(List.map owned (entry_unit :: rest))
