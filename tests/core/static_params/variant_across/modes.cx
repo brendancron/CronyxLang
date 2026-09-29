@@ -1,0 +1,5 @@
+type Mode { Fast, Safe, }
+fn name<m: Mode>(): string {
+    if (m == Mode.Fast) { return "fast"; }
+    return "safe";
+}

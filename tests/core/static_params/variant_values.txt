@@ -1,0 +1,5 @@
+U1
+A2
+U7
+unicode
+ascii

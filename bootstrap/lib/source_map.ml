@@ -87,6 +87,12 @@ module Span = struct
     let hi = max lo (min hi limit) in
     Range { file; lo; hi }
 
+  let join a b =
+    match a, b with
+    | Range a, Range b when a.file == b.file -> Range { a with hi = max a.hi b.hi }
+    | Range _, _ -> a
+    | Nowhere, _ -> b
+
   let view = function
     | Nowhere -> Nowhere_in_source
     | Range { file; lo; hi } ->

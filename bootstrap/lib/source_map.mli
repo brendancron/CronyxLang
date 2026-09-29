@@ -17,6 +17,9 @@ module Span : sig
 
   val of_range : File.t -> lo:int -> hi:int -> t
 
+  (* From the start of the first to the end of the second, in one file. *)
+  val join : t -> t -> t
+
   (* A node the compiler invented, with no source behind it. Absence is a case
      the renderer has to answer for rather than a missing field it can skip. *)
   val nowhere : t

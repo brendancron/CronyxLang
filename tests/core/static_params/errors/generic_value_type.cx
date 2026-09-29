@@ -1,0 +1,7 @@
+type Pair<A, B> { first: A, second: B, }
+
+fn left<p: Pair<int, string>>(): int {
+    return p.first;
+}
+
+print(left<Pair<string, string> { first: "x", second: "a" }>());

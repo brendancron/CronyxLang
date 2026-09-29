@@ -1313,40 +1313,198 @@ let reads_of (e : Ast.expr) =
        e);
   !found
 
-(* Total, so it also decides whether an argument may be one at all. *)
-let rec key_of (e : Ast.expr) : string option =
+let variant_of w (ty : string) (name : string) =
+  let rec declares (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Type_decl (n, _, Ast.T_variants variants) when String.equal n ty ->
+      List.exists (fun (v : Ast.variant) -> String.equal v.Ast.v_name name) variants
+    | `Attributed (_, inner) -> declares inner
+    | _ -> false
+  in
+  List.exists declares w.types
+
+(* A name written in `<…>` parses as a type whether it is one or not, so a value
+   argument is read back out of it: `Mode.Fast` is a projection there. *)
+let rec value_of_type (t : Ast.type_expr) : Ast.expr option =
+  let at it = Some (Ast.at t.Ast.span it) in
+  match t.Ast.it with
+  | Ast.Ty_name n -> at (`Var n)
+  | Ast.Ty_assoc (owner, member) ->
+    Option.bind (value_of_type owner) (fun owner -> at (`Field (owner, member)))
+  | Ast.Ty_tuple items ->
+    let items = List.map value_of_type items in
+    if List.for_all Option.is_some items then at (`Tuple (List.map Option.get items)) else None
+  | _ -> None
+
+let rec type_key (t : Ast.type_expr) =
+  match t.Ast.it with
+  | Ast.Ty_name n -> n
+  | Ast.Ty_app (n, args) -> n ^ "<" ^ String.concat "," (List.map type_key args) ^ ">"
+  | Ast.Ty_tuple items -> "(" ^ String.concat "," (List.map type_key items) ^ ")"
+  | _ -> "_"
+
+(* Total, so it also decides whether an argument may be one at all. Two
+   arguments share a copy exactly when their keys are equal, so a key says
+   which constructor built every part of the value. *)
+let rec key_of w (e : Ast.expr) : string option =
+  let all es =
+    let keys = List.map (key_of w) es in
+    if List.for_all Option.is_some keys
+    then Some (String.concat "," (List.map Option.get keys))
+    else None
+  in
+  (* Fields are sorted: `P { x: 1, y: 2 }` and `P { y: 2, x: 1 }` are one value. *)
+  let fields fs =
+    let fs = List.sort (fun (a, _) (b, _) -> String.compare a b) fs in
+    Option.map
+      (fun values -> "{" ^ values ^ "}")
+      (let keyed = List.map (fun (l, v) -> Option.map (fun k -> l ^ ":" ^ k) (key_of w v)) fs in
+       if List.for_all Option.is_some keyed
+       then Some (String.concat "," (List.map Option.get keyed))
+       else None)
+  in
   match e.Ast.it with
+  | `Unit -> Some "()"
   | `Int n -> Some (string_of_int n)
   | `Float n -> Some (Printf.sprintf "%h" n)
   | `Str s -> Some (Printf.sprintf "%S" (Utf8.encode s))
   | `Char c -> Some (Printf.sprintf "'%d'" (Uchar.to_int c))
   | `Bool b -> Some (string_of_bool b)
-  | `Unop (Ast.Neg, inner) -> Option.map (fun key -> "-" ^ key) (key_of inner)
+  | `Bytes b -> Some ("bytes:" ^ Digest.to_hex (Digest.string b))
+  | `Unop (Ast.Neg, inner) -> Option.map (fun key -> "-" ^ key) (key_of w inner)
+  | `Tuple items -> Option.map (fun k -> "(" ^ k ^ ")") (all items)
+  | `Collection_lit items -> Option.map (fun k -> "[" ^ k ^ "]") (all items)
+  | `Record_lit fs -> fields fs
+  | `New (name, fs) -> Option.map (fun k -> name ^ k) (fields fs)
+  (* The parameter's type already fixes the type arguments, so only a value
+     argument tells two of these apart, and `Pair { … }` shares a copy with
+     `Pair<int, string> { … }`. *)
+  | `New_generic (name, static_args, fs) ->
+    (match
+       List.filter_map
+         (function
+           | Ast.St_type _ -> None
+           | Ast.St_value v -> Some v)
+         static_args
+     with
+     | [] -> Option.map (fun k -> name ^ k) (fields fs)
+     | values ->
+       (match all values, fields fs with
+        | Some v, Some f -> Some (name ^ "<" ^ v ^ ">" ^ f)
+        | _ -> None))
+  | `Field ({ Ast.it = `Var ty; _ }, name) when variant_of w ty name -> Some (ty ^ "." ^ name)
+  | `Method_call ({ Ast.it = `Var ty; _ }, name, _, args) when variant_of w ty name ->
+    Option.map (fun k -> ty ^ "." ^ name ^ "(" ^ k ^ ")") (all args)
+  | `New_variant (ty, name, Ast.P_none) -> Some (ty ^ "." ^ name)
+  | `New_variant (ty, name, Ast.P_tuple args) ->
+    Option.map (fun k -> ty ^ "." ^ name ^ "(" ^ k ^ ")") (all args)
+  | `New_variant (ty, name, Ast.P_fields fs) ->
+    Option.map (fun k -> ty ^ "." ^ name ^ k) (fields fs)
   | _ -> None
 
-(* A static argument is an expression the compiler can evaluate: literals, and
-   the static parameters already written in where it stands, under the
-   operators. A call is evaluated only inside a meta block. *)
-let rec fold (e : Ast.expr) : Ast.expr =
+(* What a static value's `==` compiles to is not visible here, so a
+   comparison folds only when every type in it compares field by field: no
+   `Eq` impl, or one the compiler derived. *)
+let structural_eq w ty =
+  let derived (m : (Ast.stmt, unit) Ast.method_def) =
+    match m.Ast.md_body with
+    | [ { Ast.it = `Return (Some { Ast.it = `Call ({ Ast.it = `Var "__structural_eq"; _ }, _); _ }); _ } ] ->
+      true
+    | _ -> false
+  in
+  not
+    (List.exists
+       (fun st ->
+         st.trait = Some "Eq"
+         && st.target = Some ty
+         &&
+         match impl_parts st.stmt with
+         | Some (_, _, _, body) -> not (List.for_all derived body.Ast.ib_methods)
+         | None -> true)
+       w.standing)
+
+let rec constructed w (e : Ast.expr) =
+  let all = List.concat_map (constructed w) in
+  let named name =
+    match String.rindex_opt name '.' with
+    | Some at when variant_of w (String.sub name 0 at) (String.sub name (at + 1) (String.length name - at - 1)) ->
+      String.sub name 0 at
+    | _ -> name
+  in
+  match e.Ast.it with
+  | `Tuple items | `Collection_lit items -> all items
+  | `Record_lit fs -> all (List.map snd fs)
+  | `New (name, fs) | `New_generic (name, _, fs) -> named name :: all (List.map snd fs)
+  | `Field ({ Ast.it = `Var ty; _ }, _) -> [ ty ]
+  | `Method_call ({ Ast.it = `Var ty; _ }, _, _, args) -> ty :: all args
+  | `New_variant (ty, _, payload) ->
+    ty
+    :: (match payload with
+        | Ast.P_none -> []
+        | Ast.P_tuple args -> all args
+        | Ast.P_fields fs -> all (List.map snd fs))
+  | _ -> []
+
+let checks w (s : Ast.stmt) =
+  match Compile.program (List.rev w.types @ [ s ]) with
+  | Ok _ -> ()
+  | Error [] -> fail s.Ast.span "This static argument does not check."
+  | Error (e :: _) -> fail e.Diagnostic.span "%s" e.Diagnostic.message
+
+let equal w op (e : Ast.expr) (a : Ast.expr) (b : Ast.expr) =
+  match key_of w a, key_of w b with
+  | Some x, Some y when List.for_all (structural_eq w) (constructed w a @ constructed w b) ->
+    checks w (Ast.at e.Ast.span (`Var_decl (Ast.generated [ "static"; "comparison" ], None, Some e)));
+    Some { e with Ast.it = `Bool (if op = Ast.Equal then String.equal x y else not (String.equal x y)) }
+  | _ -> None
+
+(* A static argument is an expression the compiler can evaluate: literals and
+   constructors, and the static parameters already written in where it stands,
+   under the operators. A call is evaluated only inside a meta block. *)
+let rec fold w (e : Ast.expr) : Ast.expr =
   let at it = { e with Ast.it } in
   let lit (e : Ast.expr) = match e.Ast.it with #Ast.lit -> true | _ -> false in
+  let fields = List.map (fun (l, v) -> l, fold w v) in
   match e.Ast.it with
+  | `Tuple items -> at (`Tuple (List.map (fold w) items))
+  | `Collection_lit items -> at (`Collection_lit (List.map (fold w) items))
+  | `Record_lit fs -> at (`Record_lit (fields fs))
+  | `New (name, fs) -> at (`New (name, fields fs))
+  | `New_generic (name, static_args, fs) ->
+    at (`New_generic (name, List.map (Ast.map_static_arg (fold w)) static_args, fields fs))
+  | `Method_call (receiver, name, as_function, args) ->
+    at (`Method_call (receiver, name, as_function, List.map (fold w) args))
+  | `New_variant (ty, name, payload) -> at (`New_variant (ty, name, Ast.map_payload (fold w) payload))
+  | `Tuple_get (a, i) ->
+    (match (fold w a).Ast.it with
+     | `Tuple items when i >= 0 && i < List.length items -> List.nth items i
+     | _ -> e)
+  | `Field (a, label) ->
+    (match (fold w a).Ast.it with
+     | `Record_lit fs | `New (_, fs) | `New_generic (_, _, fs) ->
+       (match List.assoc_opt label fs with
+        | Some v -> v
+        | None -> e)
+     | _ -> e)
   | `Unop (op, a) ->
-    (match op, (fold a).Ast.it with
+    (match op, (fold w a).Ast.it with
      | Ast.Neg, `Int n -> at (`Int (-n))
      | Ast.Neg, `Float n -> at (`Float (-.n))
      | Ast.Not, `Bool b -> at (`Bool (not b))
      | _ -> e)
   | `And (a, b) | `Or (a, b) ->
-    (match (fold a).Ast.it, (fold b).Ast.it, e.Ast.it with
+    (match (fold w a).Ast.it, (fold w b).Ast.it, e.Ast.it with
      | `Bool x, `Bool y, `And _ -> at (`Bool (x && y))
      | `Bool x, `Bool y, _ -> at (`Bool (x || y))
      | _ -> e)
   | `Binop (op, a, b) ->
-    let a = fold a
-    and b = fold b in
+    let a = fold w a
+    and b = fold w b in
     if not (lit a && lit b)
-    then e
+    then (
+      match op with
+      | Ast.Equal | Ast.Not_equal -> Option.value (equal w op e a b) ~default:e
+      | _ -> e)
     else (
       let judged c =
         match op with
@@ -1376,78 +1534,95 @@ let rec fold (e : Ast.expr) : Ast.expr =
       | _ -> e)
   | _ -> e
 
-let static_value name (arg : Ast.expr Ast.static_arg) : Ast.expr * string =
+let static_value w name (arg : Ast.expr Ast.static_arg) : Ast.expr * string =
   let written =
     match arg with
-    | Ast.St_type { Ast.it = Ast.Ty_name n; span; _ } -> Ast.at span (`Var n)
-    | Ast.St_type t -> fail t.Ast.span "'%s' takes a value here, not a type." name
-    | Ast.St_value v -> fold v
+    | Ast.St_type t ->
+      (match value_of_type t with
+       | Some v -> fold w v
+       | None -> fail t.Ast.span "'%s' takes a value here, not a type." name)
+    | Ast.St_value v -> fold w v
   in
-  match key_of written with
+  match key_of w written with
   | Some key -> written, key
   | None ->
     (match written.Ast.it with
+     | `Var unknown when Hashtbl.mem w.type_names unknown ->
+       fail written.Ast.span "'%s' takes a value here, not a type." name
      | `Var unknown ->
        fail
          written.Ast.span
          "'%s' is not known at compile time: it is a run-time variable, not a static \
           parameter of the enclosing function."
          unknown
-     | `Call _ | `Static_call _ ->
+     | `Binop ((Ast.Equal | Ast.Not_equal), a, b)
+       when Option.is_some (key_of w (fold w a)) && Option.is_some (key_of w (fold w b)) ->
+       let own = List.find (fun ty -> not (structural_eq w ty)) (constructed w (fold w a) @ constructed w (fold w b)) in
+       fail
+         written.Ast.span
+         "'%s' has its own Eq, so a comparison of it is evaluated at compile time only \
+          inside a meta block."
+         own
+     | `Call _ | `Static_call _ | `Method_call _ ->
        fail
          written.Ast.span
          "This argument to '%s' is not known at compile time: a call is evaluated at \
           compile time only inside a meta block."
          name
-     | `Bytes _ ->
-       fail
-         written.Ast.span
-         "Embedded bytes cannot be a static argument to '%s': a static value is a number, \
-          string, char or bool."
-         name
      | _ ->
        fail
          written.Ast.span
-         "This argument to '%s' is not known at compile time; only a literal or a static \
-          parameter of the enclosing function is."
+         "This argument to '%s' is not known at compile time; only literals, \
+          constructors and the static parameters of the enclosing function are."
          name)
 
-let rec type_key (t : Ast.type_expr) =
-  match t.Ast.it with
-  | Ast.Ty_name n -> n
-  | Ast.Ty_app (n, args) -> n ^ "<" ^ String.concat "," (List.map type_key args) ^ ">"
-  | Ast.Ty_tuple items -> "(" ^ String.concat "," (List.map type_key items) ^ ")"
-  | _ -> "_"
-
-(* A value parameter is written where it was used, but not inside a meta block:
-   there it is bound, so a block nested in that one does not receive it. *)
+(* A copy binds its value parameters as locals, but a static argument is
+   decided before the copy runs, so there the value itself is written in. Not
+   inside a meta block: the block binds the value itself, so one nested in it
+   does not receive it. *)
 let substitute_values (values : (string * Ast.expr) list) (body : Ast.stmt list) =
-  let h =
+  let passed h scope (a : Ast.expr Ast.static_arg) =
+    match a with
+    | Ast.St_value v -> Ast.St_value (texpr h scope v)
+    | Ast.St_type t ->
+      (match value_of_type t with
+       | Some v when S.exists (fun n -> List.mem_assoc n values) (S.diff (reads_of v) scope) ->
+         Ast.St_value (texpr h scope v)
+       | _ -> a)
+  in
+  let arguments h =
     { quiet with
-      var =
-        (fun _ e ->
-          match e.Ast.it with
-          | `Var name ->
-            (match List.assoc_opt name values with
-             | Some v -> { v with Ast.span = e.Ast.span }
-             | None -> e)
-          | _ -> e)
-    ; static_call =
+      static_call =
         (fun scope e ->
           match e.Ast.it with
           | `Static_call (callee, static_args, args) ->
-            let arg (a : Ast.expr Ast.static_arg) =
-              match a with
-              | Ast.St_type { Ast.it = Ast.Ty_name n; span; _ }
-                when List.mem_assoc n values && not (S.mem n scope) ->
-                Ast.St_value { (List.assoc n values) with Ast.span = span }
-              | a -> a
-            in
-            { e with Ast.it = `Static_call (callee, List.map arg static_args, args) }
+            { e with Ast.it = `Static_call (callee, List.map (passed !h scope) static_args, args) }
+          | _ -> e)
+    ; generic_new =
+        (fun scope e ->
+          match e.Ast.it with
+          | `New_generic (name, static_args, fields) ->
+            { e with Ast.it = `New_generic (name, List.map (passed !h scope) static_args, fields) }
           | _ -> e)
     }
   in
-  tblock h S.empty body
+  let written = ref quiet in
+  written
+  := { (arguments written) with
+       var =
+         (fun _ e ->
+           match e.Ast.it with
+           | `Var name ->
+             (match List.assoc_opt name values with
+              | Some v -> { v with Ast.span = e.Ast.span }
+              | None -> e)
+           | _ -> e)
+     };
+  tblock (arguments written) S.empty body
+
+let bind_values (values : (string * Ast.type_expr option * Ast.expr) list) body =
+  List.map (fun (n, ty, (v : Ast.expr)) -> Ast.at v.Ast.span (`Var_decl (n, ty, Some v))) values
+  @ substitute_values (List.map (fun (n, _, v) -> n, v) values) body
 
 let undefined message =
   let prefix = "Undefined variable '" in
@@ -1825,7 +2000,7 @@ and instantiate w (t : entry) static_args span =
       (fun (values, types, keys) (p : Ast.static_param) arg ->
         if is_value w p
         then (
-          let v, key = static_value name arg in
+          let v, key = static_value w name arg in
           (p.Ast.sp_name, v) :: values, types, key :: keys)
         else (
           match arg with
@@ -1841,20 +2016,30 @@ and instantiate w (t : entry) static_args span =
   match Hashtbl.find_opt w.copies (name, key) with
   | Some copy -> copy
   | None ->
-    let copy = Ast.generated [ name; string_of_int (Hashtbl.length w.copies) ] in
-    Hashtbl.replace w.copies (name, key) copy;
     (* A type argument is written everywhere, a meta block included: a type is
        not a value there, so it does not cross, it is simply named. *)
     let named = Hashtbl.create 4 in
     List.iter (fun (param, ty) -> Hashtbl.replace named param (Value.Name ty)) types;
-    let renamed =
-      substitute named { t.written with Ast.it = `Fn (name, params, { sg with Ast.static_params = [] }, body) }
+    List.iter
+      (fun (p : Ast.static_param) ->
+        match p.Ast.sp_ty, List.assoc_opt p.Ast.sp_name values with
+        | Some ty, Some v -> check_static w named ty v
+        | _ -> ())
+      declared;
+    let copy = Ast.generated [ name; string_of_int (Hashtbl.length w.copies) ] in
+    Hashtbl.replace w.copies (name, key) copy;
+    let bound =
+      List.filter_map
+        (fun (p : Ast.static_param) ->
+          Option.map (fun v -> p.Ast.sp_name, p.Ast.sp_ty, v) (List.assoc_opt p.Ast.sp_name values))
+        declared
     in
     let written =
-      match renamed.Ast.it with
-      | `Fn (_, params, sg, body) ->
-        { renamed with Ast.it = `Fn (copy, params, sg, substitute_values values body) }
-      | _ -> renamed
+      substitute
+        named
+        { t.written with
+          Ast.it = `Fn (copy, params, { sg with Ast.static_params = [] }, bind_values bound body)
+        }
     in
     let e =
       { name = copy
@@ -1870,6 +2055,27 @@ and instantiate w (t : entry) static_args span =
     w.instances <- copy :: w.instances;
     walk_entry ~statics:(List.rev values) w e;
     copy
+
+(* Nothing else checks an argument against its parameter: the copy's body only
+   ever sees the value written in where the parameter was read. *)
+and check_static w named (declared : Ast.type_expr) (v : Ast.expr) =
+  let primitive =
+    match declared.Ast.it, v.Ast.it with
+    | Ast.Ty_name "int", `Int _
+    | Ast.Ty_name "float", `Float _
+    | Ast.Ty_name "string", `Str _
+    | Ast.Ty_name "char", `Char _
+    | Ast.Ty_name "bool", `Bool _ -> true
+    | _ -> false
+  in
+  if not primitive
+  then (
+    let probe =
+      substitute
+        named
+        (Ast.at v.Ast.span (`Var_decl (Ast.generated [ "static"; "argument" ], Some declared, Some v)))
+    in
+    checks w probe)
 
 and meta_stmt w ~statics ~runtime ~outer (s : Ast.stmt) : Ast.stmt list =
   match s.Ast.it with
@@ -2035,7 +2241,7 @@ and instantiate_type w (tt : type_template) static_args span =
       (fun (values, types, shown) (p : Ast.type_param) arg ->
         if Option.is_some p.Ast.tp_ty
         then (
-          let v, _ = static_value tt.tt_name arg in
+          let v, _ = static_value w tt.tt_name arg in
           (p.Ast.tp_name, v) :: values, types, Source.expr v :: shown)
         else (
           match arg with
@@ -2053,6 +2259,12 @@ and instantiate_type w (tt : type_template) static_args span =
     let values = List.rev values in
     let named = Hashtbl.create 4 in
     List.iter (fun (param, ty) -> Hashtbl.replace named param (Value.Name ty)) types;
+    List.iter
+      (fun (p : Ast.type_param) ->
+        match p.Ast.tp_ty, List.assoc_opt p.Ast.tp_name values with
+        | Some ty, Some v -> check_static w named ty v
+        | _ -> ())
+      params;
     let decl = substitute named tt.tt_decl in
     let decl =
       match decl.Ast.it with
@@ -2087,7 +2299,19 @@ and instantiate_type w (tt : type_template) static_args span =
             { Ast.md_name = name
             ; md_params = params
             ; md_signature = sg
-            ; md_body = with_values values (substitute_values values body)
+            ; md_body =
+                with_values
+                  values
+                  (List.map
+                     (substitute named)
+                     (bind_values
+                        (List.filter_map
+                           (fun (p : Ast.type_param) ->
+                             Option.map
+                               (fun v -> p.Ast.tp_name, p.Ast.tp_ty, v)
+                               (List.assoc_opt p.Ast.tp_name values))
+                           tt.tt_params)
+                        body))
             ; md_ann = ()
             ; md_attrs = fn_attrs f
             })

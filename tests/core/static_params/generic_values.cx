@@ -1,0 +1,10 @@
+type Pair<A, B> { first: A, second: B, }
+
+fn left<p: Pair<int, string>>(): int {
+    meta print("left<" + p.second + ">");
+    return p.first;
+}
+
+print(left<Pair { first: 1, second: "a" }>());
+print(left<Pair<int, string> { first: 1, second: "a" }>());
+print(left<Pair<int, string> { first: 2, second: "b" }>());

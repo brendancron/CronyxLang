@@ -1,0 +1,1 @@
+[17:20] 'Money' has its own Eq, so a comparison of it is evaluated at compile time only inside a meta block.

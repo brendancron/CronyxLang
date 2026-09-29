@@ -1,0 +1,19 @@
+type Mode { Fast, Safe, }
+
+type Runner<mode: Mode> {
+    steps: int,
+
+    fn describe(self): string {
+        if (mode == Mode.Fast) {
+            return "fast " + str(self.steps);
+        }
+        return "safe " + str(self.steps);
+    }
+}
+
+var a = Runner<Mode.Fast> { steps: 1 };
+var b = Runner<Mode.Safe> { steps: 2 };
+
+print(a.describe());
+print(b.describe());
+print(typeof(a).name);

@@ -143,6 +143,7 @@ let rec type_expr s : Ast.type_expr =
       then (
         ignore (advance s);
         let member = consume_identifier s "Expected an associated type name after '.'." in
+        let sp = Source_map.Span.join sp (Ast.span_of_token (previous s)) in
         projected (Ast.at sp (Ast.Ty_assoc (owner, member))))
       else owner
     in
