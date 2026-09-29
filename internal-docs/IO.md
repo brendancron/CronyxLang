@@ -1,8 +1,8 @@
 # I/O
 
-Status: **designed.** `Console` is built ([Algebraic
+Status: **designed.** `Console` and the root are built ([Algebraic
 Effects](Algebraic%20Effects.md#print-is-an-effect)); files, `Reader`, `Writer`
-and `stdin` are not, and the root is not yet `block_on`.
+and `stdin` are not.
 
 ## I/O is async from the start
 
@@ -26,11 +26,12 @@ Effects](Algebraic%20Effects.md#print-is-an-effect)).
 ## The root runs every program under `block_on`
 
 A program that performs I/O performs `async`, and an effect nothing handles at
-the top level is refused. So each top-level statement runs under the prelude's
-`__root`, which today handles `Console` and will be `block_on`: `async`,
-`block_on` and `Throw` move into `core` with it. The root is the prelude's rather
-than the compiler's, so a different one is a different prelude; how a package
-would choose one is not decided.
+the top level is refused. So each top-level statement runs under `__root` in
+`stdlib/prelude.cx`, which handles `Console` around `block_on`, and `block_on`
+handles `Throw`: a statement may wait, and a failure nothing catches stops the
+program with its value (`tests/stdlib/async/top_level_scope`). The root is the
+prelude's rather than the compiler's, so a different one is a different prelude;
+how a package would choose one is not decided.
 
 ## Opening is an effect; an open file is a value
 

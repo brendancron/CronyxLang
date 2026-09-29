@@ -59,7 +59,7 @@ test's list — without a writer threaded through every call
   so a written row that leaves it out is refused, and so is a callback typed as
   pure that prints: `(int) -> unit` must be `(int) -> <Console> unit`.
 - **The program root handles it.** Each top-level statement runs as a function
-  handed to the prelude's `__root`, which handles `Console` by calling the
+  handed to `__root` in `stdlib/prelude.cx`, which handles `Console` by calling the
   natives `__write_out` and `__write_err`, so no program starts with a `run`.
   In place, statement by statement, rather than the top level moved into one
   function: a statement is then checked where it stands, a `var` keeps its

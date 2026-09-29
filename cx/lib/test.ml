@@ -236,7 +236,8 @@ let of_file ~root ~manifest ~package program file =
     { Loader.package = Filename.concat root "tests"; std = Toolchain.stdlib (); deps }
   in
   let* loaded, _ = Pipeline.package ~roots ~seeds:[ file ] file in
-  Ok (declarations program @ loaded, loaded)
+  (* Both carry the prelude and what it imports, as two linked packages do. *)
+  Ok (Build.deduplicated (declarations program @ loaded), loaded)
 
 (* A test is found on the program the walk produced, so one a meta block
    generated is found under the name it was given. [own] says which of them

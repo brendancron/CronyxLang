@@ -1,0 +1,9 @@
+import { async, interleaved, pause } from "std/effects/Async";
+
+// The top level runs under the prelude's root, which is `block_on`, so a scope
+// needs no scheduler written around it.
+interleaved([
+    () => { print("a"); pause(); print("a again"); },
+    () => { print("b"); }
+]);
+print("done");

@@ -770,7 +770,7 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
        ]
      (* The body's "what runs next" is the loop itself, so resuming carries
         on with the next iteration and resuming twice runs it twice. *)
-     | `While (cond, body) when suspends_stmt info s ->
+     | `While (cond, body) when suspends_stmt info s || holds_return s ->
        let again = fresh "loop"
        and after = fresh "after" in
        [ frame_decl span after [ fresh "x" ] (cps info ret k ~at:span rest)

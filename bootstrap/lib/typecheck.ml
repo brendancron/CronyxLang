@@ -1651,7 +1651,9 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
           span
           ty
           (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
-        Types.unify_row row ctx.row;
+        (* As any call: a written row is what the call adds, within whatever
+           more its context holds. *)
+        admits_row None row ctx.row;
         Some (node ret (`Call (Ast.annotated span ty (`Field (receiver, name)), args)))
       | _ -> None
     in

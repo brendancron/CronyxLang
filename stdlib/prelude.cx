@@ -1,0 +1,51 @@
+/**
+ * What every program has without importing it.
+ *
+ * Its declarations are in scope everywhere under the names written here. What it
+ * imports is its own: `block_on` below is not in scope for a program unless the
+ * program imports it too.
+ *
+ * `core` is the other half: what the compiler itself names, such as `Option`,
+ * `Range` and the operator traits. This file is what a program gets on top of
+ * that.
+ */
+
+import { async, block_on } from "std/effects/Async";
+import { Throw } from "std/lang/Throw";
+
+/** Writes a value and a newline to standard output. */
+fn print<T>(value: T) {
+    write(Stream.Out, str(value) + "\n");
+}
+
+/**
+ * Writes a value and a newline to standard error, which is where warnings and
+ * diagnostics go: a program whose output is redirected to a file still shows
+ * them on the terminal.
+ */
+fn eprint<T>(value: T) {
+    write(Stream.Err, str(value) + "\n");
+}
+
+/**
+ * What each statement of a program's top level runs under: the terminal, and
+ * `block_on`, so a statement may wait, and a failure nothing catches stops the
+ * program with its value.
+ */
+fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, E> T): <E> T {
+    var out: Option<T> = Option.None;
+    run {
+        block_on { out = Option.Some(main()); };
+    } handle Console {
+        fn write(to, text) {
+            match to {
+                Stream.Out => { __write_out(text); }
+                Stream.Err => { __write_err(text); }
+            }
+        }
+    }
+    match out {
+        Option.Some(value) => { return value; }
+        Option.None => { panic("a top-level statement finished without a value"); }
+    }
+}

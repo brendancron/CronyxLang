@@ -34,6 +34,7 @@ let cases =
   ; "tests/stdlib/async/nested"
   ; "tests/stdlib/async/failure"
   ; "tests/stdlib/async/both"
+  ; "tests/stdlib/async/top_level_scope"
   ; "tests/core/control/for_c"
   ; "tests/core/operators/comparison"
   ; "tests/core/operators/compound_assign"
@@ -252,6 +253,7 @@ let cases =
   ; "tests/effects/inner_run_suspends_outward"
   ; "tests/effects/nested_aborts"
   ; "tests/effects/abandon_through_run"
+  ; "tests/effects/return_in_converted_loop"
   ; "tests/stdlib/iterable/iterable"
   ; "tests/stdlib/hashmap/hashmap"
   ; "tests/stdlib/hashset/hashset"
@@ -446,7 +448,6 @@ let cases =
 (* Programs that must be rejected, and the diagnostics they must produce. *)
 let error_cases =
   [ "tests/core/variadic/errors/not_last"
-  ; "tests/stdlib/async/errors/outside_block_on"
   ; "tests/core/variadic/packs/errors/wrong_arity"
   ; "tests/core/variadic/packs/errors/wrong_type"
   ; "tests/core/variadic/packs/errors/not_last"

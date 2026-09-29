@@ -79,7 +79,7 @@ Owner: [Metaprocessing.md](Metaprocessing.md)
 
 A meta program is compiled with the same prelude as the program, so it sees everything the program does, and the program sees the compile-time-only parts too: the reflection types `TypeShape`, `TypeField`, `TypeVariant`, `Attr` and `AttrArg`, and `Gen` once it is declared there. The one handler a `meta` block installs is `Gen`'s.
 
-Three things are left for when the prelude is reworked. Whether it splits into a shared base and a layer only meta programs see. Whether `meta` also handles `Assertion`, which would make `meta assert(…)` a compile-time check with the author's message rather than an unhandled effect. And which builtins a meta program may call — `print` goes to compile-time output today, and file access and the rest are the evaluator's to allow.
+Three things are left for the prelude, which is `core` — what the compiler names — and `stdlib/prelude.cx` on top of it. Whether it gains a layer only meta programs see. Whether `meta` also handles `Assertion`, which would make `meta assert(…)` a compile-time check with the author's message rather than an unhandled effect. And which builtins a meta program may call — `print` goes to compile-time output today, and file access and the rest are the evaluator's to allow.
 
 ## What a meta program costs
 

@@ -621,7 +621,11 @@ let rec declaration ~known ~places ~prefixes ~package ~exports (s : Ast.stmt) : 
                        (fun (o : Ast.op_decl) ->
                          let params = ps @ o.Ast.op_tparams in
                          Json.Obj
-                           [ "name", Json.String o.Ast.op_name
+                           [ ( "name"
+                             , Json.String
+                                 (match split prefixes o.Ast.op_name with
+                                  | Some (_, written) -> written
+                                  | None -> o.Ast.op_name) )
                            ; ( "kind"
                              , Json.String
                                  (match o.Ast.op_kind with
@@ -657,7 +661,11 @@ let rec declaration ~known ~places ~prefixes ~package ~exports (s : Ast.stmt) : 
                     (List.map
                        (fun (a : Ast.stmt Ast.arm) ->
                          Json.Obj
-                           [ "name", Json.String a.Ast.arm_name
+                           [ ( "name"
+                             , Json.String
+                                 (match split prefixes a.Ast.arm_name with
+                                  | Some (_, written) -> written
+                                  | None -> a.Ast.arm_name) )
                            ; ( "kind"
                              , Json.String
                                  (match a.Ast.arm_kind with
