@@ -7,7 +7,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Cronyx',
   tagline: 'A statically-typed, metaprogramming-first language with algebraic effects.',
-  favicon: 'img/favicon.ico',
+  favicon: 'logo.svg',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
@@ -23,6 +23,10 @@ const config: Config = {
   deploymentBranch: 'gh-pages',
 
   onBrokenLinks: 'throw',
+
+  // The logo is a project asset rather than a site one: the READMEs and the
+  // reference `cx docs` renders serve the same file.
+  staticDirectories: ['static', '../assets'],
 
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
@@ -52,8 +56,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
-    image: 'img/docusaurus-social-card.jpg',
+    image: 'img/social-card.png',
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -61,7 +64,7 @@ const config: Config = {
       title: 'Cronyx',
       logo: {
         alt: 'Cronyx Logo',
-        src: 'img/logo.svg',
+        src: 'logo.svg',
       },
       items: [
         {
@@ -86,23 +89,6 @@ const config: Config = {
             {
               label: 'Getting Started',
               to: '/docs/getting-started',
-            },
-          ],
-        },
-        {
-          title: 'Community',
-          items: [
-            {
-              label: 'Stack Overflow',
-              href: 'https://stackoverflow.com/questions/tagged/docusaurus',
-            },
-            {
-              label: 'Discord',
-              href: 'https://discordapp.com/invite/docusaurus',
-            },
-            {
-              label: 'X',
-              href: 'https://x.com/docusaurus',
             },
           ],
         },

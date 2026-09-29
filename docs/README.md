@@ -1,41 +1,20 @@
-# Website
+# The Cronyx documentation site
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
-
-## Installation
-
-```bash
-yarn
-```
-
-## Local Development
+[Docusaurus](https://docusaurus.io/). The prose is under `docs/`, the pages
+under `src/pages/`, and `assets/` at the repo root holds the logo, which this
+site serves through `staticDirectories`.
 
 ```bash
-yarn start
+npm install
+npm start          # dev server, live reload
+npm run build      # static site into build/
+npm run serve      # serve what build/ holds
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+`.github/workflows/deploy-docs.yml` builds and publishes to GitHub Pages on
+every push to `main` that touches `docs/` or `assets/`, so there is nothing to
+deploy by hand.
 
-## Build
-
-```bash
-yarn build
-```
-
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
-
-## Deployment
-
-Using SSH:
-
-```bash
-USE_SSH=true yarn deploy
-```
-
-Not using SSH:
-
-```bash
-GIT_USER=<Your GitHub username> yarn deploy
-```
-
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+The generated API reference is a different thing and is not built from here:
+`cx docs` renders it from what the compiler holds. See
+[internal-docs/Generated Documentation.md](../internal-docs/Generated%20Documentation.md).

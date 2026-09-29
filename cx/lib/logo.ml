@@ -1,0 +1,18 @@
+(* A copy of `assets/logo.svg`, which is the source of truth. It cannot be read
+   at build time: `assets/` is outside both dune projects, so dune cannot depend
+   on it. Change one and change the other. *)
+
+let svg =
+  {svg|<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Cronyx">
+  <path id="outer-hex" fill="#151518" d="M 100,5 L 182.3,52.5 L 182.3,147.5 L 100,195 L 17.7,147.5 L 17.7,52.5 Z"/>
+  <path id="top-left" fill="#5a5a64" d="M 17.7,52.5 L 100,5 L 100,48 L 55,74 Z"/>
+  <path id="top-right" fill="#3e3e46" d="M 100,5 L 182.3,52.5 L 145,74 L 100,48 Z"/>
+  <path id="right" fill="#1a1a1f" d="M 182.3,52.5 L 182.3,147.5 L 145,126 L 145,74 Z"/>
+  <path id="bot-right" fill="#0c0c0f" d="M 182.3,147.5 L 100,195 L 100,152 L 145,126 Z"/>
+  <path id="bot-left" fill="#18181c" d="M 100,195 L 17.7,147.5 L 55,126 L 100,152 Z"/>
+  <path id="left" fill="#3a3a42" d="M 17.7,147.5 L 17.7,52.5 L 55,74 L 55,126 Z"/>
+  <path id="inner-hex" fill="#2a2a31" d="M 100,48 L 145,74 L 145,126 L 100,152 L 55,126 L 55,74 Z"/>
+  <path id="main-band" fill="#ece9e2" d="M 55,88 L 112.1,55 L 119,59 L 55,96 Z"/>
+  <path id="thin-band" fill="#8e8d8b" d="M 55,106 L 127.7,64 L 130.3,65.5 L 55,109 Z"/>
+</svg>
+|svg}

@@ -678,6 +678,7 @@ h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
 h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
 h2 a.self { color: inherit; }
 .crumb { color: var(--dim); font-size: .85rem; margin-bottom: 2rem; }
+.mark { display: block; margin-bottom: .75rem; }
 .entry { border-top: 1px solid var(--rule); padding-top: 1.5rem; margin-top: 1.5rem; }
 .sig.head { font-size: 1rem; margin-bottom: .75rem; }
 .kw { color: var(--dim); }
@@ -713,8 +714,10 @@ let document ~depth ~title body =
   Printf.sprintf
     "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta \
      name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>%s</title>\n<link \
-     rel=\"stylesheet\" href=\"%sstyle.css\">\n</head>\n<body>\n%s</body>\n</html>\n"
+     rel=\"icon\" href=\"%slogo.svg\">\n<link rel=\"stylesheet\" \
+     href=\"%sstyle.css\">\n</head>\n<body>\n%s</body>\n</html>\n"
     (escape title)
+    up
     up
     body
 
@@ -948,7 +951,8 @@ let index_page index =
     ~depth:0
     ~title:(root ^ " reference")
     (Printf.sprintf
-       "<h1>%s</h1>\n<div class=\"crumb\">Cronyx %s</div>\n%s%s"
+       "<img class=\"mark\" src=\"logo.svg\" alt=\"\" width=\"44\" height=\"44\">\n<h1>%s</h1>\n<div \
+        class=\"crumb\">Cronyx %s</div>\n%s%s"
        (escape root)
        (escape (Json.text (Json.field "compiler" index)))
        search_html
@@ -974,6 +978,7 @@ let write_file path contents =
 let write ~out_dir index =
   ensure out_dir;
   write_file (Filename.concat out_dir "style.css") style;
+  write_file (Filename.concat out_dir "logo.svg") Logo.svg;
   write_file (Filename.concat out_dir "search.js") search_js;
   let rows = search_rows index in
   write_file

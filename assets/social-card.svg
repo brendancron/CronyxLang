@@ -1,0 +1,26 @@
+<!-- `docs/static/img/social-card.png` is rendered from this file and is what
+     `og:image` serves, since no unfurler accepts an SVG. Re-render after
+     editing:
+
+     npx -y sharp-cli -i assets/social-card.svg
+       -o docs/static/img/social-card.png -f png resize 1200 630 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#ece9e2"/>
+  <g transform="translate(488,92) scale(1.12)">
+    <path fill="#151518" d="M 100,5 L 182.3,52.5 L 182.3,147.5 L 100,195 L 17.7,147.5 L 17.7,52.5 Z"/>
+    <path fill="#5a5a64" d="M 17.7,52.5 L 100,5 L 100,48 L 55,74 Z"/>
+    <path fill="#3e3e46" d="M 100,5 L 182.3,52.5 L 145,74 L 100,48 Z"/>
+    <path fill="#1a1a1f" d="M 182.3,52.5 L 182.3,147.5 L 145,126 L 145,74 Z"/>
+    <path fill="#0c0c0f" d="M 182.3,147.5 L 100,195 L 100,152 L 145,126 Z"/>
+    <path fill="#18181c" d="M 100,195 L 17.7,147.5 L 55,126 L 100,152 Z"/>
+    <path fill="#3a3a42" d="M 17.7,147.5 L 17.7,52.5 L 55,74 L 55,126 Z"/>
+    <path fill="#2a2a31" d="M 100,48 L 145,74 L 145,126 L 100,152 L 55,126 L 55,74 Z"/>
+    <path fill="#ece9e2" d="M 55,88 L 112.1,55 L 119,59 L 55,96 Z"/>
+    <path fill="#8e8d8b" d="M 55,106 L 127.7,64 L 130.3,65.5 L 55,109 Z"/>
+  </g>
+  <g text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif">
+    <text x="600" y="412" font-size="88" font-weight="700" fill="#151518">Cronyx</text>
+    <text x="600" y="472" font-size="32" fill="#5a5a64">A statically-typed, metaprogramming-first</text>
+    <text x="600" y="514" font-size="32" fill="#5a5a64">language with algebraic effects.</text>
+  </g>
+</svg>
