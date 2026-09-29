@@ -429,6 +429,10 @@ type ('e, 's) ret_clause =
 type ('e, 's, 'h) run_expr =
   [ `Run_expr of ('e, 's) valued_block * 'h list * ('e, 's) ret_clause option ]
 
+(* `match` where a value is wanted. Resolve lowers it to the statement form and a
+   temporary, the way it lowers `Run_expr`. *)
+type ('e, 's) match_expr = [ `Match_expr of 'e * (pattern * ('e, 's) valued_block) list ]
+
 (* `Abort` unwinds to the `Scope` its `run` block became, so an effect that only
    aborts needs no continuation. Both carry that scope's name: stopping at the
    nearest would catch the wrong one. *)
@@ -465,6 +469,7 @@ and expr_kind =
   | expr generic_new
   | (expr, stmt) lambdas
   | (expr, stmt, stmt handler_clause) run_expr
+  | (expr, stmt) match_expr
   ]
 
 and stmt = (stmt_kind, unit) node
@@ -504,6 +509,7 @@ and desugared_expr_kind =
   | desugared_expr reflect
   | (desugared_expr, desugared_stmt) lambdas
   | (desugared_expr, desugared_stmt, desugared_stmt handler) run_expr
+  | (desugared_expr, desugared_stmt) match_expr
   ]
 
 and desugared_stmt = (desugared_stmt_kind, unit) node
@@ -538,6 +544,7 @@ and typed_expr_kind =
   | typed_expr reflect
   | (typed_expr, typed_stmt) lambdas
   | (typed_expr, typed_stmt, typed_stmt handler) run_expr
+  | (typed_expr, typed_stmt) match_expr
   ]
 
 and typed_stmt = (typed_stmt_kind, Types.ty) node
@@ -866,6 +873,11 @@ let payload_fields (p : 'a payload) : (string * 'a) list =
   | P_tuple items -> List.mapi (fun i v -> string_of_int i, v) items
   | P_fields fields -> fields
 
+let pattern_names (p : pattern) =
+  match p with
+  | Pat_variant (_, _, payload) -> List.map snd (payload_fields payload)
+  | Pat_wild -> []
+
 let map_reflect (f : 'a -> 'b) (e : 'a reflect) : 'b reflect =
   match e with
   | `Typeof v -> `Typeof (f v)
@@ -923,6 +935,13 @@ let map_run_expr
       , Option.map
           (fun c -> { rc_param = c.rc_param; rc_body = map_valued_block fe fs c.rc_body })
           clause )
+
+let map_match_expr (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (m : ('e1, 's1) match_expr)
+  : ('e2, 's2) match_expr
+  =
+  match m with
+  | `Match_expr (scrutinee, cases) ->
+    `Match_expr (fe scrutinee, List.map (fun (p, b) -> p, map_valued_block fe fs b) cases)
 
 let map_effects
       (fe : 'e1 -> 'e2)

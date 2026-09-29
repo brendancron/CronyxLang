@@ -1,0 +1,19 @@
+effect Ask { ctl ask(): int; }
+
+type Coin { Heads, Tails }
+
+var total = run {
+    var first = ask();
+    print(first);
+    first + ask()
+} handle Ask {
+    ctl ask() { resume 21; }
+};
+print(total);
+
+run {
+    print("statement");
+    match Coin.Heads { Coin.Heads => ask(), Coin.Tails => "never read" }
+} handle Ask {
+    ctl ask() { resume 0; }
+}

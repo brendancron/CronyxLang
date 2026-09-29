@@ -118,8 +118,7 @@ let rec widen info (t : Types.ty) =
       , row )
   | Types.Tuple items -> Types.Tuple (List.map (widen info) items)
   | Types.Record fields -> Types.Record (widen_fields info fields)
-  | Types.Named (name, args, fields) ->
-    Types.Named (name, List.map (widen info) args, widen_fields info fields)
+  | Types.Named (name, args) -> Types.Named (name, List.map (widen info) args)
   | Types.Sum (name, args) -> Types.Sum (name, List.map (widen info) args)
   | other -> other
 
@@ -1095,8 +1094,19 @@ let collect (p : Ast.reflected_stmt list) =
   List.iter harvest p;
   info
 
+(* The program [program] last converted, whose evidence a named record's
+   fields are widened by when read after conversion. *)
+let converted = ref None
+
+let fields_of name args =
+  let fields = Types.named_fields name args in
+  match !converted with
+  | Some info -> widen_fields info fields
+  | None -> fields
+
 let program (p : Ast.reflected_stmt list) : (Ast.cps_stmt list, error) result =
   counter := 0;
   let info = collect p in
+  converted := Some info;
   try Ok (sequence_body info p) with
   | Unsupported e -> Error e

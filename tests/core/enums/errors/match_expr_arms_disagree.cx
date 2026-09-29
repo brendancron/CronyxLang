@@ -1,0 +1,5 @@
+type Coin { Heads, Tails }
+var side = match Coin.Heads {
+    Coin.Heads => 1,
+    Coin.Tails => "tails",
+};

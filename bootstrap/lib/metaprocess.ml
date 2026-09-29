@@ -243,6 +243,17 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
             | Ast.Named name -> Ast.Named name
           in
           (Ast.map_run_expr expr (stmt shadowed) clause r :> Ast.expr_kind)
+        | `Match_expr (scrutinee, cases) ->
+          `Match_expr
+            ( expr scrutinee
+            , List.map
+                (fun (pattern, (b : (Ast.expr, Ast.stmt) Ast.valued_block)) ->
+                  let inner = hidden shadowed (Ast.pattern_names pattern) in
+                  ( pattern
+                  , { Ast.vb_stmts = sequence inner b.Ast.vb_stmts
+                    ; vb_value = Option.map (expr_in inner) b.Ast.vb_value
+                    } ))
+                cases )
       in
       { e with Ast.it }
   and sequence shadowed (body : Ast.stmt list) : Ast.stmt list =
@@ -479,6 +490,7 @@ let promote ~meta ~visible ~refs (s : Ast.stmt) : Ast.stmt * (string * Ast.expr)
       placeholder e)
     else children shadowed e
   and children shadowed (e : Ast.expr) : Ast.expr =
+    let expr_in = expr in
     let expr = expr shadowed in
     let it : Ast.expr_kind =
       match e.Ast.it with
@@ -506,6 +518,19 @@ let promote ~meta ~visible ~refs (s : Ast.stmt) : Ast.stmt * (string * Ast.expr)
       | #Ast.reflect as r -> (Ast.map_reflect expr r :> Ast.expr_kind)
       | #Ast.generic_new as g -> (Ast.map_generic_new expr g :> Ast.expr_kind)
       | #Ast.run_expr as r -> (r :> Ast.expr_kind)
+      | `Match_expr (scrutinee, cases) ->
+        `Match_expr
+          ( expr scrutinee
+          , List.map
+              (fun (pattern, (b : (Ast.expr, Ast.stmt) Ast.valued_block)) ->
+                let inner =
+                  List.fold_left (Fun.flip Shadowed.add) shadowed (Ast.pattern_names pattern)
+                in
+                ( pattern
+                , { Ast.vb_stmts = sequence inner b.Ast.vb_stmts
+                  ; vb_value = Option.map (expr_in inner) b.Ast.vb_value
+                  } ))
+              cases )
     in
     { e with Ast.it }
   and sequence shadowed (body : Ast.stmt list) : Ast.stmt list =
@@ -596,6 +621,12 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
       let index = Hashtbl.length codes in
       Hashtbl.replace codes index inner;
       { e with Ast.it = (call sp index scope quoter).Ast.it }
+    | `Match_expr (scrutinee, cases) ->
+      let arm (p, (b : (Ast.expr, Ast.stmt) Ast.valued_block)) =
+        let inner = Ast.pattern_names p @ scope in
+        p, { Ast.vb_stmts = block inner b.Ast.vb_stmts; vb_value = Option.map (expr inner) b.Ast.vb_value }
+      in
+      { e with Ast.it = `Match_expr (expr scope scrutinee, List.map arm cases) }
     | it ->
       let expr = expr scope in
       let it : Ast.expr_kind =
@@ -624,6 +655,7 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
             | Ast.Named name -> Ast.Named name
           in
           (Ast.map_run_expr expr (fun s -> fst (stmt scope s)) clause r :> Ast.expr_kind)
+        | `Match_expr _ as m -> m
       in
       { e with Ast.it }
   (* A `code` in an initializer cannot be given the name it initializes. *)
@@ -726,11 +758,6 @@ let quiet =
 let with_params scope params =
   List.fold_left (fun acc (p : Ast.param) -> S.add p.Ast.name acc) scope params
 
-let pattern_names (p : Ast.pattern) =
-  match p with
-  | Ast.Pat_variant (_, _, payload) -> List.map snd (Ast.payload_fields payload)
-  | Ast.Pat_wild -> []
-
 let declared_here scope (s : Ast.stmt) =
   match s.Ast.it with
   | `Var_decl (name, _, _) | `Fn (name, _, _, _) -> S.add name scope
@@ -777,6 +804,14 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
         clause
     in
     { e with Ast.it = `Run_expr (body, handlers, clause) }
+  | `Match_expr (scrutinee, cases) ->
+    let scrutinee = ex scrutinee in
+    let cases =
+      List.map
+        (fun (p, b) -> p, tvalued h (List.fold_left (Fun.flip S.add) scope (Ast.pattern_names p)) b)
+        cases
+    in
+    { e with Ast.it = `Match_expr (scrutinee, cases) }
   | it ->
     let it : Ast.expr_kind =
       match it with
@@ -827,7 +862,8 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
         (h.generic_new scope { e with Ast.it = `New_generic (name, static_args, fields) }).Ast.it
       | `Collection_lit items -> `Collection_lit (many items)
       | `Typeof a -> `Typeof (ex a)
-      | `Var _ | `Static_call _ | `Method_call _ | `Code _ | `Lambda _ | `Run_expr _ -> it
+      | `Var _ | `Static_call _ | `Method_call _ | `Code _ | `Lambda _ | `Run_expr _
+      | `Match_expr _ -> it
     in
     { e with Ast.it }
 
@@ -933,7 +969,7 @@ and tstmt h scope (s : Ast.stmt) : Ast.stmt list * S.t =
          ( subject
          , List.map
              (fun (p, body) ->
-               p, tblock h (List.fold_left (Fun.flip S.add) scope (pattern_names p)) body)
+               p, tblock h (List.fold_left (Fun.flip S.add) scope (Ast.pattern_names p)) body)
              cases ))
   | `Run (body, handlers) ->
     let body = tblock h scope body in
@@ -1041,6 +1077,13 @@ let rec contains_code (body : Ast.stmt list) =
     | `Run_expr (b, _, _) ->
       if contains_code b.Ast.vb_stmts then found := true;
       Option.iter expr b.Ast.vb_value
+    | `Match_expr (subject, cases) ->
+      expr subject;
+      List.iter
+        (fun (_, (b : (Ast.expr, Ast.stmt) Ast.valued_block)) ->
+          if contains_code b.Ast.vb_stmts then found := true;
+          Option.iter expr b.Ast.vb_value)
+        cases
   and stmt (s : Ast.stmt) =
     match s.Ast.it with
     | `Expr e | `Var_tuple (_, e) -> expr e
@@ -2394,16 +2437,27 @@ let types_of w (p : Ast.program) =
 
 (* A template declared in a body is instantiated like one at the top level, so
    it is lifted there under its owner's name. It may read only what it is
-   passed: a copy of it lives where the walk puts it, away from the body. *)
+   passed: a copy of it lives where the walk puts it, away from the body.
+
+   A type declared in a body is renamed after its owner too, and left where it
+   is: once checked, a type is looked up by name, so two functions each
+   declaring a `Temp` have to declare two names. *)
 let lift_templates (p : Ast.program) =
   let lifted = ref [] in
+  let rec declared_type (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Type_decl (name, _, _) -> Some name
+    | `Attributed (_, inner) -> declared_type inner
+    | _ -> None
+  in
   let rec body owner (stmts : Ast.stmt list) =
     let renames = Hashtbl.create 4 in
     List.iter
       (fun (s : Ast.stmt) ->
-        match fn_parts s with
-        | Some (name, _, sg, _) when takes_value_params sg ->
+        match fn_parts s, declared_type s with
+        | Some (name, _, sg, _), _ when takes_value_params sg ->
           Hashtbl.replace renames name (Value.Name (Ast.generated [ owner; name ]))
+        | _, Some name -> Hashtbl.replace renames name (Value.Name (Ast.generated [ owner; name ]))
         | _ -> ())
       stmts;
     let rename (s : Ast.stmt) = if Hashtbl.length renames = 0 then s else substitute renames s in

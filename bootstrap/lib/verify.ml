@@ -28,8 +28,14 @@ let listed names =
 
 let element span (t : Types.ty) =
   match t with
-  | Types.Named (name, [ elem ], _) when String.equal name Types.array_name -> elem
+  | Types.Named (name, [ elem ]) when String.equal name Types.array_name -> elem
   | other -> fail span "An array is annotated %s." (Types.string_of_ty other)
+
+let fields_of (t : Types.ty) =
+  match t with
+  | Types.Record fields -> Some fields
+  | Types.Named (name, args) -> Some (Cps.fields_of name args)
+  | _ -> None
 
 let rec expr (e : Ast.cps_expr) : unit =
   let span = e.Ast.span
@@ -81,8 +87,8 @@ let rec expr (e : Ast.cps_expr) : unit =
     let actual =
       List.sort compare (List.map (fun (l, (v : Ast.cps_expr)) -> l, v.Ast.ann) fields)
     in
-    (match ann with
-     | Types.Record declared | Types.Named (_, _, declared) ->
+    (match fields_of ann with
+     | Some declared ->
        if declared <> actual
        then
          fail
@@ -90,29 +96,28 @@ let rec expr (e : Ast.cps_expr) : unit =
            "A record literal is annotated %s but its fields are %s."
            (Types.string_of_ty ann)
            (Types.string_of_ty (Types.Record actual))
-     | other ->
-       fail span "A record literal is annotated %s." (Types.string_of_ty other))
+     | None -> fail span "A record literal is annotated %s." (Types.string_of_ty ann))
   | `Field (target, label) ->
     expr target;
-    (match target.Ast.ann with
-     | Types.Record fields | Types.Named (_, _, fields) ->
+    (match fields_of target.Ast.ann with
+     | Some fields ->
        (match List.assoc_opt label fields with
         | Some ty -> expect span "A field" ty ann
         | None -> fail span "A record has no field '%s'." label)
-     | other ->
-       fail target.Ast.span "Taking a field of %s." (Types.string_of_ty other))
+     | None ->
+       fail target.Ast.span "Taking a field of %s." (Types.string_of_ty target.Ast.ann))
   | `Field_assign (target, label, v) ->
     expr target;
     expr v;
-    (match target.Ast.ann with
-     | Types.Record fields | Types.Named (_, _, fields) ->
+    (match fields_of target.Ast.ann with
+     | Some fields ->
        (match List.assoc_opt label fields with
         | Some ty ->
           expect v.Ast.span "An assigned field" ty v.Ast.ann;
           expect span "A field assignment" ty ann
         | None -> fail span "A record has no field '%s'." label)
-     | other ->
-       fail target.Ast.span "Taking a field of %s." (Types.string_of_ty other))
+     | None ->
+       fail target.Ast.span "Taking a field of %s." (Types.string_of_ty target.Ast.ann))
   | `Tuple_get (target, index) ->
     expr target;
     (match target.Ast.ann with
@@ -179,7 +184,7 @@ let rec expr (e : Ast.cps_expr) : unit =
   | `Object (data, vtable) ->
     expr data;
     (match ann with
-     | Types.Named (trait, _, _) when Resolve.is_trait trait ->
+     | Types.Named (trait, _) when Resolve.is_trait trait ->
        let owed = List.sort_uniq String.compare (Resolve.methods_of trait) in
        let held = List.sort_uniq String.compare (List.map fst vtable) in
        if owed <> held
@@ -205,7 +210,7 @@ let rec expr (e : Ast.cps_expr) : unit =
     expr receiver;
     List.iter expr args;
     (match receiver.Ast.ann with
-     | Types.Named (trait, _, _) when Resolve.is_trait trait ->
+     | Types.Named (trait, _) when Resolve.is_trait trait ->
        if not (List.mem name (Resolve.methods_of trait))
        then fail span "'%s' declares no '%s' to dispatch on." trait name
      | other ->

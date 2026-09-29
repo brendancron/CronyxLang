@@ -76,6 +76,7 @@ and checked_expr_kind =
   | checked_expr Ast.reflect
   | (checked_expr, checked_stmt) Ast.lambdas
   | (checked_expr, checked_stmt, checked_stmt Ast.handler) Ast.run_expr
+  | (checked_expr, checked_stmt) Ast.match_expr
   ]
 
 and checked_stmt = (checked_stmt_kind, Types.infer_ty) Ast.node
@@ -498,7 +499,7 @@ let unify_at span expected actual =
 
 let is_trait_type (t : Types.infer_ty) =
   match Types.repr t with
-  | Types.INamed (name, _, _) -> Hashtbl.mem ctx_traits name
+  | Types.INamed (name, _) -> Hashtbl.mem ctx_traits name
   | _ -> false
 
 (* The one place a value's type changes without unifying. A trait in type
@@ -506,7 +507,7 @@ let is_trait_type (t : Types.infer_ty) =
    one: inference never produces a trait, so it never reaches here. *)
 let rec mentions_trait (t : Types.infer_ty) =
   match Types.repr t with
-  | Types.INamed (name, args, _) ->
+  | Types.INamed (name, args) ->
     Hashtbl.mem ctx_traits name || List.exists mentions_trait args
   | Types.ISum (_, args) -> List.exists mentions_trait args
   | _ -> false
@@ -705,9 +706,7 @@ and named_type ?(written = true) span name args =
             (List.length args);
       let args = if packed then collect_pack name vars args else args in
       (match decl with
-       | Opaque _ -> Types.INamed (name, args, Types.FEmpty)
-       | Product (_, fields) ->
-         Types.INamed (name, args, Types.substitute_fields (instance vars args) fields)
+       | Opaque _ | Product _ -> Types.INamed (name, args)
        | Sum _ -> Types.ISum (name, args))
 
 (* Each entry takes fresh arguments; a use is what settles them. *)
@@ -773,7 +772,7 @@ let rec declaring_trait trait (args : Types.infer_ty list) name
 let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
   let span = e.Ast.span in
   match Types.repr expected, Types.infer_type_name (Types.repr e.Ast.ann) with
-  | Types.INamed (trait, _, _), Some concrete
+  | Types.INamed (trait, _), Some concrete
     when Hashtbl.mem ctx_traits trait && not (String.equal trait concrete) ->
     let reachable = trait_closure trait in
     if not (List.exists (fun t -> Hashtbl.mem ctx_impls (concrete, t)) reachable)
@@ -813,7 +812,7 @@ let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
       declared;
     let trait_args =
       match Types.repr expected with
-      | Types.INamed (_, args, _) -> args
+      | Types.INamed (_, args) -> args
       | _ -> []
     in
     let slots =
@@ -964,6 +963,13 @@ let rec assigned_in_expr (e : Ast.desugared_expr) acc =
         handlers
     in
     Option.fold ~none:acc ~some:(fun c -> block c.Ast.rc_body acc) clause
+  | `Match_expr (scrutinee, cases) ->
+    List.fold_left
+      (fun acc (_, (b : (Ast.desugared_expr, Ast.desugared_stmt) Ast.valued_block)) ->
+        let acc = List.fold_left (fun acc st -> assigned_in_stmt st acc) acc b.Ast.vb_stmts in
+        Option.fold ~none:acc ~some:(fun v -> assigned_in_expr v acc) b.Ast.vb_value)
+      (assigned_in_expr scrutinee acc)
+      cases
 
 and assigned_in_stmt (s : Ast.desugared_stmt) acc =
   let opt f o acc =
@@ -1023,7 +1029,8 @@ let assigned_names body =
 
 let field_of (target : checked_expr) label =
   match Types.repr target.Ast.ann with
-  | Types.INamed (name, _, fields) ->
+  | Types.INamed (name, args) ->
+    let fields = Types.fields_of name args in
     let rec find f =
       match Types.repr_fields f with
       | Types.FCons (l, ty, _) when String.equal l label -> Some ty
@@ -1175,8 +1182,11 @@ let declared_variant env ty variant =
   | _ -> None
 
 let rec infer_expr env ctx (e : Ast.desugared_expr) : checked_expr =
+  located ctx e (fun () -> infer_expr_impl env ctx e)
+
+and located ctx (e : Ast.desugared_expr) check : checked_expr =
   let checked =
-    try infer_expr_impl env ctx e with
+    try check () with
     | Types.Type_error message -> raise (Located { span = e.Ast.span; message })
   in
   note_effect_sites e.Ast.span ctx.row;
@@ -1201,7 +1211,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        (* A type with no fields has one value, and its name is that value. *)
        (match Hashtbl.find_opt ctx_types name with
         | Some (Product ([], declared)) when Types.repr_fields declared = Types.FEmpty ->
-          node (Types.INamed (name, [], declared)) (`New (name, []))
+          node (Types.INamed (name, [])) (`New (name, []))
         | _ ->
           !current.unknown
             (fun () -> fail span "Undefined variable '%s'." name)
@@ -1235,6 +1245,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
         Some { Ast.rc_param = c.Ast.rc_param; rc_body }
     in
     node answer (`Run_expr (body, handlers, clause))
+  | `Match_expr (scrutinee, cases) -> infer_match_expr env ctx span (Types.fresh ()) scrutinee cases
   | `Assign (name, v) ->
     (match lookup env name with
      | None ->
@@ -1580,14 +1591,14 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     let via_field () =
       let field =
         match Types.repr receiver.Ast.ann with
-        | Types.INamed (_, _, fields) ->
+        | Types.INamed (named, args) ->
           let rec find f =
             match Types.repr_fields f with
             | Types.FCons (l, ty, _) when String.equal l name -> Some ty
             | Types.FCons (_, _, rest) -> find rest
             | _ -> None
           in
-          find fields
+          find (Types.fields_of named args)
         | _ -> None
       in
       match Option.map (fun ty -> ty, Types.repr ty) field with
@@ -1653,7 +1664,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
           the receiver carries rather than from the trait reached through. *)
        let dispatch =
          match Types.repr receiver.Ast.ann with
-         | Types.INamed (named, args, _) -> declaring_trait named args name
+         | Types.INamed (named, args) -> declaring_trait named args name
          | Types.IVar { contents = Types.Unbound (_, Types.Bound bounds) } ->
            List.find_map
              (fun (b : Types.bound) ->
@@ -1727,7 +1738,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
              so the call reads its target out of that table. Otherwise the bound
              is what says which impl, and it is recorded for the copy. *)
           (match Types.repr receiver.Ast.ann with
-           | Types.INamed (named, _, _) when String.equal named trait ->
+           | Types.INamed (named, _) when String.equal named trait ->
              node ret (`Dyn_call (receiver, name, fn, args))
            | _ ->
              node
@@ -1980,7 +1991,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          (fun (l, (v : checked_expr)) ->
            unify_at v.Ast.span (List.assoc l expected) v.Ast.ann)
          fields;
-       node (Types.INamed (name, args, declared)) (`New (name, fields)))
+       node (Types.INamed (name, args)) (`New (name, fields)))
   | `New_variant (ty, variant, payload) ->
     (match Hashtbl.find_opt ctx_types ty with
      | None | Some (Product _) | Some (Opaque _) ->
@@ -2131,7 +2142,7 @@ and check_against env ctx (expected : Types.infer_ty) (e : Ast.desugared_expr)
   =
   let element =
     match Types.repr expected with
-    | Types.INamed (_, [ elem ], _) -> Some elem
+    | Types.INamed (_, [ elem ]) -> Some elem
     | _ -> None
   in
   match e.Ast.it, element with
@@ -2140,8 +2151,31 @@ and check_against env ctx (expected : Types.infer_ty) (e : Ast.desugared_expr)
     Ast.annotated e.Ast.span expected (`Collection_lit items)
   (* Everything else keeps the unification it had, down to which span a
      mismatch is reported at. *)
+  | `Match_expr (scrutinee, cases), _ ->
+    located ctx e (fun () -> infer_match_expr env ctx e.Ast.span expected scrutinee cases)
   | _ when is_trait_type expected -> coerced expected (infer_expr env ctx e)
   | _ -> infer_expr env ctx e
+
+(* [answer] is refined in each arm the way the scrutinee is, so a match checked
+   against `T` can answer `int` from an arm that proved `T` is `int`. *)
+and infer_match_expr env ctx span answer scrutinee cases : checked_expr =
+  let arm scope refinement (b : (Ast.desugared_expr, Ast.desugared_stmt) Ast.valued_block) =
+    let stmts = infer_block scope ctx b.Ast.vb_stmts in
+    let expected = Types.substitute refinement answer in
+    let value = Option.map (check_against scope ctx expected) b.Ast.vb_value in
+    (match value with
+     | None ->
+       let last =
+         match List.rev stmts with
+         | (last : checked_stmt) :: _ -> last.Ast.span
+         | [] -> span
+       in
+       unify_at last expected Types.IUnit
+     | Some v -> unify_at v.Ast.span expected v.Ast.ann);
+    { Ast.vb_stmts = stmts; vb_value = value }
+  in
+  let scrutinee, cases = infer_match env ctx span scrutinee cases arm in
+  Ast.annotated span answer (`Match_expr (scrutinee, cases))
 
 and declare_traits (body : Ast.desugared_stmt list) =
   List.iter
@@ -2646,7 +2680,11 @@ and declare_effects (body : Ast.desugared_stmt list) =
       | _ -> ())
     body
 
-and declare_types (body : Ast.desugared_stmt list) =
+(* Every name is registered before any body is read, so a field may name a
+   type declared after its own -- which the walk produces whenever it reaches a
+   type through another's field rather than through the program. The fields are
+   read off the declaration when used, so a placeholder is all a use needs. *)
+and declare_type_names (body : Ast.desugared_stmt list) =
   List.iter
     (fun (s : Ast.desugared_stmt) ->
       match s.Ast.it with
@@ -2661,17 +2699,16 @@ and declare_types (body : Ast.desugared_stmt list) =
          | Some _ -> fail s.Ast.span "Type '%s' is already declared." name
          | None -> if Hashtbl.mem ctx_types name then fail s.Ast.span "Type '%s' is already declared." name);
         Hashtbl.replace ctx_type_spans name s.Ast.span;
-        let type_params =
+        let vars =
           List.map
             (fun (p : Ast.type_param) ->
               let var = Types.fresh () in
               if p.Ast.tp_pack then Types.declare_pack var;
-              p.Ast.tp_name, var)
+              var)
             params
         in
         if List.exists (fun (p : Ast.type_param) -> p.Ast.tp_pack) params
         then Hashtbl.replace ctx_type_packs name ();
-        let vars = List.map snd type_params in
         (* Already the right shape, or `Add(Expr<int>, …)` reads `Expr` as a
            product. *)
         Hashtbl.replace
@@ -2680,6 +2717,27 @@ and declare_types (body : Ast.desugared_stmt list) =
           (match body with
            | Ast.T_variants _ -> Sum (vars, [])
            | Ast.T_fields _ -> Product (vars, Types.FEmpty));
+        (match body with
+         | Ast.T_fields _ -> Types.declare_fields name vars Types.FEmpty
+         | Ast.T_variants _ -> ())
+      | _ -> ())
+    body
+
+(* The variables are the ones [declare_type_names] registered, so a use read
+   before this ran agrees with the declaration. A duplicate it rejected is not
+   the registered one and is skipped, or it would overwrite the original. *)
+and declare_type_bodies (body : Ast.desugared_stmt list) =
+  List.iter
+    (fun (s : Ast.desugared_stmt) ->
+      match s.Ast.it with
+      | `Type_decl (name, params, body)
+        when (match Hashtbl.find_opt ctx_type_spans name with
+              | Some registered -> registered == s.Ast.span
+              | None -> false) ->
+        let vars = params_of_decl name in
+        let type_params =
+          List.map2 (fun (p : Ast.type_param) var -> p.Ast.tp_name, var) params vars
+        in
         let declared =
           with_type_params type_params (fun () ->
             match body with
@@ -2695,6 +2753,9 @@ and declare_types (body : Ast.desugared_stmt list) =
               Sum (vars, List.map (variant_of s.Ast.span name vars) variants))
         in
         Hashtbl.replace ctx_types name declared;
+        (match declared with
+         | Product (vars, fields) -> Types.declare_fields name vars fields
+         | Opaque _ | Sum _ -> ());
         Hashtbl.replace
           ctx_attrs
           name
@@ -2849,7 +2910,8 @@ and infer_block env ctx (body : Ast.desugared_stmt list) : checked_stmt list =
        only once the trait is registered as one. *)
     declare_traits body;
     declare_effects body;
-    declare_types body;
+    declare_type_names body;
+    declare_type_bodies body;
     declare_impls ctx.registry body;
     hoist env body;
     let assigned = assigned_names body in
@@ -3023,180 +3085,10 @@ and infer_stmt_impl env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
     node
       (`Impl_decl (trait, type_name, params, { impl with Ast.ib_methods = List.map (fun (_, _, m) -> m) inferred }))
   | `Match (scrutinee, cases) ->
-    let scrutinee = infer_expr env ctx scrutinee in
-    let not_a_sum other =
-      fail
-        scrutinee.Ast.span
-        "Only a sum type can be matched, and this is %s."
-        (Types.string_of_infer_ty other)
+    let scrutinee, cases =
+      infer_match env ctx span scrutinee cases (fun scope _ body -> infer_block scope ctx body)
     in
-    (* A scrutinee a meta block has yet to declare is whatever its arms say. *)
-    let pinned () =
-      List.find_map
-        (fun ((pattern : Ast.pattern), _) ->
-          match pattern with
-          | Ast.Pat_variant (ty, _, _) ->
-            (match Hashtbl.find_opt ctx_types ty with
-             | Some (Sum (vars, _)) ->
-               let args = List.map (fun _ -> Types.fresh ()) vars in
-               unify_at scrutinee.Ast.span (Types.ISum (ty, args)) scrutinee.Ast.ann;
-               Some (ty, args)
-             | _ -> None)
-          | Ast.Pat_wild -> None)
-        cases
-    in
-    let matched =
-      match Types.repr scrutinee.Ast.ann with
-      | Types.ISum (name, args) -> Some (name, args)
-      | other when is_unknown scrutinee.Ast.ann ->
-        !current.unknown (fun () -> not_a_sum other) pinned
-      | other -> not_a_sum other
-    in
-    (match matched with
-     | None ->
-       node
-         (`Match
-           ( scrutinee
-           , List.map (fun (pattern, body) -> pattern, infer_block (new_env (Some env)) ctx body) cases ))
-     | Some (sum, sum_args) ->
-      let vars, variants =
-        match Hashtbl.find_opt ctx_types sum with
-        | Some (Sum (vars, variants)) -> vars, variants
-        | _ -> fail span "Unknown sum type '%s'." sum
-      in
-      (* Where `Expr<T>` becomes `Expr<int>`, and only for this arm — which is
-         why it is solved into a substitution rather than unified. *)
-      let refine declared =
-        let freshened = instantiation vars declared in
-        let head = List.map (Types.substitute freshened) declared.vd_result in
-        match Types.solve (List.combine sum_args head) with
-        | Some refinement -> freshened, refinement
-        | None -> raise Not_found
-      in
-      (* Unreachable, so a match leaving it out is still exhaustive. *)
-      let reachable declared =
-        match refine declared with
-        | _ -> true
-        | exception Not_found -> false
-      in
-      (* The store is left alone, so a constraint the arm places on anything
-         else is ordinary and permanent. *)
-      let refined_scope refinement =
-        let scope = new_env (Some env) in
-        (* Substituting into the recursive occurrence would make the function
-           monomorphic at this arm's type. *)
-        let applicable (scheme : Types.scheme) =
-          List.filter (fun (id, _) -> not (List.mem id scheme.Types.quantified)) refinement
-        in
-        let rec walk visible =
-          Option.iter walk visible.parent;
-          Hashtbl.iter
-            (fun name (scheme : Types.scheme) ->
-              match applicable scheme with
-              | [] -> ()
-              | refinement ->
-                if
-                  List.exists
-                    (fun (id, _) -> List.mem_assoc id refinement)
-                    (Types.free_vars scheme.Types.body)
-                then
-                  bind
-                    scope
-                    name
-                    { scheme with Types.body = Types.substitute refinement scheme.Types.body })
-            visible.bindings
-        in
-        walk env;
-        scope
-      in
-      let refined_params refinement =
-        Hashtbl.fold
-          (fun name var found ->
-            match Types.repr var with
-            | Types.IVar { contents = Types.Unbound (id, _) } when List.mem_assoc id refinement ->
-              (name, Types.substitute refinement var) :: found
-            | _ -> found)
-          ctx_type_params
-          []
-      in
-      let covered = ref [] in
-      let arm variant declared payload body =
-        let freshened, refinement =
-          if not declared.vd_refines
-          then instance vars sum_args, []
-          else (
-            match refine declared with
-            | solved -> solved
-            | exception Not_found ->
-              fail
-                span
-                "'%s' cannot be a %s, so this arm can never match."
-                variant
-                (Types.string_of_infer_ty (Types.ISum (sum, sum_args))))
-        in
-        let scope = if refinement = [] then new_env (Some env) else refined_scope refinement in
-        let expected =
-          List.map
-            (fun (l, t) -> l, Types.substitute refinement (Types.substitute freshened t))
-            (Ast.payload_fields declared.vd_payload)
-        in
-        let bindings = Ast.payload_fields payload in
-        if List.length expected <> List.length bindings
-        then
-          fail
-            span
-            "Variant '%s' carries %d value(s) but %d were bound."
-            variant
-            (List.length expected)
-            (List.length bindings);
-        List.iter
-          (fun (l, name) ->
-            match List.assoc_opt l expected with
-            | Some ty -> bind scope name (Types.mono ty)
-            | None -> fail span "Variant '%s' has no field '%s'." variant l)
-          bindings;
-        if refinement = []
-        then infer_block scope ctx body
-        else
-          with_type_params (refined_params refinement) (fun () ->
-            (* A `return` here is a fact about the function, not the arm. *)
-            let returned = ref false in
-            let checked =
-              in_ctx
-                ctx
-                ~set:(fun () ->
-                  ctx.return_type <- Option.map (Types.substitute refinement) ctx.return_type)
-                (fun () ->
-                  let checked = infer_block scope ctx body in
-                  returned := ctx.saw_return;
-                  checked)
-            in
-            if !returned then ctx.saw_return <- true;
-            checked)
-      in
-      let cases =
-        List.map
-          (fun ((pattern : Ast.pattern), body) ->
-            match pattern with
-            | Ast.Pat_wild ->
-              covered := List.map fst variants;
-              pattern, infer_block (new_env (Some env)) ctx body
-            | Ast.Pat_variant (ty, variant, payload) ->
-              if not (String.equal ty sum)
-              then fail span "This matches a %s, not a %s." ty sum;
-              (match List.assoc_opt variant variants with
-               | None -> fail span "Type '%s' has no variant '%s'." sum variant
-               | Some declared ->
-                 covered := variant :: !covered;
-                 pattern, arm variant declared payload body))
-          cases
-      in
-      List.iter
-        (fun (name, declared) ->
-          if (not (List.mem name !covered)) && reachable declared
-          then fail span "This match does not cover '%s'." name)
-        variants;
-      node (`Match (scrutinee, cases)))
+    node (`Match (scrutinee, cases))
   | `Effect_decl (name, params, ops) ->
     Hashtbl.replace ctx_effects.declared name ops;
     let bound =
@@ -3305,6 +3197,190 @@ and infer_stmt_impl env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
         Some e'
     in
     node (`Return e)
+
+and infer_match
+  : 'b 'c.
+    env
+    -> ctx
+    -> Ast.span
+    -> Ast.desugared_expr
+    -> (Ast.pattern * 'b) list
+    -> (env -> (int * Types.infer_ty) list -> 'b -> 'c)
+    -> checked_expr * (Ast.pattern * 'c) list
+  =
+  fun env ctx span scrutinee cases arm_body ->
+  let scrutinee = infer_expr env ctx scrutinee in
+  let not_a_sum other =
+    fail
+      scrutinee.Ast.span
+      "Only a sum type can be matched, and this is %s."
+      (Types.string_of_infer_ty other)
+  in
+  (* A scrutinee a meta block has yet to declare is whatever its arms say. *)
+  let pinned () =
+    List.find_map
+      (fun ((pattern : Ast.pattern), _) ->
+        match pattern with
+        | Ast.Pat_variant (ty, _, _) ->
+          (match Hashtbl.find_opt ctx_types ty with
+           | Some (Sum (vars, _)) ->
+             let args = List.map (fun _ -> Types.fresh ()) vars in
+             unify_at scrutinee.Ast.span (Types.ISum (ty, args)) scrutinee.Ast.ann;
+             Some (ty, args)
+           | _ -> None)
+        | Ast.Pat_wild -> None)
+      cases
+  in
+  let matched =
+    match Types.repr scrutinee.Ast.ann with
+    | Types.ISum (name, args) -> Some (name, args)
+    | other when is_unknown scrutinee.Ast.ann ->
+      !current.unknown (fun () -> not_a_sum other) pinned
+    | other -> not_a_sum other
+  in
+  (match matched with
+   | None ->
+     scrutinee, List.map (fun (pattern, body) -> pattern, arm_body (new_env (Some env)) [] body) cases
+   | Some (sum, sum_args) ->
+    let vars, variants =
+      match Hashtbl.find_opt ctx_types sum with
+      | Some (Sum (vars, variants)) -> vars, variants
+      | _ -> fail span "Unknown sum type '%s'." sum
+    in
+    (* Where `Expr<T>` becomes `Expr<int>`, and only for this arm — which is
+       why it is solved into a substitution rather than unified. *)
+    let refine declared =
+      let freshened = instantiation vars declared in
+      let head = List.map (Types.substitute freshened) declared.vd_result in
+      let fresh = List.map (fun (_, v) -> Types.var_id v) freshened in
+      match Types.solve ~fresh (List.combine sum_args head) with
+      | Some refinement -> freshened, refinement
+      | None -> raise Not_found
+    in
+    (* Unreachable, so a match leaving it out is still exhaustive. *)
+    let reachable declared =
+      match refine declared with
+      | _ -> true
+      | exception Not_found -> false
+    in
+    (* The store is left alone, so a constraint the arm places on anything
+       else is ordinary and permanent. *)
+    let refined_scope refinement =
+      let scope = new_env (Some env) in
+      (* Substituting into the recursive occurrence would make the function
+         monomorphic at this arm's type. *)
+      let applicable (scheme : Types.scheme) =
+        List.filter (fun (id, _) -> not (List.mem id scheme.Types.quantified)) refinement
+      in
+      let rec walk visible =
+        Option.iter walk visible.parent;
+        Hashtbl.iter
+          (fun name (scheme : Types.scheme) ->
+            match applicable scheme with
+            | [] -> ()
+            | refinement ->
+              if
+                List.exists
+                  (fun (id, _) -> List.mem_assoc id refinement)
+                  (Types.free_vars scheme.Types.body)
+              then
+                bind
+                  scope
+                  name
+                  { scheme with Types.body = Types.substitute refinement scheme.Types.body })
+          visible.bindings
+      in
+      walk env;
+      scope
+    in
+    let refined_params refinement =
+      Hashtbl.fold
+        (fun name var found ->
+          match Types.repr var with
+          | Types.IVar { contents = Types.Unbound (id, _) } when List.mem_assoc id refinement ->
+            (name, Types.substitute refinement var) :: found
+          | _ -> found)
+        ctx_type_params
+        []
+    in
+    let covered = ref [] in
+    let arm variant declared payload body =
+      let freshened, refinement =
+        if not declared.vd_refines
+        then instance vars sum_args, []
+        else (
+          match refine declared with
+          | solved -> solved
+          | exception Not_found ->
+            fail
+              span
+              "'%s' cannot be a %s, so this arm can never match."
+              variant
+              (Types.string_of_infer_ty (Types.ISum (sum, sum_args))))
+      in
+      let scope = if refinement = [] then new_env (Some env) else refined_scope refinement in
+      let expected =
+        List.map
+          (fun (l, t) -> l, Types.substitute refinement (Types.substitute freshened t))
+          (Ast.payload_fields declared.vd_payload)
+      in
+      let bindings = Ast.payload_fields payload in
+      if List.length expected <> List.length bindings
+      then
+        fail
+          span
+          "Variant '%s' carries %d value(s) but %d were bound."
+          variant
+          (List.length expected)
+          (List.length bindings);
+      List.iter
+        (fun (l, name) ->
+          match List.assoc_opt l expected with
+          | Some ty -> bind scope name (Types.mono ty)
+          | None -> fail span "Variant '%s' has no field '%s'." variant l)
+        bindings;
+      if refinement = []
+      then arm_body scope refinement body
+      else
+        with_type_params (refined_params refinement) (fun () ->
+          (* A `return` here is a fact about the function, not the arm. *)
+          let returned = ref false in
+          let checked =
+            in_ctx
+              ctx
+              ~set:(fun () ->
+                ctx.return_type <- Option.map (Types.substitute refinement) ctx.return_type)
+              (fun () ->
+                let checked = arm_body scope refinement body in
+                returned := ctx.saw_return;
+                checked)
+          in
+          if !returned then ctx.saw_return <- true;
+          checked)
+    in
+    let cases =
+      List.map
+        (fun ((pattern : Ast.pattern), body) ->
+          match pattern with
+          | Ast.Pat_wild ->
+            covered := List.map fst variants;
+            pattern, arm_body (new_env (Some env)) [] body
+          | Ast.Pat_variant (ty, variant, payload) ->
+            if not (String.equal ty sum)
+            then fail span "This matches a %s, not a %s." ty sum;
+            (match List.assoc_opt variant variants with
+             | None -> fail span "Type '%s' has no variant '%s'." sum variant
+             | Some declared ->
+               covered := variant :: !covered;
+               pattern, arm variant declared payload body))
+        cases
+    in
+    List.iter
+      (fun (name, declared) ->
+        if (not (List.mem name !covered)) && reachable declared
+        then fail span "This match does not cover '%s'." name)
+      variants;
+    scrutinee, cases)
 
 (* The row work is the same wherever a `run` stands; [answer] is what its arms
    and its return clause must agree on. *)
@@ -3486,6 +3562,8 @@ let rec resolve_expr (e : checked_expr) : Ast.typed_expr =
     | #Ast.run_expr as r ->
       (Ast.map_run_expr resolve_expr resolve_stmt (Ast.map_handler resolve_stmt) r
        :> Ast.typed_expr_kind)
+    | #Ast.match_expr as m ->
+      (Ast.map_match_expr resolve_expr resolve_stmt m :> Ast.typed_expr_kind)
   in
   { Ast.it; span = e.Ast.span; ann = Types.resolve e.Ast.ann }
 
@@ -3680,7 +3758,8 @@ let check_with ~registry (program : Ast.desugared_stmt list)
   in
   each declare_traits;
   each declare_effects;
-  each declare_types;
+  each declare_type_names;
+  each declare_type_bodies;
   each (declare_impls registry);
   each (hoist env);
   let assigned = assigned_names program in

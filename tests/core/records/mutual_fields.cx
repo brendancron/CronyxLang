@@ -1,0 +1,9 @@
+type Dept { name: string, staff: Array<Person> }
+type Person { name: string, dept: Option<Dept> }
+
+var d = Dept { name: "eng", staff: [Person { name: "ada", dept: Option.None }] };
+var p = Person { name: "bob", dept: Option.Some(d) };
+match p.dept {
+    Option.Some(dept) => print(dept.staff[0].name),
+    Option.None => print("none"),
+}

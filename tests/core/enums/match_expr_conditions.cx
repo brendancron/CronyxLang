@@ -1,0 +1,22 @@
+type Switch { On, Off }
+
+fn noisy(): bool {
+    print("evaluated");
+    return true;
+}
+
+print(false && match Switch.On { Switch.On => noisy(), _ => true });
+print(true || match Switch.On { Switch.On => noisy(), _ => true });
+print(true && match Switch.On { Switch.On => noisy(), _ => false });
+
+var turns = 0;
+var power = Switch.On;
+while (match power { Switch.On => true, Switch.Off => false }) {
+    turns = turns + 1;
+    if (turns == 3) { power = Switch.Off; }
+}
+print(turns);
+
+for (var i = 0; match power { Switch.On => true, Switch.Off => i < 2 }; i = i + 1) {
+    print(i);
+}

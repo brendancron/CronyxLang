@@ -1,0 +1,10 @@
+fn fib_value(n: int): int {
+    if (n <= 1) { return 1; }
+    return fib_value(n - 1) + fib_value(n - 2);
+}
+
+fn fib<n: int>(): int {
+    gen return fib_value(n);
+}
+
+print(fib<10>());

@@ -19,8 +19,7 @@ let node span ann it : Ast.reflected_expr = { Ast.it; span; ann }
 
 let string_at span text = node span Types.Str (`Str (Utf8.decode text))
 
-let record_at span name fields values =
-  node span (Types.Named (name, [], fields)) (`Record_lit values)
+let record_at span name values = node span (Types.Named (name, [])) (`Record_lit values)
 
 let array_at span elem items =
   node span (Types.array elem) (`Array_lit items)
@@ -28,44 +27,20 @@ let array_at span elem items =
 let name_at span text = node span Types.name (`Name text)
 let attr_arg_ty = Types.Sum (Types.attr_arg_name, [])
 
-let attr_ty =
-  Types.Named
-    (Types.attr_name, [], [ "args", Types.array attr_arg_ty; "name", Types.name ])
+let attr_ty = Types.attr_ty
 
 (* Only a named type can be asked: `typeof` takes a value, and a function
    value's type names no declaration to look the attributes up under. *)
 let declared_attrs (ty : Types.ty) =
   match ty with
-  | Types.Named (name, _, _) | Types.Sum (name, _) ->
+  | Types.Named (name, _) | Types.Sum (name, _) ->
     (match Hashtbl.find_opt Desugar.decl_attrs name with
      | Some attrs -> attrs
      | None -> [])
   | _ -> []
 
-let field_ty =
-  Types.Named
-    ( Types.field_name
-    , []
-    , [ "attrs", Types.array attr_ty; "doc", Types.Str; "name", Types.name ] )
-
-let variant_ty =
-  Types.Named
-    ( Types.variant_name
-    , []
-    , [ "arity", Types.Int
-      ; "attrs", Types.array attr_ty
-      ; "doc", Types.Str
-      ; "name", Types.name
-      ] )
-
-let field_fields = [ "attrs", Types.array attr_ty; "doc", Types.Str; "name", Types.name ]
-
-let variant_fields =
-  [ "arity", Types.Int
-  ; "attrs", Types.array attr_ty
-  ; "doc", Types.Str
-  ; "name", Types.name
-  ]
+let field_ty = Types.Named (Types.field_name, [])
+let variant_ty = Types.Named (Types.variant_name, [])
 
 (* A doc comment is carried as an attribute and presented as a doc, so it is
    taken out of the list before anything sees it: `attrs` never reports one and
@@ -93,7 +68,6 @@ let attrs_at span (list : Ast.attr list) =
     record_at
       span
       Types.attr_name
-      [ "args", Types.array attr_arg_ty; "name", Types.name ]
       [ "args", array_at span attr_arg_ty (List.map arg a.Ast.a_args)
       ; "name", name_at span a.Ast.a_name
       ]
@@ -105,20 +79,20 @@ let shape_ty = Types.Sum (Types.shape_name, [])
 let shape_at span variant payload =
   node span shape_ty (`Variant (variant, payload))
 
-(* A product carries its fields in the type; a sum names its variants nowhere
-   but the table the checker built, so reflection reads that. *)
+(* Neither kind of type carries what it declares, so both are read from the
+   tables the checker built. *)
 let shape_of span (ty : Types.ty) =
   let one name = shape_at span name [] in
   match ty with
   | Types.Int | Types.Float | Types.Str | Types.Byte | Types.Chr | Types.Bool
   | Types.Unit -> one "Scalar"
-  | Types.Named (name, _, fields) when not (String.equal name Types.array_name) ->
+  | Types.Named (name, args) when not (String.equal name Types.array_name) ->
+    let fields = Types.named_fields name args in
     let each (label, _) =
       let carried = Typecheck.attrs_of name label in
       record_at
         span
         Types.field_name
-        field_fields
         [ "attrs", attrs_at span (written carried)
         ; "doc", string_at span (doc_of carried)
         ; "name", name_at span label
@@ -145,7 +119,6 @@ let shape_of span (ty : Types.ty) =
       record_at
         span
         Types.variant_name
-        variant_fields
         [ "arity", node span Types.Int (`Int arity)
         ; "attrs", attrs_at span (written carried)
         ; "doc", string_at span (doc_of carried)

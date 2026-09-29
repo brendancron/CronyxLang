@@ -1,0 +1,39 @@
+type Shape {
+    Point,
+    Circle(int),
+    Rect(int, int),
+}
+
+fn label(s: Shape): string {
+    return match s {
+        Shape.Rect(w, h) => {
+            var area = w * h;
+            print(area);
+            if (area > 10) { return "big rect"; }
+            "rect"
+        }
+        Shape.Circle(r) => {
+            print(r);
+            "circle"
+        }
+        Shape.Point => "point",
+    };
+}
+
+print(label(Shape.Rect(2, 3)));
+print(label(Shape.Rect(4, 5)));
+print(label(Shape.Circle(7)));
+
+var nothing = match Shape.Point {
+    Shape.Point => { print("unit arm"); }
+    _ => { }
+};
+print(nothing);
+
+match Shape.Circle(1) {
+    Shape.Circle(r) => {
+        print("statement");
+        match Shape.Point { Shape.Point => 1, _ => "never read" }
+    }
+    _ => { }
+}

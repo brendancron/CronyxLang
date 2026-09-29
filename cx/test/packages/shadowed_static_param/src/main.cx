@@ -1,0 +1,7 @@
+fn n(): int { return 100; }
+
+fn twice<n: int>(): int { return n * 2; }
+fn forward<n: int>(): int { return twice<n>(); }
+
+print(forward<21>());
+print(n());

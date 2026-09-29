@@ -1,0 +1,30 @@
+type Expr<T> {
+    Lit(int)                            -> Expr<int>,
+    BoolLit(bool)                       -> Expr<bool>,
+    If<A>(Expr<bool>, Expr<A>, Expr<A>) -> Expr<A>,
+}
+
+fn choose<A>(c: bool, a: A, b: A): A {
+    if (c) { return a; }
+    return b;
+}
+
+fn eval<T>(e: Expr<T>): T {
+    match e {
+        Expr.Lit(n)      => { return n; }
+        Expr.BoolLit(b)  => { return b; }
+        Expr.If(c, t, f) => { return choose(eval(c), eval(t), eval(f)); }
+    }
+}
+
+fn evaluated<T>(e: Expr<T>): T {
+    return match e {
+        Expr.Lit(n)      => n,
+        Expr.BoolLit(b)  => b,
+        Expr.If(c, t, f) => choose(evaluated(c), evaluated(t), evaluated(f)),
+    };
+}
+
+print(eval(Expr.If(Expr.BoolLit(false), Expr.Lit(1), Expr.Lit(0))));
+print(eval(Expr.If(Expr.BoolLit(true), Expr.BoolLit(true), Expr.BoolLit(false))));
+print(evaluated(Expr.If(Expr.BoolLit(true), Expr.Lit(7), Expr.Lit(8))));

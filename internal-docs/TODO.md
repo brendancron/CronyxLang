@@ -76,6 +76,8 @@ Owner: [Metaprocessing.md](Metaprocessing.md)
 
 The design is an effect in the prelude, `effect Gen { fn emit(item: Code): unit; }`, with `gen S` performing it and a `meta` block handling it by splicing what it collects. What is built is the behaviour without the effect: `gen` is lowered to a native call that appends to whichever block is collecting, and whether a function performs `Gen` is worked out by the walk — it holds a `gen` outside any meta block, or calls something that does — which is what rejects calling one at run time.
 
+The walk misses one case the checker would not: a template holding a bare `gen` has its copy dropped rather than rejected, so `fib<10>()` reports `Undefined variable 'fib#0'` instead of that it performs `Gen` (`03_derive/errors/gen_in_template`, in `expected_failing`).
+
 The effect is what would let a program handle `Gen` itself, and so test a deriver by collecting what it would generate rather than generating it. It needs `Code` to hold declarations and statements as well as expressions, which is the open question about `code` itself, so the two go together.
 
 `Reifiable` is built with it too: how a value crosses from a meta block into what a `gen` emits is decided per type by `fn reify(self): Code` ([Reify](Reify.md)), and until then a value of a named type — a `List`, a `Point` — is written back as an anonymous record.

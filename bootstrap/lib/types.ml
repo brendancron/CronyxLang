@@ -24,7 +24,7 @@ and ty =
   | Pack of ty list
   | Spread of ty
   | Record of fields
-  | Named of string * ty list * fields
+  | Named of string * ty list
   | Sum of string * ty list
   | Fn of ty list * ty * row
   (* Quantified, not unresolved. Reaching codegen means a call site was missed. *)
@@ -42,7 +42,7 @@ type infer_ty =
   | IPack of infer_ty list
   | ISpread of infer_ty
   | IRecord of infer_fields
-  | INamed of string * infer_ty list * infer_fields
+  | INamed of string * infer_ty list
   | ISum of string * infer_ty list
   | IFn of infer_ty list * infer_ty * infer_row
   | IVar of tv ref
@@ -202,55 +202,29 @@ let field_name = "TypeField"
 let variant_name = "TypeVariant"
 
 let name_name = "Name"
-let iname = INamed (name_name, [], FEmpty)
-let name = Named (name_name, [], [])
+let iname = INamed (name_name, [])
+let name = Named (name_name, [])
 let attr_name = "Attr"
 let attr_arg_name = "AttrArg"
 
-let attr_fields =
-  [ "args", Named (array_name, [ Sum (attr_arg_name, []) ], []); "name", name ]
+let attr_ty = Named (attr_name, [])
+let iattr_ty = INamed (attr_name, [])
 
-let iattr_fields =
-  FCons
-    ( "args"
-    , INamed (array_name, [ ISum (attr_arg_name, []) ], FEmpty)
-    , FCons ("name", iname, FEmpty) )
-
-let attr_ty = Named (attr_name, [], attr_fields)
-let attrs_ty = Named (array_name, [ attr_ty ], [])
-
-(* [doc] is the text of a `/** … */`, empty where there was none -- which is
-   also what an empty one normalizes to, so nothing is lost by not
-   distinguishing them. *)
-let reflection_fields =
-  [ "attrs", attrs_ty; "doc", Str; "name", Str; "shape", Sum (shape_name, []) ]
-
-let ireflected =
-  INamed
-    ( reflection_name
-    , []
-    , FCons
-        ( "attrs"
-        , INamed (array_name, [ INamed (attr_name, [], iattr_fields) ], FEmpty)
-        , FCons
-            ( "doc"
-            , IStr
-            , FCons ("name", IStr, FCons ("shape", ISum (shape_name, []), FEmpty)) ) ) )
-
-let reflected = Named (reflection_name, [], reflection_fields)
+let ireflected = INamed (reflection_name, [])
+let reflected = Named (reflection_name, [])
 
 let code_name = "Code"
-let icode = INamed (code_name, [], FEmpty)
+let icode = INamed (code_name, [])
 
 let string_name = "string"
 
 let array_len = "len"
-let array elem = Named (array_name, [ elem ], [])
-let iarray elem = INamed (array_name, [ elem ], FEmpty)
+let array elem = Named (array_name, [ elem ])
+let iarray elem = INamed (array_name, [ elem ])
 
 let is_array (t : ty) =
   match t with
-  | Named (name, [ _ ], _) -> String.equal name array_name
+  | Named (name, [ _ ]) -> String.equal name array_name
   | _ -> false
 
 let string_of_kind = function
@@ -329,7 +303,7 @@ and string_of_infer_ty seen (t : infer_ty) : string =
     Printf.sprintf "(%s)" (String.concat ", " (List.map string_of_infer_ty items))
   | IPack items -> String.concat ", " (List.map string_of_infer_ty items)
   | ISpread inner -> "..." ^ string_of_infer_ty inner
-  | INamed (name, args, _) | ISum (name, args) ->
+  | INamed (name, args) | ISum (name, args) ->
     name ^ string_of_infer_args args
   | IRecord f ->
     let rec fields f =
@@ -387,7 +361,7 @@ and string_of_ty seen (t : ty) : string =
     Printf.sprintf "(%s)" (String.concat ", " (List.map string_of_ty items))
   | Pack items -> String.concat ", " (List.map string_of_ty items)
   | Spread inner -> "..." ^ string_of_ty inner
-  | Named (name, args, _) | Sum (name, args) -> name ^ string_of_args args
+  | Named (name, args) | Sum (name, args) -> name ^ string_of_args args
   | Record fields ->
     Printf.sprintf
       "{ %s }"
@@ -419,7 +393,7 @@ let type_name (t : ty) : string option =
   | Chr -> Some "char"
   | Bool -> Some "bool"
   | Unit -> Some "unit"
-  | Named (name, _, _) | Sum (name, _) -> Some name
+  | Named (name, _) | Sum (name, _) -> Some name
   | Tuple _ | Pack _ | Spread _ | Record _ | Fn _ | Generic _ -> None
 
 (* A row whose tail is bound gains what the call site settled it to. Its own
@@ -455,11 +429,7 @@ let rec subst_generic ?(rows = []) mapping (t : ty) : ty =
   | Pack items -> Pack (List.map (subst_generic mapping) items)
   | Spread inner -> Spread (subst_generic mapping inner)
   | Record fields -> Record (List.map (fun (l, t) -> l, subst_generic mapping t) fields)
-  | Named (name, args, fields) ->
-    Named
-      ( name
-      , List.map (subst_generic mapping) args
-      , List.map (fun (l, t) -> l, subst_generic mapping t) fields )
+  | Named (name, args) -> Named (name, List.map (subst_generic mapping) args)
   | Sum (name, args) -> Sum (name, List.map (subst_generic mapping) args)
   | Fn (params, ret, row) ->
     Fn
@@ -483,9 +453,8 @@ and match_generic (general : ty) (concrete : ty) acc =
   | Tuple a, Tuple b -> match_generic_list a b acc
   | Tuple a, Unit -> match_generic_list a [] acc
   | Record a, Record b -> match_generic_fields a b acc
-  | Named (_, ga, a), Named (_, gb, b) when List.length ga = List.length gb ->
-    match_generic_fields a b (List.fold_left2 (fun acc x y -> match_generic x y acc) acc ga gb)
-  | Named (_, _, a), Named (_, _, b) -> match_generic_fields a b acc
+  | Named (_, ga), Named (_, gb) when List.length ga = List.length gb ->
+    List.fold_left2 (fun acc x y -> match_generic x y acc) acc ga gb
   | Sum (_, a), Sum (_, b) when List.length a = List.length b ->
     List.fold_left2 (fun acc a b -> match_generic a b acc) acc a b
   | Fn (pa, ra, _), Fn (pb, rb, _) -> match_generic ra rb (match_generic_list pa pb acc)
@@ -507,7 +476,7 @@ let rec match_rows (general : ty) (concrete : ty) acc =
   match general, concrete with
   | Tuple a, Tuple b when List.length a = List.length b ->
     List.fold_left2 (fun acc a b -> match_rows a b acc) acc a b
-  | Named (_, a, _), Named (_, b, _) | Sum (_, a), Sum (_, b) when List.length a = List.length b ->
+  | Named (_, a), Named (_, b) | Sum (_, a), Sum (_, b) when List.length a = List.length b ->
     List.fold_left2 (fun acc a b -> match_rows a b acc) acc a b
   | Fn (pa, ra, rowa), Fn (pb, rb, rowb) when List.length pa = List.length pb ->
     let acc = List.fold_left2 (fun acc a b -> match_rows a b acc) acc pa pb in
@@ -520,22 +489,29 @@ let rec match_rows (general : ty) (concrete : ty) acc =
      | _ -> acc)
   | _ -> acc
 
+(* Set once [named_fields] exists, below [resolve]. *)
+let named_fields_hook : (string -> ty list -> fields) ref = ref (fun _ _ -> [])
+
 (* Evidence arity follows the row a definition declares, so a copy per row is
    owed only when a parameter is what brings that row in. A function merely
    left open — which is most of them — needs none. *)
 let row_polymorphic (t : ty) =
   match t with
   | Fn (params, _, { tail = Some id; _ }) ->
-    let rec mentions t =
+    (* [seen] because a record's fields may name the record. *)
+    let rec mentions seen t =
       match t with
-      | Fn (ps, ret, row) -> row.tail = Some id || List.exists mentions ps || mentions ret
-      | Tuple items | Pack items -> List.exists mentions items
-      | Spread inner -> mentions inner
-      | Record fields | Named (_, _, fields) -> List.exists (fun (_, t) -> mentions t) fields
-      | Sum (_, args) -> List.exists mentions args
+      | Fn (ps, ret, row) ->
+        row.tail = Some id || List.exists (mentions seen) ps || mentions seen ret
+      | Tuple items | Pack items -> List.exists (mentions seen) items
+      | Spread inner -> mentions seen inner
+      | Record fields -> List.exists (fun (_, t) -> mentions seen t) fields
+      | Named (name, args) when not (List.mem name seen) ->
+        List.exists (fun (_, t) -> mentions (name :: seen) t) (!named_fields_hook name args)
+      | Sum (_, args) -> List.exists (mentions seen) args
       | _ -> false
     in
-    List.exists mentions params
+    List.exists (mentions []) params
   | _ -> false
 
 let rec has_generic (t : ty) =
@@ -544,17 +520,14 @@ let rec has_generic (t : ty) =
   | Tuple items | Pack items -> List.exists has_generic items
   | Spread inner -> has_generic inner
   | Record fields -> List.exists (fun (_, t) -> has_generic t) fields
-  (* Arguments as well as fields: an opaque container has no fields, so
-     `Array<T>` would otherwise report as concrete. *)
-  | Named (_, args, fields) ->
-    List.exists has_generic args || List.exists (fun (_, t) -> has_generic t) fields
+  | Named (_, args) -> List.exists has_generic args
   | Sum (_, args) -> List.exists has_generic args
   | Fn (params, ret, _) -> List.exists has_generic params || has_generic ret
   | _ -> false
 
 let container_element (t : infer_ty) : (string * infer_ty) option =
   match repr t with
-  | INamed (name, [ elem ], _) -> Some (name, elem)
+  | INamed (name, [ elem ]) -> Some (name, elem)
   | _ -> None
 
 let infer_type_name (t : infer_ty) : string option =
@@ -566,7 +539,7 @@ let infer_type_name (t : infer_ty) : string option =
   | IChr -> Some "char"
   | IBool -> Some "bool"
   | IUnit -> Some "unit"
-  | INamed (name, _, _) | ISum (name, _) -> Some name
+  | INamed (name, _) | ISum (name, _) -> Some name
   | ITuple _ | IPack _ | ISpread _ | IRecord _ | IFn _ | IVar _ -> None
 
 (* A pack in a list position is however many types it holds. One whose pack is
@@ -721,13 +694,14 @@ and occurs id (t : infer_ty) =
   | IVar { contents = Unbound (id', _) } -> id = id'
   | ITuple items | IPack items -> List.exists (occurs id) items
   | ISpread inner -> occurs id inner
-  | IRecord f | INamed (_, _, f) ->
+  | IRecord f ->
     let rec walk f =
       match repr_fields f with
       | FEmpty | FVar _ -> false
       | FCons (_, ty, rest) -> occurs id ty || walk rest
     in
     walk f
+  | INamed (_, args) -> List.exists (occurs id) args
   | IFn (params, ret, _) -> List.exists (occurs id) params || occurs id ret
   | _ -> false
 
@@ -817,7 +791,7 @@ and unify (a : infer_ty) (b : infer_ty) : unit =
     r := Link t
   | IInt, IInt | IFloat, IFloat | IStr, IStr | IByte, IByte | IChr, IChr | IBool, IBool | IUnit, IUnit -> ()
   | IRecord a, IRecord b -> unify_fields a b
-  | INamed (a, xs, _), INamed (b, ys, _)
+  | INamed (a, xs), INamed (b, ys)
     when String.equal a b && List.length xs = List.length ys -> List.iter2 unify xs ys
   | ISum (a, xs), ISum (b, ys)
     when String.equal a b && List.length xs = List.length ys -> List.iter2 unify xs ys
@@ -912,9 +886,7 @@ let free_vars (t : infer_ty) : (int * kind) list =
     | ITuple items | IPack items -> List.iter walk items
     | ISpread inner -> walk inner
     | IRecord f -> walk_fields walk f
-    | INamed (_, args, f) ->
-      List.iter walk args;
-      walk_fields walk f
+    | INamed (_, args) -> List.iter walk args
     | ISum (_, args) -> List.iter walk args
     | IFn (params, ret, _) ->
       List.iter walk params;
@@ -939,9 +911,7 @@ let free_row_vars (t : infer_ty) : int list =
     | ITuple items | IPack items -> List.iter walk items
     | ISpread inner -> walk inner
     | IRecord f -> walk_fields walk f
-    | INamed (_, args, f) ->
-      List.iter walk args;
-      walk_fields walk f
+    | INamed (_, args) -> List.iter walk args
     | ISum (_, args) -> List.iter walk args
     | IFn (params, ret, row) ->
       List.iter walk params;
@@ -969,9 +939,7 @@ let free_field_vars (t : infer_ty) : int list =
     | ITuple items | IPack items -> List.iter walk items
     | ISpread inner -> walk inner
     | IRecord f -> walk_fields f
-    | INamed (_, args, f) ->
-      List.iter walk args;
-      walk_fields f
+    | INamed (_, args) -> List.iter walk args
     | ISum (_, args) -> List.iter walk args
     | IFn (params, ret, _) ->
       List.iter walk params;
@@ -1065,12 +1033,8 @@ let instantiate ?(bound = []) (s : scheme) : infer_ty =
       | IPack items -> IPack (List.map walk items)
       | ISpread inner -> ISpread (walk inner)
       | ISum (name, args) -> ISum (name, List.map walk args)
-      | (IRecord _ | INamed _) as r ->
-        let f =
-          match r with
-          | IRecord f | INamed (_, _, f) -> f
-          | _ -> assert false
-        in
+      | INamed (name, args) -> INamed (name, List.map walk args)
+      | IRecord f ->
         let rec copy f =
           match repr_fields f with
           | FEmpty -> FEmpty
@@ -1087,9 +1051,7 @@ let instantiate ?(bound = []) (s : scheme) : infer_ty =
           | FVar { contents = FLink _ } -> assert false
           | FCons (label, ty, rest) -> FCons (label, walk ty, copy rest)
         in
-        (match r with
-         | INamed (name, args, _) -> INamed (name, List.map walk args, copy f)
-         | _ -> IRecord (copy f))
+        IRecord (copy f)
       | IFn (params, ret, row) -> IFn (List.map walk params, walk ret, walk_row row)
       | concrete -> concrete
     in
@@ -1103,7 +1065,7 @@ let rec snapshot (t : infer_ty) : infer_ty =
   | IPack items -> IPack (List.map snapshot items)
   | ISpread inner -> ISpread (snapshot inner)
   | IRecord f -> IRecord (snapshot_fields f)
-  | INamed (name, args, f) -> INamed (name, List.map snapshot args, snapshot_fields f)
+  | INamed (name, args) -> INamed (name, List.map snapshot args)
   | ISum (name, args) -> ISum (name, List.map snapshot args)
   | IFn (params, ret, row) -> IFn (List.map snapshot params, snapshot ret, row)
   | settled -> settled
@@ -1115,7 +1077,9 @@ and snapshot_fields (f : infer_fields) : infer_fields =
 
 (* Written nowhere: what a constructor says holds inside one arm, so it applies
    to what that arm sees rather than to the store. *)
-let solve (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
+(* Where two variables meet, one in [fresh] is the one bound, so a refinement
+   says what the arm's own variables are in terms of the scrutinee's. *)
+let solve ?(fresh = []) (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
   let bindings = ref [] in
   let rec through t =
     match repr t with
@@ -1129,6 +1093,10 @@ let solve (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
     match through a, through b with
     | IVar { contents = Unbound (left, _) }, IVar { contents = Unbound (right, _) }
       when left = right -> true
+    | (IVar { contents = Unbound (kept, _) } as other), IVar { contents = Unbound (id, _) }
+      when List.mem id fresh && not (List.mem kept fresh) ->
+      bindings := (id, other) :: !bindings;
+      true
     | IVar { contents = Unbound (id, _) }, other | other, IVar { contents = Unbound (id, _) } ->
       bindings := (id, other) :: !bindings;
       true
@@ -1137,7 +1105,7 @@ let solve (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
     | ITuple xs, ITuple ys | IPack xs, IPack ys ->
       List.length xs = List.length ys && List.for_all2 agree xs ys
     | ISpread x, ISpread y -> agree x y
-    | ISum (n, xs), ISum (m, ys) | INamed (n, xs, _), INamed (m, ys, _) ->
+    | ISum (n, xs), ISum (m, ys) | INamed (n, xs), INamed (m, ys) ->
       String.equal n m && List.length xs = List.length ys && List.for_all2 agree xs ys
     | IFn (ps, r, _), IFn (qs, t, _) ->
       List.length ps = List.length qs && List.for_all2 agree ps qs && agree r t
@@ -1153,7 +1121,7 @@ let solve (pairs : (infer_ty * infer_ty) list) : (int * infer_ty) list option =
        | IPack items -> IPack (List.map settle items)
        | ISpread inner -> ISpread (settle inner)
        | ISum (name, args) -> ISum (name, List.map settle args)
-       | INamed (name, args, f) -> INamed (name, List.map settle args, f)
+       | INamed (name, args) -> INamed (name, List.map settle args)
        | IFn (params, ret, row) -> IFn (List.map settle params, settle ret, row)
        | settled -> settled
      in
@@ -1194,9 +1162,7 @@ let rec substitute mapping (t : infer_ty) : infer_ty =
   | IPack items -> IPack (List.map (substitute mapping) items)
   | ISpread inner -> ISpread (substitute mapping inner)
   | IRecord f -> IRecord (substitute_fields mapping f)
-  | INamed (name, args, f) ->
-    INamed
-      (name, List.map (substitute mapping) args, substitute_fields mapping f)
+  | INamed (name, args) -> INamed (name, List.map (substitute mapping) args)
   | ISum (name, args) -> ISum (name, List.map (substitute mapping) args)
   | IFn (params, ret, row) ->
     IFn (List.map (substitute mapping) params, substitute mapping ret, row)
@@ -1227,18 +1193,9 @@ and concrete (t : infer_ty) : ty option =
   | ISum (name, args) ->
     let* args = concrete_all args in
     Some (Sum (name, args))
-  | INamed (name, args, f) ->
+  | INamed (name, args) ->
     let* args = concrete_all args in
-    let rec collect f =
-      match repr_fields f with
-      | FEmpty | FVar _ -> Some []
-      | FCons (label, ty, rest) ->
-        let* ty = concrete ty in
-        let* rest = collect rest in
-        Some ((label, ty) :: rest)
-    in
-    let* fields = collect f in
-    Some (Named (name, args, List.sort compare fields))
+    Some (Named (name, args))
   | IRecord f ->
     let rec collect f =
       match repr_fields f with
@@ -1297,11 +1254,7 @@ let rec of_ty (t : ty) : infer_ty =
   | Record fields ->
     IRecord
       (List.fold_right (fun (l, t) rest -> FCons (l, of_ty t, rest)) fields FEmpty)
-  | Named (name, args, fields) ->
-    INamed
-      ( name
-      , List.map of_ty args
-      , List.fold_right (fun (l, t) rest -> FCons (l, of_ty t, rest)) fields FEmpty )
+  | Named (name, args) -> INamed (name, List.map of_ty args)
   | Sum (name, args) -> ISum (name, List.map of_ty args)
   | Fn (params, ret, row) ->
     IFn
@@ -1340,16 +1293,14 @@ and resolve (t : infer_ty) : ty =
   | IPack items -> Pack (List.map resolve items)
   | ISpread inner -> Spread (resolve inner)
   | ISum (name, args) -> Sum (name, List.map resolve args)
-  | IRecord f | INamed (_, _, f) ->
+  | INamed (name, args) -> Named (name, List.map resolve args)
+  | IRecord f ->
     let rec collect f =
       match repr_fields f with
       | FEmpty | FVar _ -> []
       | FCons (label, ty, rest) -> (label, resolve ty) :: collect rest
     in
-    let fields = List.sort compare (collect f) in
-    (match repr t with
-     | INamed (name, args, _) -> Named (name, List.map resolve args, fields)
-     | _ -> Record fields)
+    Record (List.sort compare (collect f))
   | IFn (params, ret, row) ->
     Fn (List.map resolve (expand params), resolve ret, resolve_row row)
   | IVar { contents = Unbound (id, kind) } ->
@@ -1364,3 +1315,48 @@ and resolve (t : infer_ty) : ty =
       | Projection _ -> Generic id
       | Any -> Generic id)
   | IVar { contents = Link _ } -> assert false (* repr collapsed these *)
+
+(* ---- declared fields ---- *)
+
+(* Keyed by name, which is unique only because a type declared in a body is
+   renamed after its owner before anything is checked. *)
+let declarations : (string, infer_ty list * infer_fields) Hashtbl.t = Hashtbl.create 32
+
+let declare_fields name vars fields = Hashtbl.replace declarations name (vars, fields)
+
+let paired vars args =
+  if List.length vars = List.length args
+  then List.map2 (fun v a -> var_id v, a) vars args
+  else []
+
+let fields_of name args : infer_fields =
+  match Hashtbl.find_opt declarations name with
+  | Some (vars, f) -> substitute_fields (paired vars args) f
+  | None -> FEmpty
+
+let named_fields name args : fields =
+  match Hashtbl.find_opt declarations name with
+  | None -> []
+  | Some (vars, f) ->
+    let mapping = paired vars args in
+    let rec collect f =
+      match repr_fields f with
+      | FEmpty | FVar _ -> []
+      | FCons (label, ty, rest) -> (label, subst_generic mapping (resolve ty)) :: collect rest
+    in
+    List.sort compare (collect f)
+
+let () = named_fields_hook := named_fields
+
+let () =
+  let attrs = iarray iattr_ty in
+  (* [doc] is the text of a `/** … */`, empty where there was none -- which is
+     also what an empty one normalizes to, so nothing is lost by not
+     distinguishing them. *)
+  declare_fields
+    reflection_name
+    []
+    (FCons
+       ( "attrs"
+       , attrs
+       , FCons ("doc", IStr, FCons ("name", IStr, FCons ("shape", ISum (shape_name, []), FEmpty))) ))

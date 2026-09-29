@@ -1,0 +1,5 @@
+fn f(): unit {
+    type Temp { a: int }
+    print(Temp { a: 1 }.b);
+}
+f();

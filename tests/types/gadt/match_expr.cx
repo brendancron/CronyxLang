@@ -1,0 +1,29 @@
+type Expr<T> {
+    Lit(int)                  -> Expr<int>,
+    Add(Expr<int>, Expr<int>) -> Expr<int>,
+    BoolLit(bool)             -> Expr<bool>,
+    Not(Expr<bool>)           -> Expr<bool>,
+}
+
+fn eval<T>(e: Expr<T>): T {
+    return match e {
+        Expr.Lit(n)     => n,
+        Expr.Add(l, r)  => eval(l) + eval(r),
+        Expr.BoolLit(b) => b,
+        Expr.Not(inner) => !eval(inner),
+    };
+}
+
+fn shown<T>(e: Expr<T>): T {
+    var value: T = match e {
+        Expr.Lit(n)     => n * 10,
+        Expr.BoolLit(b) => b,
+        _               => eval(e),
+    };
+    return value;
+}
+
+print(eval(Expr.Add(Expr.Lit(40), Expr.Lit(2))));
+print(eval(Expr.Not(Expr.BoolLit(true))));
+print(shown(Expr.Lit(4)));
+print(shown(Expr.Not(Expr.BoolLit(false))));

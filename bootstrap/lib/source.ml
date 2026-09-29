@@ -200,6 +200,16 @@ let rec expr (e : Ast.expr) : string =
        | Some c ->
          Printf.sprintf " return (%s) { %s }" c.Ast.rc_param (valued_block c.Ast.rc_body))
 
+  | `Match_expr (scrutinee, cases) ->
+    Printf.sprintf
+      "match %s { %s }"
+      (expr scrutinee)
+      (String.concat
+         " "
+         (List.map
+            (fun (p, b) -> Printf.sprintf "%s => { %s }" (pattern p) (valued_block b))
+            cases))
+
 and valued_block (b : (Ast.expr, Ast.stmt) Ast.valued_block) =
   String.concat " " (List.map (stmt 0) b.Ast.vb_stmts)
   ^ (match b.Ast.vb_value with
@@ -598,22 +608,20 @@ and method_def depth (m : (Ast.stmt, unit) Ast.method_def) =
 
 and case depth (p, body) =
   let line = line depth in
-  line
-    (Printf.sprintf
-       "%s => {"
-       (match p with
-        | Ast.Pat_wild -> "_"
-        | Ast.Pat_variant (ty, variant, payload) ->
-          Printf.sprintf
-            "%s.%s%s"
-            ty
-            variant
-            (match payload with
-             | Ast.P_none -> ""
-             | Ast.P_tuple names -> Printf.sprintf "(%s)" (String.concat ", " names)
-             | Ast.P_fields fields ->
-               Printf.sprintf " { %s }" (String.concat ", " (List.map fst fields)))))
-  ^ block (depth + 1) body
-  ^ line "}"
+  line (Printf.sprintf "%s => {" (pattern p)) ^ block (depth + 1) body ^ line "}"
+
+and pattern (p : Ast.pattern) =
+  match p with
+  | Ast.Pat_wild -> "_"
+  | Ast.Pat_variant (ty, variant, payload) ->
+    Printf.sprintf
+      "%s.%s%s"
+      ty
+      variant
+      (match payload with
+       | Ast.P_none -> ""
+       | Ast.P_tuple names -> Printf.sprintf "(%s)" (String.concat ", " names)
+       | Ast.P_fields fields ->
+         Printf.sprintf " { %s }" (String.concat ", " (List.map fst fields)))
 
 let program (p : Ast.program) : string = block 0 p
