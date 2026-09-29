@@ -368,7 +368,12 @@ and stmt depth (s : Ast.stmt) : string =
     ^ String.concat
         ""
         (List.map
-           (fun name -> Printf.sprintf "%stype %s;\n" (pad (depth + 1)) name)
+           (fun (a : Ast.assoc_decl) ->
+             Printf.sprintf
+               "%s%stype %s;\n"
+               (pad (depth + 1))
+               (attrs ~depth:(depth + 1) a.Ast.ad_attrs)
+               a.Ast.ad_name)
            sigs.Ast.tb_assoc)
     ^ String.concat
         ""
@@ -411,8 +416,13 @@ and stmt depth (s : Ast.stmt) : string =
     ^ String.concat
         ""
         (List.map
-           (fun (name, bound) ->
-             Printf.sprintf "%stype %s = %s;\n" (pad (depth + 1)) name (type_expr bound))
+           (fun (a : Ast.assoc_def) ->
+             Printf.sprintf
+               "%s%stype %s = %s;\n"
+               (pad (depth + 1))
+               (attrs ~depth:(depth + 1) a.Ast.as_attrs)
+               a.Ast.as_name
+               (type_expr a.Ast.as_ty))
            impl.Ast.ib_assoc)
     ^ String.concat "" (List.map (method_def (depth + 1)) impl.Ast.ib_methods)
     ^ line "}"
@@ -547,8 +557,9 @@ and effect_decl depth name params ops =
       (List.map
          (fun (o : Ast.op_decl) ->
            Printf.sprintf
-             "%s%s %s%s(%s)%s;\n"
+             "%s%s%s %s%s(%s)%s;\n"
              (pad (depth + 1))
+             (attrs ~depth:(depth + 1) o.Ast.op_attrs)
              (match o.Ast.op_kind with
               | Ast.Op_fn -> "fn"
               | Ast.Op_ctl -> "ctl"

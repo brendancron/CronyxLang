@@ -1,3 +1,7 @@
+/**
+ * Colours, and what goes wrong when one is missing.
+ */
+
 /** Anything with a written form. */
 trait Show {
     /** The written form. */
@@ -23,6 +27,7 @@ impl Show for Shade {
 
 /** Asking for a colour that was never set. */
 effect Missing {
+    /** Reports the name that was asked for, and does not come back. */
     final ctl absent(what: string);
 }
 

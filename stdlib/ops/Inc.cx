@@ -1,7 +1,0 @@
-trait Inc {
-    fn inc(self);
-}
-
-impl Inc for int {
-    fn inc(self) { return __inc_int(self); }
-}

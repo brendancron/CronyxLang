@@ -1,16 +1,36 @@
 
 let types : (string * int) list = []
 
-let methods : (string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
-  [ "string", "bytes", (fun () -> [ Types.IStr ], Types.iarray Types.IByte)
+(* The prose is here because the signature is here: a native has no declaration
+   to carry a doc comment, and a reference that leaves out `print` is a reference
+   with a hole in the middle of it. An empty doc is what says a name is the
+   compiler's own business rather than part of the language's surface, and that
+   is what keeps `__parse_int` out of the reference. *)
+let methods
+  : (string * string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list
+  =
+  [ ( "string"
+    , "bytes"
+    , "The UTF-8 bytes of the string, which is what it is stored as."
+    , fun () -> [ Types.IStr ], Types.iarray Types.IByte )
     (* The one way a string becomes an identifier, checked. *)
-  ; "string", "as_name", (fun () -> [ Types.IStr ], Types.iname)
-  ; "string", "to_upper", (fun () -> [ Types.IStr ], Types.IStr)
-  ; "string", "to_lower", (fun () -> [ Types.IStr ], Types.IStr)
-  ; "char", "to_upper", (fun () -> [ Types.IChr ], Types.IChr)
-  ; "char", "to_lower", (fun () -> [ Types.IChr ], Types.IChr)
-  ; "int", "to_float", (fun () -> [ Types.IInt ], Types.IFloat)
-  ; "float", "to_int", (fun () -> [ Types.IFloat ], Types.IInt)
+  ; ( "string"
+    , "as_name"
+    , "The string as an identifier, for a meta block building a declaration. The \
+       string must spell one."
+    , fun () -> [ Types.IStr ], Types.iname )
+  ; "string", "to_upper", "The string in upper case.", (fun () -> [ Types.IStr ], Types.IStr)
+  ; "string", "to_lower", "The string in lower case.", (fun () -> [ Types.IStr ], Types.IStr)
+  ; "char", "to_upper", "The character in upper case.", (fun () -> [ Types.IChr ], Types.IChr)
+  ; "char", "to_lower", "The character in lower case.", (fun () -> [ Types.IChr ], Types.IChr)
+  ; ( "int"
+    , "to_float"
+    , "The integer as a float. Exact up to the float's precision."
+    , fun () -> [ Types.IInt ], Types.IFloat )
+  ; ( "float"
+    , "to_int"
+    , "The float truncated towards zero."
+    , fun () -> [ Types.IFloat ], Types.IInt )
   ]
 
 (* No HM type describes these. A call is checked structurally; a bare reference
@@ -24,24 +44,42 @@ let variadic : (string * (unit -> Types.infer_ty)) list =
 (* Which test a `cx test` process is for. Only that runner defines it. *)
 let selected_test = Ast.generated [ "test"; "selected" ]
 
-let functions : (string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
-  [ "clock", (fun () -> [], Types.IFloat)
-  ; selected_test, (fun () -> [], Types.IInt)
-  ; ("print", fun () -> [ Types.fresh () ], Types.IUnit)
-  ; ("str", fun () -> [ Types.fresh () ], Types.IStr)
-  ; ("ord", fun () -> [ Types.IChr ], Types.IInt)
-  ; ("chr", fun () -> [ Types.IInt ], Types.IChr)
-  ; ("__parse_int", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IInt ])
-  ; ("__parse_float", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IFloat ])
-  ; ("panic", fun () -> [ Types.IStr ], Types.IUnit)
+let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
+  [ ( "clock"
+    , "Seconds of processor time used so far. For measuring a duration, not for \
+       telling the time."
+    , fun () -> [], Types.IFloat )
+  ; selected_test, "", (fun () -> [], Types.IInt)
+  ; ("print", "Writes a value and a newline to standard output.", fun () -> [ Types.fresh () ], Types.IUnit)
+  ; ( "str"
+    , "The value's written form -- the same one `print` writes."
+    , fun () -> [ Types.fresh () ], Types.IStr )
+  ; "ord", "The character's Unicode code point.", (fun () -> [ Types.IChr ], Types.IInt)
+  ; ( "chr"
+    , "The character at a Unicode code point. Panics if there is none."
+    , fun () -> [ Types.IInt ], Types.IChr )
+  ; ("__parse_int", "", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IInt ])
+  ; ("__parse_float", "", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IFloat ])
+  ; ( "panic"
+    , "Stops the program with a message. Nothing after the call runs, and no \
+       handler resumes it."
+    , fun () -> [ Types.IStr ], Types.IUnit )
   ; ( "same"
+    , "Whether the two are the same value rather than equal ones -- identity, \
+       not `==`."
     , fun () ->
         let t = Types.fresh () in
         [ t; t ], Types.IBool )
   (* What a derived `Eq` reaches, through an impl so a type has to ask. *)
-  ; "readfile", (fun () -> [ Types.IStr ], Types.IStr)
-  ; "writefile", (fun () -> [ Types.IStr; Types.IStr ], Types.IUnit)
+  ; ( "readfile"
+    , "The contents of a file. A relative path is relative to the file that \
+       wrote the call, as an import is."
+    , fun () -> [ Types.IStr ], Types.IStr )
+  ; ( "writefile"
+    , "Writes the contents to a path, replacing whatever was there."
+    , fun () -> [ Types.IStr; Types.IStr ], Types.IUnit )
   ; ( "__structural_eq"
+    , ""
     , fun () ->
         let t = Types.fresh () in
         [ t; t ], Types.IBool )

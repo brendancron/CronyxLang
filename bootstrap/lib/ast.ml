@@ -114,6 +114,22 @@ type op_kind =
   (* Never resumes, so each call site may read its result as what it needs. *)
   | Op_final
 
+(* Metadata a deriver reads off a member, and nothing else in the language
+   looks at. It is inert everywhere: no pass changes behaviour on one, and
+   [cps_stmt_kind] does not include [type_defs], so nothing an attribute is
+   attached to survives into the program the interpreter runs. *)
+type attr_arg =
+  | A_str of string
+  | A_int of int
+  | A_float of float
+  | A_bool of bool
+
+type attr =
+  { a_name : string
+  ; a_args : attr_arg list
+  ; a_span : span
+  }
+
 type op_decl =
   { op_name : string
   ; op_kind : op_kind
@@ -123,6 +139,9 @@ type op_decl =
   ; op_tparams : string list
   ; op_params : param list
   ; op_ret : type_expr option
+  (* An operation is a member of its effect, as a field is of a type, so it
+     carries what was written above it. A doc comment rides here. *)
+  ; op_attrs : attr list
   }
 
 type 's handler =
@@ -203,22 +222,6 @@ type 'e nominal =
   | `New_variant of string * string * 'e payload
   ]
 
-(* Metadata a deriver reads off a member, and nothing else in the language
-   looks at. It is inert everywhere: no pass changes behaviour on one, and
-   [cps_stmt_kind] does not include [type_defs], so nothing an attribute is
-   attached to survives into the program the interpreter runs. *)
-type attr_arg =
-  | A_str of string
-  | A_int of int
-  | A_float of float
-  | A_bool of bool
-
-type attr =
-  { a_name : string
-  ; a_args : attr_arg list
-  ; a_span : span
-  }
-
 type field =
   { f_name : string
   ; f_ty : type_expr
@@ -257,11 +260,18 @@ type method_sig =
   ; ms_attrs : attr list
   }
 
+(* `type Item;` in a trait: a name the implementer has to bind, which carries
+   what was written above it like any other member. *)
+type assoc_decl =
+  { ad_name : string
+  ; ad_attrs : attr list
+  }
+
 (* [tb_super] is a bound on `Self`, and a bound on this trait reaches their
    methods. *)
 type trait_body =
   { tb_super : (string * type_expr list) list
-  ; tb_assoc : string list
+  ; tb_assoc : assoc_decl list
   ; tb_methods : method_sig list
   }
 
@@ -275,10 +285,27 @@ type ('s, 'ann) method_def =
   ; md_attrs : attr list
   }
 
+(* `type Item = int;` in an impl: the binding the trait asked for. *)
+type assoc_def =
+  { as_name : string
+  ; as_ty : type_expr
+  ; as_attrs : attr list
+  }
+
 type ('s, 'ann) impl_body =
-  { ib_assoc : (string * type_expr) list
+  { ib_assoc : assoc_def list
   ; ib_methods : ('s, 'ann) method_def list
   }
+
+(* What the checker asks of a binding list, which is what `List.assoc` was doing
+   before the name carried anything besides itself. *)
+let assoc_names (list : assoc_decl list) = List.map (fun a -> a.ad_name) list
+
+let assoc_bound (list : assoc_def list) name =
+  List.find_map (fun a -> if String.equal a.as_name name then Some a.as_ty else None) list
+
+let assoc_binds (list : assoc_def list) name =
+  List.exists (fun a -> String.equal a.as_name name) list
 
 type ('s, 'ann) method_defs =
   [ `Trait_decl of string * string list * trait_body

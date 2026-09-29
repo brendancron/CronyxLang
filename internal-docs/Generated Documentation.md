@@ -11,7 +11,9 @@ One rule shapes everything below: **a reference documents what is declared, not 
 `Artifact.t` already carries the API surface:
 
 ```ocaml
-type unit_interface = { namespace : string; exports : string list }
+type unit_interface = { namespace : string; path : string option
+                      ; doc : string option; exports : string list
+                      ; operations : string list }
 type t = { compiler : string; package : string; units : unit_interface list
          ; program : Ast.program; inputs : input list; fingerprint : string }
 ```
@@ -66,22 +68,29 @@ One JSON document per invocation. `cx docs --json` writes it; every renderer rea
 
 ```json
 {
-  "format": 1,
-  "compiler": "0.0.16",
+  "format": 3,
+  "compiler": "0.0.17",
   "root": "geom",
   "packages": [
     {
       "name": "geom",
       "version": "0.1.0",
       "units": [
-        { "namespace": "geom", "doc": null, "entries": [ "…" ] }
+        { "namespace": "shapes", "path": "src/shapes.cx",
+          "doc": "Shapes, and what they are made of.", "entries": [ "…" ] }
       ]
     }
   ]
 }
 ```
 
-`version` comes from resolution rather than from the artifact, which does not carry one. `format` is an integer that rises when a reader would break, so a renderer can refuse a document it predates.
+**A unit is a file, not a name.** `path` is where it was written, relative to the root of the package that owns it, and units are ordered and grouped by it. Two units may share a namespace — the library has a `core/Array.cx` and a `collections/Array.cx`, both of which `Loader.namespace_of` calls `Array` — so a document keyed by namespace would merge their declarations and report the module twice. The path is also what a renderer groups a tree by, and what a source link is resolved against; it is relative because nothing in the document may hold a path from the building machine.
+
+A unit the artifact *embeds* rather than owns has `path: null` — a dependency's layout is its own package's business — and that is also the filter that keeps another package's declarations out of this one's reference.
+
+`doc` is the unit's own prose: the doc comment at the top of its file.
+
+`version` comes from resolution rather than from the artifact, which does not carry one. `format` is an integer that rises when a reader would break, so a renderer can refuse a document it predates. It is **3**. Two moved it: a unit gained `path`, an entry gained `line`, a `<>` parameter's `form` gained `bound`, a trait gained `impls`, and the object in an effect row calls its label `name` rather than `effect` like every other reference in the document. Three made a trait's `assoc` a list of objects rather than of names, so that an associated type can carry its own `doc` and `attrs` as an operation now does.
 
 ### A name is three things
 
@@ -93,7 +102,7 @@ The loader mangles a declaration to `Ast.generated [package; namespace; name]`, 
 
 `id` is unique across the whole graph and is what every cross-reference points at. `name` is what a page is titled with.
 
-*To confirm while building:* `Loader.renamed` leaves the **entry** unit's names unmangled, so a root package documented as an entry rather than as a package would produce bare ids. `cx docs` should go through `Build.package` for exactly that reason, and a fixture should pin it.
+**Where a declaration lives is the span's question, not the name's.** The mangled name says what to call a declaration and nothing about where it was written: an `impl` carries the name of the type it is *for*, so `impl Add for int` mangles under `int` and splitting it places the impl nowhere — which silently dropped every impl for a primitive from the whole document, and with it the only way to find out that `int` adds. A declaration is therefore placed by matching its span's path against the units' paths, longest suffix first, and the mangled name is used only to recover the `name`. A name that does not split — an impl's, or an entry unit's, which `Loader.renamed` leaves plain — is the name as written.
 
 ### A type reference is structured
 
@@ -127,15 +136,18 @@ Every entry shares a head, and the rest is by kind:
 
 **Everything is in the index, exported or not.** `exported` is membership in the unit's `exports` — the nearest thing Cronyx has to visibility, since there is no export marker and nothing is private. An impl is the one exception: it has no name to export and is reached through its type. The default rendering shows only what is true, so `cx docs --private` costs one boolean now and a re-cut schema later.
 
+Every entry also carries `line`, the line its declaration begins on, or `null` for one the compiler invented. With the unit's `path` that is a source link, and it is split that way rather than repeated per entry because a unit is one file.
+
 | Kind | Carries |
 |------|---------|
 | `fn` | `static`, `params`, `ret`, `row` |
 | `type` | `generics`, `body`, `impls` |
-| `trait` | `generics`, `supers`, `assoc`, `methods` |
+| `trait` | `generics`, `supers`, `assoc`, `methods`, `impls` |
 | `impl` | `trait`, `for`, `generics`, `assoc`, `methods` |
 | `effect` | `generics`, `ops` |
 | `handler` | `handles`, `arms` |
 | `var` | `type` |
+| `builtin` | as `fn`, for a native with no declaration behind it |
 
 A `type`'s `body` is `{"form": "fields", …}` or `{"form": "variants", …}`, and each field and variant carries its own `doc` and `attrs` — which is the whole reason members got them.
 
@@ -147,14 +159,17 @@ A **method** is one shape whether it came from a trait's `method_sig` or an impl
 
 ```json
 "static": [ { "name": "T", "form": "type", "pack": false },
+            { "name": "K", "form": "bound", "type": { "kind": "name", "name": "Hash", "ref": "std#ops#Hash#Hash" } },
             { "name": "n", "form": "value", "type": { "kind": "name", "name": "int" } } ]
 ```
 
-`form` is `value` exactly when the parameter was written with a type — `Ast.static_param.sp_ty` on a function, `Ast.type_param.tp_ty` on a type. That is the bit that makes a declaration a template rather than a generic, so the renderer can label it without inferring anything.
+`form` is one of three, and the *written* type does not say which: `<T: Hash>` is a generic the checker constrains and `<n: int>` is a value a copy is made for, and both are a name with a type expression after it. What separates them is whether the head of that type names a trait — the same question `Metaprocess.is_value` asks of the trait table, and the reason the index carries the kind of every declaration and not only its display name. Calling a bound a value, which is what one boolean got you, told a reader that `find<K: Hash, V>` was a template.
 
 ### An impl is its own entry
 
 An impl is a declaration in its own right, it can be written in a different package from the type it is for, and pre-joining its methods onto the type would make the index decide which of several impls owns a name. So impls are entries, and a `type` carries `impls: [ids]` so the renderer joins by id rather than scanning.
+
+**A trait carries the same list.** Not a convenience: `impl Add for int` has no type page to be listed on, because `int` is a builtin and has no declaration, so the trait is the only place an impl for a primitive can be found. Every operator trait's implementers are in that list and nowhere else.
 
 An impl has no written name, so its id is built:
 
@@ -166,7 +181,7 @@ the type's id, `#impl#`, the trait's id, and the trait's written arguments. The 
 
 ### Ordering
 
-Entries are sorted by `name` within a unit, units by `namespace`, packages by `name`, with the root package first. Sorted rather than in source order because a reference is read by looking a name up, and because a sort is a property of the document rather than of the walk that built it. Nothing in the document holds a path from the building machine.
+Entries are sorted by `name` within a unit, units by `path`, packages by `name`, with the root package first. Sorted rather than in source order because a reference is read by looking a name up, and because a sort is a property of the document rather than of the walk that built it. Nothing in the document holds a path from the building machine.
 
 ### Worked
 
@@ -242,17 +257,63 @@ fn origin(): Point { return Point { x: 0, y: 0 }; }
 
 Four things to read off it. `self` has no written type, so its `type` is null rather than invented — the index reports what was written, and inferring here would be the checker's job done twice and done worse. The trait's method carries the doc and the impl's does not, which is the common case and the renderer's cue to fall back to the trait's prose. `origin`'s return links to `Point` while `int` and `string` do not, because a builtin has no declaration to link to. And the impl sorts under `Show for Point`, the name it is written and titled with, which puts it after the trait rather than beside the type — `Point.impls` is what keeps the two connected, not their position in the list.
 
+## A module's prose is the top of its file
+
+A doc comment needs a declaration to attach to, and a module has none — which left the reference able to say what every declaration was and nothing about what a module was *for*, the half of a reference a reader starts from.
+
+A `/** … */` at the top of a file, with a blank line under it, is therefore the unit's doc. A blank line, because the alternative is a fourth comment form: Rust and Zig both spell a module doc differently from a declaration doc (`//!` against `///`) precisely because position alone is ambiguous at exactly this spot, and a separating line is the smaller change. `Scanner` is where the whitespace still exists to be read — by the time the parser holds the token it is gone — so `Token.Doc` carries the text *and* whether a blank line follows, and `Parser.parse_unit` takes such a token as the unit's doc when it is the first thing in the file. Everywhere else a blank line means nothing and the comment attaches to the declaration below it, so the only cost of writing one is the line between them.
+
+It retracts part of a diagnostic: `doc_not_a_declaration` exists to reject a doc comment attached to nothing, and this makes one position legal. The fixture stays for every other position, and `tests/core/syntax/module_doc` and `tests/meta/attributes/module_doc` cover the legal one from both sides — the second by asking `typeof(T).doc` and getting nothing, which is what says the prose did not land on the type.
+
+**Printing cannot misplace it**, which was the worry. A module doc never becomes an attribute and never enters the AST, so `Source.program` has nothing to print and nothing to put in the wrong place; what it costs is that `--dump-code` does not show it, the same way it shows no other thing that is not a declaration.
+
+## The natives are documented from a table
+
+`print`, `str`, `panic`, `readfile` and the methods on the primitives are OCaml in `builtins.ml`: a thunk producing their type, and an implementation. There is no AST node, so there is nothing to carry a doc comment — and they are the most-used names in the language, so a reference without them has a hole in the middle of it.
+
+Each entry carries its prose beside its thunk, and `Docs` emits it as an entry of kind `builtin` in a synthetic unit of the `std` package. The printed signature is built *from the thunk's types* rather than from a second written form, so only the prose is written once rather than the signature twice. Ids are synthesised — `builtin#print`, `builtin#string#bytes` — because nothing mangles a name that is never declared, and without one no signature could link to it.
+
+An empty doc is what says a name is the compiler's own business, which is how `__parse_int`, `__structural_eq` and the generated `meta#…` names stay out.
+
+Rejected: a body-less `@native fn` in `stdlib/core`. It would put the signature and its prose in Cronyx and delete the thunks, but it needs an attribute, an exemption from mangling — `Typecheck.declare_builtins` binds a native under its bare name, so a declaration inside a module would be looked up as `std#core#print` and not found — and a checker path that reads a written signature where it reads a thunk today.
+
 ## Rendering is static
 
 Zig serves its reference from a WASM binary that walks serialized compiler data, which buys incremental search over a very large standard library. Cronyx's is small and the index is cheap to emit, so `cx docs` writes static HTML into `target/doc/` and opens it. No server in the first version, no WASM, no JavaScript that has to agree with the compiler about anything.
 
 `target/doc/` and not a checked-in directory: generated output is a build product, and `cx new` already puts `target/` in `.gitignore`. The library has no `target/` of its own, so `cx docs std` writes to `~/.cronyx/doc/std` — it belongs to the toolchain rather than to whichever project you happened to be standing in.
 
+**A page is a unit's path**, not its namespace: `std/collections/HashMap.html` beside `std/core/Array.html`, which is what keeps two units of one name from being one page. A cross-reference is therefore a relative path of the right depth and a fragment, and the index page groups the units by the directories they sit in. A package's modules are all under `src/`, which is the one segment a consumer never writes, so it comes off the page path and off the import line.
+
+**There is one script, and it does not fetch.** The pages carry a search box over the same index they were rendered from — a reference is searched more than it is browsed, and thirty-odd modules is the last moment at which that is not true. It cannot be `fetch('index.json')`: a `file://` page asking for a sibling file is a cross-origin request and every browser refuses it, so the search would be dead in exactly the case `cx docs` opens. A `<script>` is under no such rule, so the rows are also written as `search-index.js`, an assignment to a global. `index.json` is written beside the pages all the same, for the consumers that are not a browser reading a local file — which is the seam [The model is the interface](#the-model-is-the-interface) is about.
+
 ## The standard library is not a package
 
 `import "std/…"` resolves through the toolchain rather than the filesystem, and `stdlib` is not compiled to an artifact ([Package Manager Plan.md](Package%20Manager%20Plan.md), milestone 3). `Toolchain.up_from` and `Toolchain.beside_binary` locate the directory, so `cx docs std` is the same walk over a different loader root, reading source rather than an artifact until `std` is compiled like any other package.
 
 That also means `cx docs` must work outside a package. Standing nowhere in particular and asking for the library is the common case — it is most of what `zig std` is for — so the command cannot begin by demanding a `cronyx.toml`.
+
+### The prelude is `stdlib/core`
+
+The declarations every program has before it imports anything — `Option`, `Ordering`, `Range`, `List`, `Set`, `Map`, `impl Array<T>`, `impl string`, the operator traits, the reflection types, `Assertion` and `assert` — were 570 lines of Cronyx inside a string literal in `lib/prelude.ml`. They are now `stdlib/core/*.cx`, which is what makes them documentable at all: a file has a path, a module doc, and a place in the tree, and `cx docs std` walks every file the library ships.
+
+They are still not imported, and that is not an oversight. Sort the declarations by what names them:
+
+- **The compiler names about twenty by string.** `TypeShape` and `Name` (`types.ml`), the reflection types `Reflect` builds, `Add` `Sub` `Mul` `Div` `Rem` `Neg` for the operators, `Eq` (and its deriver), `PartialOrd` with `partial_cmp`, `Index`, `IndexSet`, `FromArray` with `from_array`, `Option` and `Ordering` because `Resolve` builds `Option<Ordering>` as what `partial_cmp` answers, `Range` because `Parser` desugars `a[1:]` into its variants, the `__is_*` family emitted for `< <= > >=`, and `Assertion`, whose handler `cx test` synthesises.
+- **The syntax names the rest.** `List`, `Set` and `Map` with their `FromArray` impls, for the collection literals; `Index<int>` and `IndexSet<int>` for a list; the `Index<Range>` impls for slicing.
+- **Only a caller names the methods** — `impl List<T>`, `impl string` and the others.
+
+Only the third group could live behind an import, and it is where `xs.push(v)` and `"a,b".split(',')` are; `Loader` loads only what something imports, so an impl in an unimported module is not in the linked program at all and the method does not resolve. A name the language itself produces cannot wait for an import, so `lib/prelude.ml` reads the files and hands the declarations to `Precheck` and `Metaprocess` as before, with their names plain.
+
+Each file scans under `<core>/List.cx` rather than under its path on disk: a span is rendered relative to the entry, so a real path would put the building machine's layout in a diagnostic. `Prelude.owns` is the test that replaces comparing against one `<prelude>`, and the checker asks it for one thing only — a program declaring a type or a trait that core also declares gets its own.
+
+The reference documents core like any other directory, with one addition: `Docs.known_of` registers a core declaration under its **plain** name as well as its mangled id, because the plain name is what every other module's signatures carry and without the alias `List<T>` in one of them is grey text rather than a link.
+
+**What it cost.** `Toolchain.stdlib ()` must now succeed for every compile rather than only for an `import "std/…"`, and a declaration the compiler names by string became a mismatch found when the compiler looks for it rather than one the language cannot express.
+
+**What it found.** `Metaprocess` registered a trait in its trait table by matching `Trait_decl` directly, so a trait wrapped in `Attributed` — which is what a doc comment makes — was invisible to it. Every bound naming such a trait was then read as a static *value* parameter and the walk demanded arguments nobody had written. Nothing showed it while the prelude carried no doc comments; documenting the operator traits broke four fixtures at once. `tests/core/traits/documented_bound` is the case.
+
+`stdlib/ops/` also held an `Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`, `Inc`, `Dec` and the `*Assign` traits — declared against the wrong arity (`trait Add { fn add(self, other); }` beside core's `trait Add<Rhs> { type Output; … }`), imported by nothing, and what the reference showed in place of the real operator traits. They are deleted. `Hash`, `To` and `TryTo` are imported and stay.
 
 ## Build order
 
@@ -328,18 +389,33 @@ The doc comment gets paragraphs, bullets, fenced blocks and inline code — not 
 
 `run_stdlib_parses` now scans and parses every file the library ships, named by a fixture or not. Parsing is the right depth: `stdlib/ops/` legitimately fails to *check* standalone, because those modules name builtins that exist only in a linked program, and a reference reads surface syntax rather than types.
 
+### 6. What an audit of the rendered library found — built
+
+The reference existed and was thin: no generics on a trait, an impl or an effect, no associated types, no supertrait arguments, no implementers, an effect row that printed as `<>`, every impl for a primitive missing outright, one flat alphabet of thirty-four modules, and almost no prose because the library had none to show.
+
+- The renderer prints every `<>` parameter list the index carries, the associated types on both sides of a trait, a supertrait's arguments, and the row where it is written — `-> <E> bool`, as `Source` prints it. *(`cx/test/library`, whose `Ops.cx` carries a parameterised trait, a supertrait at arguments, two impls for primitives, a bound naming a trait at arguments, a template, a parameterised effect and a handler.)*
+- A page groups its entries by kind and names the import that reaches the unit; an impl's title carries the trait's arguments, so `Index<int>` and `Index<Range>` are two entries rather than one heading twice.
+- Every impl is reachable: through its type where there is one, and through its trait where there is not. The library's own pages are crawled for this, not only a package's — a primitive's impls appear nowhere else. *(`run_library_case`, which now renders and crawls.)*
+- The library has prose: a module doc on every module, and doc comments over the core surface, the collections, the string functions, the effects and the conversions.
+
 ## Open
 
 **Whether a line doc comment is worth having.** `/** … */` is the only doc form. A block comment is a poor fit for a one-line doc on twenty consecutive fields, and it reflows when a line is added, which diffs badly. `///` is currently an ordinary line comment, so adding it later costs nothing and breaks nothing.
 
-**Whether the index is keyed for search.** A reference is searched more than it is browsed, and a flat list of entries makes the renderer build its own search structure. Deferred rather than decided: what a search index should hold depends on what the renderer's search does, and nothing has one yet.
-
-**Where prose about a *unit* goes.** A module-level doc has no declaration to hang on. A `/** … */` at the top of a file with nothing after it is the usual answer, and it is a deliberate carve-out rather than an accident: that shape is exactly what milestone 1 made a diagnostic.
+**Nothing documents what a `gen` produced.** Unchanged, and still the part most likely to feel wrong in use — see [What a template documents](#what-a-template-documents).
 
 ## Settled
 
 **Documentation does not run.** No doctest, and no example extracted from a doc comment and compiled. `cx test` runs `@test` functions ([Testing.md](Testing.md)); an example that must stay true belongs there, and making prose executable buys a second test runner with worse diagnostics.
 
-**Where a doc comment may be written.** Wherever an attribute may be: a `fn`, `type`, `trait`, `impl`, `effect`, `handler` or `var`, a field, a variant, and a method of either a trait or an impl. A parameter is not a declaration and carries none — describing parameters in the prose, as Rust does, is cheaper than inventing a fifth attachment point for a name a signature already gives.
+**Search is a script over the index.** What it holds is a name, a kind, the unit it is in and its anchor — a name is what a reference is searched by, and the whole of every doc comment would be the pages again in one file. See [Rendering is static](#rendering-is-static) for why it is a `<script>` and not a `fetch`.
+
+**Where prose about a *unit* goes.** The leading doc comment of its file, separated by a blank line — see [A module's prose is the top of its file](#a-modules-prose-is-the-top-of-its-file).
+
+**Where a doc comment may be written.** Wherever an attribute may be, with no exceptions: a `fn`, `type`, `trait`, `impl`, `effect`, `handler` or `var`, a field, a variant, a method of either a trait or an impl, an effect's **operation**, and an **associated type** on either side — `type Item;` in a trait and `type Item = int;` in the impl that binds it.
+
+The last two came late, and what made them awkward was not the parser. An operation and an associated type were the two members carrying nothing but their own name: `Ast.op_decl` had no attribute field, `trait_body.tb_assoc` was a `string list` and `impl_body.ib_assoc` was an association list the checker read with `List.assoc`. Both are records now — `assoc_decl` and `assoc_def` — with `Ast.assoc_names`, `assoc_bound` and `assoc_binds` for what the checker was doing by hand, which is why the change reaches `Typecheck` in eight places and means nothing at any of them. The parser reads `attributes` *before* it dispatches on `type` against `fn`, since a doc comment and an `@` both come before either word.
+
+A parameter still carries none: it is not a declaration, and describing parameters in the prose, as Rust does, is cheaper than inventing an attachment point for a name a signature already gives. A parameter is not a declaration and carries none — describing parameters in the prose, as Rust does, is cheaper than inventing a fifth attachment point for a name a signature already gives.
 
 **The compiler does not render.** `bootstrap` records doc text and emits it in the artifact. Markdown, HTML and the browser are `cx`'s, which keeps the language definition free of a document format.

@@ -477,18 +477,13 @@ let split_fragment href =
   | Some at ->
     String.sub href 0 at, String.sub href (at + 1) (String.length href - at - 1)
 
-let run_render_case dir name =
-  let root = Filename.concat dir name in
-  clean dir;
-  match Cx.Docs.render root with
-  | Error errors ->
-    Printf.printf "FAIL render/%s\n  %s\n" name (diagnostics ~root:dir root errors);
-    false
-  | Ok _ ->
-    let out = Cx.Docs.directory root in
-    let broken = ref [] in
-    let note message = broken := message :: !broken in
-    List.iter
+(* Every link reaches a page and an anchor that is in it, and every entry the
+   index holds has somewhere to be. Shared, because the library's pages are
+   where an impl for a primitive lands and those have no type page to be on. *)
+let crawled ~label ~out ~index =
+  let broken = ref [] in
+  let note message = broken := message :: !broken in
+  List.iter
       (fun page ->
         let text = read_file page in
         List.iter
@@ -503,37 +498,62 @@ let run_render_case dir name =
                     && not (contains ~needle:(Printf.sprintf "id=\"%s\"" fragment) (read_file target))
             then note (Printf.sprintf "%s -> %s (no such anchor)" page href))
           (hrefs text))
-      (html_files out);
-    (* And nothing the index holds is missing a page to be on. *)
+    (html_files out);
+  List.iter
+    (fun package ->
+      let pkg = Cx.Json.text (Cx.Json.field "name" package) in
+      List.iter
+        (fun unit_ ->
+          let page =
+            Filename.concat
+              out
+              (Filename.concat
+                 pkg
+                 (Cx.Site.page_for
+                    ~namespace:(Cx.Json.text (Cx.Json.field "namespace" unit_))
+                    ~path:
+                      (match Cx.Json.field "path" unit_ with
+                       | Cx.Json.String p -> Some p
+                       | _ -> None)
+                  ^ ".html"))
+          in
+          let text = if Sys.file_exists page then read_file page else "" in
+          List.iter
+            (fun entry ->
+              let anchor = Cx.Site.slug (Cx.Json.text (Cx.Json.field "id" entry)) in
+              if not (contains ~needle:(Printf.sprintf "id=\"%s\"" anchor) text)
+              then note (Printf.sprintf "%s is in the index with no page" anchor))
+            (Cx.Json.items (Cx.Json.field "entries" unit_)))
+        (Cx.Json.items (Cx.Json.field "units" package)))
+    (Cx.Json.items (Cx.Json.field "packages" index));
+  match List.rev !broken with
+  | [] ->
+    Printf.printf "ok   %s\n" label;
+    true
+  | broken ->
+    Printf.printf
+      "FAIL %s\n%s\n"
+      label
+      (String.concat "\n" (List.map (fun m -> "  " ^ m) broken));
+    false
+
+let run_render_case dir name =
+  let root = Filename.concat dir name in
+  clean dir;
+  match Cx.Docs.render root with
+  | Error errors ->
+    Printf.printf "FAIL render/%s\n  %s\n" name (diagnostics ~root:dir root errors);
+    false
+  | Ok _ ->
     (match Cx.Docs.of_package root with
-     | Error _ -> note "the index could not be built a second time"
-     | Ok index ->
-       List.iter
-         (fun package ->
-           let pkg = Cx.Json.text (Cx.Json.field "name" package) in
-           List.iter
-             (fun unit_ ->
-               let ns = Cx.Json.text (Cx.Json.field "namespace" unit_) in
-               let page = Filename.concat out (Filename.concat pkg (ns ^ ".html")) in
-               let text = if Sys.file_exists page then read_file page else "" in
-               List.iter
-                 (fun entry ->
-                   let anchor = Cx.Site.slug (Cx.Json.text (Cx.Json.field "id" entry)) in
-                   if not (contains ~needle:(Printf.sprintf "id=\"%s\"" anchor) text)
-                   then note (Printf.sprintf "%s is in the index with no page" anchor))
-                 (Cx.Json.items (Cx.Json.field "entries" unit_)))
-             (Cx.Json.items (Cx.Json.field "units" package)))
-         (Cx.Json.items (Cx.Json.field "packages" index)));
-    (match List.rev !broken with
-     | [] ->
-       Printf.printf "ok   render/%s\n" name;
-       true
-     | broken ->
+     | Error errors ->
        Printf.printf
-         "FAIL render/%s\n%s\n"
+         "FAIL render/%s\n  the index could not be built a second time\n  %s\n"
          name
-         (String.concat "\n" (List.map (fun m -> "  " ^ m) broken));
-       false)
+         (diagnostics ~root:dir root errors);
+       false
+     | Ok index ->
+       crawled ~label:("render/" ^ name) ~out:(Cx.Docs.directory root) ~index)
 
 (* `cx docs std` documents the toolchain's library, which is not a package and
    has no entry. `CRONYX_STDLIB` is what points the whole thing somewhere else,
@@ -560,6 +580,16 @@ let run_library_case dir =
              ~from:("\"" ^ Release.version ^ "\"")
              ~into:"\"<version>\""
              (Cx.Json.to_string index))
+      (* The library is where an impl for a primitive is written, and a
+         primitive has no page of its own to carry one -- so it is the library's
+         pages, not a package's, that say whether such an impl is reachable. *)
+      &&
+      (match Cx.Docs.render_stdlib (), Cx.Docs.of_stdlib () with
+       | Error errors, _ | _, Error errors ->
+         Printf.printf "FAIL library/render\n  %s\n" (diagnostics ~root:dir dir errors);
+         false
+       | Ok _, Ok index ->
+         crawled ~label:"library/render" ~out:(Cx.Docs.library_directory ()) ~index)
   in
   restore ();
   outcome
@@ -570,6 +600,48 @@ let run_library_case dir =
 let cx =
   let here = Filename.dirname Sys.executable_name in
   Filename.concat (Filename.concat (Filename.dirname here) "bin") "main.exe"
+
+(* A toolchain whose library has no `core` compiles nothing: every program is
+   compiled with those declarations, so this is what a half-installed toolchain
+   looks like from the inside, and it used to escape as an OCaml exception.
+
+   Spawned rather than called: the prelude is read once per process and kept, so
+   a library swapped under a process that has already compiled something is a
+   library nothing reads again. *)
+let run_missing_core_case ~library ~entry =
+  let read, write = Unix.pipe () in
+  let pid =
+    Unix.create_process_env
+      cx
+      [| cx; "run"; entry |]
+      (* Replacing rather than appending: the suite already has one, and which of
+         two entries a lookup answers with is the C library's business. *)
+      (Array.append
+         (Array.of_list
+            (List.filter
+               (fun entry -> not (String.starts_with ~prefix:"CRONYX_STDLIB=" entry))
+               (Array.to_list (Unix.environment ()))))
+         [| "CRONYX_STDLIB=" ^ library |])
+      Unix.stdin
+      write
+      write
+  in
+  Unix.close write;
+  let said = In_channel.input_all (Unix.in_channel_of_descr read) in
+  Unix.close read;
+  let outcome =
+    match Unix.waitpid [] pid with
+    | _, Unix.WEXITED 0 ->
+      Printf.printf "FAIL missing core\n  it compiled with no `core` in the library\n";
+      false
+    | _ when contains ~needle:"`core`" said ->
+      Printf.printf "ok   missing core\n";
+      true
+    | _ ->
+      Printf.printf "FAIL missing core\n  the diagnostic does not name `core`:\n  %s\n" said;
+      false
+  in
+  outcome
 
 let test_package_case dir name =
   let root = Filename.concat dir name in
@@ -1385,6 +1457,13 @@ let () =
       @ List.map (run_render_case packages_dir) render_packages
       @ [ run_library_case
             (Filename.concat root (Filename.concat "cx" (Filename.concat "test" "library")))
+        ; run_missing_core_case
+            ~library:
+              (Filename.concat root (Filename.concat "cx" (Filename.concat "test" "library")))
+            ~entry:
+              (Filename.concat
+                 root
+                 (Filename.concat "tests" (Filename.concat "core" (Filename.concat "print" "hello.cx"))))
         ]
       @ List.map (bad_package_case packages_dir) bad_packages
       @ List.map (test_package_case packages_dir) test_packages

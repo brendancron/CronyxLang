@@ -1,7 +1,23 @@
-// A conversion that may not be possible. `Option` rather than an effect: there
-// is one way to fail and nothing to say about it, so a handler would only be
-// asked to produce a value the caller already has a branch for.
+/**
+ * Conversion that may not be possible.
+ *
+ * ```
+ * import { TryTo } from "std/ops/TryTo";
+ *
+ * print("42".try_to<int>());     // Option.Some(42)
+ * print("apples".try_to<int>()); // Option.None
+ * ```
+ *
+ * `Option` rather than an effect: there is one way to fail and nothing to say
+ * about it, so a handler would only be asked for a value the caller already has
+ * a branch for.
+ *
+ * See `std/ops/To` for the conversions that always succeed.
+ */
+
+/** Convertible to a `T`, or not. */
 trait TryTo<T> {
+    /** The converted value, or `None` if it does not convert. */
     fn try_to(self): Option<T>;
 }
 

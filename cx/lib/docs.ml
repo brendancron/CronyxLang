@@ -8,7 +8,7 @@
 
 open Bootstrap
 
-let format_version = 1
+let format_version = 3
 
 (* ---- names ---- *)
 
@@ -38,7 +38,52 @@ let split prefixes mangled =
       else None)
     prefixes
 
+(* ---- where a declaration was written ---- *)
+
+(* Which unit a declaration belongs to is the *span's* question, not the
+   mangled name's. An `impl` for a primitive is why: `impl Add for int` is
+   written under some unit and mangles to `int#impl#…`, so locating it by its
+   name would place it nowhere and drop it from the reference entirely.
+
+   A unit records its path relative to the root that owns it, and a span carries
+   the path the loader opened, so the two are matched by suffix -- longest
+   first, so `src/shapes/Round.cx` wins over `Round.cx`. A unit the artifact
+   embeds rather than owns has no path, which is also the filter that keeps
+   another package's declarations out of this package's reference. *)
+let places (units : Artifact.unit_interface list) =
+  List.filter_map
+    (fun (u : Artifact.unit_interface) ->
+      Option.map (fun path -> Ast.slashed path, u.Artifact.namespace) u.Artifact.path)
+    units
+  |> List.sort (fun (a, _) (b, _) -> Int.compare (String.length b) (String.length a))
+
+let place places span =
+  let path = Ast.slashed (Source_map.Span.path span) in
+  List.find_map
+    (fun (unit_path, namespace) ->
+      if String.equal path unit_path || String.ends_with ~suffix:("/" ^ unit_path) path
+      then Some (namespace, unit_path)
+      else None)
+    places
+
+(* A declaration's line, so a renderer can offer its source. Absent for one the
+   compiler invented, which is a case a renderer answers for rather than a
+   missing field it skips. *)
+let line_of span =
+  match Source_map.Span.view span with
+  | Source_map.Span.Located { line; _ } -> Json.Int line
+  | Source_map.Span.Nowhere_in_source -> Json.Null
+
 (* ---- types ---- *)
+
+(* Every declaration in the build, by the name it was mangled to. [display] is
+   what a page titles it; [is_trait] is what tells `<T: Ord>` from `<n: int>`,
+   since both are written as a `<>` parameter with a type and only the trait
+   table separates them. *)
+type known_entry =
+  { display : string
+  ; is_trait : bool
+  }
 
 (* [known] is every declaration in the build, so a name that is in it is a link
    and a name that is not is a builtin or a parameter. [params] separates those
@@ -46,7 +91,7 @@ let split prefixes mangled =
 let rec type_expr ~known ~params (t : Ast.type_expr) : Json.t =
   let of_name name =
     match Hashtbl.find_opt known name with
-    | Some display -> [ "name", Json.String display; "ref", Json.String name ]
+    | Some { display; _ } -> [ "name", Json.String display; "ref", Json.String name ]
     | None ->
       [ "name", Json.String name
       ; "ref", Json.Null
@@ -90,11 +135,11 @@ let rec type_expr ~known ~params (t : Ast.type_expr) : Json.t =
 and effect_ref ~known ~params (name, args) =
   let display =
     match Hashtbl.find_opt known name with
-    | Some display -> display
+    | Some { display; _ } -> display
     | None -> name
   in
   Json.Obj
-    [ "effect", Json.String display
+    [ "name", Json.String display
     ; "ref", (if Hashtbl.mem known name then Json.String name else Json.Null)
     ; "args", Json.List (List.map (type_expr ~known ~params) args)
     ]
@@ -107,13 +152,25 @@ let row_of ~known ~params = function
 
 (* ---- parameters ---- *)
 
-(* A `<>` parameter written with a type is a value the declaration is
-   instantiated at -- what makes it a template rather than a generic -- so the
-   index says which it is instead of leaving a renderer to infer it. *)
+(* `<T>`, `<T: Ord>` and `<n: int>` are one syntax and three different things: a
+   generic, a generic with a bound, and a *value* the declaration is instantiated
+   at -- which is what makes it a template rather than a generic. The written
+   type does not say which, since a bound and a value type are both a type
+   expression; only whether its head names a trait does, which is the same
+   question `Metaprocess.is_value` asks. *)
+let form_of ~known ty =
+  match ty with
+  | None -> "type"
+  | Some { Ast.it = Ast.Ty_name name; _ } | Some { Ast.it = Ast.Ty_app (name, _); _ } ->
+    (match Hashtbl.find_opt known name with
+     | Some { is_trait = true; _ } -> "bound"
+     | _ -> "value")
+  | Some _ -> "value"
+
 let parameter ~known ~params ~name ~ty ~pack =
   Json.Obj
     [ "name", Json.String name
-    ; "form", Json.String (match ty with None -> "type" | Some _ -> "value")
+    ; "form", Json.String (form_of ~known ty)
     ; "type", Json.opt (type_expr ~known ~params) ty
     ; "pack", Json.Bool pack
     ]
@@ -275,16 +332,24 @@ let body_of ~known ~params (body : Ast.type_body) =
 type entry =
   { name : string (* what the entry is titled and sorted by *)
   ; id : string
+  (* The file it was written in, which is what a unit is. Two units may share a
+     namespace -- the library has a `core/Array.cx` and a
+     `collections/Array.cx` -- so grouping by name would put both on one page and
+     report the same module twice. *)
   ; unit_ : string
   ; kind : string
   (* The type an impl is for, so a type can list the impls that name it. *)
   ; impl_for : string option
+  (* And the trait it implements, so a trait can list its implementers -- which
+     is the only way to find the impls for a primitive, since `int` has no page
+     to carry them. *)
+  ; impl_of : string option
   ; json : Json.t
   }
 
 let display known name =
   match Hashtbl.find_opt known name with
-  | Some display -> display
+  | Some { display; _ } -> display
   | None -> name
 
 (* A trait written at arguments, in a supertrait bound or an impl head. *)
@@ -319,39 +384,55 @@ let impl_id ~target ~trait =
 let reachable ~kind ~exports name =
   String.equal kind "impl" || List.mem name exports
 
-let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry list =
+let rec declaration ~known ~places ~prefixes ~package ~exports (s : Ast.stmt) : entry list =
   let attrs, inner =
     match s.Ast.it with
     | `Attributed (list, inner) -> list, inner
     | _ -> [], s
   in
   let head ~unit_ ~id ~name ~kind rest =
+    let namespace =
+      match List.assoc_opt unit_ (List.map (fun (path, ns) -> path, ns) places) with
+      | Some ns -> ns
+      | None -> unit_
+    in
     Json.Obj
       ([ "id", Json.String id
        ; "package", Json.String package
-       ; "unit", Json.String unit_
+       ; "unit", Json.String namespace
        ; "name", Json.String name
        ; "kind", Json.String kind
-       ; "exported", Json.Bool (reachable ~kind ~exports:(Option.value (exports unit_) ~default:[]) name)
+       ; "line", line_of s.Ast.span
+       ; "exported", Json.Bool (reachable ~kind ~exports:(Option.value (exports namespace) ~default:[]) name)
        ; "doc", doc_of attrs
        ; "attrs", attrs_of attrs
        ]
        @ rest)
   in
-  (* Where a declaration belongs, and whether it belongs here at all. A name
-     that names no unit of this package came from somewhere else -- the standard
+  (* Where a declaration belongs, and whether it belongs here at all. A span
+     under no unit of this package came from somewhere else -- the standard
      library, which every package embeds until it is compiled like any other --
-     and `cx docs std` is what documents that. *)
+     and `cx docs std` is what documents that.
+
+     The mangled name says what to call it and nothing about where it lives: an
+     `impl` carries the name of the type it is for, and a file run as its own
+     entry keeps the names it wrote. Neither splits, and both are documented. *)
   let located mangled k =
-    match split prefixes mangled with
-    | Some (unit_, name) -> k ~unit_ ~name
+    match place places s.Ast.span with
     | None -> []
+    | Some (_, file) ->
+      let name =
+        match split prefixes mangled with
+        | Some (_, name) -> name
+        | None -> mangled
+      in
+      k ~unit_:file ~name
   in
   match inner.Ast.it with
   | `Fn (mangled, ps, sg, _) ->
     located mangled (fun ~unit_ ~name ->
       let params = param_names sg in
-      [ { name; kind = "fn"; impl_for = None
+      [ { name; kind = "fn"; impl_for = None; impl_of = None
         ; id = mangled
         ; unit_
         ; json =
@@ -370,7 +451,7 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
   | `Type_decl (mangled, ps, body) ->
     located mangled (fun ~unit_ ~name ->
       let params = type_param_names ps in
-      [ { name; kind = "type"; impl_for = None
+      [ { name; kind = "type"; impl_for = None; impl_of = None
         ; id = mangled
         ; unit_
         ; json =
@@ -387,7 +468,7 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
   (* The type and the functions written inside it, which are an inherent impl
      written in one place rather than two. *)
   | `Type_members (decl, members) ->
-    declaration ~known ~prefixes ~package ~exports { s with Ast.it = decl.Ast.it }
+    declaration ~known ~places ~prefixes ~package ~exports { s with Ast.it = decl.Ast.it }
     @ (match decl.Ast.it with
        | `Type_decl (mangled, ps, _) ->
          located mangled (fun ~unit_ ~name ->
@@ -417,6 +498,7 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
                ; unit_
                ; kind = "impl"
                ; impl_for = Some mangled
+               ; impl_of = None
                ; json =
                    head
                      ~unit_
@@ -440,7 +522,7 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
   | `Trait_decl (mangled, ps, body) ->
     located mangled (fun ~unit_ ~name ->
       let params = ps in
-      [ { name; kind = "trait"; impl_for = None
+      [ { name; kind = "trait"; impl_for = None; impl_of = None
         ; id = mangled
         ; unit_
         ; json =
@@ -452,7 +534,16 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
               [ "generics", Json.List (List.map (fun n -> Json.String n) ps)
               ; "supers", Json.List (List.map (applied ~known ~params) body.Ast.tb_super)
               ; ( "assoc"
-                , Json.List (List.map (fun n -> Json.String n) body.Ast.tb_assoc) )
+                , Json.List
+                    (List.map
+                       (fun (a : Ast.assoc_decl) ->
+                         Json.Obj
+                           [ "name", Json.String a.Ast.ad_name
+                           ; "type", Json.Null
+                           ; "doc", doc_of a.Ast.ad_attrs
+                           ; "attrs", attrs_of a.Ast.ad_attrs
+                           ])
+                       body.Ast.tb_assoc) )
               ; ( "methods"
                 , Json.List (List.map (method_sig ~known ~params) body.Ast.tb_methods) )
               ]
@@ -465,9 +556,21 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
       let name =
         match trait with
         | None -> target_name
-        | Some (t, _) -> display known t ^ " for " ^ target_name
+        (* The arguments are in the title because they are what tells two impls
+           of one trait apart: `Index<int>` and `Index<Range>` for one type are
+           two entries, and both would otherwise be called `Index for List`. *)
+        | Some (t, []) -> display known t ^ " for " ^ target_name
+        | Some (t, args) ->
+          display known t
+          ^ "<"
+          ^ String.concat ", " (List.map Source.type_expr args)
+          ^ "> for "
+          ^ target_name
       in
-      [ { name; kind = "impl"; impl_for = Some target
+      [ { name
+        ; kind = "impl"
+        ; impl_for = (if Hashtbl.mem known target then Some target else None)
+        ; impl_of = Option.map fst trait
         ; id
         ; unit_
         ; json =
@@ -481,16 +584,18 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
                 , Json.Obj
                     [ "kind", Json.String "name"
                     ; "name", Json.String target_name
-                    ; "ref", Json.String target
+                    ; "ref", (if Hashtbl.mem known target then Json.String target else Json.Null)
                     ] )
               ; "generics", generics_of ~known ~params ps
               ; ( "assoc"
                 , Json.List
                     (List.map
-                       (fun (n, ty) ->
+                       (fun (a : Ast.assoc_def) ->
                          Json.Obj
-                           [ "name", Json.String n
-                           ; "type", type_expr ~known ~params ty
+                           [ "name", Json.String a.Ast.as_name
+                           ; "type", type_expr ~known ~params a.Ast.as_ty
+                           ; "doc", doc_of a.Ast.as_attrs
+                           ; "attrs", attrs_of a.Ast.as_attrs
                            ])
                        body.Ast.ib_assoc) )
               ; ( "methods"
@@ -500,7 +605,7 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
       ])
   | `Effect_decl (mangled, ps, ops) ->
     located mangled (fun ~unit_ ~name ->
-      [ { name; kind = "effect"; impl_for = None
+      [ { name; kind = "effect"; impl_for = None; impl_of = None
         ; id = mangled
         ; unit_
         ; json =
@@ -528,6 +633,8 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
                                  (List.map (fun n -> Json.String n) o.Ast.op_tparams) )
                            ; "params", params_of ~known ~params o.Ast.op_params
                            ; "ret", Json.opt (type_expr ~known ~params) o.Ast.op_ret
+                           ; "doc", doc_of o.Ast.op_attrs
+                           ; "attrs", attrs_of o.Ast.op_attrs
                            ])
                        ops) )
               ]
@@ -535,7 +642,7 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
       ])
   | `Handler_decl (mangled, h) ->
     located mangled (fun ~unit_ ~name ->
-      [ { name; kind = "handler"; impl_for = None
+      [ { name; kind = "handler"; impl_for = None; impl_of = None
         ; id = mangled
         ; unit_
         ; json =
@@ -567,7 +674,7 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
       ])
   | `Var_decl (mangled, ty, _) ->
     located mangled (fun ~unit_ ~name ->
-      [ { name; kind = "var"; impl_for = None
+      [ { name; kind = "var"; impl_for = None; impl_of = None
         ; id = mangled
         ; unit_
         ; json =
@@ -581,10 +688,166 @@ let rec declaration ~known ~prefixes ~package ~exports (s : Ast.stmt) : entry li
       ])
   | _ -> []
 
+(* The library ships inside the toolchain rather than as a package. *)
+let library_name = "std"
+
+(* ---- the natives ---- *)
+
+(* `print`, `str`, `panic` and the handful of methods on the primitives are
+   OCaml: a type-producing thunk and an implementation, with no declaration
+   anywhere. They are the most-used names in the language, so the reference
+   carries them as entries built from the same thunk the checker reads -- which
+   is what keeps the printed signature from being a second written form that
+   could disagree with it. Only the prose is written twice, and only once.
+
+   A native with no prose is the compiler's own business -- `__parse_int`, the
+   `meta#…` names, the index a `cx test` process is for -- and is left out. *)
+let natives_unit = "builtins"
+
+(* The thunks quantify nothing: `print` takes a fresh variable, and `same` takes
+   one variable twice. So a variable is named on first sight and remembered,
+   which is what makes `same(a, b)` read as one type rather than two. *)
+let native_type () =
+  let seen = Hashtbl.create 4 in
+  let letters = [| "T"; "U"; "V"; "W" |] in
+  let named name args =
+    Json.Obj
+      ([ "kind", Json.String (if args = [] then "name" else "app")
+       ; "name", Json.String name
+       ; "ref", Json.Null
+       ; "param", Json.Bool false
+       ]
+       @ if args = [] then [] else [ "args", Json.List args ])
+  in
+  let param name =
+    Json.Obj
+      [ "kind", Json.String "name"
+      ; "name", Json.String name
+      ; "ref", Json.Null
+      ; "param", Json.Bool true
+      ]
+  in
+  let rec go (t : Types.infer_ty) =
+    match t with
+    | Types.IInt -> named "int" []
+    | Types.IFloat -> named "float" []
+    | Types.IStr -> named "string" []
+    | Types.IByte -> named "byte" []
+    | Types.IChr -> named "char" []
+    | Types.IBool -> named "bool" []
+    | Types.IUnit -> named "unit" []
+    | Types.ITuple items ->
+      Json.Obj [ "kind", Json.String "tuple"; "items", Json.List (List.map go items) ]
+    | Types.INamed (name, args) -> named name (List.map go args)
+    | Types.ISum (name, args) -> named name (List.map go args)
+    | Types.IVar { contents = Types.Link inner } -> go inner
+    | Types.IVar { contents = Types.Unbound (id, _) } ->
+      let name =
+        match Hashtbl.find_opt seen id with
+        | Some name -> name
+        | None ->
+          let name =
+            let n = Hashtbl.length seen in
+            if n < Array.length letters then letters.(n) else Printf.sprintf "T%d" n
+          in
+          Hashtbl.replace seen id name;
+          name
+      in
+      param name
+    | _ -> named "?" []
+  in
+  go
+
+(* A native is reached by its bare name, so its id is built rather than
+   mangled: nothing mangles it, and a page still needs an anchor to point at. *)
+let native_id ?owner name =
+  match owner with
+  | None -> "builtin#" ^ name
+  | Some owner -> "builtin#" ^ owner ^ "#" ^ name
+
+let native_entry ?owner ~name ~doc ~params ~ret () =
+  let each = native_type () in
+  let params = List.map each params in
+  let ret = each ret in
+  let id = native_id ?owner name in
+  Json.Obj
+    [ "id", Json.String id
+    ; "package", Json.String library_name
+    ; "unit", Json.String natives_unit
+    ; ( "name"
+      , Json.String (match owner with None -> name | Some owner -> owner ^ "." ^ name) )
+    ; "kind", Json.String "fn"
+    ; "line", Json.Null
+    ; "exported", Json.Bool true
+    ; "doc", Json.String doc
+    ; "attrs", Json.List []
+    ; "static", Json.List []
+    ; ( "params"
+      , Json.List
+          (List.mapi
+             (fun i ty ->
+               (* A native's parameters have no written names, and inventing
+                  `a`, `b`, `c` would put words in the signature that no
+                  diagnostic and no call site ever uses. *)
+               Json.Obj
+                 [ "name", Json.String (match owner, i with Some _, 0 -> "self" | _ -> "")
+                 ; "type", ty
+                 ])
+             params) )
+    ; "ret", ret
+    (* Nobody wrote a row, so there is none to report: a native performs no
+       control effect and `<>` would be a claim the source never made. *)
+    ; "row", Json.Null
+    ]
+
+let natives_json () =
+  let documented = List.filter (fun (_, doc, _) -> not (String.equal doc "")) in
+  let functions =
+    List.map
+      (fun (name, doc, signature) ->
+        let params, ret = signature () in
+        name, native_entry ~name ~doc ~params ~ret ())
+      (documented Builtins.functions)
+  in
+  let methods =
+    List.filter_map
+      (fun (owner, name, doc, signature) ->
+        if String.equal doc ""
+        then None
+        else (
+          let params, ret = signature () in
+          Some (owner ^ "." ^ name, native_entry ~owner ~name ~doc ~params ~ret ())))
+      Builtins.methods
+  in
+  let sorted =
+    List.sort (fun (a, _) (b, _) -> String.compare a b) (functions @ methods)
+  in
+  Json.Obj
+    [ "namespace", Json.String natives_unit
+    ; "path", Json.Null
+    ; ( "doc"
+      , Json.String
+          "What the compiler provides with no declaration behind it. These names \
+           are always in scope and are not imported." )
+    ; "entries", Json.List (List.map snd sorted)
+    ]
+
 (* ---- the index ---- *)
 
 (* Every declaration of every package, so a type reference resolves across a
    package boundary as readily as inside one. *)
+(* Whether the declaration was written in the library's `core`, whose names the
+   compiler and the syntax produce and so cannot wait for an import. *)
+let core ~places (s : Ast.stmt) =
+  match place places s.Ast.span with
+  | Some (_, path) -> String.starts_with ~prefix:"core/" (Ast.slashed path)
+  | None -> false
+
+let is_trait (s : Ast.stmt) =
+  match s.Ast.it with
+  | `Attributed (_, { Ast.it = `Trait_decl _; _ }) | `Trait_decl _ -> true
+  | _ -> false
+
 let known_of (artifacts : Artifact.t list) =
   let known = Hashtbl.create 512 in
   List.iter
@@ -601,40 +864,58 @@ let known_of (artifacts : Artifact.t list) =
           | None -> ()
           | Some mangled ->
             (match split prefixes mangled with
-             | Some (_, name) -> Hashtbl.replace known mangled name
+             | Some (_, name) ->
+               let entry = { display = name; is_trait = is_trait s } in
+               Hashtbl.replace known mangled entry;
+               (* A declaration in `core` is reached by its plain name and is
+                  never imported, so that is the name every other module's
+                  signatures carry -- and the name a reference has to resolve if
+                  `List<T>` in one of them is to be a link rather than grey
+                  text. The mangled id is still what the page is anchored by. *)
+               if core ~places:(places a.Artifact.units) s
+               then Hashtbl.replace known name entry
              | None -> ()))
         a.Artifact.program)
     artifacts;
   known
 
-(* An impl is reached through its type, so a type carries the impls that name it
-   and a renderer joins by id rather than scanning every entry. *)
+(* An impl is reached through its type *and* through its trait, so both carry
+   the impls that name them and a renderer joins by id rather than scanning
+   every entry. The trait's side is not a convenience: `impl Add for int` has no
+   type page to be listed on, because `int` is a builtin and has no declaration,
+   so the trait is the only place it can be found. *)
 let with_impls entries =
-  let table = Hashtbl.create 64 in
-  List.iter
-    (fun e ->
-      match e.impl_for with
-      | None -> ()
-      | Some target ->
-        Hashtbl.replace
-          table
-          target
-          (e.id :: (match Hashtbl.find_opt table target with Some l -> l | None -> [])))
-    entries;
+  let gather key =
+    let table = Hashtbl.create 64 in
+    List.iter
+      (fun e ->
+        match key e with
+        | None -> ()
+        | Some target ->
+          Hashtbl.replace
+            table
+            target
+            (e.id :: (match Hashtbl.find_opt table target with Some l -> l | None -> [])))
+      entries;
+    fun id ->
+      match Hashtbl.find_opt table id with
+      | None -> []
+      | Some ids -> List.sort String.compare ids
+  in
+  let for_type = gather (fun e -> e.impl_for) in
+  let of_trait = gather (fun e -> e.impl_of) in
+  let listing ids = Json.List (List.map (fun i -> Json.String i) ids) in
   List.map
     (fun e ->
       match e.kind, e.json with
       | "type", Json.Obj fields ->
-        let impls =
-          match Hashtbl.find_opt table e.id with
-          | None -> []
-          | Some ids -> List.sort String.compare ids
-        in
-        { e with json = Json.Obj (fields @ [ "impls", Json.List (List.map (fun i -> Json.String i) impls) ]) }
+        { e with json = Json.Obj (fields @ [ "impls", listing (for_type e.id) ]) }
+      | "trait", Json.Obj fields ->
+        { e with json = Json.Obj (fields @ [ "impls", listing (of_trait e.id) ]) }
       | _ -> e)
     entries
 
-let package_json ~known ~version (a : Artifact.t) =
+let package_json ~known ~version ?(extra = []) (a : Artifact.t) =
   let namespaces =
     List.map (fun (u : Artifact.unit_interface) -> u.Artifact.namespace) a.Artifact.units
   in
@@ -645,18 +926,28 @@ let package_json ~known ~version (a : Artifact.t) =
         if String.equal u.Artifact.namespace unit_ then Some u.Artifact.exports else None)
       a.Artifact.units
   in
+  let places = places a.Artifact.units in
+  (* By path, because that is what identifies a unit. *)
+  let doc path =
+    List.find_map
+      (fun (u : Artifact.unit_interface) ->
+        match u.Artifact.path with
+        | Some p when String.equal (Ast.slashed p) path -> u.Artifact.doc
+        | _ -> None)
+      a.Artifact.units
+  in
   let entries =
     with_impls
       (List.concat_map
-         (declaration ~known ~prefixes ~package:a.Artifact.package ~exports)
+         (declaration ~known ~places ~prefixes ~package:a.Artifact.package ~exports)
          a.Artifact.program)
   in
-  let unit_json ns =
-    match List.filter (fun e -> String.equal e.unit_ ns) entries with
+  let unit_json (path, ns) =
+    match List.filter (fun e -> String.equal e.unit_ path) entries with
     (* A unit that documents nothing is left out rather than reported empty.
        Every package embeds whatever of the standard library it imported, and
-       those units are listed beside its own -- but their declarations carry the
-       library's names, not this package's, so they belong to `cx docs std`. *)
+       those units are listed beside its own -- but they are not this package's
+       to document, so they belong to `cx docs std`. *)
     | [] -> None
     | mine ->
       let sorted =
@@ -670,7 +961,11 @@ let package_json ~known ~version (a : Artifact.t) =
       Some
         (Json.Obj
            [ "namespace", Json.String ns
-           ; "doc", Json.Null
+           (* Relative to the package root, so nothing the building machine knows
+              is in the document. A renderer groups by its directories and
+              resolves a source link against whatever base it has. *)
+           ; "path", Json.String (Ast.slashed path)
+           ; "doc", Json.opt (fun d -> Json.String d) (doc path)
            ; "entries", Json.List (List.map (fun e -> e.json) sorted)
            ])
   in
@@ -678,10 +973,20 @@ let package_json ~known ~version (a : Artifact.t) =
     [ "name", Json.String a.Artifact.package
     ; "version", Json.opt (fun v -> Json.String v) version
     ; ( "units"
-      , Json.List (List.filter_map unit_json (List.sort String.compare namespaces)) )
+      , Json.List
+          (extra
+           @ List.filter_map
+               unit_json
+               (* By path, so the order is the tree's and two units of one name
+                  are two units. *)
+               (List.sort (fun (a, _) (b, _) -> String.compare a b) places) ) )
     ]
 
-let index ~root ~versions (artifacts : Artifact.t list) =
+(* [extra] is a unit that belongs to a package without being one of its files:
+   the natives, which `cx docs std` documents because they are the language's
+   rather than any package's. It stands first, as the thing every program has
+   before it imports anything. *)
+let index ~root ~versions ?(extra = fun _ -> []) (artifacts : Artifact.t list) =
   let known = known_of artifacts in
   let ordered =
     List.sort
@@ -703,7 +1008,11 @@ let index ~root ~versions (artifacts : Artifact.t list) =
       , Json.List
           (List.map
              (fun (a : Artifact.t) ->
-               package_json ~known ~version:(versions a.Artifact.package) a)
+               package_json
+                 ~known
+                 ~version:(versions a.Artifact.package)
+                 ~extra:(extra a.Artifact.package)
+                 a)
              ordered) )
     ]
 
@@ -729,8 +1038,6 @@ let of_package ?mode ?note root =
   let* manifest = Build.manifest_of root in
   let* artifacts, _ = Build.package ?mode ?note ~out:(fun _ -> ()) root in
   Ok (index ~root:manifest.Manifest.name ~versions:(versions_of root) artifacts)
-
-let library_name = "std"
 
 (* The library ships inside the toolchain rather than as a package, so there is
    no manifest to read and no artifact to load: its modules are compiled from
@@ -765,6 +1072,8 @@ let of_stdlib () =
          (index
             ~root:library_name
             ~versions:(fun _ -> Some Release.version)
+            ~extra:(fun package ->
+              if String.equal package library_name then [ natives_json () ] else [])
             [ { Artifact.compiler = Release.version
               ; package = library_name
               ; units

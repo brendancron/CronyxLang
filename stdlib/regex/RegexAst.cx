@@ -1,5 +1,11 @@
-// Nodes live in one list and refer to their children by index, so a pattern
-// of any depth costs no recursion to build or to walk.
+/**
+ * The parsed form of a pattern.
+ *
+ * Nodes live in one list and refer to their children by index, so a pattern of
+ * any depth costs no recursion to build or to walk. `std/regex/RegexParser`
+ * builds one and `std/regex/RegexNfa` reads it.
+ */
+
 type RegexNode {
     Literal(int),          // a code point
     Concat(int, int),

@@ -1,3 +1,24 @@
+/**
+ * A map that hashes its keys.
+ *
+ * Open addressing with linear probing, so a lookup is a hash and a short walk
+ * rather than a scan of every entry -- which is what makes this the answer for a
+ * map with more than a handful of keys. The key type must implement
+ * `std/ops/Hash`.
+ *
+ * ```
+ * import { HashMap, new } from "std/collections/HashMap";
+ *
+ * var ages = new<string, int>();
+ * ages.set("ada", 36);
+ * print(ages.get("ada"));        // Option.Some(36)
+ * print(ages.contains("nobody")); // false
+ * ```
+ *
+ * The `Map` in scope without an import is the small-collection answer, and
+ * needs no `Hash`.
+ */
+
 import { Hash } from "../ops/Hash";
 
 // Open addressing with linear probing, over the same slot scheme as HashSet:
@@ -24,6 +45,7 @@ fn filled(capacity: int): List<int> {
     return slots;
 }
 
+/** An empty map. */
 fn new<K, V>(): HashMap<K, V> {
     var keys: List<K> = [];
     var vals: List<V> = [];
@@ -94,22 +116,27 @@ fn probe_insert<K: Hash, V>(
 }
 
 impl HashMap<K, V> {
+    /** How many keys the map holds. */
     fn size(self): int { return self.size; }
 
+    /** Whether the map holds this key. */
     fn contains(self, key: K): bool { return find(self, key) != empty(); }
 
+    /** The key's value, or `None` if the map has no such key. */
     fn get(self, key: K): Option<V> {
         var slot = find(self, key);
         if (slot == empty()) { return Option.None; }
         return Option.Some(self.vals[slot]);
     }
 
+    /** The key's value, or the fallback if the map has no such key. */
     fn get_or(self, key: K, fallback: V): V {
         var slot = find(self, key);
         if (slot == empty()) { return fallback; }
         return self.vals[slot];
     }
 
+    /** Sets the key's value, replacing whatever it had, growing if needed. */
     fn set(self, key: K, value: V) {
         if (self.size * 2 >= self.capacity) { self.grow(); }
         if (probe_insert(self.slots, self.keys, self.vals, self.capacity, key, value)) {
@@ -117,6 +144,12 @@ impl HashMap<K, V> {
         }
     }
 
+    /**
+     * Removes the key, answering whether it was there.
+     *
+     * The slot is marked rather than emptied: a probe that stopped at an empty
+     * slot would stop short of keys that landed past this one.
+     */
     fn remove(self, key: K): bool {
         var at = start_at(key, self.capacity);
         var probes = 0;
@@ -136,6 +169,7 @@ impl HashMap<K, V> {
 
     // Walks the slots rather than `keys`, which still holds what `remove`
     // tombstoned.
+    /** Every key the map holds, in no particular order. */
     fn keys(self): List<K> {
         var out: List<K> = [];
         var at = 0;
@@ -147,6 +181,7 @@ impl HashMap<K, V> {
         return out;
     }
 
+    /** Doubles the capacity and re-places every key. Called by `set`. */
     fn grow(self) {
         var was = self.capacity;
         self.capacity = was * 2;

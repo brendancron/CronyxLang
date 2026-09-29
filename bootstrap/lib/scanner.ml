@@ -158,6 +158,23 @@ let doc_text raw =
     let lines = String.trim first :: outdent (undecorate rest) in
     String.concat "\n" (List.rev (drop_blank (List.rev (drop_blank lines))))
 
+(* Whether a blank line stands between here and whatever comes next. A doc
+   comment separated that way is about the file rather than about the
+   declaration below it, and the scanner is where the whitespace still exists to
+   be read: by the time the parser has the token, it is gone. Nothing follows a
+   comment at the end of a file, so that counts as separated too. *)
+let blank_follows s =
+  let rec go i newlines =
+    if i >= String.length s.source
+    then true
+    else (
+      match s.source.[i] with
+      | '\n' -> go (i + 1) (newlines + 1)
+      | ' ' | '\t' | '\r' -> go (i + 1) newlines
+      | _ -> newlines >= 2)
+  in
+  go s.current 0
+
 (* `/*` nests, so commenting out a region that already holds a comment ends
    where it was written to end rather than at the first `*/` inside it.
 
@@ -194,7 +211,10 @@ let block_comment s =
       let text = doc_text (String.sub s.source from (stop - from)) in
       (* Escaped, so a multi-line comment stays one line of `--dump-tokens`. *)
       s.tokens
-      <- Token.make (Token.Doc text) ~lexeme:(String.escaped text) ~span:(span_here s)
+      <- Token.make
+           (Token.Doc (text, blank_follows s))
+           ~lexeme:(String.escaped text)
+           ~span:(span_here s)
          :: s.tokens)
 
 (* Anything else after a backslash is a typo more often than an intent. *)

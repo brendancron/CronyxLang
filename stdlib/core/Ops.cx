@@ -1,0 +1,166 @@
+/**
+ * The operators, as traits.
+ *
+ * Every operator is a trait, which is what lets generic code be bounded by one:
+ * `fn total<T: Add<T>>(xs: List<T>)` adds whatever can be added. A type
+ * declared in a program joins in by implementing the trait, and the operator
+ * then works on it.
+ *
+ * ```
+ * type Money { pence: int }
+ *
+ * impl Add<Money> for Money {
+ *     type Output = Money;
+ *     fn add(self, rhs: Money): Money {
+ *         return Money { pence: self.pence + rhs.pence };
+ *     }
+ * }
+ *
+ * print((Money { pence: 150 } + Money { pence: 99 }).pence);   // 249
+ * ```
+ *
+ * The impls for the primitives are the compiler's own and emit a machine
+ * operation rather than a call, so only a declared type reaches the method
+ * written in the trait.
+ */
+
+/** `self + rhs`. */
+trait Add<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** The sum. */
+    fn add(self, rhs: Rhs): Output;
+}
+
+/** `self - rhs`. */
+trait Sub<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** The difference. */
+    fn sub(self, rhs: Rhs): Output;
+}
+
+/** `self * rhs`. */
+trait Mul<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** The product. */
+    fn mul(self, rhs: Rhs): Output;
+}
+
+/** `self / rhs`. */
+trait Div<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** The quotient. */
+    fn div(self, rhs: Rhs): Output;
+}
+
+/** `self % rhs`. */
+trait Rem<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** What is left over. */
+    fn rem(self, rhs: Rhs): Output;
+}
+
+// Both operands are the same type and the answer is always a bool, so this one
+// takes no argument and binds nothing. `!=` is the negation of `eq` rather than
+// an entry of its own.
+/**
+ * `self == rhs`, and `!=` as its negation.
+ *
+ * Both operands are the same type and the answer is always a bool, so this one
+ * takes no argument and binds nothing. `@derive(Eq)` writes it field by field.
+ */
+trait Eq {
+    /** Whether the two are equal. */
+    fn eq(self, rhs: Self): bool;
+}
+
+/** How two values compare. */
+type Ordering { Less, Equal, Greater }
+
+// One method answers all four comparisons. `None` is two values with no order
+// between them, which is what a float NaN is.
+/**
+ * `<`, `<=`, `>` and `>=`, all four from one method.
+ *
+ * `None` is two values with no order between them -- which is what a float NaN
+ * is, and why this is *partial*. Every comparison against one is false.
+ */
+trait PartialOrd {
+    /** How they compare, or `None` if they do not. */
+    fn partial_cmp(self, rhs: Self): Option<Ordering>;
+}
+
+// `Resolve` lowers `a < b` to `__is_less(partial_cmp(a, b))`. A match is a
+// statement, so the Ordering cannot become a bool where the operator stood.
+fn __is_less(o: Option<Ordering>): bool {
+    match o {
+        Option.Some(c) => { match c { Ordering.Less => { return true; } _ => { return false; } } }
+        Option.None => { return false; }
+    }
+}
+
+fn __is_less_equal(o: Option<Ordering>): bool {
+    match o {
+        Option.Some(c) => { match c { Ordering.Greater => { return false; } _ => { return true; } } }
+        Option.None => { return false; }
+    }
+}
+
+fn __is_greater(o: Option<Ordering>): bool {
+    match o {
+        Option.Some(c) => { match c { Ordering.Greater => { return true; } _ => { return false; } } }
+        Option.None => { return false; }
+    }
+}
+
+fn __is_greater_equal(o: Option<Ordering>): bool {
+    match o {
+        Option.Some(c) => { match c { Ordering.Less => { return false; } _ => { return true; } } }
+        Option.None => { return false; }
+    }
+}
+
+/** `-self`. */
+trait Neg {
+    /** What the negation answers with. */
+    type Output;
+    /** The negation. */
+    fn neg(self): Output;
+}
+
+/**
+ * `self[at]`.
+ *
+ * The index is a parameter, so one type may be indexed in more than one way:
+ * a list is `Index<int>` for an element and `Index<Range>` for a slice.
+ */
+trait Index<Idx> {
+    /** What is found at an index, which a range and an integer need not share. */
+    type Output;
+    /** What is at the index. */
+    fn get(self, at: Idx): Output;
+}
+
+/** `self[at] = v`. Indexing has to work first, which is what the bound says. */
+trait IndexSet<Idx>: Index<Idx> {
+    /** Puts the value at the index, and answers with it. */
+    fn set(self, at: Idx, v: Output): Output;
+}
+
+// What `var xs: List<int> = [1, 2, 3]` reaches. A literal is an array, and the
+// type it was annotated with says what to build from it.
+/**
+ * What a collection literal reaches.
+ *
+ * A literal is an array, and the type it was annotated with says what to build
+ * from it -- so `var xs: Set<int> = {1, 2}` and `var xs: List<int> = [1, 2]`
+ * are the same syntax answered by two impls.
+ */
+trait FromArray<T> {
+    /** The collection holding what the array holds. */
+    fn from_array(items: Array<T>): Self;
+}

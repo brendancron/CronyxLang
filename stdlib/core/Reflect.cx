@@ -1,0 +1,87 @@
+/**
+ * What a type says about itself, which is what `typeof` answers with.
+ *
+ * ```
+ * type Point { x: int, y: int }
+ *
+ * meta {
+ *     match typeof(Point).shape {
+ *         TypeShape.Product(name, fields) => {
+ *             for (f in fields) { print(str(f.name)); }
+ *         }
+ *         _ => {}
+ *     }
+ * }
+ * ```
+ *
+ * A deriver reads these to decide what to write. Their shape is fixed by the
+ * compiler, which builds the values: renaming a field here changes what is
+ * emitted. The names are long because a program is free to declare its own
+ * `Shape`.
+ */
+
+/** An argument written in an attribute, by the kind of literal it was. */
+type AttrArg {
+    /** `@table("people")`. */
+    Str(string),
+
+    /** `@width(4)`. */
+    Int(int),
+
+    /** `@scale(1.5)`. */
+    Float(float),
+
+    /** `@skip(true)`. */
+    Bool(bool),
+}
+
+/** One attribute as it was written. A doc comment is never one of these. */
+type Attr {
+    /** The name after the `@`. */
+    name: Name,
+
+    /** Its arguments, in the order written. */
+    args: Array<AttrArg>
+}
+
+/** A field of a product type. */
+type TypeField {
+    /** The field's name. */
+    name: Name,
+
+    /** Its doc comment, empty where there is none. */
+    doc: string,
+
+    /** Its attributes, with the doc comment not among them. */
+    attrs: Array<Attr>
+}
+
+/** A variant of a sum type. */
+type TypeVariant {
+    /** The variant's name. */
+    name: Name,
+
+    /** How many values it carries. */
+    arity: int,
+
+    /** Its doc comment, empty where there is none. */
+    doc: string,
+
+    /** Its attributes, with the doc comment not among them. */
+    attrs: Array<Attr>
+}
+
+/** What kind of type it is, and what it is made of. */
+type TypeShape {
+    /** A primitive: nothing to take apart. */
+    Scalar,
+
+    /** Fields, all present at once. */
+    Product(Name, Array<TypeField>),
+
+    /** Variants, one at a time. */
+    Sum(Name, Array<TypeVariant>),
+
+    /** Something with no shape to report -- a function, a tuple. */
+    Other,
+}

@@ -1,3 +1,23 @@
+/**
+ * An effect for handing values out one at a time.
+ *
+ * ```
+ * import { Yield } from "std/effects/Yield";
+ *
+ * fn counted(upto: int) <Yield<int>> {
+ *     var i = 0;
+ *     while (i < upto) { yield(i); i = i + 1; }
+ * }
+ *
+ * handle Yield<int> { ctl yield(v) { print(v); resume; } } with { counted(3); }
+ * ```
+ *
+ * One row holds one instantiation per effect, so every `yield` in a body hands
+ * out the same type.
+ */
+
+/** Values produced as the work goes, rather than collected and returned. */
 effect Yield<T> {
+    /** Hands one value over. The handler resumes to ask for the next. */
     ctl yield(value: T): unit;
 }

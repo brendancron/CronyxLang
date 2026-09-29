@@ -1,3 +1,14 @@
+/**
+ * Reading TOML.
+ *
+ * Enough of the format for a manifest: tables, arrays, inline tables, strings,
+ * integers and booleans. `cx` reads `cronyx.toml` with a reader of its own, so
+ * this is the one a program written in Cronyx uses.
+ *
+ * The tokenizer and the parser are both here, and most of what this module
+ * declares is theirs; a reader wants `parse` and the `Toml*` types.
+ */
+
 
 // Enough TOML for a configuration file: [sections], string, bool and int
 // values, and one level of inline table. No arrays, no multi-line strings,

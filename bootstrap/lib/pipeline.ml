@@ -31,6 +31,14 @@ let metaprocess ?(on_code = fun _ -> ()) ~out program =
     Ok processed
   | Error e -> Diagnostic.one Diagnostic.Meta e.Metaprocess.span e.Metaprocess.message
 
+(* The prelude is read on the way into the first check, so a library that is not
+   there is reported here rather than escaping as an exception. *)
+let with_prelude f =
+  match f () with
+  | result -> result
+  | exception Prelude.Missing message ->
+    Diagnostic.one Diagnostic.Load Source_map.Span.nowhere message
+
 let key (e : Diagnostic.error) = Ast.locate ~entry:"" e.Diagnostic.span, e.Diagnostic.message
 
 (* What the check before the walk found, beside what the full check did. *)
@@ -46,16 +54,18 @@ let merged early late =
    produce unknown; then what the walk emitted, fully. An error the first finds
    in code the walk never reaches is reported all the same. *)
 let whole ?on_code ?on_types ~out program =
-  let early = Precheck.program program in
-  merged
-    early
-    (let* processed = metaprocess ?on_code ~out program in
-     Compile.program ?on_types processed)
+  with_prelude (fun () ->
+    let early = Precheck.program program in
+    merged
+      early
+      (let* processed = metaprocess ?on_code ~out program in
+       Compile.program ?on_types processed))
 
 (* A test run: what carries [attribute] is a root, and [wrap] finds the tests
    on what the walk produced — generated ones included, under the names the
    walk gave them — and says how each is run. *)
 let rooted ~attribute ~wrap ~out program =
+  with_prelude (fun () ->
   let early = Precheck.program program in
   merged
     early
@@ -65,7 +75,7 @@ let rooted ~attribute ~wrap ~out program =
        | Error e -> Diagnostic.one Diagnostic.Meta e.Metaprocess.span e.Metaprocess.message
      in
      let* runs = wrap processed in
-     Compile.program (processed @ runs))
+     Compile.program (processed @ runs)))
 
 (* Artifacts concatenated: every package's declarations, none metaprocessed. *)
 let linked = whole

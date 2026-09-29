@@ -15,17 +15,37 @@ type Pair {
 
 /** Anything with a written form. */
 trait Show {
+    /** What the written form is made of. */
+    @cheap
+    type Written;
+
     /** The written form. */
     @cheap
-    fn show(self): string;
+    fn show(self): Written;
 }
 
 /** A pair shows as its sum. */
 impl Show for Pair {
+    /** A string, like everything else that shows. */
+    @cheap
+    type Written = string;
+
     /** Adds the two and writes that. */
     fn show(self): string {
         return str(self.left + self.right);
     }
+}
+
+/** Values handed over one at a time. */
+effect Feed {
+    /** Hands the next one over, and waits to be resumed. */
+    @cheap
+    ctl next(): int;
+}
+
+/** Answers every `next` with the same number. */
+handler steady : Feed {
+    ctl next() { resume 7; }
 }
 
 impl Pair {
@@ -42,3 +62,9 @@ bump();
 print(count);
 print(Pair { left: 1, right: 2 }.show());
 print(Pair { left: 1, right: 2 }.wider());
+
+run {
+    print(next() + next());
+} handle Feed {
+    ctl next() { resume 7; }
+}

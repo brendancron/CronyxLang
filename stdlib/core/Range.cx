@@ -1,0 +1,57 @@
+/**
+ * The bounds a slice is taken between.
+ *
+ * A range is what `a[i:j]` puts between the brackets, so it is rarely written
+ * by name. Any of `a[1:3]`, `a[1:]`, `a[:3]` and `a[:]` is one.
+ *
+ * ```
+ * var letters = ['a', 'b', 'c', 'd'];
+ * print(letters[1:3]);   // b, c
+ * print(letters[-2:]);   // c, d
+ * ```
+ */
+
+/**
+ * Where a slice starts and where it stops.
+ *
+ * The four shapes are four variants rather than one pair with sentinels, so a
+ * bound that was not written is missing rather than encoded as a number that
+ * has to mean "not given".
+ *
+ * A negative bound counts from the end, and a bound past either end is pulled
+ * back to it -- so a slice is never an error, only shorter than asked for.
+ */
+type Range {
+    /** `a[i:j]`: from `i` up to but not including `j`. */
+    Between(int, int),
+
+    /** `a[i:]`: from `i` to the end. */
+    From(int),
+
+    /** `a[:j]`: from the start up to but not including `j`. */
+    To(int),
+
+    /** `a[:]`: the whole of it. */
+    All
+}
+
+// A bound counted from the end is resolved here, once, where the length is
+// known — which is why it is the entry's business and not the language's.
+fn __bound(at: int, length: int): int {
+    var resolved = at;
+    if (resolved < 0) { resolved = length + resolved; }
+    if (resolved < 0) { resolved = 0; }
+    if (resolved > length) { resolved = length; }
+    return resolved;
+}
+
+fn __span(r: Range, length: int): (int, int) {
+    match r {
+        Range.Between(from, to) => {
+            return (__bound(from, length), __bound(to, length));
+        }
+        Range.From(from) => { return (__bound(from, length), length); }
+        Range.To(to) => { return (0, __bound(to, length)); }
+        Range.All => { return (0, length); }
+    }
+}
