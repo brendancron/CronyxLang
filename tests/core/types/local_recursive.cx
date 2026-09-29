@@ -1,0 +1,16 @@
+trait Show { fn show(self): string; }
+
+fn f(): unit {
+    type Cell { v: int, rest: Array<Cell> }
+    impl Show for Cell { fn show(self): string { return str(self.v); } }
+    var c = Cell { v: 1, rest: [Cell { v: 2, rest: [] }] };
+    print(c.rest[0].show());
+}
+
+fn g(): unit {
+    type Cell { name: string }
+    print(Cell { name: "g" }.name);
+}
+
+f();
+g();

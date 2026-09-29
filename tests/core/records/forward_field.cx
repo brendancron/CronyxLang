@@ -1,0 +1,15 @@
+type Line { from: Point, to: Point, tag: Option<Label> }
+
+fn unit_x(): Line {
+    return Line { from: Point { x: 0, y: 0 }, to: Point { x: 1, y: 0 }, tag: Option.Some(Label { text: "x" }) };
+}
+
+type Point { x: int, y: int }
+type Label { text: string }
+
+var l = unit_x();
+print(l.to.x - l.from.x);
+match l.tag {
+    Option.Some(label) => print(label.text),
+    Option.None => print("none"),
+}

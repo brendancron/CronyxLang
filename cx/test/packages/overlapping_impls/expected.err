@@ -1,1 +1,1 @@
-[../pretty_impl/src/lib.cx 3:1] Type 'geom#Point' already has a method 'eq', from json_impl/src/lib.cx:3.
+[../pretty_impl/src/lib.cx 3:1] Type 'Point' already has a method 'eq', from json_impl/src/lib.cx:3.

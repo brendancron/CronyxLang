@@ -50,6 +50,8 @@ The point of two representations is that an *unresolved* type variable is unrepr
 
 `Generic` is the concession full let-polymorphism forces. `fn id(x) { return x; }` is `'a -> 'a` and its body genuinely has no concrete type, so `ty` needs a way to say "quantified" as distinct from "not yet known". A `Generic` reaching codegen means that call site was never monomorphized — a marker for work to do, not an unresolved variable.
 
+**A named record is its name and arguments.** `INamed (name, args)` and `Named (name, args)` hold no fields; `Types.declarations` holds each record's fields over the variables its parameters were declared as, and `Types.fields_of` and `Types.named_fields` read them substituted with the arguments. A type that held its fields could not hold itself, so `type Node { next: Array<Node> }` would have to stop at a copy with none. The table is keyed by name, which is why a type declared in a body is renamed after its owner (`f#Temp`) before anything is checked. After `Cps`, a record's function-typed fields gain evidence parameters, so `Verify` reads them through `Cps.fields_of`, which widens them the same way.
+
 The surface spelling is Cronyx's: `int`, `float`, `string`, `char`, `byte`, `bool`, `unit`. The OCaml constructors are `Str`, `Chr` and `Byte`, but no user ever writes those.
 
 Cost: one conversion function and some duplication between the two types.

@@ -1,0 +1,16 @@
+type Node { v: int, next: Array<Node> }
+
+fn describe(shape: TypeShape): string {
+    match shape {
+        TypeShape.Product(name, fields) => {
+            var out = "product:";
+            for (field in fields) { out = out + " " + str(field.name); }
+            return out;
+        }
+        _ => { return "other"; }
+    }
+}
+
+var n = Node { v: 1, next: [] };
+print(typeof(n).name);
+print(describe(typeof(n).shape));

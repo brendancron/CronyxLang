@@ -499,7 +499,7 @@ let unify_at span expected actual =
 
 let is_trait_type (t : Types.infer_ty) =
   match Types.repr t with
-  | Types.INamed (name, _, _) -> Hashtbl.mem ctx_traits name
+  | Types.INamed (name, _) -> Hashtbl.mem ctx_traits name
   | _ -> false
 
 (* The one place a value's type changes without unifying. A trait in type
@@ -507,7 +507,7 @@ let is_trait_type (t : Types.infer_ty) =
    one: inference never produces a trait, so it never reaches here. *)
 let rec mentions_trait (t : Types.infer_ty) =
   match Types.repr t with
-  | Types.INamed (name, args, _) ->
+  | Types.INamed (name, args) ->
     Hashtbl.mem ctx_traits name || List.exists mentions_trait args
   | Types.ISum (_, args) -> List.exists mentions_trait args
   | _ -> false
@@ -706,9 +706,7 @@ and named_type ?(written = true) span name args =
             (List.length args);
       let args = if packed then collect_pack name vars args else args in
       (match decl with
-       | Opaque _ -> Types.INamed (name, args, Types.FEmpty)
-       | Product (_, fields) ->
-         Types.INamed (name, args, Types.substitute_fields (instance vars args) fields)
+       | Opaque _ | Product _ -> Types.INamed (name, args)
        | Sum _ -> Types.ISum (name, args))
 
 (* Each entry takes fresh arguments; a use is what settles them. *)
@@ -774,7 +772,7 @@ let rec declaring_trait trait (args : Types.infer_ty list) name
 let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
   let span = e.Ast.span in
   match Types.repr expected, Types.infer_type_name (Types.repr e.Ast.ann) with
-  | Types.INamed (trait, _, _), Some concrete
+  | Types.INamed (trait, _), Some concrete
     when Hashtbl.mem ctx_traits trait && not (String.equal trait concrete) ->
     let reachable = trait_closure trait in
     if not (List.exists (fun t -> Hashtbl.mem ctx_impls (concrete, t)) reachable)
@@ -814,7 +812,7 @@ let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
       declared;
     let trait_args =
       match Types.repr expected with
-      | Types.INamed (_, args, _) -> args
+      | Types.INamed (_, args) -> args
       | _ -> []
     in
     let slots =
@@ -1031,7 +1029,8 @@ let assigned_names body =
 
 let field_of (target : checked_expr) label =
   match Types.repr target.Ast.ann with
-  | Types.INamed (name, _, fields) ->
+  | Types.INamed (name, args) ->
+    let fields = Types.fields_of name args in
     let rec find f =
       match Types.repr_fields f with
       | Types.FCons (l, ty, _) when String.equal l label -> Some ty
@@ -1212,7 +1211,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        (* A type with no fields has one value, and its name is that value. *)
        (match Hashtbl.find_opt ctx_types name with
         | Some (Product ([], declared)) when Types.repr_fields declared = Types.FEmpty ->
-          node (Types.INamed (name, [], declared)) (`New (name, []))
+          node (Types.INamed (name, [])) (`New (name, []))
         | _ ->
           !current.unknown
             (fun () -> fail span "Undefined variable '%s'." name)
@@ -1592,14 +1591,14 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     let via_field () =
       let field =
         match Types.repr receiver.Ast.ann with
-        | Types.INamed (_, _, fields) ->
+        | Types.INamed (named, args) ->
           let rec find f =
             match Types.repr_fields f with
             | Types.FCons (l, ty, _) when String.equal l name -> Some ty
             | Types.FCons (_, _, rest) -> find rest
             | _ -> None
           in
-          find fields
+          find (Types.fields_of named args)
         | _ -> None
       in
       match Option.map (fun ty -> ty, Types.repr ty) field with
@@ -1665,7 +1664,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
           the receiver carries rather than from the trait reached through. *)
        let dispatch =
          match Types.repr receiver.Ast.ann with
-         | Types.INamed (named, args, _) -> declaring_trait named args name
+         | Types.INamed (named, args) -> declaring_trait named args name
          | Types.IVar { contents = Types.Unbound (_, Types.Bound bounds) } ->
            List.find_map
              (fun (b : Types.bound) ->
@@ -1739,7 +1738,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
              so the call reads its target out of that table. Otherwise the bound
              is what says which impl, and it is recorded for the copy. *)
           (match Types.repr receiver.Ast.ann with
-           | Types.INamed (named, _, _) when String.equal named trait ->
+           | Types.INamed (named, _) when String.equal named trait ->
              node ret (`Dyn_call (receiver, name, fn, args))
            | _ ->
              node
@@ -1992,7 +1991,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          (fun (l, (v : checked_expr)) ->
            unify_at v.Ast.span (List.assoc l expected) v.Ast.ann)
          fields;
-       node (Types.INamed (name, args, declared)) (`New (name, fields)))
+       node (Types.INamed (name, args)) (`New (name, fields)))
   | `New_variant (ty, variant, payload) ->
     (match Hashtbl.find_opt ctx_types ty with
      | None | Some (Product _) | Some (Opaque _) ->
@@ -2143,7 +2142,7 @@ and check_against env ctx (expected : Types.infer_ty) (e : Ast.desugared_expr)
   =
   let element =
     match Types.repr expected with
-    | Types.INamed (_, [ elem ], _) -> Some elem
+    | Types.INamed (_, [ elem ]) -> Some elem
     | _ -> None
   in
   match e.Ast.it, element with
@@ -2681,7 +2680,11 @@ and declare_effects (body : Ast.desugared_stmt list) =
       | _ -> ())
     body
 
-and declare_types (body : Ast.desugared_stmt list) =
+(* Every name is registered before any body is read, so a field may name a
+   type declared after its own -- which the walk produces whenever it reaches a
+   type through another's field rather than through the program. The fields are
+   read off the declaration when used, so a placeholder is all a use needs. *)
+and declare_type_names (body : Ast.desugared_stmt list) =
   List.iter
     (fun (s : Ast.desugared_stmt) ->
       match s.Ast.it with
@@ -2696,17 +2699,16 @@ and declare_types (body : Ast.desugared_stmt list) =
          | Some _ -> fail s.Ast.span "Type '%s' is already declared." name
          | None -> if Hashtbl.mem ctx_types name then fail s.Ast.span "Type '%s' is already declared." name);
         Hashtbl.replace ctx_type_spans name s.Ast.span;
-        let type_params =
+        let vars =
           List.map
             (fun (p : Ast.type_param) ->
               let var = Types.fresh () in
               if p.Ast.tp_pack then Types.declare_pack var;
-              p.Ast.tp_name, var)
+              var)
             params
         in
         if List.exists (fun (p : Ast.type_param) -> p.Ast.tp_pack) params
         then Hashtbl.replace ctx_type_packs name ();
-        let vars = List.map snd type_params in
         (* Already the right shape, or `Add(Expr<int>, …)` reads `Expr` as a
            product. *)
         Hashtbl.replace
@@ -2715,6 +2717,27 @@ and declare_types (body : Ast.desugared_stmt list) =
           (match body with
            | Ast.T_variants _ -> Sum (vars, [])
            | Ast.T_fields _ -> Product (vars, Types.FEmpty));
+        (match body with
+         | Ast.T_fields _ -> Types.declare_fields name vars Types.FEmpty
+         | Ast.T_variants _ -> ())
+      | _ -> ())
+    body
+
+(* The variables are the ones [declare_type_names] registered, so a use read
+   before this ran agrees with the declaration. A duplicate it rejected is not
+   the registered one and is skipped, or it would overwrite the original. *)
+and declare_type_bodies (body : Ast.desugared_stmt list) =
+  List.iter
+    (fun (s : Ast.desugared_stmt) ->
+      match s.Ast.it with
+      | `Type_decl (name, params, body)
+        when (match Hashtbl.find_opt ctx_type_spans name with
+              | Some registered -> registered == s.Ast.span
+              | None -> false) ->
+        let vars = params_of_decl name in
+        let type_params =
+          List.map2 (fun (p : Ast.type_param) var -> p.Ast.tp_name, var) params vars
+        in
         let declared =
           with_type_params type_params (fun () ->
             match body with
@@ -2730,6 +2753,9 @@ and declare_types (body : Ast.desugared_stmt list) =
               Sum (vars, List.map (variant_of s.Ast.span name vars) variants))
         in
         Hashtbl.replace ctx_types name declared;
+        (match declared with
+         | Product (vars, fields) -> Types.declare_fields name vars fields
+         | Opaque _ | Sum _ -> ());
         Hashtbl.replace
           ctx_attrs
           name
@@ -2884,7 +2910,8 @@ and infer_block env ctx (body : Ast.desugared_stmt list) : checked_stmt list =
        only once the trait is registered as one. *)
     declare_traits body;
     declare_effects body;
-    declare_types body;
+    declare_type_names body;
+    declare_type_bodies body;
     declare_impls ctx.registry body;
     hoist env body;
     let assigned = assigned_names body in
@@ -3731,7 +3758,8 @@ let check_with ~registry (program : Ast.desugared_stmt list)
   in
   each declare_traits;
   each declare_effects;
-  each declare_types;
+  each declare_type_names;
+  each declare_type_bodies;
   each (declare_impls registry);
   each (hoist env);
   let assigned = assigned_names program in

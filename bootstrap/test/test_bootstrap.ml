@@ -23,6 +23,7 @@ let cases =
   ; "tests/core/modules/wildcard/main"
   ; "tests/core/modules/circular/main"
   ; "tests/core/modules/types/main"
+  ; "tests/core/modules/transitive_type/main"
   ; "tests/stdlib/math/math"
   ; "tests/stdlib/error/error"
   ; "tests/core/control/for_c"
@@ -118,6 +119,7 @@ let cases =
   ; "tests/core/records/structural"
   ; "tests/reflection/typeof_record"
   ; "tests/reflection/shape_product"
+  ; "tests/reflection/shape_recursive"
   ; "tests/reflection/shape_sum"
   ; "tests/reflection/shape_scalar"
   ; "tests/core/math/modulus"
@@ -320,6 +322,11 @@ let cases =
   ; "tests/meta/attributes/declarations"
   ; "tests/meta/attributes/doc_comments"
   ; "tests/core/records/nominal"
+  ; "tests/core/records/forward_field"
+  ; "tests/core/records/recursive_field"
+  ; "tests/core/records/recursive_generic"
+  ; "tests/core/records/mutual_fields"
+  ; "tests/core/records/effectful_field"
   ; "tests/core/enums/tuple_variants"
   ; "tests/core/enums/struct_variants"
   ; "tests/core/enums/match_expr"
@@ -377,6 +384,7 @@ let cases =
   ; "tests/core/defer/defer_in_match_arm"
   ; "tests/core/resolution/hoisting_in_match_arm"
   ; "tests/core/types/local_type_per_function"
+  ; "tests/core/types/local_recursive"
   ; "tests/core/types/unit_literal"
   ; "tests/core/types/empty_type"
   ; "tests/core/types/empty_type_impl"
@@ -497,6 +505,7 @@ let error_cases =
   ; "tests/core/tuples/errors/no_such_field"
   ; "tests/core/tuples/errors/unknown_arity"
   ; "tests/core/records/errors/no_such_field"
+  ; "tests/core/records/errors/local_no_such_field"
   ; "tests/core/records/errors/field_mismatch"
   ; "tests/core/records/errors/missing_field"
   ; "tests/core/records/errors/nominal_mismatch"
@@ -620,6 +629,7 @@ let expected_failing : (string * blocker) list =
   ; "tests/compile/m6/apply", Parked
   ; "tests/compile/m7/safe_div", Parked
   ; "tests/compile/m8/gadt", Parked
+  ; "tests/meta/03_derive/errors/gen_in_template", Waiting "Gen as an effect"
   ]
 
 (* Ought to be rejected and are not, paired with the `.err` they should

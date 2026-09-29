@@ -1,0 +1,5 @@
+import { makeB } from "b";
+
+var b = makeB();
+print(b.a.x);
+print(b.items[0].x);

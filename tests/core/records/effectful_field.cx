@@ -1,0 +1,11 @@
+effect Log { fn log(msg: string): unit; }
+
+type Job { work: () -> <Log> unit }
+
+fn go(j: Job): <Log> unit { j.work(); }
+
+run {
+    go(Job { work: () => log("ran") });
+} handle Log {
+    fn log(msg) { print(msg); }
+}

@@ -1,0 +1,10 @@
+type A { x: int }
+
+var xs = Array<A>(1, A { x: 1 });
+print(xs.len());
+
+fn slots() {
+    var ys = Array<Option<A>>(8, Option.None);
+    print(ys.len());
+}
+slots();

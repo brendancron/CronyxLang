@@ -2437,16 +2437,27 @@ let types_of w (p : Ast.program) =
 
 (* A template declared in a body is instantiated like one at the top level, so
    it is lifted there under its owner's name. It may read only what it is
-   passed: a copy of it lives where the walk puts it, away from the body. *)
+   passed: a copy of it lives where the walk puts it, away from the body.
+
+   A type declared in a body is renamed after its owner too, and left where it
+   is: once checked, a type is looked up by name, so two functions each
+   declaring a `Temp` have to declare two names. *)
 let lift_templates (p : Ast.program) =
   let lifted = ref [] in
+  let rec declared_type (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Type_decl (name, _, _) -> Some name
+    | `Attributed (_, inner) -> declared_type inner
+    | _ -> None
+  in
   let rec body owner (stmts : Ast.stmt list) =
     let renames = Hashtbl.create 4 in
     List.iter
       (fun (s : Ast.stmt) ->
-        match fn_parts s with
-        | Some (name, _, sg, _) when takes_value_params sg ->
+        match fn_parts s, declared_type s with
+        | Some (name, _, sg, _), _ when takes_value_params sg ->
           Hashtbl.replace renames name (Value.Name (Ast.generated [ owner; name ]))
+        | _, Some name -> Hashtbl.replace renames name (Value.Name (Ast.generated [ owner; name ]))
         | _ -> ())
       stmts;
     let rename (s : Ast.stmt) = if Hashtbl.length renames = 0 then s else substitute renames s in

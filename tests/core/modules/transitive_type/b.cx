@@ -1,0 +1,5 @@
+import { A } from "a";
+
+type B { a: A, items: Array<A> }
+
+fn makeB(): B { return B { a: A { x: 1 }, items: [A { x: 2 }] }; }

@@ -1,0 +1,13 @@
+type Tree<T> { value: T, kids: Array<Tree<T>> }
+
+fn sum(t: Tree<int>): int {
+    var total = t.value;
+    for (k in t.kids) { total = total + sum(k); }
+    return total;
+}
+
+var t = Tree { value: 1, kids: [Tree { value: 2, kids: [] }, Tree { value: 3, kids: [Tree { value: 4, kids: [] }] }] };
+print(sum(t));
+print(t.kids[1].kids[0].value);
+var s = Tree { value: "a", kids: [Tree { value: "b", kids: [] }] };
+print(s.kids[0].value);

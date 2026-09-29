@@ -444,6 +444,18 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
         `New_variant (resolve_type ty, variant, Ast.map_payload go payload)
       | `New_call (name, args, values) ->
         `New_call (resolve_type name, List.map type_expr args, List.map go values)
+      | `Static_call (callee, static_args, args) ->
+        `Static_call
+          ( go callee
+          , List.map
+              (function
+                (* A bare name parses as a type whichever it is, so a local
+                   value is left for the scope that binds it. *)
+                | Ast.St_type { Ast.it = Ast.Ty_name name; _ } as arg when S.mem name locals -> arg
+                | Ast.St_type t -> Ast.St_type (type_expr t)
+                | Ast.St_value v -> Ast.St_value (go v))
+              static_args
+          , List.map go args )
       | #Ast.lit as l -> l
       | #Ast.vars as v -> (Ast.map_vars go v :> Ast.expr_kind)
       | #Ast.ops as o -> (Ast.map_ops go o :> Ast.expr_kind)
@@ -454,7 +466,6 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
       | #Ast.spread as s -> (Ast.map_spread go s :> Ast.expr_kind)
       | #Ast.record as r -> (Ast.map_record go r :> Ast.expr_kind)
       | #Ast.collection as c -> (Ast.map_collection go c :> Ast.expr_kind)
-      | #Ast.static_call as c -> (Ast.map_static_call go c :> Ast.expr_kind)
       | #Ast.reflect as r -> (Ast.map_reflect go r :> Ast.expr_kind)
       | #Ast.run_expr as r ->
         (Ast.map_run_expr go (stmt locals) (handler_clause locals) r :> Ast.expr_kind)
@@ -533,6 +544,12 @@ let rewrite ~aliases ~direct ~own ~rename ~from (program : Ast.program) =
             (fun acc (p : Ast.param) -> S.add p.Ast.name acc)
             locals
             params
+        in
+        let inner =
+          List.fold_left
+            (fun acc (c : Ast.static_param) -> S.add c.Ast.sp_name acc)
+            inner
+            sg.Ast.static_params
         in
         let inner = List.fold_left (fun acc s -> S.union acc (S.of_list (bound_by s))) inner body in
         `Fn

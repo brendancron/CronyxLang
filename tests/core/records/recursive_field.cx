@@ -1,0 +1,4 @@
+type Node { v: int, next: Array<Node> }
+
+var n = Node { v: 1, next: [Node { v: 2, next: [] }] };
+print(n.next[0].v);

@@ -26,7 +26,14 @@ let rejected =
    with an expected.txt of what it prints or an expected.err of the diagnostics
    reading it produced. *)
 let packages =
-  [ "two_packages/app"; "uses_std"; "same_unit_name"; "generic_dep"; "reads_data" ]
+  [ "two_packages/app"
+  ; "uses_std"
+  ; "same_unit_name"
+  ; "generic_dep"
+  ; "reads_data"
+  ; "explicit_type_arg"
+  ; "shadowed_static_param"
+  ]
 let bad_packages =
   [ "reaches_out"
   ; "claims_std"
@@ -44,6 +51,10 @@ let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "cra
    twice: once built cold and once over the artifacts the first build left, so
    the index is a function of the source rather than of the cache. *)
 let doc_packages = [ "documented/app" ]
+
+(* Paired with the work each waits on. The suite asserts each still fails, so
+   one that starts working is reported rather than sitting unnoticed. *)
+let expected_failing_packages : (string * string) list = []
 
 let repo_root () =
   let marker = Filename.concat "cx" (Filename.concat "test" "manifests") in
@@ -359,6 +370,18 @@ let package_case dir name =
     Printf.printf "FAIL package/%s\n  %s\n" name (diagnostics ~root:dir root errors);
     false
 
+let expected_failing_package_case dir (name, waiting) =
+  let root = Filename.concat dir name in
+  let expected = expectation (Filename.concat root "expected.txt") in
+  clean dir;
+  match built root with
+  | Ok actual when String.equal (normalize actual) (normalize expected) ->
+    Printf.printf "PASSES package/%s\n  now works; move it into `packages` (was waiting on %s)\n" name waiting;
+    false
+  | _ ->
+    Printf.printf "ok   package/%s (still failing)\n" name;
+    true
+
 let replaced ~from ~into text =
   let n = String.length from in
   let buf = Buffer.create (String.length text) in
@@ -589,7 +612,7 @@ let unclaimed_packages dir =
   let claimed = Hashtbl.create 8 in
   List.iter
     (fun name -> Hashtbl.replace claimed name ())
-    (packages @ bad_packages @ test_packages @ doc_packages);
+    (packages @ bad_packages @ test_packages @ doc_packages @ List.map fst expected_failing_packages);
   let rec walk prefix =
     let full = if String.equal prefix "" then dir else Filename.concat dir prefix in
     Sys.readdir full
@@ -1357,6 +1380,7 @@ let () =
       (run_partition dir :: List.map (run_accepted dir) accepted)
       @ List.map (run_rejected dir) rejected
       @ (run_package_partition packages_dir :: List.map (package_case packages_dir) packages)
+      @ List.map (expected_failing_package_case packages_dir) expected_failing_packages
       @ List.map (doc_package_case packages_dir) doc_packages
       @ List.map (run_render_case packages_dir) render_packages
       @ [ run_library_case

@@ -81,7 +81,7 @@ let in_bounds span items i =
 
 let nominal (ty : Types.ty) =
   match ty with
-  | Types.Named (name, _, _) | Types.Sum (name, _) -> Some name
+  | Types.Named (name, _) | Types.Sum (name, _) -> Some name
   | _ -> None
 
 let rec eval env (e : Ast.cps_expr) : value =
