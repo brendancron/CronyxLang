@@ -1,4 +1,4 @@
-# Cronyx
+# <img src="assets/logo.svg" alt="" width="28" align="top"> Cronyx
 
 A statically-typed, metaprogramming-first language with algebraic effects.
 
