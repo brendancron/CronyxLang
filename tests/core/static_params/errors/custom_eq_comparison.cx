@@ -1,0 +1,20 @@
+type Money { cents: int, currency: string, }
+
+impl Eq for Money {
+    fn eq(self, other: Money): bool {
+        return self.cents == other.cents;
+    }
+}
+
+fn report<same: bool>(): string {
+    meta if (same) {
+        gen return "same";
+    }
+    return "different";
+}
+
+fn cmp<m: Money>(): string {
+    return report<(m == Money { cents: 1, currency: "EUR" })>();
+}
+
+print(cmp<Money { cents: 1, currency: "USD" }>());

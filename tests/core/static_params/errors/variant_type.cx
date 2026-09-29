@@ -1,0 +1,8 @@
+type A { X, Y, }
+type B { X, Z, }
+
+fn f<a: A>(): int {
+    return 1;
+}
+
+print(f<B.X>());

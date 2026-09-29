@@ -1,0 +1,11 @@
+type P { x: int, }
+
+fn make(): P {
+    return P { x: 1 };
+}
+
+fn f<p: P>(): int {
+    return p.x;
+}
+
+print(f<P { x: make().x }>());

@@ -1,0 +1,17 @@
+#!/bin/sh
+# `cx` as this tree builds it, run from wherever you are: rebuilt first, then
+# handed your arguments in your own directory, so it reads that package.
+set -eu
+
+# Resolved, so a link to this script on $PATH still finds the tree.
+self=$(readlink -f -- "$0" 2>/dev/null || echo "$0")
+root=$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)
+
+# `Toolchain` takes this over everything else, so an installed toolchain in the
+# environment would lend its standard library to this build.
+CRONYX_STDLIB="$root/stdlib"
+export CRONYX_STDLIB
+
+# To stderr, so a build message never lands in a program's output.
+dune build --root "$root" --no-print-directory cx/bin/main.exe >&2
+exec "$root/_build/default/cx/bin/main.exe" "$@"

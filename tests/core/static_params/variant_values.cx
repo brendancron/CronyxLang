@@ -1,0 +1,26 @@
+type DisplayType { Ascii, Unicode, }
+type P { x: int, }
+
+fn show<displayType: DisplayType>(p: P): string {
+    if (displayType == DisplayType.Unicode) {
+        return "U" + str(p.x);
+    }
+    return "A" + str(p.x);
+}
+
+fn through<d: DisplayType>(): string {
+    return show<d>(P { x: 7 });
+}
+
+fn label<d: DisplayType>(): string {
+    meta if (d == DisplayType.Unicode) {
+        gen return "unicode";
+    }
+    return "ascii";
+}
+
+print(show<DisplayType.Unicode>(P { x: 1 }));
+print(show<DisplayType.Ascii>(P { x: 2 }));
+print(through<DisplayType.Unicode>());
+print(label<DisplayType.Unicode>());
+print(label<DisplayType.Ascii>());

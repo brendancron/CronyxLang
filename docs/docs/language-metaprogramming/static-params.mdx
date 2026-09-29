@@ -239,9 +239,9 @@ my_func<5>();
 5
 ```
 
-`<n: int>` declares a static *value* parameter — an `int` provided at the call site, available inside the body. A value parameter can be a number, a `string`, a `char` or a `bool`. `my_func<5>()` compiles a version of `my_func` where `n` is `5`. Each distinct argument list gets its own copy, made the first time the walk reaches a call with those arguments; `my_func<5>()` written ten times is still one copy.
+`<n: int>` declares a static *value* parameter — an `int` provided at the call site, available inside the body. A value parameter can be of any type: a number, a `string`, a `bool`, a tuple, an array, a struct, or a variant of a sum type like `Mode.Fast`, with or without a payload. `my_func<5>()` compiles a version of `my_func` where `n` is `5`. Each distinct argument list gets its own copy, made the first time the walk reaches a call with those arguments; `my_func<5>()` written ten times is still one copy.
 
-An argument has to be known at compile time: an expression built from literals and the static parameters of the function the call is written in. `my_func<2 + 3>()` is the same copy as `my_func<5>()`, and inside `fn outer<k: int>`, `my_func<k * 2>()` is fine. A runtime variable can't be one, and neither can a function call — computing a value with a call is what a `meta` block is for.
+An argument has to be known at compile time: an expression built from literals, constructors like `P { x: 1 }` or `Shape.Circle(3)`, and the static parameters of the function the call is written in. It is checked against the parameter's type, so `my_func<"five">()` is an error. `my_func<2 + 3>()` is the same copy as `my_func<5>()`, and inside `fn outer<k: int>`, `my_func<k * 2>()` is fine. A runtime variable can't be one, and neither can a function call — computing a value with a call is what a `meta` block is for.
 
 Value parameters are where static parameters meet `meta` blocks. Inside a function's `meta` block, `n` is an ordinary compile-time value — you can branch on it, loop over it, and generate different code for different arguments. That's the subject of the [next chapter](./compile-time-functions.mdx).
 

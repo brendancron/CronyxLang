@@ -1,0 +1,3 @@
+fast 1
+safe 2
+Runner<Mode.Fast>

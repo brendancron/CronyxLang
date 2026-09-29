@@ -1,0 +1,23 @@
+type Mode { Fast, Safe, }
+type P { x: int, y: int, }
+derive Eq for P;
+
+fn report<fast: bool>(): string {
+    meta if (fast) {
+        gen return "skipping checks";
+    }
+    return "checking everything";
+}
+
+fn start<m: Mode>(): string {
+    return report<(m == Mode.Fast)>();
+}
+
+fn moved<p: P>(): string {
+    return report<(p != P { y: 0, x: 0 })>();
+}
+
+print(start<Mode.Fast>());
+print(start<Mode.Safe>());
+print(moved<P { x: 0, y: 0 }>());
+print(moved<P { x: 1, y: 0 }>());

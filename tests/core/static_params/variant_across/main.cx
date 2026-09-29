@@ -1,0 +1,3 @@
+import "modes";
+print(modes.name<modes.Mode.Fast>());
+print(modes.name<modes.Mode.Safe>());

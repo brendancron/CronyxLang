@@ -1,0 +1,11 @@
+type Mode { Fast, Safe, }
+
+fn report<same: bool>(): bool {
+    return same;
+}
+
+fn check<m: Mode>(): bool {
+    return report<(m == 1)>();
+}
+
+print(check<Mode.Fast>());
