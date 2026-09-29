@@ -1,0 +1,56 @@
+/**
+ * The fixed-size array, and slicing it.
+ *
+ * An array is the primitive every other collection is built on: its length is
+ * fixed at construction and `Array<T>(n, v)` is how one is made, with `v` in
+ * every slot. A list literal builds one first, so `[1, 2, 3]` is an array
+ * before whatever it was annotated with gets it.
+ *
+ * ```
+ * var row = Array<int>(3, 0);
+ * row[0] = 7;
+ * print(row.len());   // 3
+ * ```
+ */
+
+impl Array<T> {
+    /** Whether any slot holds a value equal to this one. */
+    fn contains(self, v: T): bool {
+        var i = 0;
+        while (i < self.len()) {
+            if (self[i] == v) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+}
+
+// Nothing in Cronyx can raise, so an index a list must reject is aimed past its
+// backing array and the array's own bounds check does the rejecting. Passing the
+// index straight through would not do: the spare capacity behind `count` holds
+// values that were left there.
+fn __past_end<T>(items: Array<T>): int {
+    return items.len();
+}
+
+// Slicing is indexing by a range, so it is the same operator over a different
+// index — and it copies, because a view would need to say how long it lives.
+impl Index<Range> for Array<T> {
+    type Output = Array<T>;
+
+    /** A new array holding the slots the range covers. */
+    fn get(self, r: Range): Array<T> {
+        var bounds = __span(r, self.len());
+        var taken = bounds.1 - bounds.0;
+        if (taken <= 0) { return Array<T>(0, self[0]); }
+        var out = Array<T>(taken, self[bounds.0]);
+        var at = 0;
+        while (at < taken) {
+            out[at] = self[bounds.0 + at];
+            at = at + 1;
+        }
+        return out;
+    }
+}

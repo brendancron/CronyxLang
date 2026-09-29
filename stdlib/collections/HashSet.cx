@@ -1,3 +1,21 @@
+/**
+ * A set that hashes its members.
+ *
+ * The same open addressing as `std/collections/HashMap`, with keys and no
+ * values. The member type must implement `std/ops/Hash`.
+ *
+ * ```
+ * import { HashSet, new } from "std/collections/HashSet";
+ *
+ * var seen = new<string>();
+ * seen.add("ada");
+ * print(seen.contains("ada"));   // true
+ * ```
+ *
+ * The `Set` in scope without an import is the small-collection answer, and needs
+ * no `Hash`.
+ */
+
 import { Hash } from "../ops/Hash";
 
 // Open addressing with linear probing. A slot holds an index into `keys`, or

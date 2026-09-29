@@ -10,6 +10,14 @@
 
 type unit_interface =
   { namespace : string
+  (* Where the unit was written, relative to the root of the package that owns
+     it -- `collections/HashMap.cx`. [None] for a unit this artifact embeds
+     rather than owns: a dependency's path is its own package's business, and an
+     embedded unit's declarations carry that package's names rather than these. *)
+  ; path : string option
+  (* The unit's own prose: the doc comment at the top of its file, which belongs
+     to no declaration in it. *)
+  ; doc : string option
   ; exports : string list
   (* An effect's operations, which are members and so are absent from
      [exports]: a consumer writing `sig.boop` needs to know that `boop` keeps

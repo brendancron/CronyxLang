@@ -287,7 +287,7 @@ let rec write_stmt buf indent (s : Ast.stmt) =
       "%s(trait %s%s%s)\n"
       pad
       name
-      (String.concat "" (List.map (fun a -> " type " ^ a) body.Ast.tb_assoc))
+      (String.concat "" (List.map (fun (a : Ast.assoc_decl) -> " type " ^ a.Ast.ad_name) body.Ast.tb_assoc))
       (String.concat
          ""
          (List.map (fun (m : Ast.method_sig) -> " " ^ m.Ast.ms_name) body.Ast.tb_methods))

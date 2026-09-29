@@ -1,0 +1,17 @@
+/** Anything with a size. */
+trait Sized {
+    fn size(self): int;
+}
+
+type Box { width: int }
+
+impl Sized for Box {
+    fn size(self): int { return self.width; }
+}
+
+fn bigger<T: Sized>(a: T, b: T): int {
+    if (a.size() > b.size()) { return a.size(); }
+    return b.size();
+}
+
+print(bigger(Box { width: 3 }, Box { width: 7 }));

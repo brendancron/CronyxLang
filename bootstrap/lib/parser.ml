@@ -1123,6 +1123,9 @@ and effect_decl s sp : Ast.stmt =
     if check s Token.Right_brace || is_at_end s
     then List.rev acc
     else (
+      (* An operation is a member, so what is written above it belongs to it --
+         read before the kind, because `/**` and `@` both come first. *)
+      let op_attrs = attributes s in
       let kind = op_kind s in
       let op_name = consume_identifier s "Expected operation name." in
       let op_tparams = type_params s in
@@ -1139,7 +1142,9 @@ and effect_decl s sp : Ast.stmt =
         | None -> None
       in
       ignore (consume s Token.Semicolon "Expected ';' after operation.");
-      loop ({ Ast.op_name; op_kind = kind; op_tparams; op_params = params; op_ret } :: acc))
+      loop
+        ({ Ast.op_name; op_kind = kind; op_tparams; op_params = params; op_ret; op_attrs }
+         :: acc))
   in
   let ops = loop [] in
   ignore (consume s Token.Right_brace "Expected '}' after effect operations.");
@@ -1165,14 +1170,17 @@ and trait_decl s sp : Ast.stmt =
   let rec loop assoc acc =
     if check s Token.Right_brace || is_at_end s
     then List.rev assoc, List.rev acc
-    else if check s Token.Type
-    then (
-      ignore (advance s);
-      let bound = consume_identifier s "Expected an associated type name." in
-      ignore (consume s Token.Semicolon "Expected ';' after an associated type.");
-      loop (bound :: assoc) acc)
     else (
+      (* Before the dispatch, so an associated type carries what was written
+         above it as a method already did. *)
       let attrs = attributes s in
+      if check s Token.Type
+      then (
+        ignore (advance s);
+        let bound = consume_identifier s "Expected an associated type name." in
+        ignore (consume s Token.Semicolon "Expected ';' after an associated type.");
+        loop ({ Ast.ad_name = bound; ad_attrs = attrs } :: assoc) acc)
+      else (
       ignore (consume s Token.Fn "Expected a method signature.");
       let method_name = consume_identifier s "Expected a method name." in
       let static_params = static_params s in
@@ -1187,7 +1195,7 @@ and trait_decl s sp : Ast.stmt =
          ; ms_signature = signature
          ; ms_attrs = attrs
          }
-         :: acc))
+         :: acc)))
   in
   let assoc, methods = loop [] [] in
   ignore (consume s Token.Right_brace "Expected '}' after the trait body.");
@@ -1224,16 +1232,17 @@ and impl_decl s sp : Ast.stmt =
   let rec loop assoc acc =
     if check s Token.Right_brace || is_at_end s
     then List.rev assoc, List.rev acc
-    else if check s Token.Type
-    then (
-      ignore (advance s);
-      let bound = consume_identifier s "Expected an associated type name." in
-      ignore (consume s Token.Equal "Expected '=' after an associated type name.");
-      let value = type_expr s in
-      ignore (consume s Token.Semicolon "Expected ';' after an associated type.");
-      loop ((bound, value) :: assoc) acc)
     else (
       let attrs = attributes s in
+      if check s Token.Type
+      then (
+        ignore (advance s);
+        let bound = consume_identifier s "Expected an associated type name." in
+        ignore (consume s Token.Equal "Expected '=' after an associated type name.");
+        let value = type_expr s in
+        ignore (consume s Token.Semicolon "Expected ';' after an associated type.");
+        loop ({ Ast.as_name = bound; as_ty = value; as_attrs = attrs } :: assoc) acc)
+      else (
       ignore (consume s Token.Fn "Expected a method.");
       let method_name = consume_identifier s "Expected a method name." in
       let static_params = static_params s in
@@ -1250,7 +1259,7 @@ and impl_decl s sp : Ast.stmt =
          ; md_ann = ()
          ; md_attrs = attrs
          }
-         :: acc))
+         :: acc)))
   in
   let assoc, methods = loop [] [] in
   ignore (consume s Token.Right_brace "Expected '}' after the methods.");
@@ -1263,7 +1272,7 @@ and attributes s =
     let tok = peek s in
     let sp = Ast.span_of_token tok in
     match tok.Token.token_type with
-    | Token.Doc text ->
+    | Token.Doc (text, _) ->
       ignore (advance s);
       loop ({ Ast.a_name = Ast.doc_attr; a_args = [ Ast.A_str text ]; a_span = sp } :: acc)
     | Token.At ->
@@ -1609,8 +1618,21 @@ and return_stmt s sp : Ast.stmt =
   ignore (consume s Token.Semicolon "Expected ';' after return value.");
   Ast.at sp (`Return value)
 
-let parse (tokens : Token.token list) : (Ast.program, error list) result =
+(* A doc comment at the very top of a file, with a blank line under it, is about
+   the file: a module has no declaration to hang its prose on, and this is the
+   shape someone writes anyway. Everywhere else a blank line means nothing and
+   the comment attaches to the declaration below, so the only cost of writing
+   one is the line between them -- and a doc comment attached to nothing at all
+   is still the diagnostic it was. *)
+let parse_unit (tokens : Token.token list) : (Ast.program * string option, error list) result =
   let s = { tokens = Array.of_list tokens; current = 0; errors = []; no_brace = false } in
+  let doc =
+    match (peek s).Token.token_type with
+    | Token.Doc (text, true) ->
+      ignore (advance s);
+      Some text
+    | _ -> None
+  in
   let rec loop acc =
     if is_at_end s
     then List.rev acc
@@ -1621,5 +1643,7 @@ let parse (tokens : Token.token list) : (Ast.program, error list) result =
   in
   let program = loop [] in
   match s.errors with
-  | [] -> Ok program
+  | [] -> Ok (program, doc)
   | errors -> Error (List.rev errors)
+
+let parse tokens = Result.map fst (parse_unit tokens)

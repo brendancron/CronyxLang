@@ -1,0 +1,32 @@
+/**
+ * Assertions, and the effect a failed one performs.
+ *
+ * ```
+ * @test
+ * fn two_and_two() {
+ *     assert(2 + 2 == 4, "arithmetic still works");
+ * }
+ * ```
+ *
+ * `cx test` is the handler. Outside a test nothing handles `Assertion`, so a
+ * failure is an unhandled effect rather than a silent pass.
+ */
+
+/**
+ * Performed by an assertion that did not hold.
+ *
+ * A failure leaves the test it is in and nothing else, which is what `final
+ * ctl` says: the handler cannot resume, so no value is owed and the call is
+ * usable wherever it stands.
+ */
+effect Assertion {
+    /** Reports the message and abandons the test. */
+    final ctl failed(msg: string);
+}
+
+/** Performs `Assertion.failed` with the message unless the condition holds. */
+fn assert(cond: bool, msg: string) {
+    if (!cond) {
+        failed(msg);
+    }
+}

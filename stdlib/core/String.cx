@@ -1,0 +1,196 @@
+/**
+ * The methods on `string`.
+ *
+ * A string is a primitive, so these are its whole surface besides the natives
+ * `to_upper`, `to_lower` and `bytes`. Indexing by a range slices it, and a
+ * slice copies.
+ *
+ * ```
+ * print("  a,b,c  ".trim().split(','));   // a, b, c
+ * print("hello"[1:3]);                    // el
+ * print("42".to_int());                   // Option.Some(42)
+ * ```
+ *
+ * Positions are byte offsets, not characters: `chars` is what takes a string
+ * apart by character.
+ */
+
+fn __is_space(c: char): bool {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+fn __slice(text: string, start: int, stop: int): string {
+    var out = "";
+    var i = start;
+    while (i < stop) {
+        out = out + str(text[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+impl string {
+    /** The string's characters, one per element. */
+    fn chars(self): Array<char> {
+        var out = Array<char>(self.len(), ' ');
+        var i = 0;
+        while (i < self.len()) {
+            out[i] = self[i];
+            i = i + 1;
+        }
+        return out;
+    }
+
+    /** Whether the needle appears anywhere in the string. */
+    fn contains(self, needle: string): bool {
+        var start = 0;
+        while (start + needle.len() <= self.len()) {
+            var i = 0;
+            var same = true;
+            while (same && i < needle.len()) {
+                if (self[start + i] != needle[i]) {
+                    same = false;
+                }
+                i = i + 1;
+            }
+            if (same) {
+                return true;
+            }
+            start = start + 1;
+        }
+        return false;
+    }
+
+    /**
+     * The pieces between each occurrence of the separator.
+     *
+     * A string with no separator in it gives one piece, and two adjacent
+     * separators give an empty one between them.
+     */
+    fn split(self, sep: char): Array<string> {
+        var parts: List<string> = [];
+        var start = 0;
+        var i = 0;
+        while (i < self.len()) {
+            if (self[i] == sep) {
+                parts.push(__slice(self, start, i));
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        parts.push(__slice(self, start, self.len()));
+
+        var out = Array<string>(parts.len(), "");
+        var j = 0;
+        while (j < parts.len()) {
+            out[j] = parts[j];
+            j = j + 1;
+        }
+        return out;
+    }
+
+    /** As `split`, with a whole string as the separator rather than a character. */
+    fn split_str(self, sep: string): Array<string> {
+        var parts: List<string> = [];
+        if (sep.len() == 0) {
+            parts.push(self);
+        } else {
+            var start = 0;
+            var i = 0;
+            while (i + sep.len() <= self.len()) {
+                if (__slice(self, i, i + sep.len()) == sep) {
+                    parts.push(__slice(self, start, i));
+                    i += sep.len();
+                    start = i;
+                } else {
+                    i++;
+                }
+            }
+            parts.push(__slice(self, start, self.len()));
+        }
+
+        var out = Array<string>(parts.len(), "");
+        var j = 0;
+        while (j < parts.len()) {
+            out[j] = parts[j];
+            j = j + 1;
+        }
+        return out;
+    }
+
+    /** The integer the string spells, or `None` if it spells none. */
+    fn to_int(self): Option<int> {
+        var parsed = __parse_int(self);
+        if (parsed.0) { return Option.Some(parsed.1); }
+        return Option.None;
+    }
+
+    /** The float the string spells, or `None` if it spells none. */
+    fn to_float(self): Option<float> {
+        var parsed = __parse_float(self);
+        if (parsed.0) { return Option.Some(parsed.1); }
+        return Option.None;
+    }
+
+    /** The string without leading or trailing whitespace. */
+    fn trim(self): string {
+        var start = 0;
+        while (start < self.len() && __is_space(self[start])) {
+            start = start + 1;
+        }
+        var stop = self.len();
+        while (stop > start && __is_space(self[stop - 1])) {
+            stop = stop - 1;
+        }
+        return __slice(self, start, stop);
+    }
+    /** Whether the string begins with the prefix. */
+    fn starts_with(self, prefix: string): bool {
+        if (prefix.len() > self.len()) { return false; }
+        return __slice(self, 0, prefix.len()) == prefix;
+    }
+    /** Whether the string ends with the suffix. */
+    fn ends_with(self, suffix: string): bool {
+        if (suffix.len() > self.len()) { return false; }
+        return __slice(self, self.len() - suffix.len(), self.len()) == suffix;
+    }
+    /** The byte offset of the first occurrence of the needle, or `-1` if there is none. */
+    fn index_of(self, needle: string): int {
+        var last = self.len() - needle.len();
+        var at = 0;
+        while (at <= last) {
+            if (__slice(self, at, at + needle.len()) == needle) { return at; }
+            at = at + 1;
+        }
+        return 0 - 1;
+    }
+    /** The string with every occurrence of the needle replaced. */
+    fn replace(self, needle: string, replacement: string): string {
+        if (needle.len() == 0) { return self; }
+        var out = "";
+        var at = 0;
+        while (at < self.len()) {
+            if (at + needle.len() <= self.len()
+                && __slice(self, at, at + needle.len()) == needle) {
+                out = out + replacement;
+                at = at + needle.len();
+            } else {
+                out = out + str(self[at]);
+                at = at + 1;
+            }
+        }
+        return out;
+    }
+}
+
+// Slicing is indexing by a range, so it is the same operator over a different
+// index — and it copies, because a view would need to say how long it lives.
+impl Index<Range> for string {
+    type Output = string;
+
+    /** The part of the string the range covers. */
+    fn get(self, r: Range): string {
+        var bounds = __span(r, self.len());
+        return __slice(self, bounds.0, bounds.1);
+    }
+}

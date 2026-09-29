@@ -1,5 +1,5 @@
 {
-  "format": 1,
+  "format": 3,
   "compiler": "<version>",
   "root": "std",
   "packages": [
@@ -8,7 +8,541 @@
       "version": "<version>",
       "units": [
         {
+          "namespace": "builtins",
+          "path": null,
+          "doc": "What the compiler provides with no declaration behind it. These names are always in scope and are not imported.",
+          "entries": [
+            {
+              "id": "builtin#char#to_lower",
+              "package": "std",
+              "unit": "builtins",
+              "name": "char.to_lower",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The character in lower case.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "char",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "char",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#char#to_upper",
+              "package": "std",
+              "unit": "builtins",
+              "name": "char.to_upper",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The character in upper case.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "char",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "char",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#chr",
+              "package": "std",
+              "unit": "builtins",
+              "name": "chr",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The character at a Unicode code point. Panics if there is none.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "int",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "char",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#clock",
+              "package": "std",
+              "unit": "builtins",
+              "name": "clock",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "Seconds of processor time used so far. For measuring a duration, not for telling the time.",
+              "attrs": [],
+              "static": [],
+              "params": [],
+              "ret": {
+                "kind": "name",
+                "name": "float",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#float#to_int",
+              "package": "std",
+              "unit": "builtins",
+              "name": "float.to_int",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The float truncated towards zero.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "float",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "int",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#int#to_float",
+              "package": "std",
+              "unit": "builtins",
+              "name": "int.to_float",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The integer as a float. Exact up to the float's precision.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "int",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "float",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#ord",
+              "package": "std",
+              "unit": "builtins",
+              "name": "ord",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The character's Unicode code point.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "char",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "int",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#panic",
+              "package": "std",
+              "unit": "builtins",
+              "name": "panic",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "Stops the program with a message. Nothing after the call runs, and no handler resumes it.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "unit",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#print",
+              "package": "std",
+              "unit": "builtins",
+              "name": "print",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "Writes a value and a newline to standard output.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "unit",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#readfile",
+              "package": "std",
+              "unit": "builtins",
+              "name": "readfile",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The contents of a file. A relative path is relative to the file that wrote the call, as an import is.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "string",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#same",
+              "package": "std",
+              "unit": "builtins",
+              "name": "same",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "Whether the two are the same value rather than equal ones -- identity, not `==`.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                },
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "bool",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#str",
+              "package": "std",
+              "unit": "builtins",
+              "name": "str",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The value's written form -- the same one `print` writes.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "string",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#string#as_name",
+              "package": "std",
+              "unit": "builtins",
+              "name": "string.as_name",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The string as an identifier, for a meta block building a declaration. The string must spell one.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "Name",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#string#bytes",
+              "package": "std",
+              "unit": "builtins",
+              "name": "string.bytes",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The UTF-8 bytes of the string, which is what it is stored as.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "app",
+                "name": "Array",
+                "ref": null,
+                "param": false,
+                "args": [
+                  {
+                    "kind": "name",
+                    "name": "byte",
+                    "ref": null,
+                    "param": false
+                  }
+                ]
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#string#to_lower",
+              "package": "std",
+              "unit": "builtins",
+              "name": "string.to_lower",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The string in lower case.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "string",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#string#to_upper",
+              "package": "std",
+              "unit": "builtins",
+              "name": "string.to_upper",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The string in upper case.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "string",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#writefile",
+              "package": "std",
+              "unit": "builtins",
+              "name": "writefile",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "Writes the contents to a path, replacing whatever was there.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                },
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "unit",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            }
+          ]
+        },
+        {
           "namespace": "Colour",
+          "path": "Colour.cx",
           "doc": null,
           "entries": [
             {
@@ -17,6 +551,7 @@
               "unit": "Colour",
               "name": "Shade",
               "kind": "type",
+              "line": 1,
               "exported": true,
               "doc": "How dark a thing is.",
               "attrs": [],
@@ -51,7 +586,407 @@
           ]
         },
         {
+          "namespace": "Ops",
+          "path": "Ops.cx",
+          "doc": "Conversions, and the traits that describe them.\n\n```\nprint(str(3.into()));\n```",
+          "entries": [
+            {
+              "id": "std#Ops#Feed",
+              "package": "std",
+              "unit": "Ops",
+              "name": "Feed",
+              "kind": "effect",
+              "line": 51,
+              "exported": true,
+              "doc": "Values handed out one at a time.",
+              "attrs": [],
+              "generics": [
+                "T"
+              ],
+              "ops": [
+                {
+                  "name": "next",
+                  "kind": "ctl",
+                  "generics": [],
+                  "params": [],
+                  "ret": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  },
+                  "doc": "Hands the next value over, and waits to be resumed.",
+                  "attrs": []
+                }
+              ]
+            },
+            {
+              "id": "std#Ops#Into",
+              "package": "std",
+              "unit": "Ops",
+              "name": "Into",
+              "kind": "trait",
+              "line": 9,
+              "exported": true,
+              "doc": "Anything that converts, and what it converts to.",
+              "attrs": [],
+              "generics": [
+                "T"
+              ],
+              "supers": [],
+              "assoc": [
+                {
+                  "name": "Output",
+                  "type": null,
+                  "doc": "What the conversion produces.",
+                  "attrs": []
+                }
+              ],
+              "methods": [
+                {
+                  "name": "into",
+                  "doc": "The converted value.",
+                  "attrs": [],
+                  "static": [],
+                  "params": [
+                    {
+                      "name": "self",
+                      "type": null
+                    }
+                  ],
+                  "ret": {
+                    "kind": "name",
+                    "name": "Output",
+                    "ref": null,
+                    "param": false
+                  },
+                  "row": null
+                }
+              ],
+              "impls": [
+                "int#impl#std#Ops#Into<float>",
+                "string#impl#std#Ops#Into<string>"
+              ]
+            },
+            {
+              "id": "int#impl#std#Ops#Into<float>",
+              "package": "std",
+              "unit": "Ops",
+              "name": "Into<float> for int",
+              "kind": "impl",
+              "line": 23,
+              "exported": true,
+              "doc": "Numbers convert by widening.",
+              "attrs": [],
+              "trait": {
+                "name": "Into",
+                "ref": "std#Ops#Into",
+                "args": [
+                  {
+                    "kind": "name",
+                    "name": "float",
+                    "ref": null,
+                    "param": false
+                  }
+                ]
+              },
+              "for": {
+                "kind": "name",
+                "name": "int",
+                "ref": null
+              },
+              "generics": [],
+              "assoc": [
+                {
+                  "name": "Output",
+                  "type": {
+                    "kind": "name",
+                    "name": "float",
+                    "ref": null,
+                    "param": false
+                  },
+                  "doc": "Widening never loses the integer.",
+                  "attrs": []
+                }
+              ],
+              "methods": [
+                {
+                  "name": "into",
+                  "doc": null,
+                  "attrs": [],
+                  "static": [],
+                  "params": [
+                    {
+                      "name": "self",
+                      "type": null
+                    }
+                  ],
+                  "ret": {
+                    "kind": "name",
+                    "name": "float",
+                    "ref": null,
+                    "param": false
+                  },
+                  "row": null
+                }
+              ]
+            },
+            {
+              "id": "string#impl#std#Ops#Into<string>",
+              "package": "std",
+              "unit": "Ops",
+              "name": "Into<string> for string",
+              "kind": "impl",
+              "line": 31,
+              "exported": true,
+              "doc": "A string is already written.",
+              "attrs": [],
+              "trait": {
+                "name": "Into",
+                "ref": "std#Ops#Into",
+                "args": [
+                  {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                ]
+              },
+              "for": {
+                "kind": "name",
+                "name": "string",
+                "ref": null
+              },
+              "generics": [],
+              "assoc": [
+                {
+                  "name": "Output",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  },
+                  "doc": null,
+                  "attrs": []
+                }
+              ],
+              "methods": [
+                {
+                  "name": "into",
+                  "doc": null,
+                  "attrs": [],
+                  "static": [],
+                  "params": [
+                    {
+                      "name": "self",
+                      "type": null
+                    }
+                  ],
+                  "ret": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  },
+                  "row": null
+                }
+              ]
+            },
+            {
+              "id": "std#Ops#TryInto",
+              "package": "std",
+              "unit": "Ops",
+              "name": "TryInto",
+              "kind": "trait",
+              "line": 18,
+              "exported": true,
+              "doc": "A conversion that may also fail.",
+              "attrs": [],
+              "generics": [
+                "T"
+              ],
+              "supers": [
+                {
+                  "name": "Into",
+                  "ref": "std#Ops#Into",
+                  "args": [
+                    {
+                      "kind": "name",
+                      "name": "T",
+                      "ref": null,
+                      "param": true
+                    }
+                  ]
+                }
+              ],
+              "assoc": [],
+              "methods": [
+                {
+                  "name": "try_into",
+                  "doc": null,
+                  "attrs": [],
+                  "static": [],
+                  "params": [
+                    {
+                      "name": "self",
+                      "type": null
+                    }
+                  ],
+                  "ret": {
+                    "kind": "name",
+                    "name": "Output",
+                    "ref": null,
+                    "param": false
+                  },
+                  "row": null
+                }
+              ],
+              "impls": []
+            },
+            {
+              "id": "std#Ops#empty",
+              "package": "std",
+              "unit": "Ops",
+              "name": "empty",
+              "kind": "handler",
+              "line": 57,
+              "exported": true,
+              "doc": "Runs its body with nothing left to give.",
+              "attrs": [],
+              "handles": {
+                "name": "Feed",
+                "ref": "std#Ops#Feed",
+                "args": []
+              },
+              "arms": [
+                {
+                  "name": "next",
+                  "kind": "ctl",
+                  "params": []
+                }
+              ]
+            },
+            {
+              "id": "std#Ops#repeated",
+              "package": "std",
+              "unit": "Ops",
+              "name": "repeated",
+              "kind": "fn",
+              "line": 46,
+              "exported": true,
+              "doc": "A tuple of `n` copies, which is `n` types rather than one value.",
+              "attrs": [],
+              "static": [
+                {
+                  "name": "n",
+                  "form": "value",
+                  "type": {
+                    "kind": "name",
+                    "name": "int",
+                    "ref": null,
+                    "param": false
+                  },
+                  "pack": false
+                },
+                {
+                  "name": "T",
+                  "form": "type",
+                  "type": null,
+                  "pack": false
+                }
+              ],
+              "params": [
+                {
+                  "name": "value",
+                  "type": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "app",
+                "name": "Array",
+                "ref": null,
+                "param": false,
+                "args": [
+                  {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                ]
+              },
+              "row": null
+            },
+            {
+              "id": "std#Ops#wordier",
+              "package": "std",
+              "unit": "Ops",
+              "name": "wordier",
+              "kind": "fn",
+              "line": 38,
+              "exported": true,
+              "doc": "Whichever of the two is written longer.",
+              "attrs": [],
+              "static": [
+                {
+                  "name": "T",
+                  "form": "bound",
+                  "type": {
+                    "kind": "app",
+                    "name": "Into",
+                    "ref": "std#Ops#Into",
+                    "args": [
+                      {
+                        "kind": "name",
+                        "name": "string",
+                        "ref": null,
+                        "param": false
+                      }
+                    ]
+                  },
+                  "pack": false
+                }
+              ],
+              "params": [
+                {
+                  "name": "a",
+                  "type": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                },
+                {
+                  "name": "b",
+                  "type": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "string",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            }
+          ]
+        },
+        {
           "namespace": "Round",
+          "path": "shapes/Round.cx",
           "doc": null,
           "entries": [
             {
@@ -60,6 +995,7 @@
               "unit": "Round",
               "name": "Disc",
               "kind": "type",
+              "line": 3,
               "exported": true,
               "doc": "A circle, and the shade it is drawn in.",
               "attrs": [],

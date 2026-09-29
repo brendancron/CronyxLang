@@ -1,4 +1,16 @@
+/**
+ * Hashing, for the collections that need it.
+ *
+ * `std/collections/HashMap` and `std/collections/HashSet` are bounded by this,
+ * so a key type joins in by implementing it. The impls here cover `int`, `bool`
+ * and `string`.
+ *
+ * Two equal values must hash equally, or a map will hold both.
+ */
+
+/** A value with a hash. */
 trait Hash {
+    /** Any integer, so long as equal values agree on it. */
     fn hash(self): int;
 }
 

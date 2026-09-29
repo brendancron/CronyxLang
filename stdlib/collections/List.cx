@@ -1,10 +1,28 @@
+/**
+ * The functions over a list that a list does not carry itself.
+ *
+ * `List` is in scope with no import -- these are the operations that take a
+ * function, which is why they are here rather than methods: each carries the
+ * effect row of the function it is given, so `map` over an effectful function is
+ * effectful and `map` over a pure one is pure.
+ *
+ * ```
+ * import { map, filter, fold, join } from "std/collections/List";
+ *
+ * var ns: List<int> = [1, 2, 3, 4];
+ * print(fold(filter(ns, fn (n) { return n % 2 == 0; }), 0, fn (a, n) { return a + n; }));
+ * ```
+ */
 
+
+/** A new list of what the function answers for each value, in order. */
 fn map<T, U, E>(items: List<T>, f: (T) -> <E> U): <E> List<U> {
     var out: List<U> = [];
     for (item in items) { out.push(f(item)); }
     return out;
 }
 
+/** A new list of the values the function accepts, in order. */
 fn filter<T, E>(items: List<T>, f: (T) -> <E> bool): <E> List<T> {
     var out: List<T> = [];
     for (item in items) {
@@ -13,12 +31,19 @@ fn filter<T, E>(items: List<T>, f: (T) -> <E> bool): <E> List<T> {
     return out;
 }
 
+/**
+ * The result of folding the function over the list, left to right.
+ *
+ * `start` is what it is given for the first value, and each answer is what it is
+ * given for the next.
+ */
 fn fold<T, A, E>(items: List<T>, start: A, f: (A, T) -> <E> A): <E> A {
     var acc = start;
     for (item in items) { acc = f(acc, item); }
     return acc;
 }
 
+/** Whether the function accepts at least one value. False for an empty list. */
 fn any<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
     for (item in items) {
         if (f(item)) { return true; }
@@ -26,6 +51,7 @@ fn any<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
     return false;
 }
 
+/** Whether the function accepts every value. True for an empty list. */
 fn all<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
     for (item in items) {
         if (f(item)) {} else { return false; }
@@ -33,6 +59,7 @@ fn all<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
     return true;
 }
 
+/** The first value the function accepts, or `None` if it accepts none. */
 fn find<T>(items: List<T>, f: (T) -> bool): Option<T> {
     for (item in items) {
         if (f(item)) { return Option.Some(item); }
@@ -40,6 +67,7 @@ fn find<T>(items: List<T>, f: (T) -> bool): Option<T> {
     return Option.None;
 }
 
+/** A new list of the first's values followed by the second's. */
 fn concat<T>(a: List<T>, b: List<T>): List<T> {
     var out: List<T> = [];
     for (item in a) { out.push(item); }
@@ -47,6 +75,7 @@ fn concat<T>(a: List<T>, b: List<T>): List<T> {
     return out;
 }
 
+/** A new list with the values in the opposite order. */
 fn reverse<T>(items: List<T>): List<T> {
     var out: List<T> = [];
     var at = items.len() - 1;
@@ -57,6 +86,7 @@ fn reverse<T>(items: List<T>): List<T> {
     return out;
 }
 
+/** As `map`, with each answer being a list whose values are run together. */
 fn flat_map<T, U>(items: List<T>, f: (T) -> List<U>): List<U> {
     var out: List<U> = [];
     for (item in items) {
@@ -65,6 +95,7 @@ fn flat_map<T, U>(items: List<T>, f: (T) -> List<U>): List<U> {
     return out;
 }
 
+/** The strings run together with the separator between each pair. */
 fn join(items: List<string>, separator: string): string {
     if (items.len() == 0) { return ""; }
     var out = items[0];

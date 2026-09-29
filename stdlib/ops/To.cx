@@ -1,6 +1,22 @@
-// A type with more than one `To` impl is converted by a call that writes which
-// target it means, `x.to<string>()`; these have one apiece, so `x.to()` says it.
+/**
+ * Conversion that always succeeds.
+ *
+ * ```
+ * import { To } from "std/ops/To";
+ *
+ * print(42.to());   // 42, as a string
+ * ```
+ *
+ * A type with more than one `To` impl is converted by a call that writes which
+ * target it means -- `x.to<string>()`. The impls here have one apiece, so
+ * `x.to()` says it.
+ *
+ * See `std/ops/TryTo` for the conversions that can fail.
+ */
+
+/** Convertible to a `T`. */
 trait To<T> {
+    /** The converted value. */
     fn to(self): T;
 }
 

@@ -1,0 +1,28 @@
+/**
+ * A value that may be absent.
+ *
+ * ```
+ * var found = [1, 2, 3].find(fn (n) { return n > 1; });
+ * match found {
+ *     Option.Some(n) => { print(n); }
+ *     Option.None => { print("nothing"); }
+ * }
+ * ```
+ *
+ * In core rather than in the library because the language itself hands one back:
+ * `partial_cmp` answers `None` for two values with no order between them.
+ */
+
+/**
+ * Either a value or nothing.
+ *
+ * There is no way to read the value without matching on it, which is the point:
+ * a missing one cannot be used by mistake.
+ */
+type Option<T> {
+    /** There is a value, and this is it. */
+    Some(T),
+
+    /** There is no value. */
+    None
+}

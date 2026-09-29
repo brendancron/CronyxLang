@@ -1,3 +1,21 @@
+/**
+ * Matching a string against a regular expression.
+ *
+ * ```
+ * import { compile, test, find, find_all } from "std/lang/Regex";
+ *
+ * var dfa = compile("[0-9]+");
+ * print(test(dfa, "abc123"));      // true
+ * print(find(dfa, "abc123"));      // Option.Some(123)
+ * ```
+ *
+ * Compiling goes pattern → AST → NFA → DFA, so matching is a walk with no
+ * backtracking and no pattern can be made to run away. Supported: literals,
+ * `.`, `[…]` classes with ranges and negation, `|`, `*`, `+`, `?` and
+ * parentheses. `.` is expanded to printable ASCII while compiling, so a DFA's
+ * alphabet is whatever its pattern actually mentions.
+ */
+
 import { substring } from "String";
 import { Dfa, subset_construction, dfa_step, dfa_is_accept, no_state } from "../automata/Dfa";
 import "../regex/RegexParser";
@@ -5,6 +23,7 @@ import "../regex/RegexNfa";
 
 // pattern → RegexAst → NFA → DFA. `.` is expanded to printable ASCII while
 // building, so the DFA's alphabet is whatever the pattern actually mentions.
+/** The pattern as an automaton, ready to match with. Panics on a pattern it cannot parse. */
 fn compile(pattern: string): Dfa {
     return subset_construction(RegexNfa.build(RegexParser.parse(pattern)));
 }
@@ -35,11 +54,13 @@ fn code_points(input: string): List<int> {
 }
 
 // The whole input, not a prefix of it.
+/** Whether the pattern matches anywhere in the input. */
 fn test(dfa: Dfa, input: string): bool {
     var cps = code_points(input);
     return longest_from(dfa, cps, 0) == cps.len();
 }
 
+/** The leftmost-longest match, or `None` if there is none. */
 fn find(dfa: Dfa, input: string): Option<string> {
     var cps = code_points(input);
     var at = 0;
@@ -52,6 +73,7 @@ fn find(dfa: Dfa, input: string): Option<string> {
 }
 
 // Non-overlapping, leftmost-longest.
+/** Every non-overlapping match, left to right. */
 fn find_all(dfa: Dfa, input: string): List<string> {
     var cps = code_points(input);
     var found: List<string> = [];

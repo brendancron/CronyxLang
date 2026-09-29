@@ -1,3 +1,12 @@
+/**
+ * The deterministic finite automaton, and how one is built from an NFA.
+ *
+ * One state, one symbol, one next state -- so matching is a walk with no
+ * backtracking. A DFA built by `subset_construction` is *partial*: a dead end is
+ * a missing transition rather than a sink state, and `no_state()` is what a step
+ * answers with when there is nowhere to go.
+ */
+
 import { Nfa, epsilon_closure, step, is_accept, set_contains } from "Nfa";
 
 // `no_state` is what a step returns when nothing is reachable — a DFA built
