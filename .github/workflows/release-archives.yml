@@ -177,7 +177,10 @@ jobs:
   # The formula names a version per architecture, so the tap is worth bumping
   # for whichever archives landed — an architecture whose runner never came
   # free keeps the release it already had. Its own run fired when the release
-  # was published, before any of them existed.
+  # was published, before any of them existed. The Scoop bucket is one
+  # architecture and so has nothing to keep, but it is bumped from here for the
+  # same reason: its own daily cron would otherwise leave a release uninstalled
+  # for a day.
   tap:
     needs: [targets, archive]
     if: ${{ !cancelled() }}
@@ -185,7 +188,7 @@ jobs:
     permissions:
       actions: write
     steps:
-      - name: Hand the tag to the tap
+      - name: Hand the tag to the tap and the bucket
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
@@ -194,3 +197,4 @@ jobs:
           # No checkout in this job, so the repository is named rather than
           # inferred from a working tree that is not there.
           gh workflow run bump-homebrew.yml -R "$GITHUB_REPOSITORY" -f tag="$TAG"
+          gh workflow run bump-scoop.yml -R "$GITHUB_REPOSITORY" -f tag="$TAG"

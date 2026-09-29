@@ -1,0 +1,108 @@
+name: Bump Scoop Manifest
+
+# Scoop's `checkver` and `autoupdate` are declarations, not behaviour: the
+# bucket's own cron reads them once a day, so a release cut after it ran sits
+# uninstalled until the next one. This is the push that follows a release, the
+# way bump-homebrew.yml is for the tap.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to point the manifest at, e.g. v0.0.18'
+        required: true
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the tag
+        id: tag
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::'$TAG' is not a toolchain release"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Take the checksum from the archive itself
+        id: archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          archive="cronyx-$TAG-x86_64-pc-windows-gnu.zip"
+
+          # A release carrying no Windows archive leaves the manifest where it
+          # is: the archives are built after publishing, and
+          # release-archives.yml runs this again once they are uploaded.
+          if ! gh release download "$TAG" -R "$GITHUB_REPOSITORY" \
+               -p "$archive" -p "$archive.sha256" -D dl 2>/dev/null; then
+            echo "$TAG carries no Windows archive yet; leaving the manifest alone."
+            echo "none=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          published=$(cat "dl/$archive.sha256")
+          actual=$(sha256sum "dl/$archive" | awk '{print $1}')
+          [ "$published" = "$actual" ] || {
+            echo "::error::$archive hashes to $actual, but its .sha256 asset says $published"
+            exit 1
+          }
+
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "sha256=$actual" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the bucket
+        if: steps.archive.outputs.none != 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: brendancron/scoop-cronyx
+          # A cross-repository push, which the run's own token cannot do. A
+          # deploy key rather than a personal token, for the reason
+          # bump-homebrew.yml gives: it reaches that one repository and it does
+          # not expire.
+          ssh-key: ${{ secrets.SCOOP_BUCKET_KEY }}
+          path: bucket
+
+      - name: Point the manifest at the release
+        if: steps.archive.outputs.none != 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          ARCHIVE: ${{ steps.archive.outputs.archive }}
+          SHA256: ${{ steps.archive.outputs.sha256 }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          path = "bucket/bucket/cronyx.json"
+          with open(path) as f:
+              m = json.load(f)
+
+          tag, archive = os.environ["TAG"], os.environ["ARCHIVE"]
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}"
+          m["version"] = os.environ["VERSION"]
+          m["architecture"]["64bit"]["url"] = f"{base}/{archive}"
+          m["architecture"]["64bit"]["hash"] = os.environ["SHA256"]
+          m["extract_dir"] = archive[: -len(".zip")]
+
+          with open(path, "w") as f:
+              json.dump(m, f, indent=4)
+              f.write("\n")
+          PY
+
+      - name: Push it
+        if: steps.archive.outputs.none != 'true'
+        working-directory: bucket
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          if git diff --quiet; then
+            echo "The manifest already names $VERSION."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git commit -am "cronyx $VERSION"
+          git push
