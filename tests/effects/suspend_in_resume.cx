@@ -1,0 +1,22 @@
+effect Ask { ctl ask(): int; }
+effect Check { ctl check(): bool; }
+effect Tick { ctl tick(): unit; }
+
+fn counted(): <Tick> int {
+    tick();
+    return 5;
+}
+
+fn yes(): <Tick> bool {
+    tick();
+    return true;
+}
+
+run {
+    run {
+        print(ask());
+        print(ask() + ask());
+        print(check());
+    } handle Ask { ctl ask() { resume counted() * 2; } }
+      handle Check { ctl check() { resume false || yes(); } }
+} handle Tick { ctl tick() { print("tick"); resume; } }

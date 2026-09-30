@@ -555,6 +555,7 @@ let leading_expr (s : Ast.reflected_stmt)
   | `Expr e -> Some (e, fun e -> `Expr e)
   | `Var_decl (name, ty, Some e) -> Some (e, fun e -> `Var_decl (name, ty, Some e))
   | `Return (Some e) -> Some (e, fun e -> `Return (Some e))
+  | `Resume (Some e) -> Some (e, fun e -> `Resume (Some e))
   | _ -> None
 
 (* The `and`/`or` a statement evaluates first, paired with the statement put
@@ -646,6 +647,12 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
             ; assign crossed { Ast.it = `Bool true; span; ann = Types.Bool } Types.Bool
             ; node span (`Return None)
             ])
+     | `Resume (Some e) when suspends info e ->
+       (match extract info e with
+        | Some (c, rebuild) ->
+          sequence info span c (fun name ->
+            cps info ret k ~at:span ({ s with Ast.it = `Resume (Some (rebuild name)) } :: rest))
+        | None -> unsupported span "This effect cannot be sequenced yet.")
      (* The arm keeps running afterwards: multi-shot falls out. *)
      | `Resume value ->
        let value =

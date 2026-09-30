@@ -29,10 +29,7 @@ fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, Stdin, Fs, E> T): <E> 
             run {
                 out = Option.Some(main());
             } handle Fs {
-                ctl open(path, mode) {
-                    var opened = __open_on_disk(path, mode);
-                    resume opened;
-                }
+                ctl open(path, mode) { resume __open_on_disk(path, mode); }
             }
         };
     } handle Stdin {
