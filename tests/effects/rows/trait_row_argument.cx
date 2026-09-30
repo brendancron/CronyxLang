@@ -1,0 +1,51 @@
+effect log {
+    fn emit(msg: string): unit;
+}
+
+trait Source<T, E> {
+    fn pull(self): <E> Option<T>;
+}
+
+type Counter { n: List<int> }
+
+impl Source<int, <log>> for Counter {
+    fn pull(self): <log> Option<int> {
+        emit("counter pulled");
+        if (self.n[0] >= 2) { return Option.None; }
+        self.n[0] = self.n[0] + 1;
+        return Option.Some(self.n[0]);
+    }
+}
+
+type Wrapped<T, E> { inner: () -> <E> Option<T> }
+
+impl Source<T, E> for Wrapped<T, E> {
+    fn pull(self): <E> Option<T> {
+        return self.inner();
+    }
+}
+
+fn drain<S: Source<int, E>, E>(s: S): <E> int {
+    var total = 0;
+    var more = true;
+    while (more) {
+        match s.pull() {
+            Option.Some(x) => { total = total + x; }
+            Option.None => { more = false; }
+        }
+    }
+    return total;
+}
+
+run {
+    print(drain(Counter { n: [0] }));
+    var s: Source<int, <log>> = Counter { n: [1] };
+    print(s.pull());
+    var w = Wrapped { inner: () => { emit("wrapped pulled"); return Option.Some("x"); } };
+    print(w.pull());
+} handle log {
+    fn emit(msg) { print(msg); }
+}
+
+var quiet = Wrapped { inner: () => { return Option.Some(7); } };
+print(quiet.pull());

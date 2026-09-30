@@ -45,10 +45,10 @@ trait Writer {
     fn write(self, data: Array<byte>): <async, Throw<IoError>> unit;
 }
 
-/** Something holding a resource until it is closed. */
-trait Closer {
+/** Something holding a resource until it is closed, failing with an `X`. */
+trait Closer<X> {
     /** Lets go of it. Nothing may be done with it afterwards. */
-    fn close(self): <async, Throw<IoError>> unit;
+    fn close(self): <async, Throw<X>> unit;
 }
 
 /**
@@ -62,8 +62,8 @@ trait Closer {
  * failed it is dropped, so the caller sees the block's failure, which is the
  * cause.
  */
-fn using<T: Closer, R, E>(resource: T, body: (T) -> <async, Throw<IoError>, E> R)
-    : <async, Throw<IoError>, E> R {
+fn using<T: Closer<X>, X, R, E>(resource: T, body: (T) -> <async, Throw<X>, E> R)
+    : <async, Throw<X>, E> R {
     var finished = false;
     defer {
         if (!finished) { attempt { resource.close() }; }
@@ -87,7 +87,7 @@ fn using<T: Closer, R, E>(resource: T, body: (T) -> <async, Throw<IoError>, E> R
  * A `\r` before a newline goes with it, and a last line with no newline after it
  * is still a line. Throws where a line is not UTF-8 text.
  */
-fn lines(from: Reader): Iter<() -> <async, Throw<IoError>> Option<string>> {
+fn lines(from: Reader): Iter<string, <async, Throw<IoError>>> {
     return iterator {
         var newline = "\n".bytes()[0];
         var line: List<byte> = [];

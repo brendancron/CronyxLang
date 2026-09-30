@@ -22,7 +22,7 @@ impl Writer for Memory {
     }
 }
 
-impl Closer for Memory {
+impl Closer<IoError> for Memory {
     fn close(self): <async, Throw<IoError>> unit { }
 }
 

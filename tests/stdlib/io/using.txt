@@ -10,3 +10,4 @@ Err(Other(body failed first))
 visiting e
 closing e
 e
+Err(Stuck(door))

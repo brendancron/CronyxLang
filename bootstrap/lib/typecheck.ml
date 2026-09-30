@@ -188,13 +188,40 @@ let params_of_decl name =
   | Some decl -> decl_params decl
   | None -> []
 
-let instance vars args = List.map2 (fun v a -> Types.var_id v, a) vars args
+(* A declared type's parameters standing in a row -- `E` in
+   `type Iter<T, E> { next: () -> <E> Option<T> }` -- by the variable the
+   declaration registered, with the row its body is open in; and per type, which
+   of its parameters those are, so a written argument is read as a row there. *)
+let ctx_standing_rows : (int, Types.infer_row) Hashtbl.t = Hashtbl.create 8
+let ctx_row_standing : (string, bool list) Hashtbl.t = Hashtbl.create 8
+
+(* A parameter standing in a row maps its row too, to the row its argument is. *)
+let instance vars args =
+  List.concat
+    (List.map2
+       (fun v a ->
+         let id = Types.var_id v in
+         (id, a)
+         ::
+         (match Hashtbl.find_opt ctx_standing_rows id, Types.repr a with
+          | Some row, Types.IRow _ ->
+            (match Types.row_tail row with
+             | Some row_id -> [ row_id, a ]
+             | None -> [])
+          | _ -> []))
+       vars
+       args)
+
+let fresh_argument v =
+  if Hashtbl.mem ctx_standing_rows (Types.var_id v)
+  then Types.IRow (Types.fresh_row ())
+  else Types.fresh ()
 
 (* The type's parameters and the variant's own together: a payload or head may
    mention both. *)
 let instantiation vars declared =
   let bound = vars @ declared.vd_params in
-  instance bound (List.map (fun _ -> Types.fresh ()) bound)
+  instance bound (List.map fresh_argument bound)
 
 let ctx_fn_params : (string, (string * Types.infer_ty) list) Hashtbl.t =
   Hashtbl.create 16
@@ -230,7 +257,12 @@ let with_type_params assoc f =
     (fun (name, var) ->
       Hashtbl.replace ctx_type_params name var;
       Types.name_param name var;
-      Hashtbl.replace ctx_row_params name (row_of_param var))
+      Hashtbl.replace
+        ctx_row_params
+        name
+        (match Types.repr var with
+         | Types.IRow row -> row
+         | _ -> row_of_param var))
     assoc;
   Fun.protect
     ~finally:(fun () ->
@@ -318,6 +350,8 @@ let reset_effects () =
   Hashtbl.reset ctx_op_owner;
   Hashtbl.reset ctx_types;
   Hashtbl.reset ctx_type_packs;
+  Hashtbl.reset ctx_standing_rows;
+  Hashtbl.reset ctx_row_standing;
   Hashtbl.reset ctx_attrs;
   Hashtbl.reset ctx_effect_params;
   Hashtbl.reset ctx_traits;
@@ -685,8 +719,9 @@ let rec infer_ty_of_annotation (t : Ast.type_expr) : Types.infer_ty =
          (fun (l, t) rest -> Types.FCons (l, infer_ty_of_annotation t, rest))
          fields
          Types.FEmpty)
-  | Ast.Ty_app (name, args) ->
-    named_type ~written:true t.Ast.span name (List.map infer_ty_of_annotation args)
+  | Ast.Ty_app (name, args) -> named_type ~written:true t.Ast.span name (type_arguments name args)
+  | Ast.Ty_row _ ->
+    fail t.Ast.span "An effect row is an argument only where a type's parameter stands in one."
   | Ast.Ty_name other ->
     (match Hashtbl.find_opt ctx_type_params other with
      | Some var -> var
@@ -701,6 +736,42 @@ let rec infer_ty_of_annotation (t : Ast.type_expr) : Types.infer_ty =
       ( List.map infer_ty_of_annotation params
       , infer_ty_of_annotation ret
       , row_of_labels ~span:t.Ast.span row )
+
+(* The arguments written for a type or a trait, each read as a row where the
+   parameter it is for stands in one. *)
+and type_arguments owner (args : Ast.type_expr list) =
+  let standing = Option.value ~default:[] (Hashtbl.find_opt ctx_row_standing owner) in
+  List.mapi
+    (fun i a ->
+      if List.nth_opt standing i = Some true then row_argument owner a else infer_ty_of_annotation a)
+    args
+
+(* The arguments [target] is reached at from [trait] at [args], through the
+   supertraits: `File` at none reaches `Closer` at `IoError`. *)
+and reached_at trait (args : Types.infer_ty list) target : Types.infer_ty list option =
+  if String.equal trait target
+  then Some args
+  else (
+    match Hashtbl.find_opt ctx_traits trait with
+    | None -> None
+    | Some (params, body) ->
+      let scope = if List.length params = List.length args then List.combine params args else [] in
+      List.find_map
+        (fun (super, written) ->
+          reached_at super (with_type_params scope (fun () -> type_arguments super written)) target)
+        body.Ast.tb_super)
+
+(* Where the parameter stands in a row: a written row, or a parameter of the
+   enclosing function standing in one. *)
+and row_argument owner (a : Ast.type_expr) =
+  match a.Ast.it with
+  | Ast.Ty_row labels -> Types.IRow (row_of_labels ~span:a.Ast.span labels)
+  | Ast.Ty_name n when Hashtbl.mem ctx_row_params n -> Types.IRow (Hashtbl.find ctx_row_params n)
+  | _ ->
+    fail
+      a.Ast.span
+      "'%s' takes an effect row here, written as '<...>' or as a parameter standing in one."
+      owner
 
 (* A pack takes the arguments a use wrote past the parameters before it, so
    `Slot<>` is the empty one and `Slot<int, string>` holds two. Written as a
@@ -816,9 +887,7 @@ let rec declaring_trait trait (args : Types.infer_ty list) name
       in
       List.find_map
         (fun (super, written) ->
-          let super_args =
-            with_type_params scope (fun () -> List.map infer_ty_of_annotation written)
-          in
+          let super_args = with_type_params scope (fun () -> type_arguments super written) in
           declaring_trait super super_args name)
         body.Ast.tb_super)
 
@@ -903,14 +972,19 @@ let coerce_params params (args : checked_expr list) =
    field pointing at the failed function would follow it. *)
 let type_params_of span (static_params : Ast.static_param list) =
   let touched = List.map (fun (p : Ast.static_param) ->
-    p.Ast.sp_name, Hashtbl.find_opt ctx_type_params p.Ast.sp_name) static_params
+    ( p.Ast.sp_name
+    , Hashtbl.find_opt ctx_type_params p.Ast.sp_name
+    , Hashtbl.find_opt ctx_row_params p.Ast.sp_name )) static_params
   in
   let restore () =
     List.iter
-      (fun (name, previous) ->
-        match previous with
-        | Some var -> Hashtbl.replace ctx_type_params name var
-        | None -> Hashtbl.remove ctx_type_params name)
+      (fun (name, previous, previous_row) ->
+        (match previous with
+         | Some var -> Hashtbl.replace ctx_type_params name var
+         | None -> Hashtbl.remove ctx_type_params name);
+        match previous_row with
+        | Some row -> Hashtbl.replace ctx_row_params name row
+        | None -> Hashtbl.remove ctx_row_params name)
       touched
   in
   Fun.protect ~finally:restore (fun () ->
@@ -925,6 +999,9 @@ let type_params_of span (static_params : Ast.static_param list) =
             if p.Ast.sp_pack then Types.declare_pack var;
             Types.name_param p.Ast.sp_name var;
             Hashtbl.replace ctx_type_params p.Ast.sp_name var;
+            (* So a sibling's bound may pass it where a row goes:
+               `S: Source<int, E>, E`. *)
+            Hashtbl.replace ctx_row_params p.Ast.sp_name (row_of_param var);
             p, var
           | Some _ ->
             fail span "Static value parameter '%s' is not supported yet." p.Ast.sp_name)
@@ -948,7 +1025,7 @@ let type_params_of span (static_params : Ast.static_param list) =
                 | _ -> Either.Right a)
               args
           in
-          let bd_args = List.map infer_ty_of_annotation args
+          let bd_args = type_arguments trait args
           and bd_bindings = List.map (fun (m, b) -> m, infer_ty_of_annotation b) bindings in
           Types.constrain
             var
@@ -1408,6 +1485,10 @@ let rec row_param_in names (t : Ast.type_expr) =
     (match List.find_opt (fun (label, _) -> List.mem label names) row with
      | Some (label, _) -> Some (label, t.Ast.span)
      | None -> within ((ret :: params) @ List.concat_map snd row))
+  | Ast.Ty_row row ->
+    (match List.find_opt (fun (label, _) -> List.mem label names) row with
+     | Some (label, _) -> Some (label, t.Ast.span)
+     | None -> within (List.concat_map snd row))
   | Ast.Ty_app (_, args) | Ast.Ty_tuple args -> within args
   | Ast.Ty_record fields -> within (List.map snd fields)
   | Ast.Ty_variadic inner | Ast.Ty_spread inner | Ast.Ty_assoc (inner, _) | Ast.Ty_bind (_, inner) ->
@@ -2259,7 +2340,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        then
          unify_at
            span
-           (named_type span name (List.map infer_ty_of_annotation type_args))
+           (named_type span name (type_arguments name type_args))
            ret;
        node ret (`Call (Ast.annotated span fn_ty (`Var fn), args)))
   | `New (name, fields) ->
@@ -2267,7 +2348,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
      | Some (Opaque _) -> fail span "'%s' has no fields to construct it with." name
      | None | Some (Sum _) -> fail span "Unknown record type '%s'." name
      | Some (Product (vars, declared)) ->
-       let args = List.map (fun _ -> Types.fresh ()) vars in
+       let args = List.map fresh_argument vars in
        let declared = Types.substitute_fields (instance vars args) declared in
        let rec labels f =
          match Types.repr_fields f with
@@ -2500,6 +2581,23 @@ and declare_traits (body : Ast.desugared_stmt list) =
          | None -> ());
         Hashtbl.replace ctx_trait_spans name s.Ast.span;
         Hashtbl.replace ctx_traits name (params, trait_body);
+        (* A parameter stands in a row where a method's signature puts it in one. *)
+        let in_row p =
+          List.exists
+            (fun (m : Ast.method_sig) ->
+              let written (t : Ast.type_expr option) =
+                match t with
+                | Some t -> row_param_in [ p ] t <> None
+                | None -> false
+              in
+              (match m.Ast.ms_signature.Ast.row with
+               | Some labels -> List.exists (fun (l, _) -> String.equal l p) labels
+               | None -> false)
+              || written m.Ast.ms_signature.Ast.ret
+              || List.exists (fun (prm : Ast.param) -> written prm.Ast.ty) m.Ast.ms_params)
+            trait_body.Ast.tb_methods
+        in
+        Hashtbl.replace ctx_row_standing name (List.map in_row params);
         (* In type position the name is a trait object, which has no fields of
            its own and cannot be constructed. *)
         Hashtbl.replace ctx_types name (Opaque (List.map (fun _ -> Types.fresh ()) params))
@@ -2626,7 +2724,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
           (fun (t, args) ->
             (* The impl's own parameter may be among the trait's arguments. *)
             with_type_params type_params (fun () ->
-              Hashtbl.add ctx_impls (type_name, t) (List.map infer_ty_of_annotation args)))
+              Hashtbl.add ctx_impls (type_name, t) (type_arguments t args)))
           trait;
         Option.iter
           (fun (t, args) ->
@@ -2766,8 +2864,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
            in
            let written t = Option.value (Types.infer_type_name t) ~default:"_" in
            let args =
-             with_type_params type_params (fun () ->
-               List.map infer_ty_of_annotation trait_args)
+             with_type_params type_params (fun () -> type_arguments trait trait_args)
            in
            let scope =
              type_params
@@ -2782,8 +2879,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                let wanted =
                  List.map
                    written
-                   (with_type_params scope (fun () ->
-                      List.map infer_ty_of_annotation super_args))
+                   (with_type_params scope (fun () -> type_arguments super super_args))
                in
                let supplied = Hashtbl.find_all ctx_impls (type_name, super) in
                if not (List.exists (fun have -> List.map written have = wanted) supplied)
@@ -2840,7 +2936,7 @@ and conforms span ~trait ~args ~params ~required ~type_name ~type_params ~decl_p
                   | Some ty -> ty
                   | None -> Types.fresh ()) ))
            (associated_names trait)
-      @ List.combine params (List.map infer_ty_of_annotation args))
+      @ List.combine params (type_arguments trait args))
   in
   with_type_params (type_params @ in_scope) (fun () ->
     List.iter
@@ -2920,9 +3016,10 @@ and conforming_method
         defined_text
     in
     (* A call through a vtable emits one calling convention, so the row an impl
-       performs is the trait's to declare and the impl's to repeat. *)
-    let as_written row = List.sort String.compare (List.map Printer.string_of_row_entry row) in
-    if as_written declared_row <> as_written defined_row then mismatched ();
+       performs is the trait's to declare and the impl's to repeat -- as rows,
+       so `<E>` at an impl of `Source<int, <log>>` is `<log>`. *)
+    (try Types.unify_row (row_of_labels ~span declared_row) (row_of_labels ~span defined_row) with
+     | Types.Type_error _ -> mismatched ());
     try
       List.iter2 Types.unify declared defined;
       Types.unify declared_ret defined_ret
@@ -2960,15 +3057,17 @@ and self_ty span type_name params =
     (* An impl header supplies the type's parameters rather than arguments to
        them, so a pack stands where it was declared instead of collecting what
        came after it. *)
+    let standing = Option.value ~default:[] (Hashtbl.find_opt ctx_row_standing type_name) in
     named_type
       ~written:false
       span
       type_name
-      (List.map
-         (fun name ->
-           match Hashtbl.find_opt ctx_type_params name with
-           | Some var -> var
-           | None -> Types.fresh ())
+      (List.mapi
+         (fun i name ->
+           match Hashtbl.find_opt ctx_type_params name, Hashtbl.find_opt ctx_row_params name with
+           | Some _, Some row when List.nth_opt standing i = Some true -> Types.IRow row
+           | Some var, _ -> var
+           | None, _ -> Types.fresh ())
          params)
 
 (* Hoisting reads signatures, and a row naming an effect has to know how many
@@ -3061,6 +3160,34 @@ and declare_type_bodies (body : Ast.desugared_stmt list) =
         (match declared with
          | Product (vars, fields) -> Types.declare_fields name vars fields
          | Opaque _ | Sum _ -> ());
+        (* A parameter stands in a row where the body leaves a row open in it. *)
+        let body_rows =
+          match declared with
+          | Product (_, fields) -> Types.free_row_vars (Types.IRecord fields)
+          | Sum (_, variants) ->
+            List.concat_map
+              (fun (_, vd) ->
+                List.concat_map
+                  Types.free_row_vars
+                  (match vd.vd_payload with
+                   | Ast.P_none -> []
+                   | Ast.P_tuple types -> types
+                   | Ast.P_fields fields -> List.map snd fields))
+              variants
+          | Opaque _ -> []
+        in
+        let standing =
+          List.map
+            (fun v ->
+              match Types.row_tail (row_of_param v) with
+              | Some id when List.mem id body_rows ->
+                Hashtbl.replace ctx_standing_rows (Types.var_id v) (row_of_param v);
+                Some id
+              | _ -> None)
+            vars
+        in
+        Hashtbl.replace ctx_row_standing name (List.map Option.is_some standing);
+        Types.declare_row_params name standing;
         Hashtbl.replace
           ctx_attrs
           name
@@ -3363,7 +3490,7 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
     in
     let loop =
       match held with
-      | Types.INamed ("Iter", [ _ ]) -> Desugar.pulled at names seq ~closes:true body
+      | Types.INamed ("Iter", [ _; _ ]) -> Desugar.pulled at names seq ~closes:true body
       | Types.IFn ([], _, _) -> Desugar.pulled at names seq ~closes:false body
       | _ -> Desugar.indexed at names seq body
     in
@@ -3662,7 +3789,7 @@ and infer_match
         | Ast.Pat_variant (ty, _, _) ->
           (match Hashtbl.find_opt ctx_types ty with
            | Some (Sum (vars, _)) ->
-             let args = List.map (fun _ -> Types.fresh ()) vars in
+             let args = List.map fresh_argument vars in
              unify_at scrutinee.Ast.span (Types.ISum (ty, args)) scrutinee.Ast.ann;
              Some (ty, args)
            | _ -> None)
@@ -4118,14 +4245,14 @@ let admits registry kind (t : Types.infer_ty) =
        in
        List.for_all
          (fun (b : Types.bound) ->
-           if String.equal b.Types.bd_trait name
-           then (
-             try
-               List.iter2 Types.unify b.Types.bd_args args;
-               true
-             with
-             | Types.Type_error _ | Invalid_argument _ -> false)
-           else b.Types.bd_args = [] && List.mem b.Types.bd_trait (trait_closure name))
+           match reached_at name args b.Types.bd_trait with
+           | Some found ->
+             (try
+                List.iter2 Types.unify b.Types.bd_args found;
+                true
+              with
+              | Types.Type_error _ | Invalid_argument _ -> false)
+           | None -> false)
          traits
      | Some name ->
        List.for_all

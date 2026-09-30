@@ -75,6 +75,8 @@ and type_expr_kind =
   | Ty_assoc of type_expr * string
   (* `Output = T`: what the impl the bound reaches must have bound. *)
   | Ty_bind of string * type_expr
+  (* `<async, E>` as an argument, where the type's parameter stands in a row. *)
+  | Ty_row of (string * type_expr list) list
 
 (* [implicit] marks a trailing lambda whose parameters were not written, so how
    many it has is not known until the expected type says. *)

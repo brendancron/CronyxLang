@@ -36,7 +36,7 @@ effect Yield<T> {
  * one it has not finished unwinds it, so its `defer`s run and a file it opened
  * with `using` is closed.
  */
-fn iterator<T, E>(producer: () -> <Yield<T>, E> unit): Iter<() -> <E> Option<T>> {
+fn iterator<T, E>(producer: () -> <Yield<T>, E> unit): Iter<T, E> {
     var out: Option<T> = Option.None;
     var started = false;
     var rest: Option<() -> <E> unit> = Option.None;

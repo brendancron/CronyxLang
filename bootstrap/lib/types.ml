@@ -27,6 +27,9 @@ and ty =
   | Named of string * ty list
   | Sum of string * ty list
   | Fn of ty list * ty * row
+  (* An effect row passed where a type's parameter stands in one: `E` in
+     `Iter<string, <async>>`. *)
+  | Row of row
   (* Quantified, not unresolved. Reaching codegen means a call site was missed. *)
   | Generic of int
 
@@ -45,6 +48,7 @@ type infer_ty =
   | INamed of string * infer_ty list
   | ISum of string * infer_ty list
   | IFn of infer_ty list * infer_ty * infer_row
+  | IRow of infer_row
   | IVar of tv ref
 
 and kind =
@@ -320,6 +324,13 @@ and string_of_infer_ty seen (t : infer_ty) : string =
       (String.concat ", " (List.map string_of_infer_ty params))
       (string_of_infer_row row)
       (string_of_infer_ty ret)
+  | IRow r ->
+    (match labels_of_infer_row r with
+     | labels, open_ ->
+       Printf.sprintf
+         "<%s%s>"
+         (String.concat ", " (List.map (entry string_of_infer_ty) labels))
+         (if open_ then (if labels = [] then "_" else "|_") else ""))
   | IVar { contents = Unbound (id, _) } -> var_name seen id
   | IVar { contents = Link _ } -> assert false (* repr collapsed these *)
 
@@ -374,6 +385,7 @@ and string_of_ty seen (t : ty) : string =
       (String.concat ", " (List.map string_of_ty params))
       (string_of_row row)
       (string_of_ty ret)
+  | Row r -> Printf.sprintf "<%s>" (String.concat ", " (List.map (entry string_of_ty) r.labels))
   | Generic id -> var_name seen id
 
 (* Each rendering numbers what it met, so a name means the same thing across one
@@ -394,7 +406,7 @@ let type_name (t : ty) : string option =
   | Bool -> Some "bool"
   | Unit -> Some "unit"
   | Named (name, _) | Sum (name, _) -> Some name
-  | Tuple _ | Pack _ | Spread _ | Record _ | Fn _ | Generic _ -> None
+  | Tuple _ | Pack _ | Spread _ | Record _ | Fn _ | Row _ | Generic _ -> None
 
 (* A row whose tail is bound gains what the call site settled it to. Its own
    labels stay: `<log | E>` at `E = <ask>` is `<ask, log>`. *)
@@ -441,6 +453,13 @@ let rec subst_generic ?(rows = []) mapping (t : ty) : ty =
       ( expand_ty (List.map (subst_generic mapping) params)
       , subst_generic mapping ret
       , subst_row rows row )
+  | Row row ->
+    Row
+      (subst_row
+         rows
+         { row with
+           labels = List.map (fun (l, args) -> l, List.map (subst_generic mapping) args) row.labels
+         })
   | scalar -> scalar
 
 let rec match_generic_fields a b acc =
@@ -472,6 +491,15 @@ and match_generic (general : ty) (concrete : ty) acc =
         | _ -> acc)
       acc
       rowa.labels
+  | Row rowa, Row rowb ->
+    List.fold_left
+      (fun acc (label, args) ->
+        match List.assoc_opt label rowb.labels with
+        | Some concrete when List.length concrete = List.length args ->
+          match_generic_list args concrete acc
+        | _ -> acc)
+      acc
+      rowa.labels
   | _ -> acc
 
 (* A spread is what the copy settles, so it takes however many the concrete
@@ -495,12 +523,16 @@ let rec match_rows (general : ty) (concrete : ty) acc =
   | Fn (pa, ra, rowa), Fn (pb, rb, rowb) when List.length pa = List.length pb ->
     let acc = List.fold_left2 (fun acc a b -> match_rows a b acc) acc pa pb in
     let acc = match_rows ra rb acc in
-    (match rowa.tail with
-     | Some id when not (List.mem_assoc id acc) ->
-       let named = List.map fst rowa.labels in
-       let rest = List.filter (fun (l, _) -> not (List.mem l named)) rowb.labels in
-       (id, { labels = rest; tail = rowb.tail }) :: acc
-     | _ -> acc)
+    match_row_tail rowa rowb acc
+  | Row rowa, Row rowb -> match_row_tail rowa rowb acc
+  | _ -> acc
+
+and match_row_tail (rowa : row) (rowb : row) acc =
+  match rowa.tail with
+  | Some id when not (List.mem_assoc id acc) ->
+    let named = List.map fst rowa.labels in
+    let rest = List.filter (fun (l, _) -> not (List.mem l named)) rowb.labels in
+    (id, { labels = rest; tail = rowb.tail }) :: acc
   | _ -> acc
 
 (* Evidence arity follows the row a definition declares, so a copy per row is
@@ -516,6 +548,7 @@ let row_polymorphic ?(inherited = []) (t : ty) =
   let rec tails t =
     match t with
     | Fn (ps, ret, row) -> Option.to_list row.tail @ List.concat_map tails ps @ tails ret
+    | Row row -> Option.to_list row.tail
     | Tuple items | Pack items | Named (_, items) | Sum (_, items) -> List.concat_map tails items
     | Spread inner -> tails inner
     | Record fields -> List.concat_map (fun (_, t) -> tails t) fields
@@ -541,6 +574,7 @@ let rec has_generic (t : ty) =
     List.exists has_generic params
     || has_generic ret
     || List.exists (fun (_, args) -> List.exists has_generic args) row.labels
+  | Row row -> List.exists (fun (_, args) -> List.exists has_generic args) row.labels
   | _ -> false
 
 (* The [Generic]s a type mentions, and the variables its rows are open in. *)
@@ -555,6 +589,9 @@ let variables (t : ty) : int list * int list =
     | Fn (params, ret, row) ->
       List.iter walk params;
       walk ret;
+      List.iter (fun (_, args) -> List.iter walk args) row.labels;
+      Option.iter (fun id -> rows := id :: !rows) row.tail
+    | Row row ->
       List.iter (fun (_, args) -> List.iter walk args) row.labels;
       Option.iter (fun id -> rows := id :: !rows) row.tail
     | _ -> ()
@@ -577,7 +614,7 @@ let infer_type_name (t : infer_ty) : string option =
   | IBool -> Some "bool"
   | IUnit -> Some "unit"
   | INamed (name, _) | ISum (name, _) -> Some name
-  | ITuple _ | IPack _ | ISpread _ | IRecord _ | IFn _ | IVar _ -> None
+  | ITuple _ | IPack _ | ISpread _ | IRecord _ | IFn _ | IRow _ | IVar _ -> None
 
 (* A pack in a list position is however many types it holds. One whose pack is
    still a variable stays where it is: [Type_mono] splices it once the copy it
@@ -860,6 +897,7 @@ and unify (a : infer_ty) (b : infer_ty) : unit =
       p2;
     unify r1 r2;
     unify_row e1 e2
+  | IRow a, IRow b -> unify_row a b
   | _ -> error "Expected %s, got %s." (string_of_infer_ty a) (string_of_infer_ty b)
 
 (* A spread takes however many the other side has left, which is the only place
@@ -931,6 +969,7 @@ let free_vars (t : infer_ty) : (int * kind) list =
       List.iter walk params;
       walk ret;
       walk_row row
+    | IRow row -> walk_row row
     | _ -> ()
   and walk_row r =
     match repr_row r with
@@ -963,6 +1002,7 @@ let free_row_vars (t : infer_ty) : int list =
       List.iter walk params;
       walk ret;
       walk_row row
+    | IRow row -> walk_row row
     | _ -> ()
   in
   walk t;
@@ -1099,6 +1139,7 @@ let instantiate ?(bound = []) (s : scheme) : infer_ty =
         in
         IRecord (copy f)
       | IFn (params, ret, row) -> IFn (List.map walk params, walk ret, walk_row row)
+      | IRow row -> IRow (walk_row row)
       | concrete -> concrete
     in
     walk s.body)
@@ -1198,6 +1239,8 @@ let var_id (t : infer_ty) =
   | IVar { contents = Unbound (id, _) } -> id
   | other -> error "Not a type variable: %s." (string_of_infer_ty other)
 
+(* A row variable is replaced by the row an [IRow] maps it to: the ids are drawn
+   from one counter, so one mapping serves both. *)
 let rec substitute mapping (t : infer_ty) : infer_ty =
   match repr t with
   | IVar { contents = Unbound (id, _) } as original ->
@@ -1211,8 +1254,22 @@ let rec substitute mapping (t : infer_ty) : infer_ty =
   | INamed (name, args) -> INamed (name, List.map (substitute mapping) args)
   | ISum (name, args) -> ISum (name, List.map (substitute mapping) args)
   | IFn (params, ret, row) ->
-    IFn (List.map (substitute mapping) params, substitute mapping ret, row)
+    IFn (List.map (substitute mapping) params, substitute mapping ret, substitute_row mapping row)
+  | IRow row -> IRow (substitute_row mapping row)
   | concrete -> concrete
+
+and substitute_row mapping (r : infer_row) : infer_row =
+  match repr_row r with
+  | RVar { contents = RUnbound id } as original ->
+    (match List.assoc_opt id mapping with
+     | Some replacement ->
+       (match repr replacement with
+        | IRow row -> row
+        | _ -> original)
+     | None -> original)
+  | RCons (label, args, rest) ->
+    RCons (label, List.map (substitute mapping) args, substitute_row mapping rest)
+  | other -> other
 
 and substitute_fields mapping (f : infer_fields) : infer_fields =
   match repr_fields f with
@@ -1269,21 +1326,25 @@ and concrete (t : infer_ty) : ty option =
   | IFn (params, ret, row) ->
     let* params = concrete_all (expand params) in
     let* ret = concrete ret in
-    let entries =
-      List.filter_map
-        (fun (label, args) ->
-          let rec each acc = function
-            | [] -> Some (List.rev acc)
-            | a :: rest ->
-              (match concrete a with
-               | Some a -> each (a :: acc) rest
-               | None -> None)
-          in
-          Option.map (fun args -> label, args) (each [] args))
-        (fst (labels_of_infer_row row))
-    in
-    Some (Fn (params, ret, { labels = List.sort compare entries; tail = row_tail row }))
+    Some (Fn (params, ret, concrete_row row))
+  | IRow row -> Some (Row (concrete_row row))
   | IVar _ -> None
+
+and concrete_row row =
+  let entries =
+    List.filter_map
+      (fun (label, args) ->
+        let rec each acc = function
+          | [] -> Some (List.rev acc)
+          | a :: rest ->
+            (match concrete a with
+             | Some a -> each (a :: acc) rest
+             | None -> None)
+        in
+        Option.map (fun args -> label, args) (each [] args))
+      (fst (labels_of_infer_row row))
+  in
+  { labels = List.sort compare entries; tail = row_tail row }
 
 let rec of_ty (t : ty) : infer_ty =
   match t with
@@ -1302,17 +1363,17 @@ let rec of_ty (t : ty) : infer_ty =
       (List.fold_right (fun (l, t) rest -> FCons (l, of_ty t, rest)) fields FEmpty)
   | Named (name, args) -> INamed (name, List.map of_ty args)
   | Sum (name, args) -> ISum (name, List.map of_ty args)
-  | Fn (params, ret, row) ->
-    IFn
-      ( List.map of_ty params
-      , of_ty ret
-      , List.fold_right
-          (fun (l, args) rest -> RCons (l, List.map of_ty args, rest))
-          row.labels
-          (match row.tail with
-           | None -> REmpty
-           | Some _ -> fresh_row ()) )
+  | Fn (params, ret, row) -> IFn (List.map of_ty params, of_ty ret, of_row row)
+  | Row row -> IRow (of_row row)
   | Generic _ -> fresh ()
+
+and of_row (row : row) : infer_row =
+  List.fold_right
+    (fun (l, args) rest -> RCons (l, List.map of_ty args, rest))
+    row.labels
+    (match row.tail with
+     | None -> REmpty
+     | Some _ -> fresh_row ())
 
 (* ---- resolve ---- *)
 
@@ -1349,6 +1410,7 @@ and resolve (t : infer_ty) : ty =
     Record (List.sort compare (collect f))
   | IFn (params, ret, row) ->
     Fn (List.map resolve (expand params), resolve ret, resolve_row row)
+  | IRow row -> Row (resolve_row row)
   | IVar { contents = Unbound (id, kind) } ->
     if Hashtbl.mem declared_params id
     then Generic id
@@ -1370,26 +1432,62 @@ let declarations : (string, infer_ty list * infer_fields) Hashtbl.t = Hashtbl.cr
 
 let declare_fields name vars fields = Hashtbl.replace declarations name (vars, fields)
 
+(* Per parameter, the row variable a declaration's fields are open in where the
+   parameter stands in a row -- `E` in `next: () -> <E> Option<T>` -- and
+   [None] where it stands in a type. *)
+let row_params : (string, int option list) Hashtbl.t = Hashtbl.create 8
+
+let declare_row_params name ids = Hashtbl.replace row_params name ids
+
 let paired vars args =
   if List.length vars = List.length args
   then List.map2 (fun v a -> var_id v, a) vars args
   else []
 
+(* What each row a parameter stands in is, read off the argument written for it. *)
+let paired_rows name args select =
+  match Hashtbl.find_opt row_params name with
+  | Some ids when List.length ids = List.length args ->
+    List.concat
+      (List.map2
+         (fun id a ->
+           match id, select a with
+           | Some id, Some row -> [ id, row ]
+           | _ -> [])
+         ids
+         args)
+  | _ -> []
+
 let fields_of name args : infer_fields =
   match Hashtbl.find_opt declarations name with
-  | Some (vars, f) -> substitute_fields (paired vars args) f
+  | Some (vars, f) ->
+    let rows =
+      paired_rows name args (fun a ->
+        match repr a with
+        | IRow _ -> Some a
+        | _ -> None)
+    in
+    substitute_fields (paired vars args @ rows) f
   | None -> FEmpty
 
+(* The rows first and [declared] after them: a field's function performs what
+   its row argument says, and widening it before that is known would leave out
+   the evidence that performing needs. *)
 let named_fields ?(declared = Fun.id) name args : fields =
   match Hashtbl.find_opt declarations name with
   | None -> []
   | Some (vars, f) ->
     let mapping = paired vars args in
+    let rows =
+      paired_rows name args (function
+        | Row row -> Some row
+        | _ -> None)
+    in
     let rec collect f =
       match repr_fields f with
       | FEmpty | FVar _ -> []
       | FCons (label, ty, rest) ->
-        (label, subst_generic mapping (declared (resolve ty))) :: collect rest
+        (label, subst_generic mapping (declared (subst_generic ~rows [] (resolve ty)))) :: collect rest
     in
     List.sort compare (collect f)
 

@@ -28,6 +28,8 @@ and string_of_type_expr (t : Ast.type_expr) : string =
   | Ast.Ty_name name -> name
   | Ast.Ty_assoc (owner, member) -> string_of_type_expr owner ^ "." ^ member
   | Ast.Ty_bind (bound, t) -> bound ^ " = " ^ string_of_type_expr t
+  | Ast.Ty_row row ->
+    Printf.sprintf "<%s>" (String.concat ", " (List.map string_of_row_entry row))
   | Ast.Ty_variadic ({ Ast.it = Ast.Ty_spread _; _ } as held) -> string_of_type_expr held
   | Ast.Ty_variadic t -> "..." ^ string_of_type_expr t
   | Ast.Ty_spread t -> "..." ^ string_of_type_expr t

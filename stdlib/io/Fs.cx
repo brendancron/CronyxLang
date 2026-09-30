@@ -32,7 +32,7 @@ type Mode {
 }
 
 /** An open file, closed with `using`. */
-trait File: Reader, Writer, Closer {}
+trait File: Reader, Writer, Closer<IoError> {}
 
 /** Opening files. */
 effect Fs {
@@ -115,7 +115,7 @@ impl Writer for DiskFile {
     }
 }
 
-impl Closer for DiskFile {
+impl Closer<IoError> for DiskFile {
     fn close(self): <async, Throw<IoError>> unit {
         var (status, message) = suspend { it(__file_close(self.fd)) };
         if (status != 0) { throw(__failure(status, self.path, message)); }

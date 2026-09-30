@@ -140,7 +140,7 @@ That restriction is not a convenience. Checking is Hindley-Milner, which is unif
 
 The consequence worth knowing is the element type. Without its annotation, `[Cat, Dog]` is an error — two unequal element types and nothing to unify them to. The annotation is what does the work, not the literal, which is why an argument whose parameter mentions a trait is *checked* against that parameter rather than inferred and unified afterwards: by the time a literal has been inferred, its elements have already been unified with each other and the coercion has nowhere to go.
 
-Going the other way is not a coercion at all. An object meets a bound on its own trait or on any supertrait, as `dyn Trait: Trait` does in Rust:
+Going the other way is not a coercion at all. An object meets a bound on its own trait or on any supertrait, at the arguments the supertrait is written with, as `dyn Trait: Trait` does in Rust:
 
 ```
 fn announce<S: Speaker>(s: S) { ... }

@@ -153,6 +153,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
         Ast.Ty_record (List.map (fun (l, t) -> l, type_expr t) fields)
       | Ast.Ty_fn (args, ret, row) ->
         Ast.Ty_fn (List.map type_expr args, type_expr ret, row)
+      | Ast.Ty_row row -> Ast.Ty_row row
     in
     { t with Ast.it }
   in

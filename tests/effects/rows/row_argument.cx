@@ -1,0 +1,26 @@
+effect log {
+    fn emit(msg: string): unit;
+}
+
+type Task<T, E> { start: () -> <E> T }
+
+fn plain(): Task<int, <>> {
+    return Task { start: () => { return 1; } };
+}
+
+fn logged(): Task<int, <log>> {
+    return Task { start: () => { emit("ran"); return 2; } };
+}
+
+fn go<T, E>(t: Task<T, E>): <E> T {
+    return t.start();
+}
+
+print(plain().start());
+print(go(plain()));
+run {
+    print(logged().start());
+    print(go(logged()));
+} handle log {
+    fn emit(msg) { print("log: " + msg); }
+}

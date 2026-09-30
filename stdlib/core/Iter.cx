@@ -14,13 +14,13 @@
  * `next` hands out the next value, or `None` once there are none, and `close`
  * lets go of what the sequence still holds when nobody will ask again.
  *
- * `N` is `next`'s own type, `() -> <E> Option<T>`: the effects pulling performs
- * are part of it, so reading a file line by line says `<async, Throw<IoError>>`
- * where it is pulled rather than where it was made.
+ * `E` is what pulling a value performs, so reading a file line by line is an
+ * `Iter<string, <async, Throw<IoError>>>`: the effects happen where it is
+ * pulled rather than where it was made.
  */
-type Iter<N> {
+type Iter<T, E> {
     /** The next value, or `None` at the end. */
-    next: N,
+    next: () -> <E> Option<T>,
 
     /** Finishes with the sequence. Asking for more afterwards answers `None`. */
     close: () -> unit

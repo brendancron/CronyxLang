@@ -4,7 +4,7 @@ import { async } from "std/effects/Async";
 
 type Tap { name: string, fails: bool, log: List<string> }
 
-impl Closer for Tap {
+impl Closer<IoError> for Tap {
     fn close(self): <async, Throw<IoError>> unit {
         self.log.push("closing " + self.name);
         if (self.fails) { throw(IoError.Other(self.name + " would not close")); }
@@ -50,3 +50,18 @@ fn first_of(names: Array<string>): <async, Throw<IoError>, Console> string {
 var first = first_of(["e", "f"]);
 flush();
 print(first);
+
+type LockError { Stuck(string) }
+
+type Lock { name: string }
+
+impl Closer<LockError> for Lock {
+    fn close(self): <async, Throw<LockError>> unit {
+        throw(LockError.Stuck(self.name));
+    }
+}
+
+var locked = attempt {
+    using(Lock { name: "door" }) { l -> l.name + " held" }
+};
+print(locked);

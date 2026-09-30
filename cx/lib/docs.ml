@@ -131,6 +131,8 @@ let rec type_expr ~known ~params (t : Ast.type_expr) : Json.t =
       [ "kind", Json.String "assoc"; "of", each inner; "member", Json.String member ]
   | Ast.Ty_bind (name, inner) ->
     Json.Obj [ "kind", Json.String "bind"; "name", Json.String name; "type", each inner ]
+  | Ast.Ty_row row ->
+    Json.Obj [ "kind", Json.String "row"; "row", Json.List (List.map (effect_ref ~known ~params) row) ]
 
 and effect_ref ~known ~params (name, args) =
   let display =
