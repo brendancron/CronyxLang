@@ -1,0 +1,59 @@
+effect Tick { ctl tick(): int; }
+
+fn with_defer(): <Tick, Console> unit {
+    var i = 0;
+    while (true) {
+        defer print("left iteration " + str(i));
+        var n = tick();
+        i += 1;
+        if (i == 2) { break; }
+    }
+    print("after the loop");
+}
+
+fn in_match(): <Tick, Console> unit {
+    for (x in [1, 2, 3, 4]) {
+        var n = tick();
+        var stop: Option<int> = Option.None;
+        if (x == 3) { stop = Option.Some(x); }
+        match stop {
+            Option.Some(_) => { break; }
+            Option.None => { print("saw " + str(x)); }
+        }
+    }
+    print("match done");
+}
+
+fn nested(): <Tick, Console> unit {
+    for (a in [1, 2]) {
+        for (b in [1, 2, 3]) {
+            var n = tick();
+            if (b == 2) { break; }
+            print(str(a) + "/" + str(b));
+        }
+        print("outer " + str(a));
+    }
+}
+
+fn plain_inside(): <Tick, Console> unit {
+    var n = tick();
+    var total = 0;
+    for (x in [5, 6, 7]) {
+        var m = tick();
+        var k = 0;
+        while (true) {
+            k += 1;
+            if (k == 2) { break; }
+        }
+        total = total + k;
+        if (x == 6) { break; }
+    }
+    print("total " + str(total));
+}
+
+run {
+    with_defer();
+    in_match();
+    nested();
+    plain_inside();
+} handle Tick { ctl tick() { resume 1; } }

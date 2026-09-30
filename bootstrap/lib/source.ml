@@ -303,6 +303,7 @@ and stmt depth (s : Ast.stmt) : string =
           | Some trait -> " for " ^ trait
           | None -> ""))
       body
+  | `Break -> line "break;"
   | `Return e ->
     line
       (match e with

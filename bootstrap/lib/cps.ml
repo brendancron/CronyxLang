@@ -25,6 +25,8 @@ type effects =
   (* Whether the statement being compiled sits inside a `run` the enclosing
      function has not left. *)
   ; mutable inside_run : bool
+  (* What a `break` calls: the innermost converted loop's exit. *)
+  ; mutable breaking : string option
   (* The own type of each function in scope where conversion is, whose row says
      what evidence it takes. See [scoped]. *)
   ; functions : (string, Types.ty) Hashtbl.t
@@ -200,6 +202,19 @@ let rec holds_return (s : Ast.reflected_stmt) =
   | `Match (_, cases) -> List.exists (fun (_, body) -> List.exists holds_return body) cases
   | `Defer inner -> holds_return inner
   | _ -> false
+
+(* A `break` this loop answers for: not one inside a loop of its own. *)
+let rec holds_break (s : Ast.reflected_stmt) =
+  match s.Ast.it with
+  | `Break -> true
+  | `Block body -> List.exists holds_break body
+  | `If (_, t, e) -> holds_break t || Option.fold ~none:false ~some:holds_break e
+  | `Match (_, cases) -> List.exists (fun (_, body) -> List.exists holds_break body) cases
+  | _ -> false
+
+(* Inside a converted loop, a statement holding its `break` is converted too, so
+   the `break` can call the loop's exit rather than raise past it. *)
+let breaks_here info s = Option.is_some info.breaking && holds_break s
 
 let is_return (s : Ast.reflected_stmt) =
   match s.Ast.it with
@@ -674,6 +689,16 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
            name, [ declaration ])
        in
        let k', wrapped_k = wrapper k in
+       (* Leaving the loop leaves the deferred scope too. *)
+       let outer_breaking = info.breaking in
+       let wrapped_break =
+         match outer_breaking with
+         | Some exit ->
+           let name, declaration = wrapper exit in
+           info.breaking <- Some name;
+           [ declaration ]
+         | None -> []
+       in
        (* No continuation here, so one performing an effect cannot run. *)
        let cleanup =
          if suspends_stmt info inner
@@ -695,11 +720,13 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
          Fun.protect
            ~finally:(fun () ->
              open_defers := outer_defers;
-             open_unwinds := outer_unwinds)
+             open_unwinds := outer_unwinds;
+             info.breaking <- outer_breaking)
            (fun () -> cps info ret' k' ~at:span rest)
        in
        (node span (`Var_decl (armed, None, Some (flag true)))
         :: wrapped_ret)
+       @ wrapped_break
        @ [ wrapped_k; node span (`On_unwind (converted_rest, cleanup)) ]
      | `Expr e when suspends info e ->
        (match extract info e with
@@ -737,7 +764,7 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
           let next = fresh "k" in
           cont_decl span next [ tmp ] (delimited span body) :: invoke info span next c
         | None -> unsupported span "This effect cannot be sequenced yet.")
-     | `If (cond, then_branch, else_branch) when suspends_stmt info s || holds_return s ->
+     | `If (cond, then_branch, else_branch) when suspends_stmt info s || holds_return s || breaks_here info s ->
        let join = fresh "join" in
        let branch b = node span (`Block (cps info ret join ~at:span [ b ])) in
        frame_decl span join [ fresh "x" ] (cps info ret k ~at:span rest)
@@ -753,7 +780,7 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
                        (* Without this the join is never reached. *)
                        | None -> call span join [ ignored span ]) ))
             ])
-     | `Match (scrutinee, cases) when suspends_stmt info s || holds_return s ->
+     | `Match (scrutinee, cases) when suspends_stmt info s || holds_return s || breaks_here info s ->
        let join = fresh "join" in
        frame_decl span join [ fresh "x" ] (cps info ret k ~at:span rest)
        :: controlled_by info span scrutinee (fun scrutinee ->
@@ -763,16 +790,23 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
                   ( scrutinee
                   , List.map (fun (pattern, body) -> pattern, cps info ret join ~at:span body) cases ))
             ])
-     | `Block body when suspends_stmt info s || holds_return s ->
+     | `Block body when suspends_stmt info s || holds_return s || breaks_here info s ->
        let next = fresh "k" in
        [ cont_decl span next [ fresh "x" ] (delimited span (cps info ret k ~at:span rest))
        ; node span (`Block (cps info ret next ~at:span body))
        ]
      (* The body's "what runs next" is the loop itself, so resuming carries
         on with the next iteration and resuming twice runs it twice. *)
+     | `Break when Option.is_some info.breaking ->
+       [ call span (Option.get info.breaking) [ ignored span ] ]
      | `While (cond, body) when suspends_stmt info s || holds_return s ->
        let again = fresh "loop"
        and after = fresh "after" in
+       let outer = info.breaking in
+       info.breaking <- Some after;
+       let body =
+         Fun.protect ~finally:(fun () -> info.breaking <- outer) (fun () -> cps info ret again ~at:span [ body ])
+       in
        [ frame_decl span after [ fresh "x" ] (cps info ret k ~at:span rest)
        ; (* Once per iteration, so extracting it goes inside the continuation
             the loop re-enters. *)
@@ -785,7 +819,7 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
                   span
                   (`If
                     ( cond
-                    , node span (`Block (cps info ret again ~at:span [ body ]))
+                    , node span (`Block body)
                     , Some (call span after [ ignored span ]) ))
               ]))
        ; call span again [ ignored span ]
@@ -1156,6 +1190,7 @@ let collect (p : Ast.reflected_stmt list) =
     ; bound = Hashtbl.create 8
     ; leaving = None
     ; inside_run = false
+    ; breaking = None
     ; functions = Hashtbl.create 32
     }
   in

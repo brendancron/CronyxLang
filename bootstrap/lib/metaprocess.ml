@@ -948,6 +948,7 @@ and tstmt h scope (s : Ast.stmt) : Ast.stmt list * S.t =
     let c = ex c in
     one (`While (c, st body))
   | `Return e -> one (`Return (Option.map ex e))
+  | `Break -> one `Break
   | `Expr e -> one (`Expr (ex e))
   | `Defer inner -> one (`Defer (st inner))
   | `For (init, cond, step, body) ->

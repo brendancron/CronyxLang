@@ -24,11 +24,10 @@
  * handlers; what it hands out is a `Reader`, whose reads may wait:
  *
  * ```
- * var more = true;
- * while (more) {
+ * while (true) {
  *     match read_line() {
  *         Option.Some(line) => { print("> " + line); }
- *         Option.None => { more = false; }
+ *         Option.None => { break; }
  *     }
  * }
  * ```

@@ -235,7 +235,8 @@ let program (p : program) : (desugared_stmt list, error) result =
             | Named _ -> [])
           handlers
     | `Impl_decl (_, _, _, body) -> List.concat_map (fun m -> m.md_body) body.ib_methods
-    | `Expr _ | `Var_decl _ | `Var_tuple _ | `Return _ | `Import _ | `Global_import _ | `Derive _
+    | `Expr _ | `Var_decl _ | `Var_tuple _ | `Return _ | `Break | `Import _ | `Global_import _
+    | `Derive _
     | `Effect_decl _
     | `Resume _ | `Type_decl _ | `Trait_decl _ -> []
   in

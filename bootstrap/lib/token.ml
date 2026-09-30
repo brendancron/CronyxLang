@@ -67,6 +67,7 @@ type token_type =
   | Handler
   | Resume
   | Return
+  | Break
   | Run
   | Match
   | True
@@ -148,6 +149,7 @@ let token_type_to_string = function
   | Handler -> "HANDLER"
   | Resume -> "RESUME"
   | Return -> "RETURN"
+  | Break -> "BREAK"
   | Run -> "RUN"
   | Match -> "MATCH"
   | True -> "TRUE"

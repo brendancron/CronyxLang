@@ -582,11 +582,19 @@ let not_a_bound ~declared (written : Ast.desugared_expr) param (arg : checked_ex
       bound.Types.bd_trait
   | _ -> ()
 
+(* Whether a `break` here leaves a loop. A function, a lambda, a `run` block, a
+   handler arm and a `defer` each start again without one: each is entered
+   through [in_ctx] or clears it itself. *)
+let in_loop = ref false
+
 let in_ctx ctx ~set body =
   let saved =
     ctx.return_type, ctx.saw_return, ctx.row, ctx.resume_type, ctx.in_final_arm
   in
+  let looping = !in_loop in
+  in_loop := false;
   let restore () =
+    in_loop := looping;
     let return_type, saw_return, row, resume_type, in_final_arm = saved in
     ctx.return_type <- return_type;
     ctx.saw_return <- saw_return;
@@ -1015,6 +1023,7 @@ and assigned_in_stmt (s : Ast.desugared_stmt) acc =
     opt assigned_in_stmt else_branch (assigned_in_stmt then_branch (assigned_in_expr cond acc))
   | `While (cond, body) -> assigned_in_stmt body (assigned_in_expr cond acc)
   | `Return e -> opt assigned_in_expr e acc
+  | `Break -> acc
   | `Effect_decl _ | `Type_decl _ | `Trait_decl _ -> acc
   | `Impl_decl (_, _, _, impl) ->
     List.fold_left
@@ -3073,7 +3082,18 @@ and infer_stmt_impl env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
   | `While (cond, body) ->
     let cond = infer_expr env ctx cond in
     unify_at cond.Ast.span Types.IBool cond.Ast.ann;
-    node (`While (cond, infer_stmt env ctx assigned body))
+    let looping = !in_loop in
+    in_loop := true;
+    let body = Fun.protect ~finally:(fun () -> in_loop := looping) (fun () -> infer_stmt env ctx assigned body) in
+    node (`While (cond, body))
+  | `Break ->
+    if not !in_loop
+    then
+      fail
+        span
+        "'break' leaves a loop, and none encloses it here: a function, a lambda, a \
+         'run' block or a 'defer' stands between.";
+    node `Break
   | `Fn (name, params, signature, body) ->
     with_type_params
       (Option.value ~default:[] (Hashtbl.find_opt ctx_fn_params name))
@@ -3108,7 +3128,12 @@ and infer_stmt_impl env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
          ~env_fields:(env_free_field_vars env)
          fn_type);
     Ast.annotated span fn_type (`Fn (name, params, signature, body)))
-  | `Defer inner -> node (`Defer (infer_stmt env ctx assigned inner))
+  | `Defer inner ->
+    let looping = !in_loop in
+    in_loop := false;
+    node
+      (`Defer
+        (Fun.protect ~finally:(fun () -> in_loop := looping) (fun () -> infer_stmt env ctx assigned inner)))
   | `Type_decl (name, params, body) -> node (`Type_decl (name, params, body))
   | `Trait_decl (name, params, methods) -> node (`Trait_decl (name, params, methods))
   | `Impl_decl (trait, type_name, params, impl) ->

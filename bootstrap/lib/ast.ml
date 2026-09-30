@@ -431,6 +431,8 @@ type ('e, 's) stmts =
   | `While of 'e * 's
   | `Fn of string * param list * signature * 's list
   | `Return of 'e option
+  (* Leaves the innermost loop. *)
+  | `Break
   (* However the block is left, and after anything deferred later. *)
   | `Defer of 's
   ]
@@ -931,6 +933,7 @@ let map_stmts (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (s : ('e1, 's1) stmts)
   | `Fn (name, params, signature, body) ->
     `Fn (name, params, signature, List.map fs body)
   | `Return e -> `Return (Option.map fe e)
+  | `Break -> `Break
   | `Defer s -> `Defer (fs s)
 
 let map_loops (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (s : ('e1, 's1) loops)
