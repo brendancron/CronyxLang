@@ -28,6 +28,13 @@ type effects =
   (* What a `return` calls in the statements being converted, which a
      continuation made for them returns through when it is discontinued. *)
   ; mutable returning : string
+  (* Where the innermost `run` block being converted ends, which a continuation
+     inside its body goes to when it is discontinued. *)
+  ; mutable run_end : string option
+  (* The variable saying where the end of the `run` whose arm is being
+     converted goes: a `resume` in it points it at the arm's rest, and the rest
+     points it back. *)
+  ; mutable returning_to : string option
   (* What a `break` and a `continue` call: the innermost converted loop's exit,
      and its next iteration. *)
   ; mutable breaking : string option
@@ -138,6 +145,9 @@ let node span it : Ast.cps_stmt = { Ast.it; span; ann = Types.Unit }
 let var span ty name : Ast.cps_expr = { Ast.it = `Var name; span; ann = ty }
 
 let ignored span : Ast.cps_expr = { Ast.it = `Bool false; span; ann = Types.Bool }
+
+(* What an arm hands its continuation to come back to. *)
+let back_ty = Types.Fn ([ Types.Unit ], Types.Unit, Types.closed_row [])
 
 let call ?(result = Types.Unit) span callee args =
   let callee_ty =
@@ -661,29 +671,43 @@ and cps_stmts info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt li
           sequence info span c (fun name ->
             cps info ret k ~at:span ({ s with Ast.it = `Resume (Some (rebuild name)) } :: rest))
         | None -> unsupported span "This effect cannot be sequenced yet.")
+     (* The rest of the arm is handed over with the signal, and runs once the
+        unwind reaches the end of the block. *)
      | `Discontinue ->
-       node
-         span
-         (`Expr
-           { Ast.it =
-               `Call
-                 ( var
-                     span
-                     (Types.Fn ([ Types.Unit ], Types.Unit, Types.closed_row []))
-                     Ast.discontinue_name
-                 , [ var span Types.Unit continuation ] )
-           ; span
-           ; ann = Types.Unit
-           })
-       :: cps info ret k ~at:span rest
-     (* The arm keeps running afterwards: multi-shot falls out. *)
+       let back = fresh "discontinued" in
+       let saving, restore = resumption info span in
+       saving
+       @ [ frame_decl span back [ fresh "x" ] (restore @ cps info ret k ~at:span rest)
+       ; node
+           span
+           (`Expr
+             { Ast.it =
+                 `Call
+                   ( var
+                       span
+                       (Types.Fn ([ back_ty; back_ty ], Types.Unit, Types.closed_row []))
+                       Ast.discontinue_name
+                   , [ var span back_ty continuation; var span back_ty back ] )
+             ; span
+             ; ann = Types.Unit
+             })
+       ]
+     (* The rest of the arm runs when the resumed computation reaches the end
+        of the block, which is not when the call returns if it suspended on an
+        effect handled further out. Multi-shot falls out: the rest resumes
+        again. *)
      | `Resume value ->
        let value =
          match value with
          | Some v -> expr info v
          | None -> ignored span
        in
-       call span continuation [ value ] :: cps info ret k ~at:span rest
+       let back = fresh "resumed" in
+       let saving, restore = resumption info span in
+       saving
+       @ [ frame_decl span back [ fresh "x" ] (restore @ cps info ret k ~at:span rest)
+         ; call span continuation [ value; var span back_ty back ]
+         ]
      (* Converted code leaves a scope by calling the continuation, by
         returning, or by an unwind. The first two are calls, so the deferred
         statement wraps each — which is what runs it once per exit when a
@@ -937,11 +961,25 @@ and sequence info span c build =
   let next = fresh "k" in
   continuation_decl info span next name (build name) :: invoke info span next c
 
+(* Where the block's end went before this resumption, and putting it back once
+   the arm picks up again. *)
+and resumption info span =
+  match info.returning_to with
+  | None -> [], []
+  | Some returning ->
+    let saved = fresh "saved" in
+    ( [ node span (`Var_decl (saved, None, Some (var span back_ty returning))) ]
+    , [ node
+          span
+          (`Expr { Ast.it = `Assign (returning, var span back_ty saved); span; ann = back_ty })
+      ] )
+
 (* A continuation resumed by `discontinue` returns from its function at once:
    the `return` runs the function's `defer`s and hands its caller's continuation
    the same signal, so the whole computation unwinds to the handler. Inside a
-   `run` it stops instead, since returning would leave the function holding the
-   block. *)
+   `run` it goes to the block's end instead, since returning would leave the
+   function holding the block, and the end hands it to the arm that
+   discontinued. *)
 and continuation_decl info span name param body =
   let signalled : Ast.cps_expr =
     { Ast.it =
@@ -954,7 +992,12 @@ and continuation_decl info span name param body =
   in
   let ret = info.returning in
   let leave =
-    if info.inside_run || String.equal ret no_return
+    if info.inside_run
+    then (
+      match info.run_end with
+      | Some finished -> [ call span finished [ var span Types.Unit param ] ]
+      | None -> [])
+    else if String.equal ret no_return
     then []
     else
       cps
@@ -1025,21 +1068,14 @@ and invoke info span next (c : Ast.reflected_expr) : Ast.cps_stmt list =
    outer handler captures inside the body, and runs once per outer resumption;
    an outer arm that abandons its block returns past this one without reaching
    it. Only this block's own resumptions end at [finished] without going on:
-   they return to the arm that resumed, which is what [resuming] counts. *)
+   they go to the rest of the arm that resumed, which is where [returning]
+   points while one is under way. *)
 and run info ret span k handlers body rest : Ast.cps_stmt list =
   let after = fresh "after" in
   let finished = fresh "finished" in
-  let resuming = fresh "resuming" in
-  let int n : Ast.cps_expr = { Ast.it = `Int n; span; ann = Types.Int } in
-  let counter = var span Types.Int resuming in
-  let step op : Ast.cps_stmt =
-    node
-      span
-      (`Expr
-        { Ast.it = `Assign (resuming, { Ast.it = `Binop (op, counter, int 1); span; ann = Types.Int })
-        ; span
-        ; ann = Types.Int
-        })
+  let returning = fresh "returning" in
+  let assign name value : Ast.cps_stmt =
+    node span (`Expr { Ast.it = `Assign (name, var span back_ty value); span; ann = back_ty })
   in
   let installed =
     List.concat_map
@@ -1078,46 +1114,42 @@ and run info ret span k handlers body rest : Ast.cps_stmt list =
               | Ast.Op_ctl ->
                 let raw = fresh "resume" in
                 let value = fresh "x" in
+                let back = fresh "back" in
+                (* The block's end goes to this resumption's arm until the arm
+                   picks up, which puts back what it went to before. *)
                 let counted =
                   frame_decl
                     span
                     continuation
-                    [ value ]
-                    [ step Ast.Add
-                    ; call span raw [ var span Types.Unit value ]
-                    ; step Ast.Sub
-                    ]
+                    [ value; back ]
+                    [ assign returning back; call span raw [ var span Types.Unit value ] ]
                 in
-                frame_decl
-                  span
-                  name
-                  (a.Ast.arm_params @ [ raw ])
-                  (counted :: cps info finished finished ~at:span a.Ast.arm_body)))
+                let outer = info.returning_to in
+                info.returning_to <- Some returning;
+                let body =
+                  Fun.protect
+                    ~finally:(fun () -> info.returning_to <- outer)
+                    (fun () -> cps info finished finished ~at:span a.Ast.arm_body)
+                in
+                frame_decl span name (a.Ast.arm_params @ [ raw ]) (counted :: body)))
           h.Ast.arms)
       handlers
   in
   (* What follows the block runs once after the handler is done, not once
-     per resumption. *)
+     per resumption: while one is under way the end goes back to its arm. *)
   let reached = fresh "x" in
   (frame_decl span after [ fresh "x" ] (cps info ret k ~at:span rest)
-   :: node span (`Var_decl (resuming, None, Some (int 0)))
-   :: frame_decl
-        span
-        finished
-        [ reached ]
-        [ node
-            span
-            (`If
-              ( { Ast.it = `Binop (Ast.Equal, counter, int 0); span; ann = Types.Bool }
-              , call span after [ var span Types.Unit reached ]
-              , None ))
-        ]
+   :: node span (`Var_decl (returning, None, Some (var span back_ty after)))
+   :: frame_decl span finished [ reached ] [ call span returning [ var span Types.Unit reached ] ]
    :: arms)
   @ with_bound info installed (fun () ->
-      let previous = info.inside_run in
+      let previous = info.inside_run, info.run_end in
       info.inside_run <- true;
+      info.run_end <- Some finished;
       Fun.protect
-        ~finally:(fun () -> info.inside_run <- previous)
+        ~finally:(fun () ->
+          info.inside_run <- fst previous;
+          info.run_end <- snd previous)
         (fun () -> cps info ret finished ~at:span body))
 
 (* ---- evidence-only translation ---- *)
@@ -1288,6 +1320,8 @@ let collect (p : Ast.reflected_stmt list) =
     ; leaving = None
     ; inside_run = false
     ; returning = no_return
+    ; run_end = None
+    ; returning_to = None
     ; breaking = None
     ; continuing = None
     ; functions = Hashtbl.create 32

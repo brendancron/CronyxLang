@@ -1,0 +1,23 @@
+import { Throw } from "std/lang/Throw";
+import { async } from "std/effects/Async";
+import { Mode, Fs, open_file, write_text } from "std/io/Fs";
+import { using, lines, IoError } from "std/io/Io";
+
+write_text("io_lines_to_end.txt", "one\ntwo\nthree\n");
+
+fn count_lines(): <Fs, async, Throw<IoError>, Console> int {
+    var n = 0;
+    using(open_file("io_lines_to_end.txt", Mode.Read)) { f ->
+        for (line in lines(f)) {
+            print(line);
+            n = n + 1;
+        }
+    };
+    return n;
+}
+
+print(count_lines());
+using(open_file("io_lines_to_end.txt", Mode.Read)) { f ->
+    for (line in lines(f)) { print("again " + line); }
+};
+print("done");

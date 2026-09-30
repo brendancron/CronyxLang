@@ -130,8 +130,8 @@ let rec eval env (e : Ast.cps_expr) : value =
     if as_bool span (eval env a) then Bool (as_bool span (eval env b)) else Bool false
   | `Or (a, b) ->
     if as_bool span (eval env a) then Bool true else Bool (as_bool span (eval env b))
-  | `Call ({ Ast.it = `Var name; _ }, [ k ]) when String.equal name Ast.discontinue_name ->
-    ignore (call span (eval env k) [ discontinued ]);
+  | `Call ({ Ast.it = `Var name; _ }, [ k; back ]) when String.equal name Ast.discontinue_name ->
+    ignore (call span (eval env k) [ discontinued; eval env back ]);
     Unit
   | `Call ({ Ast.it = `Var name; _ }, [ v ]) when String.equal name Ast.discontinued_name ->
     Bool (eval env v == discontinued)
