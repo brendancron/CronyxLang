@@ -309,9 +309,13 @@ and stmt depth (s : Ast.stmt) : string =
        | None -> "return;"
        | Some v -> Printf.sprintf "return %s;" (expr v))
   | `Defer inner -> line "defer" ^ nested depth inner
-  | `Import decl ->
+  | (`Import decl | `Global_import decl) as s ->
     line
-      (match decl with
+      ((match s with
+        | `Global_import _ -> "global "
+        | `Import _ -> "")
+       ^
+       match decl with
        | Ast.Qualified path -> Printf.sprintf "import \"%s\";" (escape path)
        | Ast.Aliased (path, alias) ->
          Printf.sprintf "import \"%s\" as %s;" (escape path) alias

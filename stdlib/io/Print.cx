@@ -1,0 +1,25 @@
+/**
+ * Writing values to the terminal.
+ *
+ * ```
+ * print("hello");                    // standard output, and a newline
+ * printerr("warning: no config");    // standard error
+ * ```
+ *
+ * Both are over `Console`, so a handler for it captures what they write. Every
+ * package has them without importing them: the prelude imports them globally.
+ */
+
+/** Writes a value and a newline to standard output. */
+fn print<T>(value: T) {
+    write(Stream.Out, str(value) + "\n");
+}
+
+/**
+ * Writes a value and a newline to standard error, which is where warnings and
+ * diagnostics go: a program whose output is redirected to a file still shows
+ * them on the terminal.
+ */
+fn printerr<T>(value: T) {
+    write(Stream.Err, str(value) + "\n");
+}

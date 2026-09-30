@@ -3,7 +3,7 @@
  *
  * ```
  * print("hello");                 // standard output, and a newline
- * eprint("warning: no config");   // standard error
+ * printerr("warning: no config");   // standard error
  * ```
  *
  * In core because the compiler names it: every program's top level runs under

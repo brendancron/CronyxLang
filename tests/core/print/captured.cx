@@ -1,6 +1,6 @@
 fn greet(name: string) {
     print("hello, " + name);
-    eprint("greeted " + name);
+    printerr("greeted " + name);
 }
 
 var out: List<string> = [];

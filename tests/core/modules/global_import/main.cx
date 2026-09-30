@@ -1,0 +1,5 @@
+global import { square } from "util";
+import "shapes";
+
+print(square(3));
+print(shapes.area(4));

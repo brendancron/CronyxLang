@@ -4,7 +4,7 @@ Status: **built.** `lib/loader.ml` reads the transitive closure of imports and h
 
 ## What a program can write
 
-Five forms, all of them already fixtured.
+Five forms, all of them already fixtured, and each may be written `global`.
 
 ```cronyx
 import "util";                          // the namespace is the basename
@@ -21,6 +21,17 @@ Access is qualified by default: `util.foo()`, `h.greet("World")`, `math.add(3, 4
 Every import says which module a name comes from — `utils/*` too, since each file keeps its basename. An import that brings a module's names in unqualified, Rust's `use m::*`, is ruled out for now: see [A module's meta runs at its first reference](#a-modules-meta-runs-at-its-first-reference) for why, and [TODO.md](TODO.md) for what is open about it.
 
 Every top-level declaration is exported. Restricting that is [deferred](#five-decisions).
+
+**`global import` binds in every file of its package**, as C#'s `global using`
+does: `global import { square } from "util";` in any loaded file of a package
+lets every other file of that package use `square` bare
+(`tests/core/modules/global_import`). The path resolves from the file that wrote
+it. `stdlib/prelude.cx` is the global imports every package gets without writing
+them, as .NET's implicit usings are: `print` and `printerr` from `std/io/Print`.
+It also holds the root, with the ordinary imports that needs, which are its own. A file is part of its package's program only once
+something imports it, so a global import in a file nothing loads binds nothing.
+Importing the same name from the same module twice — a file repeating one of its
+package's global imports — is one binding.
 
 ## Circular imports work
 

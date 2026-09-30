@@ -4,8 +4,6 @@
 
 let ( let* ) = Result.bind
 
-let root = Ast.root_function
-
 (* Each statement of the top level runs as a function handed to [root], in
    place, and a `var` is given what its initializer's function returns. In
    place, rather than moved into one function, so a statement is checked where
@@ -14,15 +12,15 @@ let root = Ast.root_function
    fragment without [root] -- a static argument checked on its own -- is left
    alone. *)
 let under_root (p : Ast.program) : Ast.program =
-  let rec declares_root (s : Ast.stmt) =
+  let rec declared_root (s : Ast.stmt) =
     match s.Ast.it with
-    | `Fn (name, _, _, _) -> String.equal name root
-    | `Attributed (_, inner) -> declares_root inner
-    | _ -> false
+    | `Fn (name, _, _, _) when Ast.is_root name -> Some name
+    | `Attributed (_, inner) -> declared_root inner
+    | _ -> None
   in
-  if not (List.exists declares_root p)
-  then p
-  else (
+  match List.find_map declared_root p with
+  | None -> p
+  | Some root ->
     let under ?ret span (body : Ast.stmt list) : Ast.expr =
       let main : Ast.expr =
         Ast.at span (`Lambda ([], { Ast.ret; row = None; static_params = [] }, body))
@@ -55,7 +53,7 @@ let under_root (p : Ast.program) : Ast.program =
           match binding s with
           | Some s -> s
           | None -> Ast.at s.Ast.span (`Expr (under s.Ast.span [ s ]))))
-      p)
+      p
 
 let program ?(on_types = fun _ -> ()) (source : Ast.program)
   : (Ast.cps_stmt list, Diagnostic.error list) result

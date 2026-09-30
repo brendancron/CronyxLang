@@ -1,36 +1,23 @@
 /**
- * What every program has without importing it.
+ * What every program starts with.
  *
- * Its declarations are in scope everywhere under the names written here. What it
- * imports is its own: `block_on` below is not in scope for a program unless the
- * program imports it too.
+ * Each `global import` here binds in every file of every package, as .NET's
+ * implicit `global using`s do; a package adds its own the same way, with
+ * `global import` in any of its files. The plain imports are this file's own.
  *
- * `core` is the other half: what the compiler itself names, such as `Option`,
- * `Range` and the operator traits. This file is what a program gets on top of
- * that.
+ * `__root` is what each statement of a program's top level runs under: the
+ * compiler hands every top-level statement to it as a function.
  */
 
 import { async, block_on } from "std/effects/Async";
 import { Throw } from "std/lang/Throw";
 
-/** Writes a value and a newline to standard output. */
-fn print<T>(value: T) {
-    write(Stream.Out, str(value) + "\n");
-}
+global import { print, printerr } from "std/io/Print";
 
 /**
- * Writes a value and a newline to standard error, which is where warnings and
- * diagnostics go: a program whose output is redirected to a file still shows
- * them on the terminal.
- */
-fn eprint<T>(value: T) {
-    write(Stream.Err, str(value) + "\n");
-}
-
-/**
- * What each statement of a program's top level runs under: the terminal, and
- * `block_on`, so a statement may wait, and a failure nothing catches stops the
- * program with its value.
+ * Runs one top-level statement and hands back its value: under the terminal,
+ * and under `block_on`, so a statement may wait, and a failure nothing catches
+ * stops the program with its value.
  */
 fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, E> T): <E> T {
     var out: Option<T> = Option.None;

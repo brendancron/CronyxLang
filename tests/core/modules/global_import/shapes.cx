@@ -1,0 +1,3 @@
+// `square` comes from the package's global import in main.cx; nothing here
+// imports it.
+fn area(side: int): int { return square(side); }

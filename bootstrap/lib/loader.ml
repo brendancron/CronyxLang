@@ -220,11 +220,12 @@ let expand_wildcards roots ~from (program : Ast.program) =
       | _ -> [ s ])
     program
 
+(* Every import a file names, global or not: what loading it has to read. *)
 let imports (program : Ast.program) =
   List.filter_map
     (fun (s : Ast.stmt) ->
       match s.Ast.it with
-      | `Import decl -> Some (decl, s.Ast.span)
+      | `Import decl | `Global_import decl -> Some (decl, s.Ast.span)
       | _ -> None)
     program
 
@@ -328,7 +329,8 @@ let rec effects_of (s : Ast.stmt) =
 let rec is_declaration (s : Ast.stmt) =
   match s.Ast.it with
   | `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Effect_decl _
-  | `Handler_decl _ | `Import _ | `Meta _ | `Gen _ | `Derive _ | `Type_members _ -> true
+  | `Handler_decl _ | `Import _ | `Global_import _ | `Meta _ | `Gen _ | `Derive _
+  | `Type_members _ -> true
   | `Attributed (_, inner) -> is_declaration inner
   | _ -> false
 
@@ -347,7 +349,7 @@ let renamed (unit_ : unit_) ~entry name =
 (* So a rename never touches a local spelled like a top-level function. *)
 let rec bound_by (s : Ast.stmt) =
   match s.Ast.it with
-  | `Var_decl (name, _, _) -> [ name ]
+  | `Var_decl (name, _, _) | `Fn (name, _, _, _) -> [ name ]
   | `Block body -> List.concat_map bound_by body
   | _ -> []
 
@@ -619,7 +621,7 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
       | `Var_decl (name, ty, init) ->
         `Var_decl (name, Option.map type_expr ty, Option.map (expr locals) init)
       | `Var_tuple (names, init) -> `Var_tuple (names, expr locals init)
-      | `Import _ -> `Block []
+      | `Import _ | `Global_import _ -> `Block []
       | `Meta body -> `Meta (List.map (stmt locals) body)
       | `Gen inner -> `Gen (stmt locals inner)
       | #Ast.stmts as st -> (Ast.map_stmts (expr locals) (stmt locals) st :> Ast.stmt_kind)
@@ -704,6 +706,25 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
           List.map (fun op -> op, (declaring, u.namespace)) ops))
       all
   in
+  (* A `global import` binds in every file of its package, resolved from the
+     file that wrote it; the prelude's bind in every file of every package. *)
+  let written_in kind (u : unit_) =
+    List.filter_map
+      (fun (s : Ast.stmt) ->
+        match s.Ast.it, kind with
+        | `Import decl, `Local | `Global_import decl, `Global -> Some (decl, s.Ast.span, u.path)
+        | _ -> None)
+      u.program
+  in
+  let implicit =
+    match prelude roots with
+    | Some path -> List.concat_map (written_in `Global) (List.filter (fun (u : unit_) -> String.equal u.path path) all)
+    | None -> []
+  in
+  let globals_of (u : unit_) =
+    List.concat_map (written_in `Global) (List.filter (fun (v : unit_) -> String.equal v.package u.package) all)
+    @ implicit
+  in
   let resolve_unit u ~entry =
     let own = Hashtbl.create 8 in
     List.iter (fun name -> Hashtbl.replace own name ()) (exports u);
@@ -715,11 +736,11 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
       (fun op -> Hashtbl.replace reachable op (renamed u ~entry op))
       (List.concat_map operations u.program);
     List.iter
-      (fun (decl, span) ->
+      (fun (decl, span, from) ->
         let written = path_of decl in
         let target = namespace_of written in
         let found =
-          match resolve_import roots span ~from:u.path written with
+          match resolve_import roots span ~from written with
           | File path ->
             (match Hashtbl.find_opt table (normalize path) with
              | Some (unit_, exports) ->
@@ -742,12 +763,11 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
         | None -> fail span "Module '%s' was not loaded." target
         | Some (target_unit, target_exports, target_operations) ->
           let is_entry =
-            (plain_entry
-             &&
-             match entry_unit with
-             | Some e -> String.equal target_unit.path e.path
-             | None -> false)
-            || Some target_unit.path = prelude roots
+            plain_entry
+            &&
+            match entry_unit with
+            | Some e -> String.equal target_unit.path e.path
+            | None -> false
           in
           (* A dependency reached as an artifact has no program here, so its
              operations come from the interface it recorded. *)
@@ -756,10 +776,17 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
             | [] -> target_operations
             | program -> List.concat_map operations program
           in
+          (* The same module under the same name twice is one binding: a file
+             may write an import its package also makes global. *)
           let bind under =
-            if Hashtbl.mem aliases under
-            then fail span "'%s' is already bound. Import one of them with `as`." under;
-            Hashtbl.replace aliases under (fun name -> renamed target_unit ~entry:is_entry name)
+            match Hashtbl.find_opt aliases under with
+            | Some (path, _) when String.equal path target_unit.path -> ()
+            | Some _ -> fail span "'%s' is already bound. Import one of them with `as`." under
+            | None ->
+              Hashtbl.replace
+                aliases
+                under
+                (target_unit.path, fun name -> renamed target_unit ~entry:is_entry name)
           in
           (match decl with
            | Ast.Qualified _ -> bind target
@@ -769,9 +796,12 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                (fun name ->
                  if not (List.mem name target_exports)
                  then fail span "Module '%s' does not export '%s'." target name;
-                 if Hashtbl.mem direct name
-                 then fail span "'%s' is already imported." name;
-                 Hashtbl.replace direct name (renamed target_unit ~entry:is_entry name);
+                 let bound = renamed target_unit ~entry:is_entry name in
+                 (match Hashtbl.find_opt direct name with
+                  | Some earlier when not (String.equal earlier bound) ->
+                    fail span "'%s' is already imported." name
+                  | _ -> ());
+                 Hashtbl.replace direct name bound;
                  (* An artifact records its operations but not whose they are. *)
                  let brought =
                    match target_unit.program with
@@ -786,11 +816,16 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                    brought)
                names
            | Ast.Wildcard _ -> ()))
-      (imports u.program);
+      (written_in `Local u @ globals_of u);
     let foreign = Hashtbl.create 8 in
     List.iter
       (fun (op, owner) -> if not (Hashtbl.mem reachable op) then Hashtbl.replace foreign op owner)
       known_operations;
+    let aliases =
+      let qualify = Hashtbl.create (Hashtbl.length aliases) in
+      Hashtbl.iter (fun under (_, f) -> Hashtbl.replace qualify under f) aliases;
+      qualify
+    in
     rewrite
       ~aliases
       ~direct
@@ -813,10 +848,8 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
     | `Meta _ | `Derive _ -> Ast.deferred ~unit_prefix:(renamed u ~entry:false "") s
     | _ -> s
   in
-  (* The prelude's names are everyone's, so it keeps them as written. *)
-  let everyones (u : unit_) = Some u.path = prelude roots in
   ( List.concat_map
-      (fun u -> List.map (deferred u) (declarations_of u ~entry:(everyones u) ~keep:false))
+      (fun u -> List.map (deferred u) (declarations_of u ~entry:false ~keep:false))
       rest
     @ (match entry_unit with
        | None -> []

@@ -1386,7 +1386,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     let callee_node = infer_expr env ctx callee in
     root_argument
     := (match callee.Ast.it, !top_row with
-        | `Var name, Some top -> String.equal name Ast.root_function && top == ctx.row
+        | `Var name, Some top -> Ast.is_root name && top == ctx.row
         | _ -> false);
     let args = name_implicit_params callee_node.Ast.ann args in
     (* A literal is unified with itself before a coercion could reach inside

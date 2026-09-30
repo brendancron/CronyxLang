@@ -118,7 +118,8 @@ and stmt (s : stmt) : desugared_stmt =
   | _ ->
   let it : desugared_stmt_kind =
     match s.it with
-        | `Import _ | `Meta _ | `Gen _ | `Derive _ | `Attributed _ | `Type_members _ -> assert false
+        | `Import _ | `Global_import _ | `Meta _ | `Gen _ | `Derive _ | `Attributed _ | `Type_members _ ->
+          assert false
     (* for (x in xs) body  ⇒  { var seq = xs; var i = 0;
                                  while (i < seq.len()) { var x = seq[i]; body; i = i + 1; } }
 
@@ -234,7 +235,8 @@ let program (p : program) : (desugared_stmt list, error) result =
             | Named _ -> [])
           handlers
     | `Impl_decl (_, _, _, body) -> List.concat_map (fun m -> m.md_body) body.ib_methods
-    | `Expr _ | `Var_decl _ | `Var_tuple _ | `Return _ | `Import _ | `Derive _ | `Effect_decl _
+    | `Expr _ | `Var_decl _ | `Var_tuple _ | `Return _ | `Import _ | `Global_import _ | `Derive _
+    | `Effect_decl _
     | `Resume _ | `Type_decl _ | `Trait_decl _ -> []
   in
   List.iter collect p;

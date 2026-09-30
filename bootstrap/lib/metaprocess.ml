@@ -349,6 +349,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
         `Type_members (stmt shadowed decl, List.map (stmt shadowed) members)
       | `Meta body -> `Meta (sequence shadowed body)
       | `Import decl -> `Import decl
+      | `Global_import decl -> `Global_import decl
       | `Var_decl (name, ty, init) ->
         `Var_decl (name, Option.map type_expr ty, Option.map expr init)
       | `Var_tuple (names, init) -> `Var_tuple (names, expr init)
@@ -996,7 +997,7 @@ and tstmt h scope (s : Ast.stmt) : Ast.stmt list * S.t =
     (match tstmt h scope inner with
      | [ one ], scope -> [ { s with Ast.it = `Attributed (attrs, one) } ], scope
      | many, scope -> many, scope)
-  | `Effect_decl _ | `Type_decl _ | `Trait_decl _ | `Import _ | `Type_members _ -> [ s ], scope
+  | `Effect_decl _ | `Type_decl _ | `Trait_decl _ | `Import _ | `Global_import _ | `Type_members _ -> [ s ], scope
 
 (* ---- what a declaration needs ---- *)
 
@@ -2397,7 +2398,7 @@ and meta_program w deps =
           !refs;
         out := with_body e.walked body :: !out)
   in
-  S.iter add (S.add Compile.root deps);
+  S.iter add (Hashtbl.fold (fun name _ acc -> if Ast.is_root name then S.add name acc else acc) w.entries deps);
   let standing =
     List.filter_map
       (fun st ->
@@ -2808,7 +2809,8 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
     w.standing <- List.filter_map (fun s -> if is_standing s then Some (standing_of w s) else None) p;
     List.iter (fun st -> if st.is_plain then walk_standing w st) w.standing;
     let roots = w.roots in
-    List.iter (fun name -> ignore (reach w ~deps:roots name)) (Compile.root :: Resolve.synthesized);
+    let root = Hashtbl.fold (fun name _ acc -> if Ast.is_root name then name :: acc else acc) w.entries [] in
+    List.iter (fun name -> ignore (reach w ~deps:roots name)) (root @ Resolve.synthesized);
     let root_hooks =
       let base = runtime_hooks w ~deps:roots ~current:None ~statics:[] ~env:(Hashtbl.create 16) in
       { base with

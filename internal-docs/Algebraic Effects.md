@@ -43,7 +43,7 @@ Three things had to hold for that.
 
 ## `print` is an effect
 
-`print` is a library function in `core` over one operation:
+`print` is a library function in `std/io/Print`, which the prelude imports into every package, over one operation in `core`:
 
 ```cronyx
 effect Console { fn write(to: Stream, text: string): unit; }

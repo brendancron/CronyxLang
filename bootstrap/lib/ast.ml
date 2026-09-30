@@ -382,7 +382,8 @@ type import =
   | Selective of string list * string
   | Wildcard of string
 
-type imports = [ `Import of import ]
+(* A `global import` is one every file of its package has written. *)
+type imports = [ `Import of import | `Global_import of import ]
 
 (* A type declared with members after its fields: the `Type_decl`, then its
    functions and meta blocks. Metaprocessing takes it apart. *)
@@ -732,8 +733,13 @@ let generated parts =
   | [] | [ _ ] -> invalid_arg "Ast.generated: a generated name needs two parts"
   | parts -> String.concat "#" parts
 
-(* The prelude's function each top-level statement runs under. *)
+(* The function each top-level statement runs under, found by the name it was
+   written with: the prelude imports it from a module, so it carries that
+   module's name. *)
 let root_function = "__root"
+
+let is_root name =
+  String.equal name root_function || String.ends_with ~suffix:("#" ^ root_function) name
 
 (* By trait rather than by the name written, so every deriver may be called
    `derive`. *)

@@ -19,6 +19,7 @@ let cases =
   ; "tests/core/modules/main"
   ; "tests/core/modules/alias/main"
   ; "tests/core/modules/multi_export/main"
+  ; "tests/core/modules/global_import/main"
   ; "tests/core/modules/qualified/main"
   ; "tests/core/modules/same_dir/main"
   ; "tests/core/modules/selective/main"
