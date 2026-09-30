@@ -182,6 +182,12 @@ Owner: [Data Structures.md](Data%20Structures.md)
 
 Three more cases belong to the same decision. A `byte` prints as its raw octet, so `print("hé".bytes())` shows `[h, �, �]`, and nothing turns a `byte` into its number. A `float` prints with six significant digits — `1.0 / 3.0` is `0.333333` and `1234567.5` is `1.23457e+06` — while a whole one prints as `9.0`. And a string inside a collection prints without quotes, so `"".split(',')`, one empty string, prints as `[]`, the same as no strings at all.
 
+## A `Default` trait
+
+Owner: [Type System.md](Type%20System.md)
+
+A trait saying a type has a value to start from, as Rust's `Default`: `trait Default { fn default(): Self; }`. It would give `Array`s filled with defaults where `T: Default`, `get_or_default` on a map, and — its main consumer — struct field defaults, which [Attributes and Test Frameworks](Attributes%20and%20Test%20Frameworks.md) needs for `@Test` with no braces. Waiting on that design, since field defaults decide what the trait has to cover: whether a default is a value or a call, and whether one must be the same across compilations for reification. It is not what slicing an empty array needed — `get` has to work for every `T`, so a bound there would forbid slicing arrays of functions or objects; `__array_copy` is what fixed that.
+
 ## Running the docs' examples in the browser
 
 Owner: [Architecture.md](Architecture.md)

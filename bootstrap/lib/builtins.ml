@@ -110,6 +110,12 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () ->
         let t = Types.fresh () in
         [ Types.iarray t; Types.IInt; Types.IInt ], Types.iarray t )
+    (* A longer array holding the old one's slots, and the value in the rest. *)
+  ; ( "__array_grow"
+    , ""
+    , fun () ->
+        let t = Types.fresh () in
+        [ Types.iarray t; Types.IInt; t ], Types.iarray t )
   ]
 
 (* ---- values ---- *)
@@ -197,6 +203,15 @@ let values ~out =
         then Value.fail span "__array_copy: %d to %d is outside an array of %d." start stop (Array.length items);
         Value.Array (if stop <= start then [||] else Array.sub items start (stop - start))
       | _ -> Value.fail span "__array_copy takes an array and two bounds.")
+  ; native "__array_grow" (Some 3) (fun span args ->
+      match args with
+      | [ Value.Array items; Value.Int length; fill ] ->
+        if length < Array.length items
+        then Value.fail span "__array_grow: %d is shorter than an array of %d." length (Array.length items);
+        let grown = Array.make length fill in
+        Array.blit items 0 grown 0 (Array.length items);
+        Value.Array grown
+      | _ -> Value.fail span "__array_grow takes an array, a length and a value.")
   ; one "__write_out" (fun span v ->
       match v with
       | Value.Str text ->
