@@ -28,6 +28,8 @@ and string_of_type_expr (t : Ast.type_expr) : string =
   | Ast.Ty_name name -> name
   | Ast.Ty_assoc (owner, member) -> string_of_type_expr owner ^ "." ^ member
   | Ast.Ty_bind (bound, t) -> bound ^ " = " ^ string_of_type_expr t
+  | Ast.Ty_row row ->
+    Printf.sprintf "<%s>" (String.concat ", " (List.map string_of_row_entry row))
   | Ast.Ty_variadic ({ Ast.it = Ast.Ty_spread _; _ } as held) -> string_of_type_expr held
   | Ast.Ty_variadic t -> "..." ^ string_of_type_expr t
   | Ast.Ty_spread t -> "..." ^ string_of_type_expr t
@@ -260,6 +262,7 @@ let rec write_stmt buf indent (s : Ast.stmt) =
       (Printf.sprintf "run%s" (String.concat "" (List.map label handlers)))
       (body @ List.concat_map arms handlers)
   | `Resume value -> line "%s(resume %s)\n" pad (opt_expr value)
+  | `Discontinue -> line "%s(discontinue)\n" pad
   | `Type_decl (name, params, body) ->
     line
       "%s(type %s%s%s)\n"
@@ -511,6 +514,7 @@ let rec write_typed_stmt buf indent (s : Ast.typed_stmt) =
          (String.concat "" (List.map (fun h -> " handle " ^ h.Ast.handled) handlers)))
       (body @ List.concat_map (fun h -> List.concat_map (fun a -> a.Ast.arm_body) h.Ast.arms) handlers)
   | `Resume value -> line "%s(resume %s)\n" pad (opt_typed_expr value)
+  | `Discontinue -> line "%s(discontinue)\n" pad
   | `Type_decl (name, _, _) -> line "%s(type %s)\n" pad name
   | `Trait_decl (name, _, _) -> line "%s(trait %s)\n" pad name
   | `Impl_decl (trait, type_name, _, impl) ->

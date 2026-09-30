@@ -51,6 +51,38 @@ own body: unifying `E` with `<log | E>` is recursive. So a declared row survives
 unification against an inference variable, the way a declared type parameter
 does, and calls through it are contained.
 
+## A row as a type's argument
+
+A type or a trait may take a row as an argument where its parameter stands in
+one:
+
+```cronyx
+type Iter<T, E> { next: () -> <E> Option<T>, close: () -> unit }
+trait Source<T, E> { fn pull(self): <E> Option<T>; }
+
+fn lines(from: Reader): Iter<string, <async, Throw<IoError>>>
+impl Source<int, <log>> for Counter { … }
+fn drain<S: Source<int, E>, E>(s: S): <E> int
+```
+
+Which parameters stand in a row is read off the declaration rather than
+written: a type's where its body leaves a row open in the parameter, a trait's
+where a method's signature puts it in a row. An argument in that position is
+read as a row — `<…>`, or a parameter of the enclosing function, which is a row
+there — and any other argument as a type; a row where a type goes, or a type
+where a row goes, is an error (`tests/effects/errors/row_argument_kind`).
+
+A row carried as an argument is its own kind of type, `IRow` while checking and
+`Row` after, so it unifies, substitutes and is matched by `Type_mono` as a row.
+Each declared parameter already had a row variable beside its type variable —
+that is how `<E>` in a field was always read — so instantiating a type maps
+that row variable to the argument's row, and a fresh instance gives the
+parameter a fresh row rather than a fresh type. `Cps.fields_of` substitutes the
+rows before it widens a field, since a field's function takes evidence for
+what its row argument performs. An impl's `Self` is built with the row in that
+position, and an impl method generic over a row is copied per row as a function
+is (`tests/effects/rows/row_argument`, `trait_row_argument`).
+
 ## What it bought
 
 `stdlib/collections/List.cx` — `map`, `filter`, `fold`, `any`, `all` — takes

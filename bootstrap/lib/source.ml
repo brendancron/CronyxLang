@@ -49,6 +49,8 @@ and type_expr (t : Ast.type_expr) =
   | Ast.Ty_name name -> name
   | Ast.Ty_assoc (owner, member) -> type_expr owner ^ "." ^ member
   | Ast.Ty_bind (bound, t) -> bound ^ " = " ^ type_expr t
+  | Ast.Ty_row [] -> "<>"
+  | Ast.Ty_row row -> String.trim (row_annotation row)
   (* The pack already carries the dots. *)
   | Ast.Ty_variadic ({ Ast.it = Ast.Ty_spread _; _ } as held) -> type_expr held
   | Ast.Ty_variadic inner -> "..." ^ type_expr inner
@@ -310,7 +312,7 @@ and stmt depth (s : Ast.stmt) : string =
       (match e with
        | None -> "return;"
        | Some v -> Printf.sprintf "return %s;" (expr v))
-  | `Defer inner -> line "defer" ^ nested depth inner
+  | `Defer inner -> line "defer {" ^ nested depth inner ^ line "}"
   | (`Import decl | `Global_import decl) as s ->
     line
       ((match s with
@@ -347,6 +349,7 @@ and stmt depth (s : Ast.stmt) : string =
       (match e with
        | None -> "resume;"
        | Some v -> Printf.sprintf "resume %s;" (expr v))
+  | `Discontinue -> line "discontinue;"
   | `Trait_decl (name, params, sigs) ->
     line
       (Printf.sprintf

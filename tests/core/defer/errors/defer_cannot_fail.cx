@@ -1,0 +1,21 @@
+import { Throw } from "std/lang/Throw";
+
+effect Stop { final ctl stop(): unit; }
+
+fn risky(): <Throw<string>> unit { throw("no"); }
+
+fn direct(): <Throw<string>> unit {
+    defer throw("closing failed");
+}
+
+fn through_call(): <Throw<string>> unit {
+    defer risky();
+}
+
+fn own_effect(): <Stop> unit {
+    defer stop();
+}
+
+fn callback<E>(close: () -> <E> unit): <E> unit {
+    defer close();
+}

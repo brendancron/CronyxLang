@@ -1,0 +1,41 @@
+import { Reader, IoError, using, lines } from "std/io/Io";
+import { Mode, open_file, write_text } from "std/io/Fs";
+import { Throw } from "std/lang/Throw";
+import { async } from "std/effects/Async";
+
+type Given { data: Array<byte>, at: List<int> }
+
+impl Reader for Given {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        var start = self.at[0];
+        if (start >= self.data.len()) { return Option.None; }
+        var stop = start + max;
+        if (stop > self.data.len()) { stop = self.data.len(); }
+        self.at[0] = stop;
+        return Option.Some(self.data[start:stop]);
+    }
+}
+
+var given: Reader = Given { data: "ada\nbo\r\n\ncy".bytes(), at: [0] };
+for (line in lines(given)) {
+    print("[" + line + "]");
+}
+
+write_text("io_lines.txt", "one\ntwo\nthree\nfour\n");
+using(open_file("io_lines.txt", Mode.Read)) { f ->
+    for (line in lines(f)) {
+        if (line == "three") { break; }
+        print(line);
+    }
+};
+
+run {
+    for (line in lines(stdin())) {
+        print("you said " + line);
+    }
+} handle Stdin {
+    fn stdin() {
+        var input: Reader = Given { data: "hi\nbye\n".bytes(), at: [0] };
+        return input;
+    }
+}

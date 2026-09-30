@@ -1,0 +1,9 @@
+effect Stop { final ctl stop(): unit; }
+
+fn f() {
+    discontinue;
+}
+
+run { stop(); } handle Stop {
+    final ctl stop() { discontinue; }
+}

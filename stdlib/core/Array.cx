@@ -43,14 +43,6 @@ impl Index<Range> for Array<T> {
     /** A new array holding the slots the range covers. */
     fn get(self, r: Range): Array<T> {
         var bounds = __span(r, self.len());
-        var taken = bounds.1 - bounds.0;
-        if (taken <= 0) { return Array<T>(0, self[0]); }
-        var out = Array<T>(taken, self[bounds.0]);
-        var at = 0;
-        while (at < taken) {
-            out[at] = self[bounds.0 + at];
-            at = at + 1;
-        }
-        return out;
+        return __array_copy(self, bounds.0, bounds.1);
     }
 }

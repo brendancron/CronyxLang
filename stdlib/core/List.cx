@@ -77,13 +77,7 @@ impl List<T> {
             if (room < 4) {
                 room = 4;
             }
-            var bigger = Array<T>(room, v);
-            var i = 0;
-            while (i < self.count) {
-                bigger[i] = self.items[i];
-                i = i + 1;
-            }
-            self.items = bigger;
+            self.items = __array_grow(self.items, room, v);
         }
         self.items[self.count] = v;
         self.count = self.count + 1;

@@ -140,14 +140,16 @@ That restriction is not a convenience. Checking is Hindley-Milner, which is unif
 
 The consequence worth knowing is the element type. Without its annotation, `[Cat, Dog]` is an error — two unequal element types and nothing to unify them to. The annotation is what does the work, not the literal, which is why an argument whose parameter mentions a trait is *checked* against that parameter rather than inferred and unified afterwards: by the time a literal has been inferred, its elements have already been unified with each other and the coercion has nowhere to go.
 
-Going the other way is not a coercion at all:
+Going the other way is not a coercion at all. An object meets a bound on its own trait or on any supertrait, at the arguments the supertrait is written with, as `dyn Trait: Trait` does in Rust:
 
 ```
 fn announce<S: Speaker>(s: S) { ... }
-announce(speaker);   // 'speaker' is a 'Speaker' object; '<S: Speaker>' needs the type behind it
+announce(speaker);   // one copy of 'announce', made at the object type
 ```
 
-The bound monomorphizes, so it needs the type the object is hiding. The two are spelled with the same name, which is why this has a diagnostic of its own rather than the `Expected Speaker, got Speaker` that unification would print.
+The bound monomorphizes, and the copy is made at the object type itself. Inside it, a call the bound resolved statically has a trait for its receiver's type, so `Resolve` makes it a call through the table, which holds a slot for every method of the trait and its supertraits. The row it passes evidence for is the one the trait wrote, as for any call through an object. This is what lets `using(open_file(path, mode))` close a `File` whose type only the `Fs` handler knows.
+
+A bound on a trait the object does not reach still needs the type behind it, and is refused: `'sp' is a 'Speaker' object, which meets that trait and its supertraits; '<W: Walker>' needs the type behind it, which an object does not carry.` The object carries no table for `Walker`.
 
 A type that does not implement the trait is rejected where it is written, and so is a trait that cannot have an object at all:
 

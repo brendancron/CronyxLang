@@ -44,8 +44,19 @@ effect Fs {
 
 trait Reader { fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>>; }
 trait Writer { fn write(self, data: Array<byte>): <async, Throw<IoError>> unit; }
-trait File: Reader, Writer { fn close(self): <async, Throw<IoError>> unit; }
+trait Closer<X> { fn close(self): <async, Throw<X>> unit; }
+trait File: Reader, Writer, Closer<IoError> {}
 ```
+
+A file is closed by `using`, however its block is left:
+
+```cronyx
+using(open_file("notes.txt", Mode.Read)) { f ->
+    for (line in lines(f)) { print(line); }
+};
+```
+
+`using<T: Closer<X>, X>` is handed a `File` object, which meets the bound because an object meets its own trait and each supertrait, at the arguments the supertrait is written with — `Closer<X>` at `X = IoError` ([Static vs Dynamic Invocation](Static%20vs%20Dynamic%20Invocation.md)). `Closer` is generic over the error rather than over a row: `using` closes in a `defer`, which may not fail, and `attempt` can discharge a `Throw<X>` it knows but not a row a caller decides. A close that fails after the block succeeded is thrown; after the block failed it is dropped, so the caller sees the cause. `lines` streams any `Reader` — a file, or `stdin()` — as an `Iter`, so a loop that stops early closes it, and reads no further than it was asked to.
 
 Bytes, since not everything opened is text; `read_text` and `write_text` are the
 UTF-8 layer over `read_file` and `write_file`.

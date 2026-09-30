@@ -1,0 +1,47 @@
+import { Yield, iterator } from "std/effects/Yield";
+
+fn count(upto: int): <Yield<int>, Console> unit {
+    defer print("count cleaned up");
+    var i = 0;
+    while (i < upto) {
+        yield(i);
+        i = i + 1;
+    }
+}
+
+for (n in iterator { count(3); }) {
+    print(n);
+}
+
+for (n in iterator { count(10); }) {
+    if (n == 1) { continue; }
+    if (n == 3) { break; }
+    print(n);
+}
+
+fn first_over(limit: int): <Console> int {
+    for (n in iterator { count(10); }) {
+        if (n > limit) { return n; }
+    }
+    return -1;
+}
+print(first_over(4));
+
+fn pairs(): <Yield<(string, int)>> unit {
+    yield(("a", 1));
+    yield(("b", 2));
+}
+
+for ((name, value) in iterator { pairs(); }) {
+    print(name + "=" + str(value));
+}
+
+var left = 3;
+var countdown = () => {
+    if (left == 0) { return Option.None; }
+    left = left - 1;
+    return Option.Some(left);
+};
+for (n in countdown) {
+    print("countdown " + str(n));
+}

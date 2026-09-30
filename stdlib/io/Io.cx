@@ -1,13 +1,15 @@
 /**
  * What files, the terminal's input and later sockets share: a `Reader` hands out
- * bytes, a `Writer` takes them, and an `IoError` says why one could not.
+ * bytes, a `Writer` takes them, a `Closer` is let go of with `using`, and an
+ * `IoError` says why one could not.
  *
  * Bytes rather than text, since not everything read is text; `read_text` in
  * `std/io/Fs` decodes when it is.
  */
 
 import { async } from "../effects/Async";
-import { Throw, Failure } from "../lang/Throw";
+import { Yield, iterator } from "../effects/Yield";
+import { Throw, Failure, attempt } from "../lang/Throw";
 
 /** Why a file could not be read, written or opened. */
 type IoError {
@@ -42,3 +44,78 @@ trait Writer {
     /** Writes all of them. May wait. */
     fn write(self, data: Array<byte>): <async, Throw<IoError>> unit;
 }
+
+/** Something holding a resource until it is closed, failing with an `X`. */
+trait Closer<X> {
+    /** Lets go of it. Nothing may be done with it afterwards. */
+    fn close(self): <async, Throw<X>> unit;
+}
+
+/**
+ * Hands the resource to the block, and closes it however the block is left.
+ *
+ * ```
+ * var text = using(open_file("notes.txt", Mode.Read)) { f -> read_all(f) };
+ * ```
+ *
+ * A failure to close after the block succeeded is thrown. After the block
+ * failed it is dropped, so the caller sees the block's failure, which is the
+ * cause.
+ */
+fn using<T: Closer<X>, X, R, E>(resource: T, body: (T) -> <async, Throw<X>, E> R)
+    : <async, Throw<X>, E> R {
+    var finished = false;
+    defer {
+        if (!finished) { attempt { resource.close() }; }
+    }
+    var value = body(resource);
+    finished = true;
+    resource.close();
+    return value;
+}
+
+/**
+ * The reader's lines without their line endings, read as they are asked for.
+ *
+ * ```
+ * using(open_file("notes.txt", Mode.Read)) { f ->
+ *     for (line in lines(f)) { print(line); }
+ * };
+ * for (line in lines(stdin())) { print("you said " + line); }
+ * ```
+ *
+ * A `\r` before a newline goes with it, and a last line with no newline after it
+ * is still a line. Throws where a line is not UTF-8 text.
+ */
+fn lines(from: Reader): Iter<string, <async, Throw<IoError>>> {
+    return iterator {
+        var newline = "\n".bytes()[0];
+        var line: List<byte> = [];
+        var more = true;
+        while (more) {
+            match from.read(4096) {
+                Option.None => { more = false; }
+                Option.Some(chunk) => {
+                    for (b in chunk) {
+                        if (b == newline) {
+                            yield(__text_of_line(line));
+                            line = [];
+                        } else {
+                            line.push(b);
+                        }
+                    }
+                }
+            }
+        }
+        if (line.len() > 0) { yield(__text_of_line(line)); }
+    };
+}
+
+fn __text_of_line(bytes: List<byte>): <Throw<IoError>> string {
+    var stop = bytes.len();
+    if (stop > 0 && bytes[stop - 1] == "\r".bytes()[0]) { stop = stop - 1; }
+    var (ok, text) = __utf8(bytes.items[0:stop]);
+    if (!ok) { throw(IoError.Other("a line is not UTF-8 text")); }
+    return text;
+}
+

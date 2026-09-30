@@ -66,6 +66,7 @@ type token_type =
   | Handle
   | Handler
   | Resume
+  | Discontinue
   | Return
   | Break
   | Continue
@@ -149,6 +150,7 @@ let token_type_to_string = function
   | Handle -> "HANDLE"
   | Handler -> "HANDLER"
   | Resume -> "RESUME"
+  | Discontinue -> "DISCONTINUE"
   | Return -> "RETURN"
   | Break -> "BREAK"
   | Continue -> "CONTINUE"

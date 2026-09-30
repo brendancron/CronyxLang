@@ -1,0 +1,27 @@
+/**
+ * A sequence pulled one value at a time.
+ *
+ * ```
+ * import { iterator } from "std/effects/Yield";
+ *
+ * for (n in iterator { yield(1); yield(2); }) { print(n); }
+ * ```
+ *
+ * In core because `for` takes one, and closes it when the loop is left early.
+ */
+
+/**
+ * `next` hands out the next value, or `None` once there are none, and `close`
+ * lets go of what the sequence still holds when nobody will ask again.
+ *
+ * `E` is what pulling a value performs, so reading a file line by line is an
+ * `Iter<string, <async, Throw<IoError>>>`: the effects happen where it is
+ * pulled rather than where it was made.
+ */
+type Iter<T, E> {
+    /** The next value, or `None` at the end. */
+    next: () -> <E> Option<T>,
+
+    /** Finishes with the sequence. Asking for more afterwards answers `None`. */
+    close: () -> unit
+}

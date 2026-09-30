@@ -1,0 +1,41 @@
+effect log { fn emit(msg: string): unit; }
+
+trait Named {
+    fn name(self): string;
+}
+
+trait Speaker: Named {
+    fn speak(self): <log> string;
+}
+
+type Cat;
+type Dog;
+
+impl Named for Cat { fn name(self): string { return "cat"; } }
+impl Speaker for Cat {
+    fn speak(self): <log> string { emit("cat spoke"); return "meow"; }
+}
+
+impl Named for Dog { fn name(self): string { return "dog"; } }
+impl Speaker for Dog {
+    fn speak(self): <log> string { emit("dog spoke"); return "woof"; }
+}
+
+fn announce<S: Speaker>(s: S): <log> string {
+    return s.name() + " says " + s.speak();
+}
+
+fn label<N: Named>(n: N): string {
+    return "[" + n.name() + "]";
+}
+
+var all: List<Speaker> = [Cat, Dog];
+run {
+    for (sp in all) {
+        print(announce(sp));
+        print(label(sp));
+    }
+    print(announce(Cat));
+} handle log {
+    fn emit(msg) { print("log: " + msg); }
+}

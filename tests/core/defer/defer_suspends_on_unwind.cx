@@ -1,0 +1,21 @@
+import { Throw, attempt } from "std/lang/Throw";
+import { async } from "std/effects/Async";
+
+fn quiet(): <Throw<string>> unit { }
+fn waits(): <async, Throw<string>> unit { }
+
+fn a(): <Throw<string>, Console> unit {
+    defer { print("a plain"); }
+    throw("x");
+}
+fn b(): <Throw<string>, Console> unit {
+    defer { attempt { quiet() }; print("b after attempt"); }
+    throw("x");
+}
+fn c(): <async, Throw<string>, Console> unit {
+    defer { attempt { waits() }; print("c after attempt async"); }
+    throw("x");
+}
+print(attempt { a() });
+print(attempt { b() });
+print(attempt { c() });

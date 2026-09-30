@@ -381,6 +381,7 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
         Ast.Ty_name ((Hashtbl.find aliases namespace) member)
       | Ast.Ty_assoc (owner, member) -> Ast.Ty_assoc (type_expr owner, member)
       | Ast.Ty_bind (bound, t) -> Ast.Ty_bind (bound, type_expr t)
+      | Ast.Ty_row row -> Ast.Ty_row (effect_row row)
       | Ast.Ty_app (name, args) ->
         Ast.Ty_app (resolve_type name, List.map type_expr args)
       | Ast.Ty_tuple items -> Ast.Ty_tuple (List.map type_expr items)

@@ -1,0 +1,31 @@
+effect Pause { ctl pause(): unit; }
+
+fn inner(): <Pause, Console> unit {
+    defer print("inner cleaned up");
+    print("inner before");
+    pause();
+    print("inner never");
+}
+
+fn outer(): <Pause, Console> unit {
+    defer print("outer cleaned up");
+    inner();
+    print("outer never");
+}
+
+run { outer(); } handle Pause {
+    ctl pause() {
+        print("arm before");
+        discontinue;
+        print("arm after");
+    }
+}
+print("first done");
+
+var later: List<() -> <Console> unit> = [];
+run { outer(); } handle Pause {
+    ctl pause() { later.push(() => { discontinue; }); }
+}
+print("second run returned");
+later[0]();
+print("second done");

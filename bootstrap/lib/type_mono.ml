@@ -524,8 +524,8 @@ let rec collect state scope (s : Ast.typed_stmt) =
     List.iter
       (fun (m : (Ast.typed_stmt, Types.ty) Ast.method_def) ->
         let mangled = Ast.impl_method_name trait type_name m.Ast.md_name in
-        if Types.has_generic m.Ast.md_ann
-           && List.exists (type_directed mangled) m.Ast.md_body
+        if (Types.has_generic m.Ast.md_ann && List.exists (type_directed mangled) m.Ast.md_body)
+           || Types.row_polymorphic ~inherited:scope.rows m.Ast.md_ann
         then
           Hashtbl.replace
             state.generic

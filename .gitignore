@@ -10,3 +10,4 @@ dist/
 # no builtin that would let it clean up after itself. The name is fixed, and a
 # relative one rather than `/tmp` so the fixture runs on Windows too.
 tests/core/builtins/writefile_out.txt
+io_lines.txt

@@ -166,7 +166,7 @@ fn r() { defer { print("cleanup"); } t("boom"); }
 run { r(); } handle E { ctl t(msg) { print("caught"); } }
 ```
 
-This prints only `caught`. Running the cleanup at the arm's exit would be wrong when the arm stored the continuation to resume later, so the choice is between documenting that an aborting operation that needs cleanup is declared `final ctl`, and running the defers once a continuation is provably dead, which needs tracking whether the arm kept it. `error-handling.mdx` currently claims only the `final ctl` case.
+This prints only `caught`. Running the cleanup at the arm's exit would be wrong when the arm stored the continuation to resume later. An arm can now say so itself: `discontinue` unwinds the continuation, running its `defer`s, and a closure it stored can do the same later, which is how `iterator`'s `close` lets go of a producer ([Algebraic Effects](Algebraic%20Effects.md#discontinue)). What is still open is an arm that does neither — whether that stays a leak the author is responsible for, or the defers run once a continuation is provably dead, which needs tracking whether the arm kept it. `error-handling.mdx` currently claims only the `final ctl` case.
 
 ## `cx toolchain install` and the standard library
 
@@ -181,6 +181,12 @@ Owner: [Data Structures.md](Data%20Structures.md)
 `print(xs)` and `str(xs)` on a `List` show the record behind it — `{ items: [1, 2, 3], count: 3 }` — and after `[1, 2]` and a `push(3)` the backing array's spare capacity too: `{ items: [1, 2, 3, 3], count: 3 }`. The direction is to print the live elements the way an `Array` prints, `[1, 2, 3]`, and give `Map` and `Set` the same treatment; what is open is whether that is a `Show` impl in the prelude or a case in the evaluator's printer.
 
 Three more cases belong to the same decision. A `byte` prints as its raw octet, so `print("hé".bytes())` shows `[h, �, �]`, and nothing turns a `byte` into its number. A `float` prints with six significant digits — `1.0 / 3.0` is `0.333333` and `1234567.5` is `1.23457e+06` — while a whole one prints as `9.0`. And a string inside a collection prints without quotes, so `"".split(',')`, one empty string, prints as `[]`, the same as no strings at all.
+
+## A `Default` trait
+
+Owner: [Type System.md](Type%20System.md)
+
+A trait saying a type has a value to start from, as Rust's `Default`: `trait Default { fn default(): Self; }`. It would give `Array`s filled with defaults where `T: Default`, `get_or_default` on a map, and — its main consumer — struct field defaults, which [Attributes and Test Frameworks](Attributes%20and%20Test%20Frameworks.md) needs for `@Test` with no braces. Waiting on that design, since field defaults decide what the trait has to cover: whether a default is a value or a call, and whether one must be the same across compilations for reification. It is not what slicing an empty array needed — `get` has to work for every `T`, so a bound there would forbid slicing arrays of functions or objects; `__array_copy` is what fixed that.
 
 ## Running the docs' examples in the browser
 

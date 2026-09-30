@@ -174,6 +174,7 @@ and spreadable s : Ast.type_expr =
 and type_argument s : Ast.type_expr =
   let tok = peek s in
   match tok.Token.token_type, (peek_at s 1).Token.token_type with
+  | Token.Less, _ -> Ast.at (Ast.span_of_token tok) (Ast.Ty_row (row_annotation s))
   | Token.Identifier bound, Token.Equal ->
     let sp = Ast.span_of_token tok in
     ignore (advance s);
@@ -1017,6 +1018,10 @@ and statement s : Ast.stmt =
   | Token.Resume ->
     ignore (advance s);
     resume_stmt s sp
+  | Token.Discontinue ->
+    ignore (advance s);
+    ignore (consume s Token.Semicolon "Expected ';' after discontinue.");
+    Ast.at sp `Discontinue
   | Token.Left_brace ->
     ignore (advance s);
     Ast.at sp (`Block (block s))

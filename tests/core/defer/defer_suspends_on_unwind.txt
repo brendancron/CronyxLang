@@ -1,0 +1,6 @@
+a plain
+Err(x)
+b after attempt
+Err(x)
+c after attempt async
+Err(x)

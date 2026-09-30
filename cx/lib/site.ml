@@ -256,6 +256,7 @@ let rec type_html ~from ~table node =
       "%s = %s"
       (escape (Json.text (Json.field "name" node)))
       (type_html ~from ~table (Json.field "type" node))
+  | "row" -> String.trim (row_html ~from ~table (Json.field "row" node))
   | _ -> ""
 
 (* An absent row was left to inference and says nothing; a written empty one

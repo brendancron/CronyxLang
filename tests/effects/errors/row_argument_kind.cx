@@ -1,0 +1,7 @@
+effect log { fn emit(msg: string): unit; }
+
+type Task<T, E> { start: () -> <E> T }
+type Box<T> { held: T }
+
+fn wants_row(t: Task<int, int>) { }
+fn wants_type(b: Box<<log>>) { }

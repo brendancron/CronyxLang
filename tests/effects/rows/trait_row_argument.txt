@@ -1,0 +1,9 @@
+counter pulled
+counter pulled
+counter pulled
+3
+counter pulled
+Some(2)
+wrapped pulled
+Some(x)
+Some(7)

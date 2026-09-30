@@ -1,1 +1,1 @@
-[18:10] 'sp' is a 'Speaker' object; '<S: Speaker>' needs the type behind it, which an object does not carry.
+[28:8] 'sp' is a 'Speaker' object, which meets that trait and its supertraits; '<W: Walker>' needs the type behind it, which an object does not carry.

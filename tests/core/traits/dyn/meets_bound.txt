@@ -1,0 +1,8 @@
+log: cat spoke
+cat says meow
+[cat]
+log: dog spoke
+dog says woof
+[dog]
+log: cat spoke
+cat says meow

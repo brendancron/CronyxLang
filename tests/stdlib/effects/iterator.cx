@@ -1,0 +1,22 @@
+import { Yield, iterator } from "std/effects/Yield";
+
+fn count(upto: int): <Yield<int>, Console> unit {
+    defer print("count cleaned up");
+    var i = 0;
+    while (i < upto) {
+        print("making " + str(i));
+        yield(i);
+        i = i + 1;
+    }
+}
+
+var a = iterator { count(3); };
+var b = iterator { count(3); };
+print(a.next());
+print(b.next());
+print(a.next());
+b.close();
+print(a.next());
+print(a.next());
+a.close();
+print(b.next());
