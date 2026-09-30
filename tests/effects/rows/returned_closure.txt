@@ -1,0 +1,8 @@
+11
+12
+log: inner
+21
+printing
+31
+41
+51

@@ -506,22 +506,27 @@ let rec match_rows (general : ty) (concrete : ty) acc =
 (* Evidence arity follows the row a definition declares, so a copy per row is
    owed only when a parameter is what brings that row in. A function merely
    left open — which is most of them — needs none. Nor does one whose row is an
-   enclosing function's ([inherited]): copying that function settles it. *)
+   enclosing function's ([inherited]): copying that function settles it. The
+   row a parameter brings in may be the tail of a function the result holds
+   rather than this one's own: a closure built in the body declares it, and is
+   compiled once per copy like the rest of the body. *)
 let row_polymorphic ?(inherited = []) (t : ty) =
+  (* A named type's arguments, not its fields: `List` holds its functions in an
+     `Array`, which has no fields to look through. *)
+  let rec tails t =
+    match t with
+    | Fn (ps, ret, row) -> Option.to_list row.tail @ List.concat_map tails ps @ tails ret
+    | Tuple items | Pack items | Named (_, items) | Sum (_, items) -> List.concat_map tails items
+    | Spread inner -> tails inner
+    | Record fields -> List.concat_map (fun (_, t) -> tails t) fields
+    | _ -> []
+  in
   match t with
-  | Fn (params, _, { tail = Some id; _ }) when not (List.mem id inherited) ->
-    (* A named type's arguments, not its fields: `List` holds its functions in an
-       `Array`, which has no fields to look through. *)
-    let rec mentions t =
-      match t with
-      | Fn (ps, ret, row) -> row.tail = Some id || List.exists mentions ps || mentions ret
-      | Tuple items | Pack items | Named (_, items) | Sum (_, items) ->
-        List.exists mentions items
-      | Spread inner -> mentions inner
-      | Record fields -> List.exists (fun (_, t) -> mentions t) fields
-      | _ -> false
-    in
-    List.exists mentions params
+  | Fn (params, ret, row) ->
+    let brought = List.concat_map tails params in
+    List.exists
+      (fun id -> (not (List.mem id inherited)) && List.mem id brought)
+      (Option.to_list row.tail @ tails ret)
   | _ -> false
 
 let rec has_generic (t : ty) =

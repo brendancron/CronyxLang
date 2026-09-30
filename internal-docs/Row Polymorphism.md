@@ -36,7 +36,11 @@ rejected against.
 function has an open row, because nothing constrained it; copying those per call
 site would copy the program. `row_polymorphic` asks the narrower question —
 whether the function's own tail also appears in a parameter — which is the
-condition under which evidence arity can differ at all.
+condition under which evidence arity can differ at all. The tail may also be
+one on a function the result holds: `fn counted<E>(f: () -> <E> int): () -> <E>
+int` is pure itself, but the closure it builds declares `E`, and compiled once
+it took no evidence while a caller holding `() -> <log> int` passed one
+(`tests/effects/rows/returned_closure`).
 
 ## A declared row is contained, not tied
 
