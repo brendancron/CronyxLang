@@ -1,0 +1,20 @@
+import { iterator, Yield } from "std/effects/Yield";
+import { async, pause } from "std/effects/Async";
+
+var log: List<string> = [];
+
+fn produce(): Iter<int, <async>> {
+    return iterator {
+        yield(1);
+        pause();
+        yield(2);
+    };
+}
+
+fn consume() {
+    for (n in produce()) { log.push(str(n)); }
+    log.push("after loop");
+}
+
+consume();
+for (l in log) { print(l); }

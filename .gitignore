@@ -11,3 +11,4 @@ dist/
 # relative one rather than `/tmp` so the fixture runs on Windows too.
 tests/core/builtins/writefile_out.txt
 io_lines.txt
+io_lines_to_end.txt
