@@ -5,6 +5,7 @@ exception Return_value of value * Ast.span
 (* Caught by the loop it leaves, which is always the innermost: the checker
    refuses a `break` with anything else in between. *)
 exception Break_loop
+exception Continue_loop
 
 (* Caught by the `Scope` its own `run` became, passed through any between. *)
 (* Carries where it left from, so one that finds no scope can still say where. *)
@@ -349,11 +350,13 @@ and exec env (s : Ast.cps_stmt) : unit =
   | `While (cond, body) ->
     (try
        while as_bool span (eval env cond) do
-         exec env body
+         try exec env body with
+         | Continue_loop -> ()
        done
      with
      | Break_loop -> ())
   | `Break -> raise Break_loop
+  | `Continue -> raise Continue_loop
   (* The closure captures the table the name lands in, so recursion works
      without a separate binding step. *)
   | `Fn (name, params, _, body) -> define env name (closure env name params body)

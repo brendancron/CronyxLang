@@ -949,6 +949,7 @@ and tstmt h scope (s : Ast.stmt) : Ast.stmt list * S.t =
     one (`While (c, st body))
   | `Return e -> one (`Return (Option.map ex e))
   | `Break -> one `Break
+  | `Continue -> one `Continue
   | `Expr e -> one (`Expr (ex e))
   | `Defer inner -> one (`Defer (st inner))
   | `For (init, cond, step, body) ->

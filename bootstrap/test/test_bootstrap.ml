@@ -17,6 +17,7 @@ let cases =
   ; "tests/core/control/while"
   ; "tests/core/control/for_in"
   ; "tests/core/control/break"
+  ; "tests/core/control/continue"
   ; "tests/core/modules/main"
   ; "tests/core/modules/alias/main"
   ; "tests/core/modules/multi_export/main"
@@ -260,6 +261,7 @@ let cases =
   ; "tests/effects/abandon_through_run"
   ; "tests/effects/return_in_converted_loop"
   ; "tests/effects/break_in_converted_loop"
+  ; "tests/effects/continue_in_converted_loop"
   ; "tests/stdlib/iterable/iterable"
   ; "tests/stdlib/hashmap/hashmap"
   ; "tests/stdlib/hashset/hashset"
@@ -455,6 +457,7 @@ let cases =
 let error_cases =
   [ "tests/core/variadic/errors/not_last"
   ; "tests/core/control/errors/break_outside_loop"
+  ; "tests/core/control/errors/continue_outside_loop"
   ; "tests/core/variadic/packs/errors/wrong_arity"
   ; "tests/core/variadic/packs/errors/wrong_type"
   ; "tests/core/variadic/packs/errors/not_last"

@@ -230,6 +230,7 @@ let rec write_stmt buf indent (s : Ast.stmt) =
       body
   | `Return value -> line "%s(return %s)\n" pad (opt_expr value)
   | `Break -> line "%s(break)\n" pad
+  | `Continue -> line "%s(continue)\n" pad
   | `For_in (names, iterable, body) ->
     nested
       (Printf.sprintf "for %s in %s" (String.concat ", " names) (string_of_expr iterable))
@@ -501,6 +502,7 @@ let rec write_typed_stmt buf indent (s : Ast.typed_stmt) =
       body
   | `Return value -> line "%s(return %s)\n" pad (opt_typed_expr value)
   | `Break -> line "%s(break)\n" pad
+  | `Continue -> line "%s(continue)\n" pad
   | `Effect_decl (name, _, _) -> line "%s(effect %s)\n" pad name
   | `Run (body, handlers) ->
     nested

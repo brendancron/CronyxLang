@@ -1023,7 +1023,7 @@ and assigned_in_stmt (s : Ast.desugared_stmt) acc =
     opt assigned_in_stmt else_branch (assigned_in_stmt then_branch (assigned_in_expr cond acc))
   | `While (cond, body) -> assigned_in_stmt body (assigned_in_expr cond acc)
   | `Return e -> opt assigned_in_expr e acc
-  | `Break -> acc
+  | `Break | `Continue -> acc
   | `Effect_decl _ | `Type_decl _ | `Trait_decl _ -> acc
   | `Impl_decl (_, _, _, impl) ->
     List.fold_left
@@ -3086,14 +3086,17 @@ and infer_stmt_impl env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
     in_loop := true;
     let body = Fun.protect ~finally:(fun () -> in_loop := looping) (fun () -> infer_stmt env ctx assigned body) in
     node (`While (cond, body))
-  | `Break ->
+  | (`Break | `Continue) as jump ->
     if not !in_loop
     then
       fail
         span
-        "'break' leaves a loop, and none encloses it here: a function, a lambda, a \
-         'run' block or a 'defer' stands between.";
-    node `Break
+        "%s, and none encloses it here: a function, a lambda, a 'run' block or a \
+         'defer' stands between."
+        (match jump with
+         | `Break -> "'break' leaves a loop"
+         | `Continue -> "'continue' skips to a loop's next iteration");
+    node jump
   | `Fn (name, params, signature, body) ->
     with_type_params
       (Option.value ~default:[] (Hashtbl.find_opt ctx_fn_params name))

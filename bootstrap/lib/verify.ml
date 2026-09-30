@@ -274,7 +274,7 @@ and stmt (s : Ast.cps_stmt) : unit =
   | `Fn (_, _, _, body) -> List.iter stmt body
   | `Cont (_, _, body) | `Frame (_, _, body) -> List.iter stmt body
   | `Return e -> Option.iter expr e
-  | `Break -> ()
+  | `Break | `Continue -> ()
   | `Match (scrutinee, cases) ->
     expr scrutinee;
     List.iter (fun (_, body) -> List.iter stmt body) cases

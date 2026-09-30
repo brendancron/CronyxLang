@@ -77,7 +77,7 @@ let synchronize s =
     then ()
     else (
       match (peek s).Token.token_type with
-      | Token.Fn | Token.Var | Token.For | Token.If | Token.While | Token.Return | Token.Break -> ()
+      | Token.Fn | Token.Var | Token.For | Token.If | Token.While | Token.Return | Token.Break | Token.Continue -> ()
       | _ ->
         ignore (advance s);
         loop ())
@@ -1004,6 +1004,10 @@ and statement s : Ast.stmt =
     ignore (advance s);
     ignore (consume s Token.Semicolon "Expected ';' after 'break'.");
     Ast.at sp `Break
+  | Token.Continue ->
+    ignore (advance s);
+    ignore (consume s Token.Semicolon "Expected ';' after 'continue'.");
+    Ast.at sp `Continue
   | Token.Run ->
     ignore (advance s);
     run_stmt s sp

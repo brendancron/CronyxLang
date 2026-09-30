@@ -25,8 +25,10 @@ type effects =
   (* Whether the statement being compiled sits inside a `run` the enclosing
      function has not left. *)
   ; mutable inside_run : bool
-  (* What a `break` calls: the innermost converted loop's exit. *)
+  (* What a `break` and a `continue` call: the innermost converted loop's exit,
+     and its next iteration. *)
   ; mutable breaking : string option
+  ; mutable continuing : string option
   (* The own type of each function in scope where conversion is, whose row says
      what evidence it takes. See [scoped]. *)
   ; functions : (string, Types.ty) Hashtbl.t
@@ -206,7 +208,7 @@ let rec holds_return (s : Ast.reflected_stmt) =
 (* A `break` this loop answers for: not one inside a loop of its own. *)
 let rec holds_break (s : Ast.reflected_stmt) =
   match s.Ast.it with
-  | `Break -> true
+  | `Break | `Continue -> true
   | `Block body -> List.exists holds_break body
   | `If (_, t, e) -> holds_break t || Option.fold ~none:false ~some:holds_break e
   | `Match (_, cases) -> List.exists (fun (_, body) -> List.exists holds_break body) cases
@@ -690,14 +692,17 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
        in
        let k', wrapped_k = wrapper k in
        (* Leaving the loop leaves the deferred scope too. *)
-       let outer_breaking = info.breaking in
+       let outer_breaking = info.breaking
+       and outer_continuing = info.continuing in
        let wrapped_break =
-         match outer_breaking with
-         | Some exit ->
-           let name, declaration = wrapper exit in
-           info.breaking <- Some name;
-           [ declaration ]
-         | None -> []
+         match outer_breaking, outer_continuing with
+         | Some exit, Some next ->
+           let exit', exit_declaration = wrapper exit
+           and next', next_declaration = wrapper next in
+           info.breaking <- Some exit';
+           info.continuing <- Some next';
+           [ exit_declaration; next_declaration ]
+         | _ -> []
        in
        (* No continuation here, so one performing an effect cannot run. *)
        let cleanup =
@@ -721,7 +726,8 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
            ~finally:(fun () ->
              open_defers := outer_defers;
              open_unwinds := outer_unwinds;
-             info.breaking <- outer_breaking)
+             info.breaking <- outer_breaking;
+             info.continuing <- outer_continuing)
            (fun () -> cps info ret' k' ~at:span rest)
        in
        (node span (`Var_decl (armed, None, Some (flag true)))
@@ -799,13 +805,21 @@ let rec cps info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt list
         on with the next iteration and resuming twice runs it twice. *)
      | `Break when Option.is_some info.breaking ->
        [ call span (Option.get info.breaking) [ ignored span ] ]
+     | `Continue when Option.is_some info.continuing ->
+       [ call span (Option.get info.continuing) [ ignored span ] ]
      | `While (cond, body) when suspends_stmt info s || holds_return s ->
        let again = fresh "loop"
        and after = fresh "after" in
-       let outer = info.breaking in
+       let outer = info.breaking
+       and outer_continuing = info.continuing in
        info.breaking <- Some after;
+       info.continuing <- Some again;
        let body =
-         Fun.protect ~finally:(fun () -> info.breaking <- outer) (fun () -> cps info ret again ~at:span [ body ])
+         Fun.protect
+           ~finally:(fun () ->
+             info.breaking <- outer;
+             info.continuing <- outer_continuing)
+           (fun () -> cps info ret again ~at:span [ body ])
        in
        [ frame_decl span after [ fresh "x" ] (cps info ret k ~at:span rest)
        ; (* Once per iteration, so extracting it goes inside the continuation
@@ -1191,6 +1205,7 @@ let collect (p : Ast.reflected_stmt list) =
     ; leaving = None
     ; inside_run = false
     ; breaking = None
+    ; continuing = None
     ; functions = Hashtbl.create 32
     }
   in

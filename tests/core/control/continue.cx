@@ -1,0 +1,25 @@
+var i = 0;
+while (i < 5) {
+    i += 1;
+    if (i % 2 == 0) { continue; }
+    print(i);
+}
+for (x in [1, 2, 3, 4]) {
+    if (x == 2) { continue; }
+    print(x);
+}
+for (var j = 0; j < 4; j += 1) {
+    if (j == 1) { continue; }
+    print(j);
+}
+for (var a = 0; a < 2; a += 1) {
+    for (var b = 0; b < 3; b += 1) {
+        if (b == 1) { continue; }
+        print(str(a) + "," + str(b));
+    }
+}
+for (x in [1, 2, 3]) {
+    defer print("left " + str(x));
+    if (x == 2) { continue; }
+    print("kept " + str(x));
+}

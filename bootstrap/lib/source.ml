@@ -304,6 +304,7 @@ and stmt depth (s : Ast.stmt) : string =
           | None -> ""))
       body
   | `Break -> line "break;"
+  | `Continue -> line "continue;"
   | `Return e ->
     line
       (match e with
