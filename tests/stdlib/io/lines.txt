@@ -1,0 +1,8 @@
+[ada]
+[bo]
+[]
+[cy]
+one
+two
+you said hi
+you said bye

@@ -1,5 +1,5 @@
 import { Mode, File, Fs, read_text, write_text } from "std/io/Fs";
-import { IoError, Reader, Writer } from "std/io/Io";
+import { IoError, Reader, Writer, Closer } from "std/io/Io";
 import { Throw, Result } from "std/lang/Throw";
 import { async } from "std/effects/Async";
 
@@ -22,9 +22,11 @@ impl Writer for Memory {
     }
 }
 
-impl File for Memory {
+impl Closer for Memory {
     fn close(self): <async, Throw<IoError>> unit { }
 }
+
+impl File for Memory {}
 
 fn greet(name: string): <Fs, async, Throw<IoError>> string {
     write_text("greeting.txt", "hello, " + name);

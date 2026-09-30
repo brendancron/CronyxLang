@@ -48,7 +48,7 @@ Before anything else, `Compile.under_root` hands each top-level statement to
 the prelude's module name — as a function, in place, and a `var`'s initializer likewise;
 `Precheck` sees the program the same way. See [Algebraic Effects](Algebraic%20Effects.md#print-is-an-effect).
 
-Rewrites the surface control forms into the smaller set later passes handle — `for (x in xs)` becomes a `while` over an index, a C-style `for` becomes an initializer and a `while`, a variadic call collects its trailing arguments into an array.
+Rewrites the surface control forms into the smaller set later passes handle — a C-style `for` becomes an initializer and a `while`, a variadic call collects its trailing arguments into an array. `for (x in xs)` is the exception: it reaches `Typecheck` as it was written, because whether the sequence is indexed or pulled is a question about its type. The checker binds the sequence, then checks the loop `Desugar.indexed` or `Desugar.pulled` builds for what it found — an `Iter` is pulled and closed when the loop is left, a `() -> Option<T>` is pulled, anything else is indexed with `len` and `[]` — so nothing after it ever meets a `for`.
 
 ### Typecheck
 

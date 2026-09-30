@@ -2,6 +2,10 @@ trait Speaker {
     fn speak(self): string;
 }
 
+trait Walker {
+    fn walk(self): string;
+}
+
 type Cat;
 
 impl Speaker for Cat {
@@ -10,9 +14,15 @@ impl Speaker for Cat {
     }
 }
 
-fn announce<S: Speaker>(s: S) {
-    print(s.speak());
+impl Walker for Cat {
+    fn walk(self): string {
+        return "pads";
+    }
+}
+
+fn stroll<W: Walker>(w: W) {
+    print(w.walk());
 }
 
 var sp: Speaker = Cat;
-announce(sp);
+stroll(sp);

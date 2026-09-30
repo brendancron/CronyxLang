@@ -1380,7 +1380,7 @@ let fields_of name args : infer_fields =
   | Some (vars, f) -> substitute_fields (paired vars args) f
   | None -> FEmpty
 
-let named_fields name args : fields =
+let named_fields ?(declared = Fun.id) name args : fields =
   match Hashtbl.find_opt declarations name with
   | None -> []
   | Some (vars, f) ->
@@ -1388,7 +1388,8 @@ let named_fields name args : fields =
     let rec collect f =
       match repr_fields f with
       | FEmpty | FVar _ -> []
-      | FCons (label, ty, rest) -> (label, subst_generic mapping (resolve ty)) :: collect rest
+      | FCons (label, ty, rest) ->
+        (label, subst_generic mapping (declared (resolve ty))) :: collect rest
     in
     List.sort compare (collect f)
 

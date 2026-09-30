@@ -21,3 +21,59 @@ effect Yield<T> {
     /** Hands one value over. The handler resumes to ask for the next. */
     ctl yield(value: T): unit;
 }
+
+/**
+ * The values a producer yields, pulled one at a time.
+ *
+ * ```
+ * var evens = iterator { var i = 0; while (true) { yield(i); i = i + 2; } };
+ * print(evens.next());   // Some(0)
+ * print(evens.next());   // Some(2)
+ * evens.close();
+ * ```
+ *
+ * The producer runs only when asked for a value, up to its next `yield`. Closing
+ * one it has not finished unwinds it, so its `defer`s run and a file it opened
+ * with `using` is closed.
+ */
+fn iterator<T, E>(producer: () -> <Yield<T>, E> unit): Iter<() -> <E> Option<T>> {
+    var out: Option<T> = Option.None;
+    var started = false;
+    var rest: Option<() -> <E> unit> = Option.None;
+    var abandon: Option<() -> unit> = Option.None;
+    var next = () => {
+        out = Option.None;
+        match rest {
+            Option.Some(k) => {
+                rest = Option.None;
+                abandon = Option.None;
+                k();
+            }
+            Option.None => {
+                if (!started) {
+                    started = true;
+                    run { producer(); } handle Yield {
+                        ctl yield(v) {
+                            out = Option.Some(v);
+                            rest = Option.Some(() => { resume; });
+                            abandon = Option.Some(() => { discontinue; });
+                        }
+                    }
+                }
+            }
+        }
+        return out;
+    };
+    var close = () => {
+        started = true;
+        rest = Option.None;
+        match abandon {
+            Option.Some(unwind) => {
+                abandon = Option.None;
+                unwind();
+            }
+            Option.None => {}
+        }
+    };
+    return Iter { next: next, close: close };
+}

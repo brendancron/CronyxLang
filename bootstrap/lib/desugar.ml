@@ -91,6 +91,78 @@ let looped span cond (body : desugared_stmt) (step : desugared_expr option) : de
                     ]) ))
         ])
 
+(* The loops `for (x in xs)` becomes, once the checker knows what `seq`, bound
+   to `xs` already, holds. Its body is desugared, so these build desugared
+   statements.
+
+   indexed: { var i = 0; while (i < seq.len()) { var x = seq[i]; body; i = i + 1; } }
+   `len` and `[]` are ordinary calls, resolved for whatever the sequence is. *)
+let rec indexed span (names : binder) seq (body : desugared_stmt) : desugared_stmt list =
+  let node it : desugared_stmt = { it; span; ann = () }
+  and value it : desugared_expr = { it; span; ann = () } in
+  let index = fresh "i" in
+  let step = value (`Assign (index, value (`Binop (Add, value (`Var index), value (`Int 1))))) in
+  let inner =
+    node
+      (`Block
+        (bound_desugared span names (value (`Index (value (`Var seq), value (`Var index))))
+         @ [ body ]))
+  in
+  [ node (`Var_decl (index, None, Some (value (`Int 0))))
+  ; looped
+      span
+      (value (`Binop (Less, value (`Var index), value (`Method_call (value (`Var seq), "len", "len", [])))))
+      inner
+      (Some step)
+  ]
+
+(* pulled: { defer seq.close(); var more = true;
+             while (more) { match seq.next() { Some(x) => { body } None => { more = false; } } } }
+   A bare `next` closure is called as `seq()` and has nothing to close. The
+   `defer` is what lets go of a producer a `break` or a `return` left early. *)
+and pulled span (names : binder) seq ~closes (body : desugared_stmt) : desugared_stmt list =
+  let node it : desugared_stmt = { it; span; ann = () }
+  and value it : desugared_expr = { it; span; ann = () } in
+  let more = fresh "more"
+  and element = fresh "item" in
+  let asked =
+    if closes
+    then value (`Method_call (value (`Var seq), "next", "next", []))
+    else value (`Call (value (`Var seq), []))
+  in
+  let closing =
+    if closes
+    then [ node (`Defer (node (`Expr (value (`Method_call (value (`Var seq), "close", "close", [])))))) ]
+    else []
+  in
+  closing
+  @ [ node (`Var_decl (more, None, Some (value (`Bool true))))
+    ; node
+        (`While
+          ( value (`Var more)
+          , node
+              (`Match
+                ( asked
+                , [ ( Pat_variant ("Option", "Some", P_tuple [ element ])
+                    , bound_desugared span names (value (`Var element)) @ [ body ] )
+                  ; ( Pat_variant ("Option", "None", P_none)
+                    , [ node (`Expr (value (`Assign (more, value (`Bool false))))) ] )
+                  ] )) ))
+    ]
+
+(* The element is bound straight to the name, as `bound` does: an intermediate
+   variable would be generalized before `[]` has said what it holds. *)
+and bound_desugared span (names : binder) (element : desugared_expr) : desugared_stmt list =
+  let decl n init : desugared_stmt = { it = `Var_decl (n, None, Some init); span; ann = () } in
+  match names with
+  | [ only ] -> [ decl only element ]
+  | names ->
+    let whole = fresh "tuple" in
+    decl whole element
+    :: List.mapi
+         (fun index n -> decl n { it = `Tuple_get ({ it = `Var whole; span; ann = () }, index); span; ann = () })
+         names
+
 let rec expr (e : expr) : desugared_expr =
   let sp = e.span in
   let it : desugared_expr_kind =
@@ -157,36 +229,7 @@ and stmt (s : stmt) : desugared_stmt =
     match s.it with
         | `Import _ | `Global_import _ | `Meta _ | `Gen _ | `Derive _ | `Attributed _ | `Type_members _ ->
           assert false
-    (* for (x in xs) body  ⇒  { var seq = xs; var i = 0;
-                                 while (i < seq.len()) { var x = seq[i]; body; i = i + 1; } }
-
-       The sequence is bound once so an expression is evaluated once, and `len`
-       and `[]` are ordinary source so the checker resolves them for whatever
-       the sequence turns out to be. *)
-    | `For_in (names, iterable, body) ->
-      let sp = iterable.span in
-      let seq = fresh "seq"
-      and index = fresh "i" in
-      let var_decl_of at_span n init : stmt =
-        { it = `Var_decl (n, None, Some init); span = at_span; ann = () }
-      in
-      let read n = at sp (`Var n) in
-      let step = at body.span (`Assign (index, at body.span (`Binop (Add, read index, at body.span (`Int 1))))) in
-      let inner : stmt =
-        { it = `Block (bound body.span names (at body.span (`Index (read seq, read index))) @ [ body ])
-        ; span = body.span
-        ; ann = ()
-        }
-      in
-      `Block
-        [ stmt (var_decl_of sp seq iterable)
-        ; stmt (var_decl_of sp index (at sp (`Int 0)))
-        ; looped
-            sp
-            (expr (at sp (`Binop (Less, read index, at sp (`Method_call (read seq, "len", "len", []))))))
-            (stmt inner)
-            (Some (expr step))
-        ]
+    | `For_in (names, iterable, body) -> `For_in (names, expr iterable, stmt body)
     (* for (init; cond; step) body  ⇒  { init; while (cond) { body; step; } } *)
     | `For (init, cond, step, body) ->
       let cond =
@@ -254,7 +297,7 @@ let program (p : program) : (desugared_stmt list, error) result =
     | `Expr _ | `Var_decl _ | `Var_tuple _ | `Return _ | `Break | `Continue | `Import _ | `Global_import _
     | `Derive _
     | `Effect_decl _
-    | `Resume _ | `Type_decl _ | `Trait_decl _ -> []
+    | `Resume _ | `Discontinue | `Type_decl _ | `Trait_decl _ -> []
   in
   List.iter collect p;
   try Ok (List.map stmt p) with

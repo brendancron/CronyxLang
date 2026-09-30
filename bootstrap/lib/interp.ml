@@ -16,6 +16,10 @@ exception Aborted of string * Ast.span
    entering it installed. Innermost first. *)
 let active_scopes : (string * Ast.cps_stmt list * Value.env) list ref = ref []
 
+(* What `discontinue` resumes a continuation with. Compared by identity, so no
+   value a program builds can be mistaken for it. *)
+let discontinued = Variant (None, "discontinued", [])
+
 let compare_ordered op x y =
   match op with
   | Ast.Less -> x < y
@@ -126,6 +130,11 @@ let rec eval env (e : Ast.cps_expr) : value =
     if as_bool span (eval env a) then Bool (as_bool span (eval env b)) else Bool false
   | `Or (a, b) ->
     if as_bool span (eval env a) then Bool true else Bool (as_bool span (eval env b))
+  | `Call ({ Ast.it = `Var name; _ }, [ k ]) when String.equal name Ast.discontinue_name ->
+    ignore (call span (eval env k) [ discontinued ]);
+    Unit
+  | `Call ({ Ast.it = `Var name; _ }, [ v ]) when String.equal name Ast.discontinued_name ->
+    Bool (eval env v == discontinued)
   | `Call (callee, args) ->
     let f = eval env callee in
     call span f (eval_all env args)

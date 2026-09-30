@@ -45,6 +45,29 @@ let is_unknown t =
 let top_row : Types.infer_row option ref = ref None
 let effect_sites : (string, Source_map.Span.t) Hashtbl.t = Hashtbl.create 8
 
+(* A deferred statement runs while a failure may already be unwinding, and one
+   of its own would replace it, so its row may hold nothing that never resumes.
+   Read once checking is done: a callee not yet checked adds to it later. A
+   call through a row the enclosing function declares is refused outright,
+   since its caller can put anything there. *)
+type deferred =
+  { d_span : Source_map.Span.t
+  ; d_row : Types.infer_row
+  ; mutable d_open : bool
+  }
+
+let deferred_rows : deferred list ref = ref []
+
+(* The parameter a lambda argument is passed to, set by the call just before the
+   lambda is checked and read by it first thing, so nothing nested sees it. *)
+let expected_lambda : Types.infer_ty option ref = ref None
+
+(* The row a trait's method performs when reached through a table: the one the
+   trait wrote, or none. A copy made at an object calls through the table, and
+   only [Resolve] learns that it was made at one. *)
+let dynamic_rows : (string * string, Types.infer_row) Hashtbl.t = Hashtbl.create 16
+let open_defer : deferred option ref = ref None
+
 (* Each top-level statement is the body of a function handed to the root, so
    its row stands in for the top level's while it is checked: otherwise every
    site would be the whole statement. Set by the call, read by its lambda. *)
@@ -510,6 +533,9 @@ let admits_row (callee : Types.scheme option) row (caller : Types.infer_row) =
     | Types.RVar _, None -> true
     | _ -> false
   in
+  (match !open_defer with
+   | Some d when caller == d.d_row && Types.row_is_declared row -> d.d_open <- true
+   | _ -> ());
   if pending then Types.unify_row row caller else Types.row_within row caller
 
 let unify_at span expected actual =
@@ -552,7 +578,7 @@ let not_pure (written : Ast.desugared_expr) param (arg : checked_expr) =
 let not_a_bound ~declared (written : Ast.desugared_expr) param (arg : checked_expr) =
   match Types.repr param, Types.infer_type_name (Types.repr arg.Ast.ann) with
   | Types.IVar { contents = Types.Unbound (_, Types.Bound (bound :: _)) }, Some trait
-    when Hashtbl.mem ctx_traits trait ->
+    when Hashtbl.mem ctx_traits trait && not (List.mem bound.Types.bd_trait (trait_closure trait)) ->
     (* Instantiation renames, so the parameter is called what the declaration
        called it rather than what the copy carries. *)
     let named =
@@ -572,8 +598,8 @@ let not_a_bound ~declared (written : Ast.desugared_expr) param (arg : checked_ex
     in
     fail
       arg.Ast.span
-      "%s is a '%s' object; '<%s: %s>' needs the type behind it, which an object does not \
-       carry."
+      "%s is a '%s' object, which meets that trait and its supertraits; '<%s: %s>' needs \
+       the type behind it, which an object does not carry."
       (match written.Ast.it with
        | `Var name -> Printf.sprintf "'%s'" name
        | _ -> "This argument")
@@ -1022,6 +1048,7 @@ and assigned_in_stmt (s : Ast.desugared_stmt) acc =
   | `If (cond, then_branch, else_branch) ->
     opt assigned_in_stmt else_branch (assigned_in_stmt then_branch (assigned_in_expr cond acc))
   | `While (cond, body) -> assigned_in_stmt body (assigned_in_expr cond acc)
+  | `For_in (_, iterable, body) -> assigned_in_stmt body (assigned_in_expr iterable acc)
   | `Return e -> opt assigned_in_expr e acc
   | `Break | `Continue -> acc
   | `Effect_decl _ | `Type_decl _ | `Trait_decl _ -> acc
@@ -1038,6 +1065,7 @@ and assigned_in_stmt (s : Ast.desugared_stmt) acc =
       (assigned_in_expr scrutinee acc)
       cases
   | `Resume e -> opt assigned_in_expr e acc
+  | `Discontinue -> acc
   | `Run (body, handlers) ->
     let acc = List.fold_left (fun acc st -> assigned_in_stmt st acc) acc body in
     List.fold_left
@@ -1056,7 +1084,7 @@ let rec resumes (s : Ast.desugared_stmt) =
   | `Resume _ -> true
   | `Block body -> List.exists resumes body
   | `If (_, t, e) -> resumes t || Option.fold ~none:false ~some:resumes e
-  | `While (_, body) | `Defer body -> resumes body
+  | `While (_, body) | `For_in (_, _, body) | `Defer body -> resumes body
   | `Match (_, cases) -> List.exists (fun (_, body) -> List.exists resumes body) cases
   | _ -> false
 
@@ -1108,6 +1136,11 @@ let names_used (s : Ast.desugared_stmt) =
       | #Ast.type_defs as t -> t
       | #Ast.method_defs as m -> (Ast.map_method_defs stmt Fun.id m :> Ast.desugared_stmt_kind)
       | #Ast.matching as m -> (Ast.map_matching expr stmt m :> Ast.desugared_stmt_kind)
+      (* What the checker lowers it to calls these, and an order that misses
+         one checks the loop before the method it reaches. *)
+      | `For_in (names, iterable, body) ->
+        List.iter note [ "len"; "next"; "close" ];
+        `For_in (names, expr iterable, stmt body)
     in
     s
   in
@@ -1569,18 +1602,39 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     let args =
       match expected_params with
       | Some params ->
-        List.map2
-          (fun param (a : Ast.desugared_expr) ->
-            match a.Ast.it with
-            | `Spread _ -> argument env ctx a
-            | _ when mentions_trait param -> check_against env ctx param a
-            | _ ->
-              let checked = argument env ctx a in
-              not_a_bound ~declared:declared_params a param checked;
-              not_pure a param checked;
-              checked)
-          params
-          args
+        (* A lambda's parameters are typed by what the arguments before it
+           settled, so `using(f) { x -> x.close() }` knows what `x` is. A
+           mismatch there is left for the call's own unification to report. *)
+        let settle_before (checked : checked_expr list) =
+          List.iteri
+            (fun i (c : checked_expr) ->
+              try Types.unify (List.nth params i) c.Ast.ann with
+              | Types.Type_error _ -> ())
+            checked
+        in
+        List.rev
+          (snd
+             (List.fold_left2
+                (fun (i, checked) param (a : Ast.desugared_expr) ->
+                  let c =
+                    match a.Ast.it with
+                    | `Spread _ -> argument env ctx a
+                    | _ when mentions_trait param -> check_against env ctx param a
+                    | _ ->
+                      (match a.Ast.it with
+                       | `Lambda _ ->
+                         settle_before (List.rev checked);
+                         expected_lambda := Some param
+                       | _ -> ());
+                      let c = argument env ctx a in
+                      not_a_bound ~declared:declared_params a param c;
+                      not_pure a param c;
+                      c
+                  in
+                  i + 1, c :: checked)
+                (0, [])
+                params
+                args))
       | None -> List.map (argument env ctx) args
     in
     (* The name has to still mean the entry, not merely be spelled like it. *)
@@ -1940,6 +1994,12 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
                  | None when dynamic -> Types.REmpty
                  | None -> Types.fresh_row ()) )
           in
+          Hashtbl.replace
+            dynamic_rows
+            (declaring, name)
+            (match m.Ast.ms_signature.Ast.row with
+             | Some labels -> row_of_labels ~span labels
+             | None -> Types.REmpty);
           let ret = Types.fresh () in
           let row = Types.fresh_row () in
           (* The written row is what the call passes evidence for, and what it
@@ -2112,7 +2172,21 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
      argument list is and nowhere else. *)
   | `Spread _ -> fail span "A spread is an argument, so it belongs in a call."
   | `Lambda (params, signature, body) ->
+    let expected = !expected_lambda in
+    expected_lambda := None;
     let param_types = List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) params in
+    (match Option.map Types.repr expected with
+     | Some (Types.IFn (wanted, _, _)) ->
+       let wanted = Types.expand wanted in
+       if List.length wanted = List.length param_types
+       then
+         List.iter2
+           (fun ty want ->
+             try Types.unify ty want with
+             | Types.Type_error _ -> ())
+           param_types
+           wanted
+     | _ -> ());
     let declared_ret = annotated_or_fresh signature.Ast.ret in
     let row = Types.fresh_row () in
     let scope = new_env (Some env) in
@@ -3272,6 +3346,28 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
         ( cond
         , infer_stmt env ctx assigned then_branch
         , Option.map (infer_stmt env ctx assigned) else_branch ))
+  (* Lowered here rather than in [Desugar]: whether the sequence is indexed or
+     pulled is a question about its type. One the checker cannot see yet is
+     indexed, which is what every `for` was before iterators. *)
+  | `For_in (names, iterable, body) ->
+    let scope = new_env (Some env) in
+    let seq = Desugar.fresh "seq" in
+    let at = iterable.Ast.span in
+    let decl =
+      infer_stmt scope ctx assigned { Ast.it = `Var_decl (seq, None, Some iterable); span = at; ann = () }
+    in
+    let held =
+      match decl.Ast.it with
+      | `Var_decl (_, _, Some e) -> Types.repr e.Ast.ann
+      | _ -> Types.IUnit
+    in
+    let loop =
+      match held with
+      | Types.INamed ("Iter", [ _ ]) -> Desugar.pulled at names seq ~closes:true body
+      | Types.IFn ([], _, _) -> Desugar.pulled at names seq ~closes:false body
+      | _ -> Desugar.indexed at names seq body
+    in
+    node (`Block (decl :: infer_block scope ctx loop))
   | `While (cond, body) ->
     let cond = infer_expr env ctx cond in
     unify_at cond.Ast.span Types.IBool cond.Ast.ann;
@@ -3327,11 +3423,24 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
            fn_type));
     Ast.annotated span fn_type (`Fn (name, params, signature, body)))
   | `Defer inner ->
-    let looping = !in_loop in
+    let looping = !in_loop
+    and outer = ctx.row
+    and enclosing = !open_defer in
+    let d = { d_span = span; d_row = Types.fresh_row (); d_open = false } in
     in_loop := false;
-    node
-      (`Defer
-        (Fun.protect ~finally:(fun () -> in_loop := looping) (fun () -> infer_stmt env ctx assigned inner)))
+    ctx.row <- d.d_row;
+    open_defer := Some d;
+    let inner =
+      Fun.protect
+        ~finally:(fun () ->
+          in_loop := looping;
+          ctx.row <- outer;
+          open_defer := enclosing)
+        (fun () -> infer_stmt env ctx assigned inner)
+    in
+    Types.row_within d.d_row ctx.row;
+    deferred_rows := d :: !deferred_rows;
+    node (`Defer inner)
   | `Type_decl (name, params, body) -> node (`Type_decl (name, params, body))
   | `Trait_decl (name, params, methods) -> node (`Trait_decl (name, params, methods))
   | `Impl_decl (trait, type_name, params, impl) ->
@@ -3495,6 +3604,17 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
         Some e'
     in
     node (`Resume value)
+  | `Discontinue ->
+    if ctx.resume_type = None
+    then
+      if ctx.in_final_arm
+      then
+        fail
+          span
+          "A 'final ctl' handler cannot discontinue: it never resumes, so its \
+           continuation is unwound already."
+      else fail span "'discontinue' outside of a 'ctl' handler.";
+    node `Discontinue
   | `Return e ->
     let expected =
       match ctx.return_type with
@@ -3988,6 +4108,25 @@ let admits registry kind (t : Types.infer_ty) =
      | None -> false)
   | Types.Bound traits ->
     (match Types.infer_type_name t with
+     (* An object meets its own trait and each supertrait: its table holds their
+        methods, so a copy made at the object dispatches through it. *)
+     | Some name when Hashtbl.mem ctx_traits name ->
+       let args =
+         match Types.repr t with
+         | Types.INamed (_, args) -> args
+         | _ -> []
+       in
+       List.for_all
+         (fun (b : Types.bound) ->
+           if String.equal b.Types.bd_trait name
+           then (
+             try
+               List.iter2 Types.unify b.Types.bd_args args;
+               true
+             with
+             | Types.Type_error _ | Invalid_argument _ -> false)
+           else b.Types.bd_args = [] && List.mem b.Types.bd_trait (trait_closure name))
+         traits
      | Some name ->
        List.for_all
          (fun (b : Types.bound) ->
@@ -4077,6 +4216,7 @@ let check_with ~registry (program : Ast.desugared_stmt list)
   Types.extra_admits := admits registry;
   Types.assoc_binding := (fun owner member -> Hashtbl.find_opt ctx_assoc (owner, member));
   reset_effects ();
+  deferred_rows := [];
   let env = new_env None in
   declare_builtins env;
   declare_builtin_impls registry;
@@ -4115,6 +4255,38 @@ let check_with ~registry (program : Ast.desugared_stmt list)
       None
   in
   let checked = List.filter_map Fun.id (infer_in_order env ctx assigned ~attempt program) in
+  let never_resumes label =
+    match Hashtbl.find_opt ctx_effects.declared label with
+    | Some ops -> List.exists (fun (o : Ast.op_decl) -> o.Ast.op_kind = Ast.Op_final) ops
+    | None -> false
+  in
+  List.iter
+    (fun d ->
+      let failing =
+        List.filter (fun (label, _) -> never_resumes label) (Types.resolve_row d.d_row).Types.labels
+      in
+      match failing with
+      | entry :: _ ->
+        errors
+        := { span = d.d_span
+           ; message =
+               Printf.sprintf
+                 "A deferred statement cannot fail, and this one can: '%s' never resumes, \
+                  and would replace whatever is already unwinding. Handle it inside the \
+                  'defer'."
+                 (Types.entry Types.string_of_ty entry)
+           }
+           :: !errors
+      | [] when d.d_open ->
+        errors
+        := { span = d.d_span
+           ; message =
+               "A deferred statement cannot fail, and this one calls through an effect \
+                row its caller decides, which could hold an operation that never resumes."
+           }
+           :: !errors
+      | [] -> ())
+    (List.rev !deferred_rows);
   let errors =
     List.fold_left
       (fun errors ((label, _) as entry) ->

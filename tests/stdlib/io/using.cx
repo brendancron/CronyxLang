@@ -1,0 +1,52 @@
+import { Closer, IoError, using } from "std/io/Io";
+import { Throw, Result, attempt } from "std/lang/Throw";
+import { async } from "std/effects/Async";
+
+type Tap { name: string, fails: bool, log: List<string> }
+
+impl Closer for Tap {
+    fn close(self): <async, Throw<IoError>> unit {
+        self.log.push("closing " + self.name);
+        if (self.fails) { throw(IoError.Other(self.name + " would not close")); }
+    }
+}
+
+var log: List<string> = [];
+fn tap(name: string, fails: bool): Tap { return Tap { name: name, fails: fails, log: log }; }
+var shown: List<int> = [0];
+fn flush() {
+    while (shown[0] < log.len()) { print(log[shown[0]]); shown[0] = shown[0] + 1; }
+}
+
+var value = using(tap("a", false)) { t -> t.name + " used" };
+flush();
+print(value);
+
+var body_failed = attempt {
+    using(tap("b", false)) { t -> throw(IoError.Other("body failed")); }
+};
+flush();
+print(body_failed);
+
+var close_failed = attempt {
+    using(tap("c", true)) { t -> print("in c"); }
+};
+flush();
+print(close_failed);
+
+var both_failed = attempt {
+    using(tap("d", true)) { t -> throw(IoError.Other("body failed first")); }
+};
+flush();
+print(both_failed);
+
+fn first_of(names: Array<string>): <async, Throw<IoError>, Console> string {
+    for (n in names) {
+        using(tap(n, false)) { t -> print("visiting " + t.name); };
+        return n;
+    }
+    return "none";
+}
+var first = first_of(["e", "f"]);
+flush();
+print(first);

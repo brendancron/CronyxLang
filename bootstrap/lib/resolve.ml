@@ -228,6 +228,22 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
        here; the row the call performs was read off the trait. *)
     | `Dyn_call (receiver, name, performs, args) ->
       `Dyn_call (expr registry receiver, name, performs, arguments registry args)
+    | `Bound_call (receiver, name, dispatch, args)
+      when Option.fold ~none:false ~some:(Hashtbl.mem traits) (Types.type_name receiver.Ast.ann) ->
+      let receiver = expr registry receiver in
+      let args = arguments registry args in
+      let row =
+        match Hashtbl.find_opt Typecheck.dynamic_rows (dispatch.Ast.dp_trait, name) with
+        | Some row -> Types.resolve_row row
+        | None -> Types.closed_row []
+      in
+      let performs =
+        Types.Fn
+          ( receiver.Ast.ann :: List.map (fun (a : Ast.resolved_expr) -> a.Ast.ann) args
+          , ann
+          , row )
+      in
+      `Dyn_call (receiver, name, performs, args)
     | `Bound_call (receiver, name, dispatch, args) ->
       let receiver = expr registry receiver in
       let args = arguments registry args in

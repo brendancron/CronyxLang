@@ -410,6 +410,7 @@ type ('e, 's, 'h) effects =
   [ `Effect_decl of string * string list * op_decl list
   | `Run of 's list * 'h list
   | `Resume of 'e option
+  | `Discontinue
   ]
 
 type 'e reflect = [ `Typeof of 'e ]
@@ -475,9 +476,13 @@ type 's aborts =
   | `On_unwind of 's list * 's list
   ]
 
+(* Lowered by the checker rather than by `Desugar`: whether the sequence is
+   indexed or pulled depends on its type. *)
+type ('e, 's) for_in = [ `For_in of binder * 'e * 's ]
+
 type ('e, 's) loops =
   [ `For of 's option * 'e option * 'e option * 's
-  | `For_in of binder * 'e * 's
+  | ('e, 's) for_in
   ]
 
 type expr = (expr_kind, unit) node
@@ -548,6 +553,7 @@ and desugared_stmt = (desugared_stmt_kind, unit) node
 
 and desugared_stmt_kind =
   [ (desugared_expr, desugared_stmt) stmts
+  | (desugared_expr, desugared_stmt) for_in
   | (desugared_expr, desugared_stmt, desugared_stmt handler) effects
   | type_defs
   | (desugared_stmt, unit) method_defs
@@ -736,6 +742,11 @@ let generated parts =
   match parts with
   | [] | [ _ ] -> invalid_arg "Ast.generated: a generated name needs two parts"
   | parts -> String.concat "#" parts
+
+(* What `discontinue` becomes, and the test each continuation makes on entry.
+   The interpreter answers both itself. *)
+let discontinue_name = generated [ "cps"; "discontinue" ]
+let discontinued_name = generated [ "cps"; "discontinued" ]
 
 (* The function each top-level statement runs under, found by the name it was
    written with: the prelude imports it from a module, so it carries that
@@ -996,6 +1007,7 @@ let map_effects
   | `Effect_decl (name, params, ops) -> `Effect_decl (name, params, ops)
   | `Run (body, handlers) -> `Run (List.map fs body, List.map fh handlers)
   | `Resume e -> `Resume (Option.map fe e)
+  | `Discontinue -> `Discontinue
 
 let string_of_binop = function
   | Add -> "+"

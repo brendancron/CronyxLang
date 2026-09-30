@@ -310,7 +310,7 @@ and stmt depth (s : Ast.stmt) : string =
       (match e with
        | None -> "return;"
        | Some v -> Printf.sprintf "return %s;" (expr v))
-  | `Defer inner -> line "defer" ^ nested depth inner
+  | `Defer inner -> line "defer {" ^ nested depth inner ^ line "}"
   | (`Import decl | `Global_import decl) as s ->
     line
       ((match s with
@@ -347,6 +347,7 @@ and stmt depth (s : Ast.stmt) : string =
       (match e with
        | None -> "resume;"
        | Some v -> Printf.sprintf "resume %s;" (expr v))
+  | `Discontinue -> line "discontinue;"
   | `Trait_decl (name, params, sigs) ->
     line
       (Printf.sprintf

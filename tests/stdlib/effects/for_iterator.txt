@@ -1,0 +1,14 @@
+0
+1
+2
+count cleaned up
+0
+2
+count cleaned up
+count cleaned up
+5
+a=1
+b=2
+countdown 2
+countdown 1
+countdown 0

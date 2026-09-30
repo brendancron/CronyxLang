@@ -1,0 +1,12 @@
+making 0
+Some(0)
+making 0
+Some(0)
+making 1
+Some(1)
+count cleaned up
+making 2
+Some(2)
+count cleaned up
+None
+None

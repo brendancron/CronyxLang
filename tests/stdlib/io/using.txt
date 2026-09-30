@@ -1,0 +1,12 @@
+closing a
+a used
+closing b
+Err(Other(body failed))
+in c
+closing c
+Err(Other(c would not close))
+closing d
+Err(Other(body failed first))
+visiting e
+closing e
+e

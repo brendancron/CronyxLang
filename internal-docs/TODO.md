@@ -166,7 +166,7 @@ fn r() { defer { print("cleanup"); } t("boom"); }
 run { r(); } handle E { ctl t(msg) { print("caught"); } }
 ```
 
-This prints only `caught`. Running the cleanup at the arm's exit would be wrong when the arm stored the continuation to resume later, so the choice is between documenting that an aborting operation that needs cleanup is declared `final ctl`, and running the defers once a continuation is provably dead, which needs tracking whether the arm kept it. `error-handling.mdx` currently claims only the `final ctl` case.
+This prints only `caught`. Running the cleanup at the arm's exit would be wrong when the arm stored the continuation to resume later. An arm can now say so itself: `discontinue` unwinds the continuation, running its `defer`s, and a closure it stored can do the same later, which is how `iterator`'s `close` lets go of a producer ([Algebraic Effects](Algebraic%20Effects.md#discontinue)). What is still open is an arm that does neither — whether that stays a leak the author is responsible for, or the defers run once a continuation is provably dead, which needs tracking whether the arm kept it. `error-handling.mdx` currently claims only the `final ctl` case.
 
 ## `cx toolchain install` and the standard library
 

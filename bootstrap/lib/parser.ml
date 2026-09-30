@@ -1017,6 +1017,10 @@ and statement s : Ast.stmt =
   | Token.Resume ->
     ignore (advance s);
     resume_stmt s sp
+  | Token.Discontinue ->
+    ignore (advance s);
+    ignore (consume s Token.Semicolon "Expected ';' after discontinue.");
+    Ast.at sp `Discontinue
   | Token.Left_brace ->
     ignore (advance s);
     Ast.at sp (`Block (block s))

@@ -1,0 +1,2 @@
+[8:24] A 'final ctl' handler cannot discontinue: it never resumes, so its continuation is unwound already.
+[4:5] 'discontinue' outside of a 'ctl' handler.

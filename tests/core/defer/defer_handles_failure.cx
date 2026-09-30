@@ -1,0 +1,23 @@
+import { Throw, Result, attempt } from "std/lang/Throw";
+
+fn close(ok: bool): <Throw<string>, Console> unit {
+    if (!ok) { throw("close failed"); }
+    print("closed");
+}
+
+fn work(ok: bool): <Throw<string>, Console> int {
+    defer {
+        var closing = attempt { close(ok) };
+        match closing {
+            Result.Ok(_) => {}
+            Result.Err(e) => { print("dropped: " + e); }
+        }
+    }
+    throw("work failed");
+    return 1;
+}
+
+var first = attempt { work(true) };
+print(first);
+var second = attempt { work(false) };
+print(second);

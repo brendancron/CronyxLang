@@ -10,14 +10,14 @@
  *
  * Opening is the `Fs` effect, so a function's row says `<Fs>` exactly when it
  * opens something, and a test hands out files of its own by handling it. What
- * `open` hands back is a `File`, which is a `Reader` and a `Writer`; the
+ * `open` hands back is a `File`, which is a `Reader`, a `Writer` and a `Closer`; the
  * program's root answers `open` with files on disk. A relative path is relative
  * to the directory the program was started in.
  */
 
 import { async } from "../effects/Async";
 import { Throw, Result } from "../lang/Throw";
-import { Reader, Writer, IoError } from "Io";
+import { Reader, Writer, Closer, IoError, using } from "Io";
 
 /** What a file is opened for. */
 type Mode {
@@ -31,11 +31,8 @@ type Mode {
     Append
 }
 
-/** An open file. */
-trait File: Reader, Writer {
-    /** Finishes with it. Nothing may be read or written afterwards. */
-    fn close(self): <async, Throw<IoError>> unit;
-}
+/** An open file, closed with `using`. */
+trait File: Reader, Writer, Closer {}
 
 /** Opening files. */
 effect Fs {
@@ -69,10 +66,7 @@ fn read_all(from: Reader): <async, Throw<IoError>> Array<byte> {
 
 /** The bytes of the file at the path. */
 fn read_file(path: string): <Fs, async, Throw<IoError>> Array<byte> {
-    var file = open_file(path, Mode.Read);
-    var data = read_all(file);
-    file.close();
-    return data;
+    return using(open_file(path, Mode.Read)) { file -> read_all(file) };
 }
 
 /** The file at the path, as text. Throws if it is not UTF-8. */
@@ -84,9 +78,7 @@ fn read_text(path: string): <Fs, async, Throw<IoError>> string {
 
 /** Replaces the file at the path with the bytes, creating it if need be. */
 fn write_file(path: string, data: Array<byte>): <Fs, async, Throw<IoError>> unit {
-    var file = open_file(path, Mode.Write);
-    file.write(data);
-    file.close();
+    using(open_file(path, Mode.Write)) { file -> file.write(data); };
 }
 
 /** Replaces the file at the path with the text, creating it if need be. */
@@ -123,12 +115,14 @@ impl Writer for DiskFile {
     }
 }
 
-impl File for DiskFile {
+impl Closer for DiskFile {
     fn close(self): <async, Throw<IoError>> unit {
         var (status, message) = suspend { it(__file_close(self.fd)) };
         if (status != 0) { throw(__failure(status, self.path, message)); }
     }
 }
+
+impl File for DiskFile {}
 
 /** How the root answers `open`: with a file on disk. */
 fn __open_on_disk(path: string, mode: Mode): Result<File, IoError> {

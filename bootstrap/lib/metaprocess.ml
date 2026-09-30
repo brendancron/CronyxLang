@@ -981,6 +981,7 @@ and tstmt h scope (s : Ast.stmt) : Ast.stmt list * S.t =
     let body = tblock h scope body in
     one (`Run (body, List.map (tclause h scope) handlers))
   | `Resume e -> one (`Resume (Option.map ex e))
+  | `Discontinue -> one `Discontinue
   | `Handler_decl (name, handler) -> one (`Handler_decl (name, thandler h scope handler))
   | `Impl_decl (trait, ty, params, impl) ->
     one
@@ -1103,6 +1104,7 @@ let rec contains_code (body : Ast.stmt list) =
     | `Match (subject, cases) -> expr subject; List.iter (fun (_, b) -> List.iter stmt b) cases
     | `Run (b, _) -> List.iter stmt b
     | `Resume e -> Option.iter expr e
+    | `Discontinue -> ()
     | `Impl_decl (_, _, _, impl) ->
       List.iter (fun (m : (Ast.stmt, unit) Ast.method_def) -> List.iter stmt m.Ast.md_body) impl.Ast.ib_methods
     | _ -> ()
