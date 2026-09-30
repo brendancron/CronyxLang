@@ -1,0 +1,51 @@
+type Board { cells: Array<int> }
+
+fn early(xs: Array<int>): int {
+    return get(xs, 0);
+}
+
+fn earlyOnBoard(b: Board): int {
+    return b.at(1);
+}
+
+fn isEven(n: int): bool {
+    if (n == 0) { return true; }
+    return isOdd(n - 1);
+}
+
+fn get(xs: Array<int>, i: int): int {
+    return xs[i];
+}
+
+impl Board {
+    fn at(self, i: int): int { return self.cells[i]; }
+}
+
+fn isOdd(n: int): bool {
+    if (n == 0) { return false; }
+    return isEven(n - 1);
+}
+
+fn onBoard(b: Board, i: int): int {
+    return b.at(i);
+}
+
+fn applyInt(f: (Array<int>, int) -> int, xs: Array<int>): int {
+    return f(xs, 2);
+}
+
+fn applyBoard(f: (Board, int) -> int, b: Board): int {
+    return f(b, 2);
+}
+
+fn applyBool(f: (int) -> bool, n: int): bool {
+    return f(n);
+}
+
+var b = Board { cells: [4, 5, 6] };
+print(early([1, 2, 3]));
+print(earlyOnBoard(b));
+print(isEven(4));
+print(applyInt(get, [1, 2, 3]));
+print(applyBoard(onBoard, b));
+print(applyBool(isOdd, 7));

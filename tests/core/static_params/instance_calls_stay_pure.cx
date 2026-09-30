@@ -1,0 +1,19 @@
+fn get(xs: Array<int>, i: int): int {
+    return xs[i];
+}
+
+fn viaStatic<k: int>(xs: Array<int>): int {
+    return get(xs, k);
+}
+
+fn viaPlain(xs: Array<int>): int {
+    return get(xs, 0);
+}
+
+fn apply(f: (Array<int>, int) -> int, xs: Array<int>): int {
+    return f(xs, 2);
+}
+
+print(viaStatic<1>([1, 2, 3]));
+print(viaPlain([1, 2, 3]));
+print(apply(get, [1, 2, 3]));

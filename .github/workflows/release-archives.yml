@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.read.outputs.matrix }}
+      none: ${{ steps.read.outputs.none }}
       skip: ${{ steps.tag.outputs.skip }}
       tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
@@ -61,15 +62,32 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref || steps.tag.outputs.tag }}
 
+      # An archive already on the release was cut by hand, and the tap may
+      # already name its checksum: builds are not reproducible, so replacing it
+      # breaks `brew install` until the tap is bumped again. To rebuild one,
+      # delete the asset first.
       - name: Hand the targets to the matrix
         id: read
         if: steps.tag.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          echo "matrix=$(jq -c '{include: [.[] | select(.ci != false)]}' targets.json)" >> "$GITHUB_OUTPUT"
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '[.assets[].name]' > present.json
+          targets=$(jq -c --arg tag "$TAG" --slurpfile present present.json '
+            [.[] | select(.ci != false)
+                 | select(("cronyx-" + $tag + "-" + .triple + "." + .format) as $name
+                          | $present[0] | index($name) | not)]' targets.json)
+          echo "Already on the release: $(jq -c . present.json)"
+          if [ "$targets" = "[]" ]; then
+            echo "Every CI target is already on the release; nothing to build."
+            echo "none=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "matrix=$(jq -c '{include: .}' <<<"$targets")" >> "$GITHUB_OUTPUT"
 
   archive:
     needs: targets
-    if: needs.targets.outputs.skip == 'false'
+    if: needs.targets.outputs.skip == 'false' && needs.targets.outputs.none != 'true'
     strategy:
       # One archive failing should not take the others down with it: an
       # architecture that built is still worth uploading.
@@ -172,7 +190,7 @@ jobs:
           TAG: ${{ needs.targets.outputs.tag }}
         run: |
           archive=$(cat archive-path)
-          gh release upload "$TAG" "$archive" "$archive.sha256" --clobber
+          gh release upload "$TAG" "$archive" "$archive.sha256"
 
   # The formula names a version per architecture, so the tap is worth bumping
   # for whichever archives landed — an architecture whose runner never came

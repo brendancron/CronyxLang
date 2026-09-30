@@ -1,0 +1,5 @@
+import { get } from "store";
+
+fn first(xs: Array<int>): int {
+    return get(xs, 0);
+}

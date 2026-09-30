@@ -1,0 +1,3 @@
+fn get(xs: Array<int>, i: int): int {
+    return xs[i];
+}
