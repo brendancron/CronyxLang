@@ -77,6 +77,11 @@ one helps, and the options with a recommendation — then say how many there are
 and ask whether to go through them. Take them one at a time, and remove each
 from the file once it is answered.
 
+**Intel macOS lagging a release is known.** `x86_64-apple-darwin` is
+`"ci": false` in `targets.json` and is cut by hand from an Intel Mac, so its
+archive and its formula entry trail the other platforms whenever that has not
+happened yet. That is expected: do not raise it as a question or a finding.
+
 `main` is protected: it takes no direct pushes, so a change that is *meant to
 land* lands through a pull request. Branch, push, open the PR, and let the
 `test` check run.

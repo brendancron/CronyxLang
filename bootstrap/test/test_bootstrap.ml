@@ -75,6 +75,7 @@ let cases =
   ; "tests/effects/rows/row_variable"
   ; "tests/effects/rows/map_over_effects"
   ; "tests/effects/rows/row_extension"
+  ; "tests/effects/rows/returned_closure"
   ; "tests/effects/log/log"
   ; "tests/effects/ask/ask"
   ; "tests/effects/multi_handle/multi_handle"

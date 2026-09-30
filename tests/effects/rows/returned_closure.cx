@@ -1,0 +1,36 @@
+effect log {
+    fn emit(msg: string): unit;
+}
+
+effect Pick {
+    ctl pick(): int;
+}
+
+fn counted<E>(f: () -> <E> int): () -> <E> int {
+    var calls = 0;
+    return () => {
+        calls = calls + 1;
+        return f() * 10 + calls;
+    };
+}
+
+var plain = counted(() => { return 1; });
+print(plain());
+print(plain());
+
+var logged = counted(() => { emit("inner"); return 2; });
+run {
+    print(logged());
+} handle log {
+    fn emit(msg) { print("log: " + msg); }
+}
+
+var printed = counted(() => { print("printing"); return 3; });
+print(printed());
+
+var picked = counted(() => { return pick(); });
+run {
+    print(picked());
+} handle Pick {
+    ctl pick() { resume 4; resume 5; }
+}
