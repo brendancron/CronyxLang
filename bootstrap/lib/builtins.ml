@@ -272,6 +272,9 @@ let values ~out =
   ; one "__stdin_read" (fun span n ->
       match n with
       | Value.Int count ->
+        (* A prompt printed before the read would otherwise stay buffered until
+           the program has its answer. *)
+        flush stdout;
         let buffer = Bytes.create (Int.max 1 count) in
         (match In_channel.input stdin buffer 0 (Bytes.length buffer) with
          | read -> Value.Tuple [ Value.Int 0; byte_array (Bytes.sub_string buffer 0 read); Value.Str [||] ]
