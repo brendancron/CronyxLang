@@ -114,8 +114,6 @@ fn lines(from: Reader): Iter<() -> <async, Throw<IoError>> Option<string>> {
 fn __text_of_line(bytes: List<byte>): <Throw<IoError>> string {
     var stop = bytes.len();
     if (stop > 0 && bytes[stop - 1] == "\r".bytes()[0]) { stop = stop - 1; }
-    // An empty slice of an empty array has nothing to fill it with.
-    if (stop == 0) { return ""; }
     var (ok, text) = __utf8(bytes.items[0:stop]);
     if (!ok) { throw(IoError.Other("a line is not UTF-8 text")); }
     return text;

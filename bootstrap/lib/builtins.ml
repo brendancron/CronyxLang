@@ -102,6 +102,14 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () ->
         let t = Types.fresh () in
         [ t; t ], Types.IBool )
+    (* A new array of the slots from the start up to the stop, which needs no
+       value to fill it with: `Array<T>(n, v)` does, and an empty array has
+       none to lend. *)
+  ; ( "__array_copy"
+    , ""
+    , fun () ->
+        let t = Types.fresh () in
+        [ Types.iarray t; Types.IInt; Types.IInt ], Types.iarray t )
   ]
 
 (* ---- values ---- *)
@@ -182,7 +190,14 @@ let values ~out =
       | [ a ] -> f span a
       | _ -> Value.fail span "Cannot apply %s to these arguments." name)
   in
-  [ one "__write_out" (fun span v ->
+  [ native "__array_copy" (Some 3) (fun span args ->
+      match args with
+      | [ Value.Array items; Value.Int start; Value.Int stop ] ->
+        if start < 0 || stop > Array.length items
+        then Value.fail span "__array_copy: %d to %d is outside an array of %d." start stop (Array.length items);
+        Value.Array (if stop <= start then [||] else Array.sub items start (stop - start))
+      | _ -> Value.fail span "__array_copy takes an array and two bounds.")
+  ; one "__write_out" (fun span v ->
       match v with
       | Value.Str text ->
         out (Utf8.encode text);

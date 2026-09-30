@@ -1,0 +1,38 @@
+import { Reader, IoError } from "std/io/Io";
+import { Throw } from "std/lang/Throw";
+import { async } from "std/effects/Async";
+
+type Given { data: Array<byte>, at: List<int> }
+
+impl Reader for Given {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        var start = self.at[0];
+        if (start >= self.data.len()) { return Option.None; }
+        var stop = start + max;
+        if (stop > self.data.len()) { stop = self.data.len(); }
+        self.at[0] = stop;
+        return Option.Some(self.data[start:stop]);
+    }
+}
+
+fn greet_all(): <Stdin, Console, async, Throw<IoError>> unit {
+    var more = true;
+    while (more) {
+        match read_line() {
+            Option.Some(name) => { print("hello, " + name); }
+            Option.None => { more = false; }
+        }
+    }
+}
+
+var given = Given { data: "ada\n\ncy".bytes(), at: [0] };
+
+run {
+    greet_all();
+} handle Stdin {
+    fn stdin() {
+        var input: Reader = given;
+        return input;
+    }
+}
+print("done");
