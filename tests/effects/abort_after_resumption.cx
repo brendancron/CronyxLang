@@ -1,7 +1,7 @@
 effect Error { final ctl throw(msg: string); }
 effect E { ctl op(): unit; }
 
-fn work(): <Error, E> unit {
+fn work(): <Error, E, Console> unit {
     print("w1");
     op();
     throw("boom");

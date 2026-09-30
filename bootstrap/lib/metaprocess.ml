@@ -349,6 +349,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
         `Type_members (stmt shadowed decl, List.map (stmt shadowed) members)
       | `Meta body -> `Meta (sequence shadowed body)
       | `Import decl -> `Import decl
+      | `Global_import decl -> `Global_import decl
       | `Var_decl (name, ty, init) ->
         `Var_decl (name, Option.map type_expr ty, Option.map expr init)
       | `Var_tuple (names, init) -> `Var_tuple (names, expr init)
@@ -947,6 +948,8 @@ and tstmt h scope (s : Ast.stmt) : Ast.stmt list * S.t =
     let c = ex c in
     one (`While (c, st body))
   | `Return e -> one (`Return (Option.map ex e))
+  | `Break -> one `Break
+  | `Continue -> one `Continue
   | `Expr e -> one (`Expr (ex e))
   | `Defer inner -> one (`Defer (st inner))
   | `For (init, cond, step, body) ->
@@ -996,7 +999,7 @@ and tstmt h scope (s : Ast.stmt) : Ast.stmt list * S.t =
     (match tstmt h scope inner with
      | [ one ], scope -> [ { s with Ast.it = `Attributed (attrs, one) } ], scope
      | many, scope -> many, scope)
-  | `Effect_decl _ | `Type_decl _ | `Trait_decl _ | `Import _ | `Type_members _ -> [ s ], scope
+  | `Effect_decl _ | `Type_decl _ | `Trait_decl _ | `Import _ | `Global_import _ | `Type_members _ -> [ s ], scope
 
 (* ---- what a declaration needs ---- *)
 
@@ -1166,12 +1169,12 @@ type world =
        name has to be walked to find out which. *)
     meta_methods : (string, unit) Hashtbl.t
   ; (* A type taking a value, or whose body runs a meta block: made once per
-       argument list when first built, like a function template. *)
-    type_templates : (string, type_template) Hashtbl.t
+       argument list when first built, like a comptime function. *)
+    comptime_types : (string, comptime_type) Hashtbl.t
   ; type_copies : (string, unit) Hashtbl.t
   }
 
-and type_template =
+and comptime_type =
   { tt_name : string
   ; tt_params : Ast.type_param list
   ; tt_decl : Ast.stmt
@@ -1243,19 +1246,20 @@ let rec with_body (s : Ast.stmt) body =
   | `Attributed (attrs, inner) -> { s with Ast.it = `Attributed (attrs, with_body inner body) }
   | _ -> s
 
-let is_template (e : entry) =
+let takes_static_params (e : entry) =
   let _, _, sg, _ = parts e in
   sg.Ast.static_params <> []
 
-let takes_value_params (sg : Ast.signature) =
-  List.exists (fun (p : Ast.static_param) -> Option.is_some p.Ast.sp_ty) sg.Ast.static_params
-
-let is_value w (p : Ast.static_param) =
+(* `<T: Show>` and `<n: int>` are one syntax: only whether the annotation's head
+   names a trait says a bound from a value. *)
+let value_param traits (p : Ast.static_param) =
   match p.Ast.sp_ty with
   | None -> false
   | Some { Ast.it = Ast.Ty_name name; _ } | Some { Ast.it = Ast.Ty_app (name, _); _ } ->
-    not (Hashtbl.mem w.traits name)
+    not (Hashtbl.mem traits name)
   | Some _ -> true
+
+let is_value w = value_param w.traits
 
 let param_names params = List.map (fun (p : Ast.param) -> p.Ast.name) params
 
@@ -1265,11 +1269,11 @@ let entry_scope (e : entry) =
     (List.fold_left (fun acc (p : Ast.static_param) -> S.add p.Ast.sp_name acc) S.empty sg.Ast.static_params)
     params
 
-(* A value decides a copy's body, so the walk makes every copy of a template
-   taking one; a template taking only types is checked once, generically,
-   unless a meta block in it reads one. *)
+(* A value decides an instance's body, so a function taking one is comptime and
+   the walk makes every instance of it; one taking only types is checked once,
+   generically, unless a meta block in it reads one. *)
 let rec instantiated w (e : entry) =
-  is_template e
+  takes_static_params e
   && (List.exists (is_value w) (let _, _, sg, _ = parts e in sg.Ast.static_params) || not (plain w e))
 
 and plain w (e : entry) =
@@ -1907,7 +1911,7 @@ and static_call w ~deps ~meta_scope (e : Ast.expr) =
   | `Static_call (({ Ast.it = `Var name; _ } as callee), static_args, args) ->
     wake w name;
     (match Hashtbl.find_opt w.entries name with
-     | Some t when is_template t ->
+     | Some t when takes_static_params t ->
        if not (instantiated w t)
        then (
          deps := S.add name !deps;
@@ -1941,7 +1945,7 @@ and static_call w ~deps ~meta_scope (e : Ast.expr) =
      | _ -> e)
   | _ -> e
 
-(* A template called without `<…>` has its type arguments read off what the
+(* A function with static parameters called without `<…>` has its type arguments read off what the
    walk can see of the arguments passed for them; a value argument, or a type
    it cannot see, has to be written. *)
 and implicit_call w ~deps env (e : Ast.expr) =
@@ -2186,11 +2190,11 @@ and generic_new w (e : Ast.expr) =
   match e.Ast.it with
   | `New_generic (name, static_args, fields) ->
     wake w name;
-    (match Hashtbl.find_opt w.type_templates name with
+    (match Hashtbl.find_opt w.comptime_types name with
      | Some tt -> { e with Ast.it = `New (instantiate_type w tt static_args e.Ast.span, fields) }
      | None -> e)
   | `New (name, _) ->
-    (match Hashtbl.find_opt w.type_templates name with
+    (match Hashtbl.find_opt w.comptime_types name with
      | Some tt ->
        fail
          e.Ast.span
@@ -2229,7 +2233,7 @@ and with_values values body =
 (* A copy is named by what it was made from, `Buf<4>`, which is how a
    diagnostic or `typeof` shows it. Its meta blocks run as it is made, with its
    value arguments bound; its functions become its methods. *)
-and instantiate_type w (tt : type_template) static_args span =
+and instantiate_type w (tt : comptime_type) static_args span =
   let params = tt.tt_params in
   if List.length params <> List.length static_args
   then
@@ -2396,7 +2400,7 @@ and meta_program w deps =
           !refs;
         out := with_body e.walked body :: !out)
   in
-  S.iter add deps;
+  S.iter add (Hashtbl.fold (fun name _ acc -> if Ast.is_root name then S.add name acc else acc) w.entries deps);
   let standing =
     List.filter_map
       (fun st ->
@@ -2444,6 +2448,13 @@ let rec trait_declared (s : Ast.stmt) =
   | `Trait_decl (name, _, _) -> Some name
   | `Attributed (_, inner) -> trait_declared inner
   | _ -> None
+
+let declared_traits (p : Ast.program) =
+  let found = Hashtbl.create 16 in
+  List.iter
+    (fun s -> Option.iter (fun name -> Hashtbl.replace found name ()) (trait_declared s))
+    p;
+  found
 
 let rec is_standing (s : Ast.stmt) =
   match s.Ast.it with
@@ -2637,8 +2648,8 @@ let types_of w (p : Ast.program) =
       }
     | None -> fail f.Ast.span "A type holds functions and meta blocks after its fields."
   in
-  let template name params decl members =
-    Hashtbl.replace w.type_templates name { tt_name = name; tt_params = params; tt_decl = decl; tt_members = members };
+  let comptime_type name params decl members =
+    Hashtbl.replace w.comptime_types name { tt_name = name; tt_params = params; tt_decl = decl; tt_members = members };
     Hashtbl.replace w.type_names name ();
     Hashtbl.replace w.known name ()
   in
@@ -2657,7 +2668,7 @@ let types_of w (p : Ast.program) =
       | `Type_members (({ Ast.it = `Type_decl (name, params, _); _ } as decl), members) ->
         if takes_value params || List.exists runs_meta members
         then (
-          template name params decl members;
+          comptime_type name params decl members;
           [])
         else
           [ decl
@@ -2667,19 +2678,21 @@ let types_of w (p : Ast.program) =
                 (None, name, params, { Ast.ib_assoc = []; ib_methods = List.map method_of members }))
           ]
       | `Type_decl (name, params, _) when takes_value params ->
-        template name params s [];
+        comptime_type name params s [];
         []
       | _ -> [ s ])
     p
 
-(* A template declared in a body is instantiated like one at the top level, so
-   it is lifted there under its owner's name. It may read only what it is
-   passed: a copy of it lives where the walk puts it, away from the body.
+(* A comptime function declared in a body is instantiated like one at the top
+   level, so it is lifted there under its owner's name. It may read only what
+   it is passed: an instance of it lives where the walk puts it, away from the
+   body.
 
    A type declared in a body is renamed after its owner too, and left where it
    is: once checked, a type is looked up by name, so two functions each
    declaring a `Temp` have to declare two names. *)
-let lift_templates (p : Ast.program) =
+let lift_comptime (p : Ast.program) =
+  let traits = declared_traits p in
   let lifted = ref [] in
   let rec declared_type (s : Ast.stmt) =
     match s.Ast.it with
@@ -2692,7 +2705,7 @@ let lift_templates (p : Ast.program) =
     List.iter
       (fun (s : Ast.stmt) ->
         match fn_parts s, declared_type s with
-        | Some (name, _, sg, _), _ when takes_value_params sg ->
+        | Some (name, _, sg, _), _ when List.exists (value_param traits) sg.Ast.static_params ->
           Hashtbl.replace renames name (Value.Name (Ast.generated [ owner; name ]))
         | _, Some name -> Hashtbl.replace renames name (Value.Name (Ast.generated [ owner; name ]))
         | _ -> ())
@@ -2787,18 +2800,19 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
     ; units = Hashtbl.create 8
     ; type_names = Hashtbl.create 32
     ; meta_methods = Hashtbl.create 8
-    ; type_templates = Hashtbl.create 8
+    ; comptime_types = Hashtbl.create 8
     ; type_copies = Hashtbl.create 8
     }
   in
   try
     Hashtbl.iter (fun name _ -> Hashtbl.replace w.known name ()) (Builtins.env ~out:ignore).Value.vars;
-    let p = lift_templates (types_of w (Prelude.program () @ p)) in
+    let p = lift_comptime (types_of w (Prelude.program () @ p)) in
     List.iter (collect w) p;
     w.standing <- List.filter_map (fun s -> if is_standing s then Some (standing_of w s) else None) p;
     List.iter (fun st -> if st.is_plain then walk_standing w st) w.standing;
     let roots = w.roots in
-    List.iter (fun name -> ignore (reach w ~deps:roots name)) Resolve.synthesized;
+    let root = Hashtbl.fold (fun name _ acc -> if Ast.is_root name then name :: acc else acc) w.entries [] in
+    List.iter (fun name -> ignore (reach w ~deps:roots name)) (root @ Resolve.synthesized);
     let root_hooks =
       let base = runtime_hooks w ~deps:roots ~current:None ~statics:[] ~env:(Hashtbl.create 16) in
       { base with
@@ -2881,7 +2895,7 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
       | Some _ when Hashtbl.mem emitted name -> []
       | Some e ->
         Hashtbl.add emitted name ();
-        if is_template e
+        if takes_static_params e
         then if instantiated w e then [] else [ e.written ]
         else if e.gens || performs_gen w name
         then []

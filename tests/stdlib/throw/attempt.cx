@@ -1,0 +1,35 @@
+import { Throw, Result, attempt } from "std/lang/Throw";
+
+fn half(n: int): int {
+    if (n % 2 != 0) { throw("odd: " + str(n)); }
+    return n / 2;
+}
+
+fn quiet(n: int): int {
+    return n * 10;
+}
+
+for (n in [4, 3]) {
+    var outcome = attempt { half(n) };
+    match outcome {
+        Result.Ok(v) => { print("half is " + str(v)); }
+        Result.Err(msg) => { print("failed: " + msg); }
+    }
+}
+
+var fine = attempt { quiet(2) };
+match fine {
+    Result.Ok(v) => { print("still " + str(v)); }
+    Result.Err(_) => { print("unreachable"); }
+}
+
+fn not_found(): int {
+    throw(404);
+    return 0;
+}
+
+var codes = attempt { not_found() };
+match codes {
+    Result.Ok(_) => { print("unreachable"); }
+    Result.Err(status) => { print("status " + str(status)); }
+}

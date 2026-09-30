@@ -366,18 +366,44 @@ let file_roots ?(mode = unrestricted) ?note path =
       in
       Ok (Workspace.roots ~located manifest)
 
-(* Each package embeds whatever of the standard library it imported, since the
-   library is not itself compiled to an artifact yet. Two of them embedding the
-   same module declare it twice, so the link keeps the first of each name. *)
-let link (artifacts : Artifact.t list) =
+(* Each package embeds whatever of the standard library it imported, and the
+   prelude, since the library is not itself compiled to an artifact yet. Two of
+   them embedding the same module declare it twice, so the link keeps the first
+   of each name -- and of each impl written in one file, which has no name. An
+   impl keyed by file as well as by what it implements is still a conflict
+   when two packages write it. *)
+let deduplicated (program : Ast.program) =
   let seen = Hashtbl.create 256 in
-  List.concat_map (fun (a : Artifact.t) -> a.Artifact.program) artifacts
-  |> List.filter (fun (s : Ast.stmt) ->
-    match Loader.declared_name s with
-    | None -> true
-    | Some name ->
-      if Hashtbl.mem seen name
-      then false
-      else (
-        Hashtbl.replace seen name ();
-        true))
+  let rec impl_key (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Impl_decl (trait, type_name, _, _) ->
+      Some
+        (String.concat
+           " "
+           [ "impl"
+           ; Option.fold ~none:"" ~some:fst trait
+           ; type_name
+           ; Source_map.Span.path s.Ast.span
+           ])
+    | `Attributed (_, inner) -> impl_key inner
+    | _ -> None
+  in
+  let first key =
+    if Hashtbl.mem seen key
+    then false
+    else (
+      Hashtbl.replace seen key ();
+      true)
+  in
+  List.filter
+    (fun (s : Ast.stmt) ->
+      match Loader.declared_name s with
+      | Some name -> first name
+      | None ->
+        (match impl_key s with
+         | Some key -> first key
+         | None -> true))
+    program
+
+let link (artifacts : Artifact.t list) =
+  deduplicated (List.concat_map (fun (a : Artifact.t) -> a.Artifact.program) artifacts)

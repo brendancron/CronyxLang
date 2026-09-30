@@ -3,7 +3,7 @@
 var send = print;
 send("passed as a value");
 
-fn twice(f: (string) -> unit, msg: string) { f(msg); f(msg); }
+fn twice(f: (string) -> <Console> unit, msg: string) { f(msg); f(msg); }
 twice(print, "twice");
 
 fn shadowed(): int {

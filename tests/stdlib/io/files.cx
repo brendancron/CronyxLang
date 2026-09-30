@@ -1,0 +1,16 @@
+import { Mode, File, Fs, open_file, read_all, read_file, read_text, write_file, write_text } from "std/io/Fs";
+import { IoError, Reader, Writer } from "std/io/Io";
+import { Throw, Result, attempt } from "std/lang/Throw";
+
+write_text("fs_files_notes.txt", "first line\n");
+var log = open_file("fs_files_notes.txt", Mode.Append);
+log.write("second line\n".bytes());
+log.close();
+print(read_text("fs_files_notes.txt"));
+print(read_file("fs_files_notes.txt").len());
+
+var missing = attempt { read_text("no-such-file.txt") };
+match missing {
+    Result.Ok(text) => { print("unexpected: " + text); }
+    Result.Err(e) => { print("caught " + str(e)); }
+}

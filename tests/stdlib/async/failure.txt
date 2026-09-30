@@ -1,0 +1,6 @@
+log: A start
+log: B start
+log: C start
+log: B fails
+scope failed: boom
+carrying on

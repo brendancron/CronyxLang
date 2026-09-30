@@ -2,7 +2,7 @@
 
 A `<>` list declares parameters known at compile time. Monomorphization emits one copy of the function per distinct set of arguments, with those arguments baked in — so a static parameter costs nothing at runtime.
 
-Two passes make the copies. A function taking a static *value*, or one whose body runs a `meta` block, is instantiated by the metaprocessing walk when a call to it is reached, before anything is checked, because a value can decide what the body is. A function taking only types, and running no `meta`, is checked once generically and copied by `Type_mono` afterwards, because inference is what says which types it is used at. See [Metaprocessing](Metaprocessing.md#templates).
+Two passes make the copies. A function taking a static *value*, or one whose body runs a `meta` block, is instantiated by the metaprocessing walk when a call to it is reached, before anything is checked, because a value can decide what the body is. A function taking only types, and running no `meta`, is checked once generically and copied by `Type_mono` afterwards, because inference is what says which types it is used at. See [Metaprocessing](Metaprocessing.md#comptime-functions).
 
 Other languages call this generics, but here the arguments are values, and a type is only the most common kind of value.
 
@@ -128,9 +128,9 @@ The diagnostic says *why* an expression is not static, not merely that it is not
 
 Inside a `meta` block the question is asked from the other side. A static parameter is an ordinary value there, so `fib<n - 1>()` written in the block and not in a `gen` is *'fib' cannot be instantiated from inside a meta block: 'n' is a value there. Write the call inside a gen.* — see [Meta Scope and Instantiation](Meta%20Scope%20and%20Instantiation.md).
 
-A **type** argument to a function the walk instantiates is written, or visible from what the walk can see — `X { … }`, an annotation, a literal, a declared return type. Inference has not run when the walk reaches the call, so `printSpeak<Cat>(cat)` is how a template whose `meta` reads its type parameter is called (`meta/05_order/07_type_mono`). A type-only template the walk leaves alone keeps full inference.
+A **type** argument to a function the walk instantiates is written, or visible from what the walk can see — `X { … }`, an annotation, a literal, a declared return type. Inference has not run when the walk reaches the call, so `printSpeak<Cat>(cat)` is how a comptime function whose `meta` reads its type parameter is called (`meta/05_order/07_type_mono`). A type-only generic the walk leaves alone keeps full inference.
 
-## Templates in a body
+## Comptime functions in a body
 
 A function with value parameters declared inside another function is instantiated like one at the top level, so it is lifted there under its owner's name. It may read only what it is passed: a copy of it lives wherever the walk puts it, away from the body that declared it.
 
@@ -174,10 +174,10 @@ type TypeShape {
 }
 
 type TypeField   { name: Name, attrs: Array<Attr> }
-type TypeVariant { name: Name, arity: int, attrs: Array<Attr> }
+type TypeVariant { name: Name, arity: int, payload: Array<Name>, attrs: Array<Attr> }
 ```
 
-A product and a sum carry a `Name` because a declaration is where a name that can be spliced exists; the other shapes have none. Nothing constructs a type programmatically, so nothing reified could name a type that does not exist. A field reporting its own type waits on a lazy handle for one.
+A product and a sum carry a `Name` because a declaration is where a name that can be spliced exists; the other shapes have none. Nothing constructs a type programmatically, so nothing reified could name a type that does not exist. A field reporting its own type waits on a lazy handle for one. A variant's `payload` names the types it carries only when each is a plain named type, because a `Name` is an identifier and `List<int>` is not one; it is empty otherwise, and a deriver checks it against `arity`.
 
 ## Settled
 

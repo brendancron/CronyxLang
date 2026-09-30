@@ -16,7 +16,9 @@ let at it = Ast.at sp it
 let str text : Ast.expr = at (`Str (Utf8.decode text))
 let call name args : Ast.expr = at (`Call (at (`Var name), args))
 let stmt it : Ast.stmt = Ast.at sp it
-let say e = stmt (`Expr (call "print" [ e ]))
+(* The native, not `print`: the harness is built after loading, where nothing
+   resolves the name the prelude imports. Each line it writes is a string. *)
+let say e = stmt (`Expr (call "__write_out" [ at (`Binop (Ast.Add, e, str "\n")) ]))
 let emit text = say (str (marker ^ text))
 
 let wrapped index (name, _, _) : Ast.stmt =
@@ -236,7 +238,8 @@ let of_file ~root ~manifest ~package program file =
     { Loader.package = Filename.concat root "tests"; std = Toolchain.stdlib (); deps }
   in
   let* loaded, _ = Pipeline.package ~roots ~seeds:[ file ] file in
-  Ok (declarations program @ loaded, loaded)
+  (* Both carry the prelude and what it imports, as two linked packages do. *)
+  Ok (Build.deduplicated (declarations program @ loaded), loaded)
 
 (* A test is found on the program the walk produced, so one a meta block
    generated is found under the name it was given. [own] says which of them

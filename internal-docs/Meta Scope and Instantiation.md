@@ -167,9 +167,9 @@ exponential compile time for a function that is linear at runtime.
 The table is the walk's: `copies` in `Metaprocess`, keyed by the name and the
 static arguments, handing back a mangled instance and consulted before making
 another. It is one table for the whole program, so two modules asking for
-`util.f<1>` get one copy (`meta/06_modules/template_two_importers`). An
+`util.f<1>` get one copy (`meta/06_modules/comptime_two_importers`). An
 instantiation is entered in it before its body is walked, which is what makes
-mutual recursion between templates terminate (`meta/05_order/20_template_mutual`).
+mutual recursion between comptime functions terminate (`meta/05_order/20_comptime_mutual`).
 
 ## Bound, not substituted
 
@@ -199,7 +199,7 @@ body — running its meta blocks with the arguments bound, and reaching whatever
 their output calls — and rewrites the call to the copy. `meta` in a function
 body is simply part of that body's walk.
 
-A template taking only types, whose body runs no meta block, is left to
+A function taking only types, whose body runs no meta block, is left to
 `Type_mono` after checking, since inference is what says which types it is used
 at. One whose body runs a meta block is made by the walk too, since the block
 may read the type, and so needs that argument written — or visible from what

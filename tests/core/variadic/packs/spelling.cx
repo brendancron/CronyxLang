@@ -1,6 +1,6 @@
 type Slot<...Args> {
     tag: string,
-    use: (...Args) -> unit
+    use: (...Args) -> <Console> unit
 }
 
 fn any_arity<...Args>(s: Slot<...Args>): string {

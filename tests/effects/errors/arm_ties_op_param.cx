@@ -1,0 +1,16 @@
+effect Ask {
+    fn ask<T>(fallback: T): T;
+}
+
+fn answering<A>(given: A, work: () -> <Ask> A): A {
+    var kept = given;
+    run {
+        kept = work();
+    } handle Ask {
+        fn ask(fallback) {
+            kept = fallback;
+            return fallback;
+        }
+    }
+    return kept;
+}

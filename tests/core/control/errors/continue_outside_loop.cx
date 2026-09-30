@@ -1,0 +1,10 @@
+fn f() { continue; }
+
+while (true) {
+    var skip = () => { continue; };
+    break;
+}
+
+for (x in [1]) {
+    defer { continue; }
+}

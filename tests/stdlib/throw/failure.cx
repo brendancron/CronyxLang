@@ -1,0 +1,32 @@
+import { Throw, Failure, fail } from "std/lang/Throw";
+
+type IoError { NotFound(string) }
+
+impl Failure for IoError {
+    fn message(self): string {
+        match self { IoError.NotFound(p) => { return "no such file: " + p; } }
+    }
+}
+
+type ParseError { BadLine(int) }
+
+impl Failure for ParseError {
+    fn message(self): string {
+        match self { ParseError.BadLine(n) => { return "bad line " + str(n); } }
+    }
+}
+
+fn step(n: int): int {
+    if (n == 1) { return fail(IoError.NotFound("a.toml")); }
+    if (n == 2) { return fail(ParseError.BadLine(3)); }
+    if (n == 3) { fail("just a message"); }
+    return n;
+}
+
+for (n in [1, 2, 3, 4]) {
+    run {
+        print(step(n));
+    } handle Throw {
+        final ctl throw(e) { print("failed: " + e.message()); }
+    }
+}

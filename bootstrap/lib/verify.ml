@@ -13,13 +13,18 @@ let fail span fmt =
 
 let expect span what expected actual =
   if expected <> actual
-  then
-    fail
-      span
-      "%s should be %s but is annotated %s."
-      what
-      (Types.string_of_ty expected)
-      (Types.string_of_ty actual)
+  then (
+    let expected' = Types.string_of_ty expected
+    and actual' = Types.string_of_ty actual in
+    if String.equal expected' actual'
+    then
+      fail
+        span
+        "%s should be %s but is annotated a type that prints the same and differs in \
+         what printing leaves out, such as which variable a row is open in."
+        what
+        expected'
+    else fail span "%s should be %s but is annotated %s." what expected' actual')
 
 let listed names =
   match names with
@@ -269,6 +274,7 @@ and stmt (s : Ast.cps_stmt) : unit =
   | `Fn (_, _, _, body) -> List.iter stmt body
   | `Cont (_, _, body) | `Frame (_, _, body) -> List.iter stmt body
   | `Return e -> Option.iter expr e
+  | `Break | `Continue -> ()
   | `Match (scrutinee, cases) ->
     expr scrutinee;
     List.iter (fun (_, body) -> List.iter stmt body) cases

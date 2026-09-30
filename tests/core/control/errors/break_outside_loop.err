@@ -1,0 +1,3 @@
+[4:25] 'break' leaves a loop, and none encloses it here: a function, a lambda, a 'run' block or a 'defer' stands between.
+[9:11] 'break' leaves a loop, and none encloses it here: a function, a lambda, a 'run' block or a 'defer' stands between.
+[1:10] 'break' leaves a loop, and none encloses it here: a function, a lambda, a 'run' block or a 'defer' stands between.

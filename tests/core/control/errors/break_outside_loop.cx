@@ -1,0 +1,12 @@
+fn f() { break; }
+
+while (true) {
+    var leave = () => { break; };
+    break;
+}
+
+for (x in [1]) {
+    run { break; } handle Never { fn never() {} }
+}
+
+effect Never { fn never(): unit; }

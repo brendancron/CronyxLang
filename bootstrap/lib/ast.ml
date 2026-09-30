@@ -382,7 +382,8 @@ type import =
   | Selective of string list * string
   | Wildcard of string
 
-type imports = [ `Import of import ]
+(* A `global import` is one every file of its package has written. *)
+type imports = [ `Import of import | `Global_import of import ]
 
 (* A type declared with members after its fields: the `Type_decl`, then its
    functions and meta blocks. Metaprocessing takes it apart. *)
@@ -430,6 +431,10 @@ type ('e, 's) stmts =
   | `While of 'e * 's
   | `Fn of string * param list * signature * 's list
   | `Return of 'e option
+  (* Leaves the innermost loop. *)
+  | `Break
+  (* Skips to the innermost loop's next iteration. *)
+  | `Continue
   (* However the block is left, and after anything deferred later. *)
   | `Defer of 's
   ]
@@ -732,6 +737,14 @@ let generated parts =
   | [] | [ _ ] -> invalid_arg "Ast.generated: a generated name needs two parts"
   | parts -> String.concat "#" parts
 
+(* The function each top-level statement runs under, found by the name it was
+   written with: the prelude imports it from a module, so it carries that
+   module's name. *)
+let root_function = "__root"
+
+let is_root name =
+  String.equal name root_function || String.ends_with ~suffix:("#" ^ root_function) name
+
 (* By trait rather than by the name written, so every deriver may be called
    `derive`. *)
 let deriver_name trait = generated [ "derive"; trait ]
@@ -922,6 +935,8 @@ let map_stmts (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (s : ('e1, 's1) stmts)
   | `Fn (name, params, signature, body) ->
     `Fn (name, params, signature, List.map fs body)
   | `Return e -> `Return (Option.map fe e)
+  | `Break -> `Break
+  | `Continue -> `Continue
   | `Defer s -> `Defer (fs s)
 
 let map_loops (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (s : ('e1, 's1) loops)

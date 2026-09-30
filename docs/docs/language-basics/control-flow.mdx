@@ -128,6 +128,48 @@ print(sum);
 
 `while` and `for` can express the same loops. Use `for` when the rhythm fits cleanly into "init / check / step"; use `while` for everything else.
 
+## Leaving a loop early
+
+`break` ends the innermost loop at once, whichever kind it is:
+
+```cronyx
+var names = ["ada", "bo", "stop", "cy"];
+for (name in names) {
+    if (name == "stop") {
+        break;
+    }
+    print(name);
+}
+print("done");
+```
+
+```
+ada
+bo
+done
+```
+
+Only the innermost loop ends: a `break` inside a nested loop leaves that one, and the loop around it carries on. Any `defer` inside the loop still runs on the way out. A `break` can't reach through a function or a lambda to a loop outside it — the compiler says so — because code that ends a loop somewhere else is code you can't follow by reading the loop.
+
+`continue` skips the rest of this pass through the loop and goes on to the next:
+
+```cronyx
+for (var i = 1; i <= 5; i += 1) {
+    if (i % 2 == 0) {
+        continue;
+    }
+    print(i);
+}
+```
+
+```
+1
+3
+5
+```
+
+In a counting `for`, the step (`i += 1` here) still runs before the next pass, so `continue` never repeats an iteration. The same rules as `break` apply: innermost loop only, `defer`s run, and no reaching through a function or lambda.
+
 ## Try it
 
 Write a function `factorial(n: int): int` that returns `n!` — the product `1 * 2 * ... * n`. Use a `for` loop. Calling `factorial(5)` should print `120`, and `factorial(0)` should print `1`.

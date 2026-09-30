@@ -4,7 +4,7 @@ effect async {
 
 var ready: List<() -> unit> = [];
 
-fn main(): <async> unit {
+fn main(): <async, Console> unit {
     var n = suspend((wake) => { ready.push { wake(1); }; });
     print("got " + str(n));
     var word = suspend((wake) => { ready.push { wake("hi"); }; });
@@ -14,5 +14,5 @@ fn main(): <async> unit {
 run {
     main();
 } handle async {
-    ctl suspend(register) { register((value) => { print(str(value + 0)); resume value; }); }
+    ctl suspend(register) { register((value) => { var n = value + 0; resume value; }); }
 }

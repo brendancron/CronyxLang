@@ -245,7 +245,7 @@ Three steps, in this order.
    `If<A>`'s `A` — it is the fresh one that is bound, to `T`. Bound the other way,
    the arm's types mention a generic nothing outside it names, and a copy
    `Type_mono` makes of the function at `int` still has one: a self-call such as
-   `choose(eval(t), …)` then names a template that was never emitted
+   `choose(eval(t), …)` then names an instance that was never emitted
    (`tests/types/gadt/self_call_in_generic_args`).
 
    Both leaks are closed. `tests/types/gadt/errors/leaked_constraint` and

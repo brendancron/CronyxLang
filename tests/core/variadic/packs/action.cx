@@ -1,6 +1,6 @@
 type Move<...Args> {
     name: string,
-    apply: (...Args) -> unit
+    apply: (...Args) -> <Console> unit
 }
 
 type MoveAction<...Args> {

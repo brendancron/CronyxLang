@@ -45,9 +45,9 @@ let exit_code = function
   | Cps | Verify | Runtime -> 70
 
 (* A name holding `#` was made by the compiler -- a module or package prefix,
-   the function a local type belongs to, a template's copy -- and the scanner
-   produces none, so every one in a message is shown as it was written. A
-   copy's number is dropped with its prefix, or `fib#0` would read as `0`. *)
+   the function a local type belongs to, an instance -- and the scanner
+   produces none, so every one in a message is shown as it was written. An
+   instance's number is dropped with its prefix, or `fib#0` would read as `0`. *)
 let as_written message =
   let is_name c =
     match c with

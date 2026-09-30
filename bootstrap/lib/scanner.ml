@@ -66,6 +66,8 @@ let keyword = function
   | "match" -> Some Token.Match
   | "resume" -> Some Token.Resume
   | "return" -> Some Token.Return
+  | "break" -> Some Token.Break
+  | "continue" -> Some Token.Continue
   | "run" -> Some Token.Run
   | "trait" -> Some Token.Trait
   | "true" -> Some Token.True

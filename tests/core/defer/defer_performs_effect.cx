@@ -1,6 +1,6 @@
 effect Ask { ctl get(): int; }
 
-fn use(): <Ask> unit {
+fn use(): <Ask, Console> unit {
     defer print(get());
     print("body");
 }

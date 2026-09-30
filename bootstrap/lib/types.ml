@@ -432,6 +432,11 @@ let rec subst_generic ?(rows = []) mapping (t : ty) : ty =
   | Named (name, args) -> Named (name, List.map (subst_generic mapping) args)
   | Sum (name, args) -> Sum (name, List.map (subst_generic mapping) args)
   | Fn (params, ret, row) ->
+    let row =
+      { row with
+        labels = List.map (fun (l, args) -> l, List.map (subst_generic mapping) args) row.labels
+      }
+    in
     Fn
       ( expand_ty (List.map (subst_generic mapping) params)
       , subst_generic mapping ret
@@ -457,7 +462,16 @@ and match_generic (general : ty) (concrete : ty) acc =
     List.fold_left2 (fun acc x y -> match_generic x y acc) acc ga gb
   | Sum (_, a), Sum (_, b) when List.length a = List.length b ->
     List.fold_left2 (fun acc a b -> match_generic a b acc) acc a b
-  | Fn (pa, ra, _), Fn (pb, rb, _) -> match_generic ra rb (match_generic_list pa pb acc)
+  | Fn (pa, ra, rowa), Fn (pb, rb, rowb) ->
+    let acc = match_generic ra rb (match_generic_list pa pb acc) in
+    List.fold_left
+      (fun acc (label, args) ->
+        match List.assoc_opt label rowb.labels with
+        | Some concrete when List.length concrete = List.length args ->
+          match_generic_list args concrete acc
+        | _ -> acc)
+      acc
+      rowa.labels
   | _ -> acc
 
 (* A spread is what the copy settles, so it takes however many the concrete
@@ -469,7 +483,7 @@ and match_generic_list (general : ty list) (concrete : ty list) acc =
   | a :: general, b :: concrete -> match_generic_list general concrete (match_generic a b acc)
   | _ -> acc
 
-(* What the template left open, read off an instantiation of it. Any difference
+(* What the generic left open, read off an instance of it. Any difference
    between the two rows must come from a variable: a row the definition closed
    is one unification would already have rejected at the call site. *)
 let rec match_rows (general : ty) (concrete : ty) acc =
@@ -489,29 +503,25 @@ let rec match_rows (general : ty) (concrete : ty) acc =
      | _ -> acc)
   | _ -> acc
 
-(* Set once [named_fields] exists, below [resolve]. *)
-let named_fields_hook : (string -> ty list -> fields) ref = ref (fun _ _ -> [])
-
 (* Evidence arity follows the row a definition declares, so a copy per row is
    owed only when a parameter is what brings that row in. A function merely
-   left open — which is most of them — needs none. *)
-let row_polymorphic (t : ty) =
+   left open — which is most of them — needs none. Nor does one whose row is an
+   enclosing function's ([inherited]): copying that function settles it. *)
+let row_polymorphic ?(inherited = []) (t : ty) =
   match t with
-  | Fn (params, _, { tail = Some id; _ }) ->
-    (* [seen] because a record's fields may name the record. *)
-    let rec mentions seen t =
+  | Fn (params, _, { tail = Some id; _ }) when not (List.mem id inherited) ->
+    (* A named type's arguments, not its fields: `List` holds its functions in an
+       `Array`, which has no fields to look through. *)
+    let rec mentions t =
       match t with
-      | Fn (ps, ret, row) ->
-        row.tail = Some id || List.exists (mentions seen) ps || mentions seen ret
-      | Tuple items | Pack items -> List.exists (mentions seen) items
-      | Spread inner -> mentions seen inner
-      | Record fields -> List.exists (fun (_, t) -> mentions seen t) fields
-      | Named (name, args) when not (List.mem name seen) ->
-        List.exists (fun (_, t) -> mentions (name :: seen) t) (!named_fields_hook name args)
-      | Sum (_, args) -> List.exists (mentions seen) args
+      | Fn (ps, ret, row) -> row.tail = Some id || List.exists mentions ps || mentions ret
+      | Tuple items | Pack items | Named (_, items) | Sum (_, items) ->
+        List.exists mentions items
+      | Spread inner -> mentions inner
+      | Record fields -> List.exists (fun (_, t) -> mentions t) fields
       | _ -> false
     in
-    List.exists (mentions []) params
+    List.exists mentions params
   | _ -> false
 
 let rec has_generic (t : ty) =
@@ -522,8 +532,30 @@ let rec has_generic (t : ty) =
   | Record fields -> List.exists (fun (_, t) -> has_generic t) fields
   | Named (_, args) -> List.exists has_generic args
   | Sum (_, args) -> List.exists has_generic args
-  | Fn (params, ret, _) -> List.exists has_generic params || has_generic ret
+  | Fn (params, ret, row) ->
+    List.exists has_generic params
+    || has_generic ret
+    || List.exists (fun (_, args) -> List.exists has_generic args) row.labels
   | _ -> false
+
+(* The [Generic]s a type mentions, and the variables its rows are open in. *)
+let variables (t : ty) : int list * int list =
+  let generics = ref [] and rows = ref [] in
+  let rec walk t =
+    match t with
+    | Generic id -> generics := id :: !generics
+    | Tuple items | Pack items | Named (_, items) | Sum (_, items) -> List.iter walk items
+    | Spread inner -> walk inner
+    | Record fields -> List.iter (fun (_, t) -> walk t) fields
+    | Fn (params, ret, row) ->
+      List.iter walk params;
+      walk ret;
+      List.iter (fun (_, args) -> List.iter walk args) row.labels;
+      Option.iter (fun id -> rows := id :: !rows) row.tail
+    | _ -> ()
+  in
+  walk t;
+  !generics, !rows
 
 let container_element (t : infer_ty) : (string * infer_ty) option =
   match repr t with
@@ -867,7 +899,7 @@ let free_vars (t : infer_ty) : (int * kind) list =
     match repr t with
     (* Into the kind as well: a projection's owner may appear nowhere else in
        the type, and leaving it unquantified makes every instantiation share
-       the one the template built. Recorded before descending, since
+       the one the scheme built. Recorded before descending, since
        `T: Add<T>` puts the variable inside its own kind. *)
     | IVar { contents = Unbound (id, kind) } ->
       if not (List.mem_assoc id !acc)
@@ -888,10 +920,19 @@ let free_vars (t : infer_ty) : (int * kind) list =
     | IRecord f -> walk_fields walk f
     | INamed (_, args) -> List.iter walk args
     | ISum (_, args) -> List.iter walk args
-    | IFn (params, ret, _) ->
+    (* Into the row as well: `Throw<X>` may be the only place `X` appears, and
+       left unquantified every call would share it. *)
+    | IFn (params, ret, row) ->
       List.iter walk params;
-      walk ret
+      walk ret;
+      walk_row row
     | _ -> ()
+  and walk_row r =
+    match repr_row r with
+    | RCons (_, args, rest) ->
+      List.iter walk args;
+      walk_row rest
+    | REmpty | RVar _ -> ()
   in
   walk t;
   !acc
@@ -1345,8 +1386,6 @@ let named_fields name args : fields =
       | FCons (label, ty, rest) -> (label, subst_generic mapping (resolve ty)) :: collect rest
     in
     List.sort compare (collect f)
-
-let () = named_fields_hook := named_fields
 
 let () =
   let attrs = iarray iattr_ty in

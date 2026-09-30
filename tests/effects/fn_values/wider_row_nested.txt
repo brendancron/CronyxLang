@@ -1,0 +1,5 @@
+first's helper logs
+second's helper is pure
+the parameter, not the function
+pure work
+asked 7

@@ -4,7 +4,7 @@ Status: **built.** `lib/loader.ml` reads the transitive closure of imports and h
 
 ## What a program can write
 
-Five forms, all of them already fixtured.
+Five forms, all of them already fixtured, and each may be written `global`.
 
 ```cronyx
 import "util";                          // the namespace is the basename
@@ -16,11 +16,22 @@ import "../../../stdlib/lang/Option";   // relative to the importing file
 
 A path has no extension, uses `/`, and resolves **relative to the file containing the `import`** — not to the entry point and not to a root. `..` is ordinary. `utils/*` reads every `.cx` in that directory and binds each under its own basename.
 
-Access is qualified by default: `util.foo()`, `h.greet("World")`, `math.add(3, 4)`. A selective import binds the name directly instead. Anything a module declares is reached the same way, not only a call: `util.f<1>()` instantiates a template out of `util`, and `animals.Cat` names a type, whether as a unit value or in `derive named.Named for animals.Cat;`.
+Access is qualified by default: `util.foo()`, `h.greet("World")`, `math.add(3, 4)`. A selective import binds the name directly instead. Anything a module declares is reached the same way, not only a call: `util.f<1>()` instantiates a comptime function out of `util`, and `animals.Cat` names a type, whether as a unit value or in `derive named.Named for animals.Cat;`. An effect is no different: `signal.stop(…)` performs an operation and `handle signal.Signal` handles it (`tests/effects/qualified_op`), and `import { Signal } from "signal"` binds the effect and every operation it declares unqualified (`tests/effects/named_import`). A bare `stop` after `import "signal"` is rejected, as a bare function name would be, with a message naming the two forms that do reach it (`tests/effects/errors/across_modules`). An operation carries its module's name, as every declaration does, so two modules may both declare `throw`: a bare one means the operation of an effect the file declares or imports by name, and the loader rejects any other. A handler's arms are named after the effect it handles. Either way the file performing an operation reads its declaration, which is what [Algebraic Effects](Algebraic%20Effects.md) needs to ship a compiled dependency at all: which transform a caller gets is a property of the declaration.
 
 Every import says which module a name comes from — `utils/*` too, since each file keeps its basename. An import that brings a module's names in unqualified, Rust's `use m::*`, is ruled out for now: see [A module's meta runs at its first reference](#a-modules-meta-runs-at-its-first-reference) for why, and [TODO.md](TODO.md) for what is open about it.
 
 Every top-level declaration is exported. Restricting that is [deferred](#five-decisions).
+
+**`global import` binds in every file of its package**, as C#'s `global using`
+does: `global import { square } from "util";` in any loaded file of a package
+lets every other file of that package use `square` bare
+(`tests/core/modules/global_import`). The path resolves from the file that wrote
+it. `stdlib/prelude.cx` is the global imports every package gets without writing
+them, as .NET's implicit usings are: `print` and `printerr` from `std/io/Print`.
+It also holds the root, with the ordinary imports that needs, which are its own. A file is part of its package's program only once
+something imports it, so a global import in a file nothing loads binds nothing.
+Importing the same name from the same module twice — a file repeating one of its
+package's global imports — is one binding.
 
 ## Circular imports work
 
@@ -67,7 +78,7 @@ Zig makes a file a struct value. Cronyx does not, so the checker never meets a m
 
 The loader reads the transitive closure of imports and hands the existing pipeline **one** program. Each unit's top-level declarations are renamed `unit__name`, the convention `Type__method` already uses, and qualified references are rewritten to the resolved name.
 
-The loader is given the roots it may reach: the package being compiled, the standard library, and each dependency under the name the manifest gave it. A path import resolves relative to the file that wrote it and may not leave that file's own root, so a dependency's module can move within the dependency and not within whoever imported it. A unit's namespace comes from the import as written rather than from the file it resolved to, because a dependency's root module is `src/lib.cx` and is reached as the package's name. See [Package Manager.md](Package%20Manager.md). A package's artifact is its units at this point — loaded and mangled, not metaprocessed — so a dependency's meta blocks and templates run when the linked program is walked, like everyone else's.
+The loader is given the roots it may reach: the package being compiled, the standard library, and each dependency under the name the manifest gave it. A path import resolves relative to the file that wrote it and may not leave that file's own root, so a dependency's module can move within the dependency and not within whoever imported it. A unit's namespace comes from the import as written rather than from the file it resolved to, because a dependency's root module is `src/lib.cx` and is reached as the package's name. See [Package Manager.md](Package%20Manager.md). A package's artifact is its units at this point — loaded and mangled, not metaprocessed — so a dependency's meta blocks and comptime functions run when the linked program is walked, like everyone else's.
 
 ```cronyx
 // math.cx
@@ -116,7 +127,7 @@ A module's statements are not an error, though. A file can be a library and a pr
 
 **An import is symbol resolution and nothing else.** A module's top-level `meta` blocks and `derive`s count as declarations, and the loader marks them to wait: they run the first time the metaprocessing walk asks that module for a name, once, however many units import it. Moving an import line changes nothing, and a module nothing reachable references never runs its meta at all. `tests/meta/06_modules/` pins it — `first_reference` prints `main before`, `main after` and only then `util meta`, when `util.foo()` is reached.
 
-What a module's meta block generates is part of the module: a generated declaration takes the module's prefix, and a generated statement is dropped, as a written one would be. A template in a module is instantiated like one anywhere else, memoized across the whole program, so two importers asking for `util.f<1>()` share one copy (`template_two_importers`).
+What a module's meta block generates is part of the module: a generated declaration takes the module's prefix, and a generated statement is dropped, as a written one would be. A comptime function in a module is instantiated like one anywhere else, memoized across the whole program, so two importers asking for `util.f<1>()` share one copy (`comptime_two_importers`).
 
 This works only because every name says which module it comes from. An unqualified wildcard import would let a bare name come from any of several modules, and since a meta block can generate anything, every one of them would have to run before the name resolved — which is why imports stay qualified.
 
@@ -158,8 +169,6 @@ The prelude is `stdlib/core/*.cx` rather than a string, but it is still not a un
 **Signatures and sealing as a separate feature.** `trait` already describes an interface. If a module wants one it is an interface over declarations, later, not a module type system now.
 
 **Re-exports, `module { }` blocks, module values.** Each is one more concept doing one job.
-
-**Exporting an effect.** A declaration an import can reach is a function, a type or a trait; an effect is none of them, so a module performs only the effects it declares. That keeps which transform a function gets a property of the file that declared the effect, which is what [Algebraic Effects](Algebraic%20Effects.md) needs to be able to ship a compiled dependency at all: a performed operation and its declaration are read together or not at all. `tests/effects/errors/across_modules` and `tests/effects/errors/named_import` pin both halves — the operation is undefined, and the effect's own name is not exported.
 
 **Packages.** They arrive as the boundary where cycles are *rejected* and interfaces are shipped — remediation 6's territory. Cycles staying legal within a program is coherent precisely because a program is one unit, the way they are legal inside a Rust crate and illegal between them.
 

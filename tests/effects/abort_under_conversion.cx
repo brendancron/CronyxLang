@@ -5,7 +5,7 @@
 effect E { ctl ask(): int; }
 effect Fail { final ctl bail(): int; }
 
-fn g(): <E, Fail> unit {
+fn g(): <E, Fail, Console> unit {
     var t = ask();
     bail();
     print("UNREACHABLE");

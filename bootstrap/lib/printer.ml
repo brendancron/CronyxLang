@@ -190,7 +190,7 @@ let rec write_stmt buf indent (s : Ast.stmt) =
   | `Type_members (decl, members) -> nested "type members" (decl :: members)
   | `Derive (traits, ty) ->
     line "%s(derive %s for %s)\n" pad (String.concat ", " traits) ty
-  | `Import decl ->
+  | (`Import decl | `Global_import decl) as s ->
     let shown =
       match decl with
       | Ast.Qualified path -> Printf.sprintf "%S" path
@@ -199,7 +199,12 @@ let rec write_stmt buf indent (s : Ast.stmt) =
         Printf.sprintf "{%s} from %S" (String.concat " " names) path
       | Ast.Wildcard dir -> Printf.sprintf "%S/*" dir
     in
-    line "%s(import %s)\n" pad shown
+    let kind =
+      match s with
+      | `Global_import _ -> "global import"
+      | `Import _ -> "import"
+    in
+    line "%s(%s %s)\n" pad kind shown
   | `Var_tuple (names, init) ->
     line "%s(var (%s) %s)\n" pad (String.concat " " names) (string_of_expr init)
   | `Var_decl (name, ty, init) ->
@@ -224,6 +229,8 @@ let rec write_stmt buf indent (s : Ast.stmt) =
           | Some labels -> string_of_row labels))
       body
   | `Return value -> line "%s(return %s)\n" pad (opt_expr value)
+  | `Break -> line "%s(break)\n" pad
+  | `Continue -> line "%s(continue)\n" pad
   | `For_in (names, iterable, body) ->
     nested
       (Printf.sprintf "for %s in %s" (String.concat ", " names) (string_of_expr iterable))
@@ -494,6 +501,8 @@ let rec write_typed_stmt buf indent (s : Ast.typed_stmt) =
          (String.concat " " (List.map (fun (p : Ast.param) -> p.Ast.name) params)))
       body
   | `Return value -> line "%s(return %s)\n" pad (opt_typed_expr value)
+  | `Break -> line "%s(break)\n" pad
+  | `Continue -> line "%s(continue)\n" pad
   | `Effect_decl (name, _, _) -> line "%s(effect %s)\n" pad name
   | `Run (body, handlers) ->
     nested

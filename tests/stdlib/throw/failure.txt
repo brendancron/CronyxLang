@@ -1,0 +1,4 @@
+failed: no such file: a.toml
+failed: bad line 3
+failed: just a message
+4

@@ -1,6 +1,6 @@
 effect Flip { ctl coin(): bool; }
 
-fn trial(): <Flip> unit {
+fn trial(): <Flip, Console> unit {
     if (coin()) { print("heads"); } else { print("tails"); }
 }
 

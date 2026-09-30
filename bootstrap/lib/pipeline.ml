@@ -5,8 +5,8 @@
 let ( let* ) = Result.bind
 
 (* One package: its own units, loaded. A dependency of it arrives as an
-   artifact and is not read here. Nothing is metaprocessed yet: which copy of a
-   package's template exists is decided by whatever program uses it. *)
+   artifact and is not read here. Nothing is metaprocessed yet: which instances of
+   a package's comptime functions exist is decided by whatever program uses it. *)
 let package ?roots ?entry_namespace ?seeds path
   : (Ast.program * Artifact.unit_interface list, Diagnostic.error list) result
   =

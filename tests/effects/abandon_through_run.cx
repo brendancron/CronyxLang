@@ -1,0 +1,35 @@
+// An arm that abandons its own block abandons every block inside it too: the
+// unwind does not stop at the nearer one and carry on after it.
+effect Stop { ctl stop(): unit; }
+effect Other { ctl other(): unit; }
+effect Fail { final ctl fail(): unit; }
+effect Log { fn log(s: string): unit; }
+
+run {
+    run {
+        stop();
+        print("after stop");
+    } handle Other { ctl other() { resume; } }
+    print("after inner run");
+} handle Stop { ctl stop() { print("stopped through a ctl block"); } }
+
+run {
+    run {
+        stop();
+        print("after stop");
+    } handle Fail { final ctl fail() { print("failed"); } }
+    print("after inner run");
+} handle Stop { ctl stop() { print("stopped through a final ctl block"); } }
+
+run {
+    run {
+        run {
+            stop();
+            print("after stop");
+        } handle Log { fn log(s) { print(s); } }
+        print("after Log run");
+    } handle Fail { final ctl fail() { print("failed"); } }
+    print("after Fail run");
+} handle Stop { ctl stop() { print("stopped through two blocks that need no continuation"); } }
+
+print("end");

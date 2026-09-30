@@ -1,0 +1,16 @@
+trait Show { fn show(self): string; }
+impl Show for int { fn show(self): string { return "int " + str(self); } }
+impl Show for bool { fn show(self): string { return "bool " + str(self); } }
+
+fn describe<T: Show>(x: T): string { return x.show(); }
+
+fn local() {
+    fn describe(x: int): string { return "local " + str(x); }
+    print(describe(1));
+}
+
+print(describe(1));
+print(describe(true));
+local();
+var passed = describe;
+print(passed(2));

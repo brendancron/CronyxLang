@@ -4,7 +4,7 @@
 effect E { ctl ask(): int; }
 effect Log { fn note(): unit; }
 
-fn f(): <E> int {
+fn f(): <E, Console> int {
     run {
         note();
         return 1;

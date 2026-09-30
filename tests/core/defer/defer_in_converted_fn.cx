@@ -3,7 +3,7 @@
 // left alone.
 effect Ask { ctl get(): int; }
 
-fn f(): <Ask> int {
+fn f(): <Ask, Console> int {
     defer print("cleanup");
     print("body");
     return get();

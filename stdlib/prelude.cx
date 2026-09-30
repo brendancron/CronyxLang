@@ -1,0 +1,52 @@
+/**
+ * What every program starts with.
+ *
+ * Each `global import` here binds in every file of every package, as .NET's
+ * implicit `global using`s do; a package adds its own the same way, with
+ * `global import` in any of its files. The plain imports are this file's own.
+ *
+ * `__root` is what each statement of a program's top level runs under: the
+ * compiler hands every top-level statement to it as a function.
+ */
+
+import { async, block_on } from "std/effects/Async";
+import { Throw } from "std/lang/Throw";
+import { Stream, __stdin_of_process } from "std/io/Console";
+import { Fs, __open_on_disk } from "std/io/Fs";
+
+global import { Console, Stdin, read_line } from "std/io/Console";
+global import { print, printerr } from "std/io/Print";
+
+/**
+ * Runs one top-level statement and hands back its value: under the terminal
+ * and its input, with files on disk, and under `block_on`, so a statement may wait, and a
+ * failure nothing catches stops the program with its value.
+ */
+fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, Stdin, Fs, E> T): <E> T {
+    var out: Option<T> = Option.None;
+    run {
+        block_on {
+            run {
+                out = Option.Some(main());
+            } handle Fs {
+                ctl open(path, mode) {
+                    var opened = __open_on_disk(path, mode);
+                    resume opened;
+                }
+            }
+        };
+    } handle Stdin {
+        fn stdin() { return __stdin_of_process(); }
+    } handle Console {
+        fn write(to, text) {
+            match to {
+                Stream.Out => { __write_out(text); }
+                Stream.Err => { __write_err(text); }
+            }
+        }
+    }
+    match out {
+        Option.Some(value) => { return value; }
+        Option.None => { panic("a top-level statement finished without a value"); }
+    }
+}

@@ -1,6 +1,6 @@
 # Metaprocessing
 
-Status: **built.** `lib/metaprocess.ml` walks the program from its roots, runs each `meta` block where the walk meets it, instantiates templates as calls to them are reached, and walks what `gen` emits in place. `lib/precheck.ml` checks the whole program before the walk. The fixtures are `tests/meta/`, numbered in the order the ideas build on each other.
+Status: **built.** `lib/metaprocess.ml` walks the program from its roots, runs each `meta` block where the walk meets it, instantiates comptime functions as calls to them are reached, and walks what `gen` emits in place. `lib/precheck.ml` checks the whole program before the walk. The fixtures are `tests/meta/`, numbered in the order the ideas build on each other.
 
 A `meta` block runs while the program is being compiled. Reaching one means compiling and running its dependencies, then continuing where compilation left off — so metaprocessing is recursive compilation.
 
@@ -58,11 +58,11 @@ Before the walk starts, every written top-level declaration, and the members of 
 
 **The order of compile-time output is a contract.** It is a function of the order of the program's call sites, deterministic and stable: moving a call moves what a `meta` prints. [Meta Scope and Instantiation](Meta%20Scope%20and%20Instantiation.md) has the worked example.
 
-### Templates
+### Comptime functions
 
-A function or type that takes a static *value* parameter is instantiated by the walk, and so is one taking only types whose body runs a `meta` block or reaches something that does. Such a template is instantiated when a call to it (or a construction of it) is reached — depth first, so an instantiation that calls another makes that one before it finishes — and remembered under its name and its static arguments. The memo is shared by the whole program, modules included (`05_order/01_basic`, `02_nested`, `06_modules/template_two_importers`), and a template is visited on entry the same way a function is, so mutual recursion between templates terminates on its base cases (`05_order/20_template_mutual`).
+A function or type that takes a static *value* parameter is instantiated by the walk, and so is one taking only types whose body runs a `meta` block or reaches something that does. Such a comptime function is instantiated when a call to it (or a construction of it) is reached — depth first, so an instantiation that calls another makes that one before it finishes — and remembered under its name and its static arguments. The memo is shared by the whole program, modules included (`05_order/01_basic`, `02_nested`, `06_modules/comptime_two_importers`), and a comptime function is visited on entry the same way any function is, so mutual recursion between them terminates on its base cases (`05_order/20_comptime_mutual`).
 
-A template whose parameters are only types and which runs no `meta` is not instantiated here: it is checked once, generically, and `Type_mono` copies it after checking, when inference has said which types it is used at.
+A function whose static parameters are only types and which runs no `meta` is not instantiated here: it is checked once, generically, and `Type_mono` copies it after checking, when inference has said which types it is used at.
 
 Memoisation is the semantics, not an optimisation, and a static parameter is *bound* in an instantiation rather than substituted through it — both are argued in [Meta Scope and Instantiation](Meta%20Scope%20and%20Instantiation.md), which is the authority on what crosses into a `meta` block and what `gen` sends back.
 
@@ -76,7 +76,7 @@ The walk works out a value's type only from what it can see without the checker:
 - A value converted to a trait object — passed to a parameter or assigned to a variable written as the trait — reaches its type's impl of that trait, whole, whether or not a method is ever called through it. Only the impls of types actually converted run their `meta`: in `05_order/09_dyn_invoke`, `Cow` implements `Speaker` and never prints.
 - A method call whose receiver type the walk cannot see is an error only when a candidate method runs a meta block: *Cannot tell which 'x' this calls, and one of them runs a meta block; annotate the receiver's type.* Candidates that run none are walked anyway, since walking them changes nothing.
 
-A static **type** argument is found the same way or it must be written, Zig's `anytype` rather than inference: `printSpeak<Cat>(cat)` in `05_order/07_type_mono`. An unannotated parameter is not an implicit static parameter here — it is the checker's to generalise, after the walk — so a template whose `meta` reads a type parameter needs that parameter written or visible at the call.
+A static **type** argument is found the same way or it must be written, Zig's `anytype` rather than inference: `printSpeak<Cat>(cat)` in `05_order/07_type_mono`. An unannotated parameter is not an implicit static parameter here — it is the checker's to generalise, after the walk — so a comptime function whose `meta` reads a type parameter needs that parameter written or visible at the call.
 
 ## What `gen` captures
 
@@ -127,7 +127,7 @@ meta {
 }
 ```
 
-Two limits keep the line between *now* and *later* where the author would draw it. A statement's own call is never evaluated whole, only its arguments — `gen print(xs)` is a `print` to emit, not one to make. And a static call is never evaluated, but its static arguments are: `gen f<a - 1>()` emits `f<1>()` (`05_order/19_gen_static_arg`), which is how a template asks for the next instantiation.
+Two limits keep the line between *now* and *later* where the author would draw it. A statement's own call is never evaluated whole, only its arguments — `gen print(xs)` is a `print` to emit, not one to make. And a static call is never evaluated, but its static arguments are: `gen f<a - 1>()` emits `f<1>()` (`05_order/19_gen_static_arg`), which is how a comptime function asks for its next instance.
 
 ### Names
 
@@ -296,7 +296,7 @@ The rule is what makes the walk's single pass sound. A name nothing has generate
 
 A generated declaration a meta block calls needs no special treatment beyond this: once its block has run, it is in the table like one that was written.
 
-**A declaration generated inside a function body is local to that body.** Each instantiation of a template gets its own, so two instantiations generating `helper` do not collide (`05_order/15_gen_local`). An `impl` has no local form, so generating one inside a function body is an error: *An impl cannot be generated inside a function body.*
+**A declaration generated inside a function body is local to that body.** Each instance of a comptime function gets its own, so two instances generating `helper` do not collide (`05_order/15_gen_local`). An `impl` has no local form, so generating one inside a function body is an error: *An impl cannot be generated inside a function body.*
 
 **Two blocks generating the same name** are treated exactly as that name written twice by hand: *'greet' is already declared.*, at the second, whether each was written or generated (`02_gen/errors/duplicate_generated`, `core/functions/errors/duplicate_fn`; a type says *Type 'Point' is already declared.*, `core/types/errors/duplicate_type`). A generated declaration quietly replacing one the program wrote would be the mistake nobody finds.
 
@@ -320,7 +320,7 @@ type Box<T> {
 }
 ```
 
-A type whose members are only functions is a type and an inherent impl, exactly as if the impl had been written separately. A type that takes a value parameter (`type Buf<n: int>`), or whose members run a meta block, is a **type template**: it is instantiated per argument list when `Name<args> { … }` is reached, its meta blocks run then with the value arguments bound, and its functions become methods of the copy (`05_order/10_box`, `11_buf`, `12_methods`). One nothing constructs never runs its `meta` (`05_order/26_unreached_type`).
+A type whose members are only functions is a type and an inherent impl, exactly as if the impl had been written separately. A type that takes a value parameter (`type Buf<n: int>`), or whose members run a meta block, is a **comptime type**: it is instantiated per argument list when `Name<args> { … }` is reached, its meta blocks run then with the value arguments bound, and its functions become methods of the copy (`05_order/10_box`, `11_buf`, `12_methods`). One nothing constructs never runs its `meta` (`05_order/26_unreached_type`).
 
 A copy is named by what it was made from — `Box<int>`, `Buf<4>` — which is the name `typeof` and diagnostics show, and `Buf<4>` and `Buf<8>` are different types: *Expected Buf<4>, got Buf<8>.* (`05_order/errors/distinct_instances`). Construction needs the arguments, `Buf<4> { … }`; a unit type is written as its bare name, `Cat`.
 
@@ -332,9 +332,9 @@ A type's meta block may generate only its methods — *A type's meta block can g
 
 **An import is pure symbol resolution.** A module's top-level `meta` blocks and `derive`s count as declarations of that module, and they run the first time the walk asks the module for a name — once, however many modules import it. Moving an import line changes nothing, and a module nothing reachable reads from never runs its `meta` (`06_modules/first_reference`, `import_order`, `imported_once`, `unused_import`, `circular`). Declarations a module's `meta` generates take the module's prefix like its written ones (`06_modules/gen_export`); a statement it generates is dropped, as the module's own statements are.
 
-This depends on every name saying which module it comes from, so imports stay qualified: `util.f`, `util.f<1>()`, `animals.Cat`, a selective `import { f } from "util"`, and `utils/*` qualifying each file by its name. A qualified name, including a trait and a type in a `derive`, resolves through its module (`06_modules/derive_across`, `derive_across_selective`, `template_across`). A `Name` read out of another module prints as written, `Cat`, though it is mangled internally. What an unqualified wildcard import would do is [TODO](TODO.md)'s "Wildcard imports and metaprocessing".
+This depends on every name saying which module it comes from, so imports stay qualified: `util.f`, `util.f<1>()`, `animals.Cat`, a selective `import { f } from "util"`, and `utils/*` qualifying each file by its name. A qualified name, including a trait and a type in a `derive`, resolves through its module (`06_modules/derive_across`, `derive_across_selective`, `comptime_across`). A `Name` read out of another module prints as written, `Cat`, though it is mangled internally. What an unqualified wildcard import would do is [TODO](TODO.md)'s "Wildcard imports and metaprocessing".
 
-**A package artifact is not metaprocessed.** `cx build` writes each package's `.cxa` loaded and mangled but with its `meta` blocks unrun, because which copies of a template exist, and which of a module's blocks run, is decided by the program that uses it. The walk runs once, over the linked program, under `cx run` and under `cx test`, whose tests are its roots. It runs from the package root (`Build.within`), since the paths an artifact holds are relative to it. A file a `meta` block reads is therefore not an input of the artifact: the next run reads it again.
+**A package artifact is not metaprocessed.** `cx build` writes each package's `.cxa` loaded and mangled but with its `meta` blocks unrun, because which instances of a comptime function exist, and which of a module's blocks run, is decided by the program that uses it. The walk runs once, over the linked program, under `cx run` and under `cx test`, whose tests are its roots. It runs from the package root (`Build.within`), since the paths an artifact holds are relative to it. A file a `meta` block reads is therefore not an input of the artifact: the next run reads it again.
 
 ## Checking
 
@@ -359,7 +359,7 @@ fn f<n: int>(): int {
 
 Metaprocessing does not contain an evaluator; it takes one. Anything that can run the compiled form will do — today the tree-walking interpreter, later codegen plus a runtime, or something else entirely.
 
-That keeps the recursion honest: compiling a meta block runs the same pipeline the program uses, and the thing at the end of that pipeline is supplied rather than assumed. It also puts limits where they belong. A step budget for runaway compile-time computation — an infinite loop in a block, or a template that never reaches a base case — is the evaluator's business, not the compiler's, and until it becomes a problem it is a developer error like any other infinite loop.
+That keeps the recursion honest: compiling a meta block runs the same pipeline the program uses, and the thing at the end of that pipeline is supplied rather than assumed. It also puts limits where they belong. A step budget for runaway compile-time computation — an infinite loop in a block, or a comptime function that never reaches a base case — is the evaluator's business, not the compiler's, and until it becomes a problem it is a developer error like any other infinite loop.
 
 The same applies to what compile-time code may do. It can do anything the evaluator permits. Restricting file access or nondeterminism is a sandboxing decision for whatever is passed in, not a rule the language needs to state.
 
@@ -376,7 +376,7 @@ fn build() {
 meta build();
 ```
 
-`check` is an ordinary local holding a `Code`. The fold is what joins the pieces, so there is no `join`, no operator-as-a-value, and no control flow inside `gen` — the loop that builds the code is the loop the language already has, which is the point. A template with a repetition marker can only repeat what the marker anticipated; this can sort the fields, skip one, or call a helper, and the helper is an ordinary function (`code/helper`):
+`check` is an ordinary local holding a `Code`. The fold is what joins the pieces, so there is no `join`, no operator-as-a-value, and no control flow inside `gen` — the loop that builds the code is the loop the language already has, which is the point. A quasi-quote with a repetition marker can only repeat what the marker anticipated; this can sort the fields, skip one, or call a helper, and the helper is an ordinary function (`code/helper`):
 
 ```cronyx
 fn doubled(v: Code): Code { return code(v + v); }

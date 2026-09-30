@@ -1,0 +1,145 @@
+/**
+ * Files.
+ *
+ * ```
+ * import { read_text, write_text } from "std/io/Fs";
+ *
+ * write_text("notes.txt", "remember the milk");
+ * print(read_text("notes.txt"));
+ * ```
+ *
+ * Opening is the `Fs` effect, so a function's row says `<Fs>` exactly when it
+ * opens something, and a test hands out files of its own by handling it. What
+ * `open` hands back is a `File`, which is a `Reader` and a `Writer`; the
+ * program's root answers `open` with files on disk. A relative path is relative
+ * to the directory the program was started in.
+ */
+
+import { async } from "../effects/Async";
+import { Throw, Result } from "../lang/Throw";
+import { Reader, Writer, IoError } from "Io";
+
+/** What a file is opened for. */
+type Mode {
+    /** Reading, from the start. */
+    Read,
+
+    /** Writing, replacing whatever was there, or creating it. */
+    Write,
+
+    /** Writing after whatever is there, or creating it. */
+    Append
+}
+
+/** An open file. */
+trait File: Reader, Writer {
+    /** Finishes with it. Nothing may be read or written afterwards. */
+    fn close(self): <async, Throw<IoError>> unit;
+}
+
+/** Opening files. */
+effect Fs {
+    /**
+     * The file at the path, or why it could not be opened. A failure is a value
+     * here so it reaches the caller: `open_file` throws it where it was asked.
+     */
+    ctl open(path: string, mode: Mode): Result<File, IoError>;
+}
+
+/** The file at the path, opened for the mode. */
+fn open_file(path: string, mode: Mode): <Fs, Throw<IoError>> File {
+    match open(path, mode) {
+        Result.Ok(file) => { return file; }
+        Result.Err(e) => { return throw(e); }
+    }
+}
+
+/** Everything a reader has left. */
+fn read_all(from: Reader): <async, Throw<IoError>> Array<byte> {
+    var collected: List<byte> = [];
+    var done = false;
+    while (!done) {
+        match from.read(65536) {
+            Option.Some(chunk) => { for (b in chunk) { collected.push(b); } }
+            Option.None => { done = true; }
+        }
+    }
+    return collected.items[0:collected.len()];
+}
+
+/** The bytes of the file at the path. */
+fn read_file(path: string): <Fs, async, Throw<IoError>> Array<byte> {
+    var file = open_file(path, Mode.Read);
+    var data = read_all(file);
+    file.close();
+    return data;
+}
+
+/** The file at the path, as text. Throws if it is not UTF-8. */
+fn read_text(path: string): <Fs, async, Throw<IoError>> string {
+    var (ok, text) = __utf8(read_file(path));
+    if (!ok) { throw(IoError.Other(path + " is not UTF-8 text")); }
+    return text;
+}
+
+/** Replaces the file at the path with the bytes, creating it if need be. */
+fn write_file(path: string, data: Array<byte>): <Fs, async, Throw<IoError>> unit {
+    var file = open_file(path, Mode.Write);
+    file.write(data);
+    file.close();
+}
+
+/** Replaces the file at the path with the text, creating it if need be. */
+fn write_text(path: string, text: string): <Fs, async, Throw<IoError>> unit {
+    write_file(path, text.bytes());
+}
+
+// ---- files on disk, which the root hands out ----
+
+fn __failure(status: int, path: string, message: string): IoError {
+    if (status == 1) { return IoError.NotFound(path); }
+    if (status == 2) { return IoError.Denied(path); }
+    return IoError.Other(message);
+}
+
+type DiskFile {
+    fd: int,
+    path: string
+}
+
+impl Reader for DiskFile {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        var (status, data, message) = suspend { it(__file_read(self.fd, max)) };
+        if (status != 0) { throw(__failure(status, self.path, message)); }
+        if (data.len() == 0) { return Option.None; }
+        return Option.Some(data);
+    }
+}
+
+impl Writer for DiskFile {
+    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+        var (status, message) = suspend { it(__file_write(self.fd, data)) };
+        if (status != 0) { throw(__failure(status, self.path, message)); }
+    }
+}
+
+impl File for DiskFile {
+    fn close(self): <async, Throw<IoError>> unit {
+        var (status, message) = suspend { it(__file_close(self.fd)) };
+        if (status != 0) { throw(__failure(status, self.path, message)); }
+    }
+}
+
+/** How the root answers `open`: with a file on disk. */
+fn __open_on_disk(path: string, mode: Mode): Result<File, IoError> {
+    var how = 0;
+    match mode {
+        Mode.Read => { how = 0; }
+        Mode.Write => { how = 1; }
+        Mode.Append => { how = 2; }
+    }
+    var (status, fd, message) = __file_open(path, how);
+    if (status != 0) { return Result.Err(__failure(status, path, message)); }
+    var file: File = DiskFile { fd: fd, path: path };
+    return Result.Ok(file);
+}

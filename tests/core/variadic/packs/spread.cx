@@ -1,4 +1,4 @@
-fn fire<T, ...Args>(f: (...Args) -> T, args: (...Args)): T {
+fn fire<T, ...Args>(f: (...Args) -> <Console> T, args: (...Args)): T {
     return f(...args);
 }
 

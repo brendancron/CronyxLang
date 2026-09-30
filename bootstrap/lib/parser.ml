@@ -77,7 +77,7 @@ let synchronize s =
     then ()
     else (
       match (peek s).Token.token_type with
-      | Token.Fn | Token.Var | Token.For | Token.If | Token.While | Token.Return -> ()
+      | Token.Fn | Token.Var | Token.For | Token.If | Token.While | Token.Return | Token.Break | Token.Continue -> ()
       | _ ->
         ignore (advance s);
         loop ())
@@ -809,6 +809,11 @@ and declaration s : Ast.stmt option =
     | Token.Import ->
       ignore (advance s);
       Some (import_decl s sp)
+    (* `global` means something only before `import`, so it stays a name. *)
+    | Token.Identifier "global" when (peek_at s 1).Token.token_type = Token.Import ->
+      ignore (advance s);
+      ignore (advance s);
+      Some (import_decl ~global:true s sp)
     | Token.Defer ->
       ignore (advance s);
       (match declaration s with
@@ -995,6 +1000,14 @@ and statement s : Ast.stmt =
   | Token.Return ->
     ignore (advance s);
     return_stmt s sp
+  | Token.Break ->
+    ignore (advance s);
+    ignore (consume s Token.Semicolon "Expected ';' after 'break'.");
+    Ast.at sp `Break
+  | Token.Continue ->
+    ignore (advance s);
+    ignore (consume s Token.Semicolon "Expected ';' after 'continue'.");
+    Ast.at sp `Continue
   | Token.Run ->
     ignore (advance s);
     run_stmt s sp
@@ -1069,7 +1082,7 @@ and for_stmt s sp : Ast.stmt =
   Ast.at sp (`For (init, cond, step, statement s)))
 
 (* Matched by text, so neither becomes a word a program cannot use. *)
-and import_decl s sp : Ast.stmt =
+and import_decl ?(global = false) s sp : Ast.stmt =
   let text tok =
     match tok.Token.token_type with
     | Token.String path -> path
@@ -1100,7 +1113,7 @@ and import_decl s sp : Ast.stmt =
          | false -> Ast.Qualified path))
   in
   ignore (matches s [ Token.Semicolon ]);
-  Ast.at sp (`Import decl)
+  Ast.at sp (if global then `Global_import decl else `Import decl)
 
 and op_kind s : Ast.op_kind =
   match (peek s).Token.token_type with

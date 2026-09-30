@@ -1,6 +1,6 @@
 effect E { ctl op(): unit; }
 
-fn work(): <E> unit {
+fn work(): <E, Console> unit {
     print("before");
     op();
     print("after");

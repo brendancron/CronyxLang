@@ -1,0 +1,40 @@
+effect async { ctl suspend<T>(register: ((T) -> unit) -> unit): T; }
+effect Log { fn log(s: string): unit; }
+
+fn pause() { suspend { it(()) }; }
+
+fn interleaved<E>(actions: List<() -> <async, E> unit>): <E> unit {
+    var ready: List<() -> unit> = [];
+
+    fn strand(action: () -> <async, E> unit): <E> unit {
+        run {
+            action();
+        } handle async {
+            ctl suspend(register) {
+                register { ready.push { resume it; }; };
+            }
+        }
+    }
+
+    for (action in actions) {
+        ready.push { strand(action); };
+    }
+    while (ready.len() > 0) {
+        var next = ready[0];
+        ready = ready[1:];
+        next();
+    }
+}
+
+fn counter(name: string) {
+    for (var i = 0; i < 2; i += 1) {
+        log(name + " " + str(i));
+        pause();
+    }
+}
+
+run {
+    interleaved([ () => { counter("A"); }, () => { counter("B"); } ]);
+} handle Log {
+    fn log(s) { print(s); }
+}

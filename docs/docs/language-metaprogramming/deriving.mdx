@@ -222,7 +222,7 @@ Across these six chapters you've seen the full metaprogramming story:
 - **[Generation](./generation.mdx)** — `gen` for splicing values, statements, and declarations from compile time into the runtime program.
 - **[Reflection](./reflection.mdx)** — `typeof` for inspecting types at compile time, with zero runtime cost.
 - **[Static parameters](./static-params.mdx)** — `<T>` and `<n: int>`, one compiled copy per argument list.
-- **[Compile-time functions](./compile-time-functions.mdx)** — ordinary functions called from meta blocks, templates whose meta blocks write a body per argument, and functions that generate declarations.
+- **[Compile-time functions](./compile-time-functions.mdx)** — ordinary functions called from meta blocks, comptime functions whose meta blocks write a body per argument, and functions that generate declarations.
 - **Deriving** — a generator for a trait, invoked with one line per type.
 
 These are views of one staging system. A `meta` block runs code while compiling; `gen` writes its results into the program; static parameters give that code something to work on; and a function is how any of it gets reused. Underneath, it's all one phase of work running before your program does — and none of it is left for the program to pay for at runtime.

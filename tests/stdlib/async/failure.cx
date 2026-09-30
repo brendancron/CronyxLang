@@ -1,0 +1,20 @@
+import { async, block_on, all, pause } from "std/effects/Async";
+import { Throw } from "std/lang/Throw";
+
+effect Log { fn log(s: string): unit; }
+
+block_on {
+    run {
+        run {
+            all([
+                () => { log("A start"); pause(); pause(); log("A end"); },
+                () => { log("B start"); pause(); log("B fails"); throw("boom"); },
+                () => { log("C start"); pause(); log("C end"); }
+            ]);
+            print("scope done");
+        } handle Log { fn log(s) { print("log: " + s); } }
+    } handle Throw {
+        final ctl throw(e) { print("scope failed: " + e); }
+    }
+    print("carrying on");
+};

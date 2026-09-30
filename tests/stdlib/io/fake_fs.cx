@@ -1,0 +1,55 @@
+import { Mode, File, Fs, read_text, write_text } from "std/io/Fs";
+import { IoError, Reader, Writer } from "std/io/Io";
+import { Throw, Result } from "std/lang/Throw";
+import { async } from "std/effects/Async";
+
+type Memory { data: List<byte>, at: List<int> }
+
+impl Reader for Memory {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        var start = self.at[0];
+        if (start >= self.data.len()) { return Option.None; }
+        var stop = start + max;
+        if (stop > self.data.len()) { stop = self.data.len(); }
+        self.at[0] = stop;
+        return Option.Some(self.data.items[start:stop]);
+    }
+}
+
+impl Writer for Memory {
+    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+        for (b in data) { self.data.push(b); }
+    }
+}
+
+impl File for Memory {
+    fn close(self): <async, Throw<IoError>> unit { }
+}
+
+fn greet(name: string): <Fs, async, Throw<IoError>> string {
+    write_text("greeting.txt", "hello, " + name);
+    return read_text("greeting.txt");
+}
+
+var disk: List<Memory> = [];
+
+run {
+    print(greet("ada"));
+} handle Fs {
+    ctl open(path, mode) {
+        match mode {
+            Mode.Write => {
+                var fresh = Memory { data: [], at: [0] };
+                disk.push(fresh);
+                var file: File = fresh;
+                resume Result.Ok(file);
+            }
+            _ => {
+                var existing = Memory { data: disk[0].data, at: [0] };
+                var file: File = existing;
+                resume Result.Ok(file);
+            }
+        }
+    }
+}
+print(disk.len());

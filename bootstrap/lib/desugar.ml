@@ -54,6 +54,43 @@ let bound span (names : binder) (value : expr) : stmt list =
          (fun index n -> decl n (at span (`Tuple_get (at span (`Var whole), index))))
          names
 
+let rec holds_continue (s : desugared_stmt) =
+  match s.it with
+  | `Continue -> true
+  | `Block body -> List.exists holds_continue body
+  | `If (_, t, e) -> holds_continue t || Option.fold ~none:false ~some:holds_continue e
+  | `Match (_, cases) -> List.exists (fun (_, body) -> List.exists holds_continue body) cases
+  | _ -> false
+
+(* A step at the end of the body is skipped by a `continue` in it, so a loop
+   holding one steps at the top of every iteration but the first instead. *)
+let looped span cond (body : desugared_stmt) (step : desugared_expr option) : desugared_stmt =
+  let node it : desugared_stmt = { it; span; ann = () }
+  and value it : desugared_expr = { it; span; ann = () } in
+  match step with
+  | None -> node (`While (cond, body))
+  | Some step when not (holds_continue body) ->
+    node (`While (cond, { body with it = `Block [ body; { it = `Expr step; span = step.span; ann = () } ] }))
+  | Some step ->
+    let first = fresh "first" in
+    node
+      (`Block
+        [ node (`Var_decl (first, None, Some (value (`Bool true))))
+        ; node
+            (`While
+              ( value (`Bool true)
+              , node
+                  (`Block
+                    [ node
+                        (`If
+                          ( value (`Var first)
+                          , node (`Expr (value (`Assign (first, value (`Bool false)))))
+                          , Some (node (`Expr step)) ))
+                    ; node (`If (value (`Unop (Not, cond)), node `Break, None))
+                    ; body
+                    ]) ))
+        ])
+
 let rec expr (e : expr) : desugared_expr =
   let sp = e.span in
   let it : desugared_expr_kind =
@@ -118,7 +155,8 @@ and stmt (s : stmt) : desugared_stmt =
   | _ ->
   let it : desugared_stmt_kind =
     match s.it with
-        | `Import _ | `Meta _ | `Gen _ | `Derive _ | `Attributed _ | `Type_members _ -> assert false
+        | `Import _ | `Global_import _ | `Meta _ | `Gen _ | `Derive _ | `Attributed _ | `Type_members _ ->
+          assert false
     (* for (x in xs) body  ⇒  { var seq = xs; var i = 0;
                                  while (i < seq.len()) { var x = seq[i]; body; i = i + 1; } }
 
@@ -133,32 +171,22 @@ and stmt (s : stmt) : desugared_stmt =
         { it = `Var_decl (n, None, Some init); span = at_span; ann = () }
       in
       let read n = at sp (`Var n) in
-      let step : stmt =
-        { it = `Expr (at body.span (`Assign (index, at body.span (`Binop (Add, read index, at body.span (`Int 1))))))
-        ; span = body.span
-        ; ann = ()
-        }
-      in
+      let step = at body.span (`Assign (index, at body.span (`Binop (Add, read index, at body.span (`Int 1))))) in
       let inner : stmt =
-        { it =
-            `Block
-              (bound body.span names (at body.span (`Index (read seq, read index)))
-               @ [ body; step ])
+        { it = `Block (bound body.span names (at body.span (`Index (read seq, read index))) @ [ body ])
         ; span = body.span
         ; ann = ()
         }
       in
-      (stmt
-         { it =
-             `Block
-               [ var_decl_of sp seq iterable
-               ; var_decl_of sp index (at sp (`Int 0))
-               ; at sp (`While (at sp (`Binop (Less, read index, at sp (`Method_call (read seq, "len", "len", [])))), inner))
-               ]
-         ; span = sp
-         ; ann = ()
-         })
-        .it
+      `Block
+        [ stmt (var_decl_of sp seq iterable)
+        ; stmt (var_decl_of sp index (at sp (`Int 0)))
+        ; looped
+            sp
+            (expr (at sp (`Binop (Less, read index, at sp (`Method_call (read seq, "len", "len", []))))))
+            (stmt inner)
+            (Some (expr step))
+        ]
     (* for (init; cond; step) body  ⇒  { init; while (cond) { body; step; } } *)
     | `For (init, cond, step, body) ->
       let cond =
@@ -166,18 +194,7 @@ and stmt (s : stmt) : desugared_stmt =
         | None -> at sp (`Bool true)
         | Some c -> expr c
       in
-      let body =
-        let body = stmt body in
-        match step with
-        | None -> body
-        | Some st ->
-          let step = expr st in
-          { it = `Block [ body; { it = `Expr step; span = step.span; ann = () } ]
-          ; span = body.span
-          ; ann = ()
-          }
-      in
-      let loop = at sp (`While (cond, body)) in
+      let loop = looped sp cond (stmt body) (Option.map expr step) in
       `Block
         (match init with
          | Some i -> [ stmt i; loop ]
@@ -234,7 +251,9 @@ let program (p : program) : (desugared_stmt list, error) result =
             | Named _ -> [])
           handlers
     | `Impl_decl (_, _, _, body) -> List.concat_map (fun m -> m.md_body) body.ib_methods
-    | `Expr _ | `Var_decl _ | `Var_tuple _ | `Return _ | `Import _ | `Derive _ | `Effect_decl _
+    | `Expr _ | `Var_decl _ | `Var_tuple _ | `Return _ | `Break | `Continue | `Import _ | `Global_import _
+    | `Derive _
+    | `Effect_decl _
     | `Resume _ | `Type_decl _ | `Trait_decl _ -> []
   in
   List.iter collect p;

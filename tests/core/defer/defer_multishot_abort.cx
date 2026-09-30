@@ -5,7 +5,7 @@
 effect Logic { ctl choose(options: Array<int>): int; }
 effect Err { final ctl fail(msg: string); }
 
-fn pick(): <Logic, Err> int {
+fn pick(): <Logic, Err, Console> int {
     defer print("cleanup");
     var n = choose([1, 2]);
     if (n == 2) { return fail("second"); }

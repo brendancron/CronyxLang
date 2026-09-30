@@ -64,6 +64,13 @@ type TypeVariant {
     /** How many values it carries. */
     arity: int,
 
+    /**
+     * The type of each value it carries, when every one is a plain type name --
+     * `IoError`, `int` -- and empty otherwise, so a deriver that needs them checks
+     * the length against `arity`.
+     */
+    payload: Array<Name>,
+
     /** Its doc comment, empty where there is none. */
     doc: string,
 

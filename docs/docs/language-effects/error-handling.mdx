@@ -135,7 +135,7 @@ caught: not an int: nope
 
 The same `throw` stands in for an `int` in `as_int` and a `string` in `as_word`, which is sound precisely because it never produces either. Declaring it `final` is also a promise the compiler holds you to: the arm has no `resume` available.
 
-The standard library declares both shapes, since both are useful: `Error` in `stdlib/lang/Error.cx` is a plain `ctl throw(msg: string): unit`, and `Fallible<T>` in `stdlib/lang/Fallible.cx` is an `fn raise(msg: string): T` — an operation whose handler is expected to supply a `T` and continue.
+The standard library declares both shapes, since both are useful: `Throw<X>` in `std/lang/Throw` is a `final ctl throw(err: X)` whose failure is a typed value, with `attempt`, `rethrow` and a `Failure` catch-all built on it, and `Fallible<T>` in `std/lang/Fallible` is an `fn raise(msg: string): T` — an operation whose handler is expected to supply a `T` and continue.
 
 ## Cleanup on the way out
 

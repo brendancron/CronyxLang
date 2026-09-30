@@ -1,0 +1,40 @@
+effect Log { fn log(s: string): unit; }
+effect Tick { fn tick(): unit; }
+effect Ask { fn ask(): int; }
+
+fn call_it<E>(f: () -> <Log, Tick, E> unit): <Log, Tick, E> unit { f(); }
+
+fn first() {
+    fn helper() { log("first's helper logs"); }
+    call_it(helper);
+}
+
+fn second() {
+    fn helper() { print("second's helper is pure"); }
+    call_it(helper);
+}
+
+fn only_logs() { log("top-level only_logs"); }
+
+fn passes(only_logs: () -> <Log, Tick> unit) {
+    call_it(only_logs);
+}
+
+fn relay<E>(work: () -> <E> unit): <Log, Tick, E> unit {
+    fn go() { work(); }
+    call_it(go);
+}
+
+run {
+    first();
+    second();
+    passes(() => { tick(); log("the parameter, not the function"); });
+    relay(() => { print("pure work"); });
+    relay(() => { print("asked " + str(ask())); });
+} handle Log {
+    fn log(s) { print(s); }
+} handle Tick {
+    fn tick() { }
+} handle Ask {
+    fn ask() { return 7; }
+}

@@ -6,10 +6,10 @@ fn pause() {
     return suspend { it(()) };
 }
 
-fn interleaved(actions: List<() -> <async> unit>) {
-    var ready: List<() -> unit> = [];
+fn interleaved(actions: List<() -> <async, Console> unit>) {
+    var ready: List<() -> <Console> unit> = [];
 
-    fn strand(action: () -> <async> unit) {
+    fn strand(action: () -> <async, Console> unit) {
         run {
             action();
         } handle async {

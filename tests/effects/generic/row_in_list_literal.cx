@@ -1,0 +1,14 @@
+effect Log { fn log(s: string): unit; }
+
+fn each<E>(actions: List<() -> <E> unit>): <E> unit {
+    for (action in actions) { action(); }
+}
+
+fn first() { log("first"); }
+fn second() { log("second"); }
+
+run {
+    each([ first, () => { log("lambda"); }, second ]);
+} handle Log {
+    fn log(s) { print(s); }
+}

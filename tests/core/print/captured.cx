@@ -1,0 +1,25 @@
+import { Stream } from "std/io/Console";
+
+fn greet(name: string) {
+    print("hello, " + name);
+    printerr("greeted " + name);
+}
+
+var out: List<string> = [];
+var err: List<string> = [];
+
+run {
+    greet("ada");
+    greet("bo");
+} handle Console {
+    fn write(to, text) {
+        match to {
+            Stream.Out => { out.push(text); }
+            Stream.Err => { err.push(text); }
+        }
+    }
+}
+
+print(out.len());
+print(out[0] == "hello, ada\n");
+print(err[1] == "greeted bo\n");

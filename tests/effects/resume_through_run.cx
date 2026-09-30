@@ -1,0 +1,27 @@
+// An outer handler resuming twice runs the rest of its block twice, and that
+// includes whatever follows an inner block the operation was performed inside.
+effect Flip { ctl flip(): bool; }
+effect Other { ctl other(): unit; }
+effect Log { fn log(s: string): unit; }
+effect Fail { final ctl fail(): unit; }
+
+run {
+    run {
+        var x = flip();
+        print("inner body: " + str(x));
+    } handle Other { ctl other() { resume; } }
+    print("after inner run");
+} handle Flip { ctl flip() { resume true; resume false; } }
+
+run {
+    run {
+        run {
+            var y = flip();
+            print("nested body: " + str(y));
+        } handle Log { fn log(s) { print(s); } }
+        print("after Log run");
+    } handle Fail { final ctl fail() { print("failed"); } }
+    print("after Fail run");
+} handle Flip { ctl flip() { resume true; resume false; } }
+
+print("end");

@@ -1,0 +1,38 @@
+effect Tick { ctl tick(): int; }
+
+fn stepped(): <Tick, Console> unit {
+    for (var i = 0; i < 4; i += 1) {
+        var n = tick();
+        if (i == 1) { continue; }
+        print("step " + str(i));
+    }
+}
+
+fn each(): <Tick, Console> unit {
+    for (x in [1, 2, 3]) {
+        defer print("left " + str(x));
+        var n = tick();
+        if (x == 2) { continue; }
+        print("saw " + str(x));
+    }
+}
+
+fn nested(): <Tick, Console> unit {
+    var a = 0;
+    while (a < 2) {
+        a += 1;
+        for (b in [1, 2, 3]) {
+            var n = tick();
+            if (b == 2) { continue; }
+            print(str(a) + "/" + str(b));
+        }
+        if (a == 1) { continue; }
+        print("outer " + str(a));
+    }
+}
+
+run {
+    stepped();
+    each();
+    nested();
+} handle Tick { ctl tick() { resume 1; } }

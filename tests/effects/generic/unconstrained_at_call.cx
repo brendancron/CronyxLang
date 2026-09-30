@@ -1,0 +1,22 @@
+// Nothing throws, so `X` is never settled; the call still needs an instance.
+effect Throw<X> { final ctl throw(err: X); }
+type Outcome<T, X> { Value(T), Failed(X) }
+
+fn caught<X, T, E>(f: () -> <Throw<X>, E> T): <E> Outcome<T, X> {
+    var out: Option<Outcome<T, X>> = Option.None;
+    run { out = Option.Some(Outcome.Value(f())); } handle Throw {
+        final ctl throw(e) { out = Option.Some(Outcome.Failed(e)); }
+    }
+    match out {
+        Option.Some(o) => { return o; }
+        Option.None => { panic("unreachable"); }
+    }
+}
+
+fn pure(): int { return 7; }
+
+var outcome = caught(pure);
+match outcome {
+    Outcome.Value(n) => { print("value " + str(n)); }
+    Outcome.Failed(_) => { print("failed"); }
+}

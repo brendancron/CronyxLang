@@ -48,11 +48,11 @@ Rust makes the underlying attribute writable — `///` is sugar for `#[doc = "�
 
 **What reflection cannot reach.** `typeof` takes a value, and a function value's type names no declaration (`Reflect.declared_attrs`). So a doc on a type, a field or a variant is readable from a meta block today, and a doc on a `fn` is recorded and carried but unreadable until declaration reflection lands — the same facility the test framework is waiting on, in [Attributes and Test Frameworks.md](Attributes%20and%20Test%20Frameworks.md).
 
-## What a template documents
+## What a comptime function documents
 
-A `gen` or a deriver emits declarations that are in no source file, and a template taking a static value exists once per instantiation. Documenting instantiations would mean documenting a set that depends on the program being compiled, which contradicts the rule at the top.
+A `gen` or a deriver emits declarations that are in no source file, and a comptime function exists once per instance. Documenting instances would mean documenting a set that depends on the program being compiled, which contradicts the rule at the top.
 
-A template is therefore documented as a template — its parameters, its constraints and its own `///` — and its instantiations are not documented at all. What a deriver generates is documented, if at all, by the deriver's own prose. Zig reaches the same place with comptime and for the same reason.
+A comptime function is therefore documented as one — its parameters, its constraints and its own `///` — and its instances are not documented at all. What a deriver generates is documented, if at all, by the deriver's own prose. Zig reaches the same place with comptime and for the same reason.
 
 This is the part most likely to feel wrong in use, because metaprogramming is the language's point and the generated surface is real code a caller will meet. `--dump-code` is the answer for now: it prints the program as Cronyx after metaprocessing, which is how to see what a `gen` produced for a particular program.
 
@@ -153,7 +153,7 @@ A `type`'s `body` is `{"form": "fields", …}` or `{"form": "variants", …}`, a
 
 A **method** is one shape whether it came from a trait's `method_sig` or an impl's `method_def`: `name`, `doc`, `attrs`, `static`, `params`, `ret`, `row`. The body is not in the index.
 
-### A template is not a generic
+### A comptime function is not a generic
 
 `static` and `generics` are separate lists, because `<>` parameters are not generics and the reference must not say they are.
 
@@ -163,7 +163,7 @@ A **method** is one shape whether it came from a trait's `method_sig` or an impl
             { "name": "n", "form": "value", "type": { "kind": "name", "name": "int" } } ]
 ```
 
-`form` is one of three, and the *written* type does not say which: `<T: Hash>` is a generic the checker constrains and `<n: int>` is a value a copy is made for, and both are a name with a type expression after it. What separates them is whether the head of that type names a trait — the same question `Metaprocess.is_value` asks of the trait table, and the reason the index carries the kind of every declaration and not only its display name. Calling a bound a value, which is what one boolean got you, told a reader that `find<K: Hash, V>` was a template.
+`form` is one of three, and the *written* type does not say which: `<T: Hash>` is a generic the checker constrains and `<n: int>` is a value a copy is made for, and both are a name with a type expression after it. What separates them is whether the head of that type names a trait — the same question `Metaprocess.is_value` asks of the trait table, and the reason the index carries the kind of every declaration and not only its display name. Calling a bound a value, which is what one boolean got you, told a reader that `find<K: Hash, V>` was comptime.
 
 ### An impl is its own entry
 
@@ -363,9 +363,9 @@ What follows from that:
 - `handle`, `with` and `handler x : E` take a qualified name, through the same `Parser.qualified_name` that `derive` already used.
 - A written effect row names declarations, so `Loader` resolves one.
 - `sig.boop` resolves to the operation rather than to a mangled name. The alias needs the target's operation names to know that, so `Artifact.unit_interface` carries `operations` — an artifact a consumer reads is one the same compiler wrote, so the field costs a rebuild and nothing else.
-- A consumer reaches an effect the way it reaches a type: `import "sig" { Beep }`, or `sig.Beep`. `import "std/lang/Error"; handle Error` no longer resolves, and the two stdlib fixtures that relied on it now import the effect by name.
+- A consumer reaches an effect the way it reaches a type: `import "sig" { Beep }`, or `sig.Beep`. `import "std/lang/Throw"; handle Throw` does not resolve; `import { Throw } from "std/lang/Throw"` does.
 
-*(`tests/effects/named_import` imports an effect selectively; `tests/effects/qualified_op` calls an operation through its module from a non-entry unit. `tests/effects/errors/across_modules` is the same program with the imports the other way round, which still fails — an operation's visibility depends on import order, which that pair now documents from both sides.)*
+*(`tests/effects/named_import` imports an effect selectively; `tests/effects/qualified_op` calls an operation through its module from a non-entry unit. `tests/effects/errors/across_modules` performs an operation bare after a plain `import`, which the loader rejects with the two forms that would reach it.)*
 
 ### 4. A renderer — built
 
@@ -393,7 +393,7 @@ The doc comment gets paragraphs, bullets, fenced blocks and inline code — not 
 
 The reference existed and was thin: no generics on a trait, an impl or an effect, no associated types, no supertrait arguments, no implementers, an effect row that printed as `<>`, every impl for a primitive missing outright, one flat alphabet of thirty-four modules, and almost no prose because the library had none to show.
 
-- The renderer prints every `<>` parameter list the index carries, the associated types on both sides of a trait, a supertrait's arguments, and the row where it is written — `-> <E> bool`, as `Source` prints it. *(`cx/test/library`, whose `Ops.cx` carries a parameterised trait, a supertrait at arguments, two impls for primitives, a bound naming a trait at arguments, a template, a parameterised effect and a handler.)*
+- The renderer prints every `<>` parameter list the index carries, the associated types on both sides of a trait, a supertrait's arguments, and the row where it is written — `-> <E> bool`, as `Source` prints it. *(`cx/test/library`, whose `Ops.cx` carries a parameterised trait, a supertrait at arguments, two impls for primitives, a bound naming a trait at arguments, a comptime function, a parameterised effect and a handler.)*
 - A page groups its entries by kind and names the import that reaches the unit; an impl's title carries the trait's arguments, so `Index<int>` and `Index<Range>` are two entries rather than one heading twice.
 - Every impl is reachable: through its type where there is one, and through its trait where there is not. The library's own pages are crawled for this, not only a package's — a primitive's impls appear nowhere else. *(`run_library_case`, which now renders and crawls.)*
 - The library has prose: a module doc on every module, and doc comments over the core surface, the collections, the string functions, the effects and the conversions.
@@ -402,7 +402,7 @@ The reference existed and was thin: no generics on a trait, an impl or an effect
 
 **Whether a line doc comment is worth having.** `/** … */` is the only doc form. A block comment is a poor fit for a one-line doc on twenty consecutive fields, and it reflows when a line is added, which diffs badly. `///` is currently an ordinary line comment, so adding it later costs nothing and breaks nothing.
 
-**Nothing documents what a `gen` produced.** Unchanged, and still the part most likely to feel wrong in use — see [What a template documents](#what-a-template-documents).
+**Nothing documents what a `gen` produced.** Unchanged, and still the part most likely to feel wrong in use — see [What a comptime function documents](#what-a-comptime-function-documents).
 
 ## Settled
 

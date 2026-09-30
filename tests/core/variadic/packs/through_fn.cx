@@ -1,6 +1,6 @@
 type Slot<...Args> {
     tag: string,
-    use: (...Args) -> unit
+    use: (...Args) -> <Console> unit
 }
 
 fn tag_of<...Args>(s: Slot<...Args>): string {

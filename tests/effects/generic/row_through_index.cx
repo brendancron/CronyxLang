@@ -1,0 +1,15 @@
+effect Log { fn log(s: string): unit; }
+
+fn call<E>(action: () -> <E> unit): <E> unit { action(); }
+
+fn first<E>(actions: List<() -> <E> unit>): <E> unit {
+    call(actions[0]);
+}
+
+fn task() { log("task"); }
+
+run {
+    first([ task ]);
+} handle Log {
+    fn log(s) { print(s); }
+}

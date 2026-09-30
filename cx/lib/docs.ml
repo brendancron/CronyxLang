@@ -154,7 +154,7 @@ let row_of ~known ~params = function
 
 (* `<T>`, `<T: Ord>` and `<n: int>` are one syntax and three different things: a
    generic, a generic with a bound, and a *value* the declaration is instantiated
-   at -- which is what makes it a template rather than a generic. The written
+   at -- which is what makes it comptime rather than generic. The written
    type does not say which, since a bound and a value type are both a type
    expression; only whether its head names a trait does, which is the same
    question `Metaprocess.is_value` asks. *)
@@ -621,7 +621,11 @@ let rec declaration ~known ~places ~prefixes ~package ~exports (s : Ast.stmt) : 
                        (fun (o : Ast.op_decl) ->
                          let params = ps @ o.Ast.op_tparams in
                          Json.Obj
-                           [ "name", Json.String o.Ast.op_name
+                           [ ( "name"
+                             , Json.String
+                                 (match split prefixes o.Ast.op_name with
+                                  | Some (_, written) -> written
+                                  | None -> o.Ast.op_name) )
                            ; ( "kind"
                              , Json.String
                                  (match o.Ast.op_kind with
@@ -657,7 +661,11 @@ let rec declaration ~known ~places ~prefixes ~package ~exports (s : Ast.stmt) : 
                     (List.map
                        (fun (a : Ast.stmt Ast.arm) ->
                          Json.Obj
-                           [ "name", Json.String a.Ast.arm_name
+                           [ ( "name"
+                             , Json.String
+                                 (match split prefixes a.Ast.arm_name with
+                                  | Some (_, written) -> written
+                                  | None -> a.Ast.arm_name) )
                            ; ( "kind"
                              , Json.String
                                  (match a.Ast.arm_kind with

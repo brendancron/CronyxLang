@@ -1,0 +1,44 @@
+/**
+ * What files, the terminal's input and later sockets share: a `Reader` hands out
+ * bytes, a `Writer` takes them, and an `IoError` says why one could not.
+ *
+ * Bytes rather than text, since not everything read is text; `read_text` in
+ * `std/io/Fs` decodes when it is.
+ */
+
+import { async } from "../effects/Async";
+import { Throw, Failure } from "../lang/Throw";
+
+/** Why a file could not be read, written or opened. */
+type IoError {
+    /** Nothing is at this path. */
+    NotFound(string),
+
+    /** Something is there, and this program may not have it. */
+    Denied(string),
+
+    /** Anything else, with what the system said. */
+    Other(string)
+}
+
+impl Failure for IoError {
+    fn message(self): string {
+        match self {
+            IoError.NotFound(path) => { return "no such file: " + path; }
+            IoError.Denied(path) => { return "not allowed: " + path; }
+            IoError.Other(message) => { return message; }
+        }
+    }
+}
+
+/** Something bytes can be read from. */
+trait Reader {
+    /** Up to `max` bytes, or `None` once there are no more. May wait. */
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>>;
+}
+
+/** Something bytes can be written to. */
+trait Writer {
+    /** Writes all of them. May wait. */
+    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit;
+}

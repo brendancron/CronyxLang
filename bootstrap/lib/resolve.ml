@@ -190,6 +190,15 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
          `Call (fn_ref span name [ a; b ] ann, [ a; b ])
        (* Spelled out, so a third emission form has to be decided here. *)
        | Some { Registry.emit = Registry.Primitive; _ } | None -> `Binop (op, a, b))
+    (* An object passed where one of its supertraits is wanted is that object.
+       Called through an identity, so the node keeps the type it was given. *)
+    | `Coerce (inner, _, [])
+      when match Types.type_name inner.Ast.ann with
+           | Some owner -> Hashtbl.mem Typecheck.ctx_traits owner
+           | None -> false ->
+      let data = expr registry inner in
+      let identity = Types.Fn ([ data.Ast.ann ], ann, Types.closed_row []) in
+      `Call ({ Ast.it = `Var "__upcast"; span; ann = identity }, [ data ])
     | `Coerce (inner, trait, slots) ->
       let data = expr registry inner in
       let owner =
@@ -251,11 +260,16 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
         | Some name ->
           (match Registry.container registry name, Registry.container_element registry name (Types.of_ty ann) with
            | Some make, Some element ->
+             (* The items' own type where there are any: [of_ty] gives an open
+                row a fresh tail, so the entry's element would differ from the
+                items in a way no printing shows and [Verify] rejects. *)
+             let element =
+               match items with
+               | (first : Ast.resolved_expr) :: _ -> first.Ast.ann
+               | [] -> Types.resolve element
+             in
              let elements : Ast.resolved_expr =
-               { Ast.it = `Array_lit items
-               ; span
-               ; ann = Types.array (Types.resolve element)
-               }
+               { Ast.it = `Array_lit items; span; ann = Types.array element }
              in
              `Call (fn_ref span make.Registry.entry [ elements ] ann, [ elements ])
            | _ -> unbuildable ()))

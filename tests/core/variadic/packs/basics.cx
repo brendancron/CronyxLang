@@ -1,5 +1,5 @@
 type Slot<...Args> {
-    use: (...Args) -> unit
+    use: (...Args) -> <Console> unit
 }
 
 fn pair(a: int, b: string) {
