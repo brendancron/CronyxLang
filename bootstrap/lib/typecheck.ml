@@ -1063,6 +1063,151 @@ let rec resumes (s : Ast.desugared_stmt) =
 let assigned_names body =
   List.fold_left (fun acc s -> assigned_in_stmt s acc) [] body
 
+(* A method call names every method of that name, since which impl answers is
+   not known yet. Shadowing is not tracked: a name too many only merges
+   components, and a component is checked in source order. *)
+let names_used (s : Ast.desugared_stmt) =
+  let used = Hashtbl.create 16 in
+  let note name = Hashtbl.replace used name () in
+  let rec expr (e : Ast.desugared_expr) =
+    (match e.Ast.it with
+     | `Var name | `Assign (name, _) | `Compound (_, name, _) | `New_call (name, _, _) ->
+       note name
+     | `Method_call (_, name, as_function, _) ->
+       note name;
+       note as_function
+     | _ -> ());
+    let (_ : Ast.desugared_expr_kind) =
+      match e.Ast.it with
+      | `Lambda (ps, sg, body) -> `Lambda (ps, sg, List.map stmt body)
+      | #Ast.lit as l -> l
+      | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.desugared_expr_kind)
+      | #Ast.ops as o -> (Ast.map_ops expr o :> Ast.desugared_expr_kind)
+      | #Ast.logic as l -> (Ast.map_logic expr l :> Ast.desugared_expr_kind)
+      | #Ast.compound as c -> (Ast.map_compound expr c :> Ast.desugared_expr_kind)
+      | #Ast.indexing as i -> (Ast.map_indexing expr i :> Ast.desugared_expr_kind)
+      | #Ast.tuple as t -> (Ast.map_tuple expr t :> Ast.desugared_expr_kind)
+      | #Ast.spread as x -> (Ast.map_spread expr x :> Ast.desugared_expr_kind)
+      | #Ast.record as r -> (Ast.map_record expr r :> Ast.desugared_expr_kind)
+      | #Ast.nominal as n -> (Ast.map_nominal expr n :> Ast.desugared_expr_kind)
+      | #Ast.collection as c -> (Ast.map_collection expr c :> Ast.desugared_expr_kind)
+      | #Ast.static_call as c -> (Ast.map_static_call expr c :> Ast.desugared_expr_kind)
+      | #Ast.method_call as m -> (Ast.map_method_call expr m :> Ast.desugared_expr_kind)
+      | #Ast.reflect as r -> (Ast.map_reflect expr r :> Ast.desugared_expr_kind)
+      | #Ast.run_expr as r ->
+        (Ast.map_run_expr expr stmt (Ast.map_handler stmt) r :> Ast.desugared_expr_kind)
+      | #Ast.match_expr as m -> (Ast.map_match_expr expr stmt m :> Ast.desugared_expr_kind)
+    in
+    e
+  and stmt (s : Ast.desugared_stmt) =
+    let (_ : Ast.desugared_stmt_kind) =
+      match s.Ast.it with
+      | #Ast.stmts as st -> (Ast.map_stmts expr stmt st :> Ast.desugared_stmt_kind)
+      | #Ast.effects as ef ->
+        (Ast.map_effects expr stmt (Ast.map_handler stmt) ef :> Ast.desugared_stmt_kind)
+      | #Ast.type_defs as t -> t
+      | #Ast.method_defs as m -> (Ast.map_method_defs stmt Fun.id m :> Ast.desugared_stmt_kind)
+      | #Ast.matching as m -> (Ast.map_matching expr stmt m :> Ast.desugared_stmt_kind)
+    in
+    s
+  in
+  ignore (stmt s);
+  Hashtbl.fold (fun name () acc -> name :: acc) used []
+
+let names_declared (s : Ast.desugared_stmt) =
+  match s.Ast.it with
+  | `Fn (name, _, _, _) | `Var_decl (name, _, _) -> [ name ]
+  | `Var_tuple (names, _) -> names
+  | `Impl_decl (trait, type_name, _, impl) ->
+    List.concat_map
+      (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+        [ m.Ast.md_name; Ast.impl_method_name trait type_name m.Ast.md_name ])
+      impl.Ast.ib_methods
+  | _ -> []
+
+(* A block's statements, by index, in the groups they are checked in: the
+   strongly connected components of what each uses and declares, dependencies
+   first and otherwise in source order. A function is generalized only once
+   what it calls has been: a call to one still carrying [hoist]'s binding
+   unifies with that binding's row, which then stays free in the environment
+   and is fixed by whatever calls the caller -- at the top level, to the row
+   `__root` hands a statement. Statements that are not declarations keep their
+   source order among themselves, so a shadowing or an assignment is never
+   checked out of turn. Effects come first, whatever their order: the walk
+   emits a declaration where it reaches it, which is after a function in
+   another module that handles the effect, and a handler needs the effect's
+   operations. *)
+let dependency_order (body : Ast.desugared_stmt list) : int list list =
+  let stmts = Array.of_list body in
+  let n = Array.length stmts in
+  let declared_by = Hashtbl.create 64 in
+  Array.iteri
+    (fun i s -> List.iter (fun name -> Hashtbl.add declared_by name i) (names_declared s))
+    stmts;
+  let deps = Array.make n [] in
+  let previous = ref None in
+  Array.iteri
+    (fun i (s : Ast.desugared_stmt) ->
+      let chained =
+        match s.Ast.it with
+        | `Fn _ | `Impl_decl _ | `Trait_decl _ | `Type_decl _ | `Effect_decl _ -> []
+        | _ ->
+          let before = Option.to_list !previous in
+          previous := Some i;
+          before
+      in
+      deps.(i)
+      <- List.sort_uniq
+           compare
+           (List.filter
+              (fun j -> j <> i)
+              (chained @ List.concat_map (Hashtbl.find_all declared_by) (names_used s))))
+    stmts;
+  let index = Array.make n (-1)
+  and low = Array.make n 0
+  and on_stack = Array.make n false in
+  let counter = ref 0
+  and stack = ref []
+  and groups = ref [] in
+  let rec connect v =
+    index.(v) <- !counter;
+    low.(v) <- !counter;
+    incr counter;
+    stack := v :: !stack;
+    on_stack.(v) <- true;
+    List.iter
+      (fun w ->
+        if index.(w) < 0
+        then (
+          connect w;
+          low.(v) <- min low.(v) low.(w))
+        else if on_stack.(w)
+        then low.(v) <- min low.(v) index.(w))
+      deps.(v);
+    if low.(v) = index.(v)
+    then (
+      let rec pop group =
+        match !stack with
+        | w :: rest ->
+          stack := rest;
+          on_stack.(w) <- false;
+          if w = v then w :: group else pop (w :: group)
+        | [] -> group
+      in
+      groups := List.sort compare (pop []) :: !groups)
+  in
+  for v = 0 to n - 1 do
+    if index.(v) < 0 then connect v
+  done;
+  let effects, rest =
+    List.partition
+      (function
+        | [ i ] -> (match stmts.(i).Ast.it with `Effect_decl _ -> true | _ -> false)
+        | _ -> false)
+      (List.rev !groups)
+  in
+  effects @ rest
+
 let field_of (target : checked_expr) label =
   match Types.repr target.Ast.ann with
   | Types.INamed (name, args) ->
@@ -3001,17 +3146,65 @@ and infer_block env ctx (body : Ast.desugared_stmt list) : checked_stmt list =
     declare_impls ctx.registry body;
     hoist env body;
     let assigned = assigned_names body in
-    List.map (fun s -> infer_stmt env ctx assigned s) body)
+    List.map
+      Option.get
+      (infer_in_order env ctx assigned ~attempt:(fun check -> Some (check ())) body))
 
-and infer_stmt env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
+(* In [dependency_order], back in source order. Functions calling each other are
+   generalized together, once all of them are checked, so none is generalized
+   while another's row is still [hoist]'s. [attempt] says what a failed check
+   leaves behind. *)
+and infer_in_order env ctx assigned ~attempt (body : Ast.desugared_stmt list) =
+  let stmts = Array.of_list body in
+  let checked = Array.make (Array.length stmts) None in
+  List.iter
+    (fun group ->
+      let name_of i =
+        match stmts.(i).Ast.it with
+        | `Fn (name, _, _, _) -> Some name
+        | _ -> None
+      in
+      let together =
+        List.length group > 1 && List.for_all (fun i -> Option.is_some (name_of i)) group
+      in
+      List.iter
+        (fun i ->
+          checked.(i)
+          <- attempt (fun () ->
+               infer_stmt ~generalize:(not together) env ctx assigned stmts.(i)))
+        group;
+      if together
+      then (
+        let members =
+          List.filter_map
+            (fun i ->
+              match name_of i, checked.(i) with
+              | Some name, Some (c : checked_stmt) -> Some (name, c.Ast.ann)
+              | _ -> None)
+            group
+        in
+        List.iter (fun (name, _) -> Hashtbl.remove env.bindings name) members;
+        let env_vars = env_free_vars env
+        and env_rows = env_free_row_vars env
+        and env_fields = env_free_field_vars env in
+        List.iter
+          (fun (name, fn_type) ->
+            bind env name (Types.generalize ~env_vars ~env_rows ~env_fields fn_type))
+          members))
+    (dependency_order body);
+  Array.to_list checked
+
+and infer_stmt ?(generalize = true) env ctx assigned (s : Ast.desugared_stmt)
+  : checked_stmt
+  =
   let checked =
-    try infer_stmt_impl env ctx assigned s with
+    try infer_stmt_impl ~generalize env ctx assigned s with
     | Types.Type_error message -> raise (Located { span = s.Ast.span; message })
   in
   note_effect_sites s.Ast.span ctx.row;
   checked
 
-and infer_stmt_impl env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
+and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
   let span = s.Ast.span in
   let node it : checked_stmt = Ast.annotated span Types.IUnit it in
   match s.Ast.it with
@@ -3121,15 +3314,17 @@ and infer_stmt_impl env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
     let fn_type = Types.IFn (param_types, declared_ret, declared_row) in
     (* Leaving [hoist]'s binding in place would make the function's own variables
        count as free in the enclosing scope. *)
-    Hashtbl.remove env.bindings name;
-    bind
-      env
-      name
-      (Types.generalize
-         ~env_vars:(env_free_vars env)
-         ~env_rows:(env_free_row_vars env)
-         ~env_fields:(env_free_field_vars env)
-         fn_type);
+    if generalize
+    then (
+      Hashtbl.remove env.bindings name;
+      bind
+        env
+        name
+        (Types.generalize
+           ~env_vars:(env_free_vars env)
+           ~env_rows:(env_free_row_vars env)
+           ~env_fields:(env_free_field_vars env)
+           fn_type));
     Ast.annotated span fn_type (`Fn (name, params, signature, body)))
   | `Defer inner ->
     let looping = !in_loop in
@@ -3913,26 +4108,13 @@ let check_with ~registry (program : Ast.desugared_stmt list)
   each (declare_impls registry);
   each (hoist env);
   let assigned = assigned_names program in
-  let infer s =
-    try Some (infer_stmt env ctx assigned s) with
+  let attempt check =
+    try Some (check ()) with
     | Located e ->
       errors := e :: !errors;
       None
   in
-  (* Effects first, whatever their order: the walk emits a declaration where it
-     reaches it, which is after a function in another module that handles the
-     effect, and a handler needs the effect's operations. *)
-  let checked =
-    List.map
-      (fun (s : Ast.desugared_stmt) ->
-        match s.Ast.it with
-        | `Effect_decl _ -> `Checked (infer s)
-        | _ -> `Pending s)
-      program
-    |> List.filter_map (function
-      | `Checked result -> result
-      | `Pending s -> infer s)
-  in
+  let checked = List.filter_map Fun.id (infer_in_order env ctx assigned ~attempt program) in
   let errors =
     List.fold_left
       (fun errors ((label, _) as entry) ->

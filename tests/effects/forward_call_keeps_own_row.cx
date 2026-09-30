@@ -1,0 +1,15 @@
+fn early<k: int>(x: int): int {
+    return loud(x + k);
+}
+
+fn loud(x: int): int {
+    print(x);
+    return x;
+}
+
+fn consoleOnly(f: (int) -> <Console> int, x: int): int {
+    return f(x);
+}
+
+print(early<1>(1));
+print(consoleOnly(loud, 5));

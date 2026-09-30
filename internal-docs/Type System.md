@@ -121,6 +121,8 @@ There is no implicit widening: `1 + 2.5` is a type error, and mixing requires an
 
 Generalization happens at both `fn` and `var`, so `fn id(x) { return x; }` is `'a -> 'a` and usable at several types.
 
+A block is checked in dependency order, as Haskell's binding groups are: the strongly connected components of what each statement uses and declares, callees first, and otherwise in source order. Functions that call each other are generalized together. Source order is not enough, because a call to a function not yet checked reaches only the monomorphic binding `hoist` gave it. The caller's row unifies with that binding's row, and the variable stays free in the environment, so the caller does not quantify it. Whatever calls the caller then fixes it, and at the top level that is the row `__root` hands a statement, which includes `async`. The callee was then CPS-converted with full continuations at every call in the program (issue #116). A static copy was the easy way in, since the walk emits instances ahead of the declarations they call, but any function written above its callee did the same (`tests/core/functions/forward_calls_stay_pure`).
+
 Because `var` bindings are reassignable, naive generalization is unsound:
 
 ```cronyx
