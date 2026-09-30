@@ -1,7 +1,7 @@
 # I/O
 
-Status: **built**, but for `stdin` and anything beyond opening, reading,
-writing and closing — deleting, listing, metadata. `std/io/Console` is the
+Status: **built**, but for anything beyond opening, reading, writing and
+closing a file — deleting, listing, metadata. `std/io/Console` is the
 terminal ([Algebraic Effects](Algebraic%20Effects.md#print-is-an-effect)),
 `std/io/Io` the streams and `IoError`, `std/io/Fs` files; `tests/stdlib/io/`
 holds real files and a faked filesystem.
@@ -67,6 +67,23 @@ handler the caller installed. `open_file` throws it where it was asked for.
 Threading a filesystem value through every call instead — an interface only — is
 what effects exist to remove; an effect only makes every file operation a free
 function over a handle.
+
+## Standard input is its own effect
+
+```cronyx
+effect Stdin { fn stdin(): Reader; }
+
+fn read_line(): <Stdin, async, Throw<IoError>> Option<string> { … }
+```
+
+Not a second operation of `Console`: a handler answers every operation of its
+effect, so capturing output would also have to supply an input, and a test fakes
+one far more often than both (`tests/stdlib/io/fake_stdin`). The prelude imports
+`Stdin` and `read_line` into every package and the root hands out the process's
+own input. Getting the stream never waits; reading it may, so a task waiting for
+a line suspends like one waiting for a file. Koka has one `console` label for
+both directions, but there it is a label the checker tracks, not operations a
+handler answers, so the question of answering both does not arise.
 
 ## A failure is `Throw<IoError>`
 

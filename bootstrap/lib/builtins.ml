@@ -63,6 +63,9 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , ""
     , fun () -> [ Types.IInt; Types.iarray Types.IByte ], Types.ITuple [ Types.IInt; Types.IStr ] )
   ; ("__file_close", "", fun () -> [ Types.IInt ], Types.ITuple [ Types.IInt; Types.IStr ])
+  ; ( "__stdin_read"
+    , ""
+    , fun () -> [ Types.IInt ], Types.ITuple [ Types.IInt; Types.iarray Types.IByte; Types.IStr ] )
   ; ( "__utf8"
     , ""
     , fun () -> [ Types.iarray Types.IByte ], Types.ITuple [ Types.IBool; Types.IStr ] )
@@ -236,6 +239,15 @@ let values ~out =
          | Some (Reading _) -> failed "The file is open for reading, not writing."
          | None -> failed "The file is closed.")
       | _ -> Value.fail span "__file_write takes a handle and bytes.")
+  ; one "__stdin_read" (fun span n ->
+      match n with
+      | Value.Int count ->
+        let buffer = Bytes.create (Int.max 1 count) in
+        (match In_channel.input stdin buffer 0 (Bytes.length buffer) with
+         | read -> Value.Tuple [ Value.Int 0; byte_array (Bytes.sub_string buffer 0 read); Value.Str [||] ]
+         | exception Sys_error message ->
+           Value.Tuple [ Value.Int (status_of message); byte_array ""; Value.Str (Utf8.decode message) ])
+      | _ -> Value.fail span "__stdin_read takes a count.")
   ; one "__file_close" (fun span h ->
       match h with
       | Value.Int handle ->

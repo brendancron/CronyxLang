@@ -11,18 +11,18 @@
 
 import { async, block_on } from "std/effects/Async";
 import { Throw } from "std/lang/Throw";
-import { Stream } from "std/io/Console";
+import { Stream, __stdin_of_process } from "std/io/Console";
 import { Fs, __open_on_disk } from "std/io/Fs";
 
-global import { Console } from "std/io/Console";
+global import { Console, Stdin, read_line } from "std/io/Console";
 global import { print, printerr } from "std/io/Print";
 
 /**
- * Runs one top-level statement and hands back its value: under the terminal,
- * with files on disk, and under `block_on`, so a statement may wait, and a
+ * Runs one top-level statement and hands back its value: under the terminal
+ * and its input, with files on disk, and under `block_on`, so a statement may wait, and a
  * failure nothing catches stops the program with its value.
  */
-fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, Fs, E> T): <E> T {
+fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, Stdin, Fs, E> T): <E> T {
     var out: Option<T> = Option.None;
     run {
         block_on {
@@ -35,6 +35,8 @@ fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, Fs, E> T): <E> T {
                 }
             }
         };
+    } handle Stdin {
+        fn stdin() { return __stdin_of_process(); }
     } handle Console {
         fn write(to, text) {
             match to {

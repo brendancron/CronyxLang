@@ -1,5 +1,5 @@
 /**
- * The terminal: standard output and standard error.
+ * The terminal: standard output and error, and standard input.
  *
  * ```
  * print("hello");                    // standard output, and a newline
@@ -19,8 +19,25 @@
  * ```
  *
  * Writing is synchronous, as console output is in every mainstream runtime,
- * so a function that prints is not put through continuations for it.
+ * so a function that prints is not put through continuations for it. Reading
+ * is its own effect, `Stdin`, so capturing output and faking input are separate
+ * handlers; what it hands out is a `Reader`, whose reads may wait:
+ *
+ * ```
+ * var more = true;
+ * while (more) {
+ *     match read_line() {
+ *         Option.Some(line) => { print("> " + line); }
+ *         Option.None => { more = false; }
+ *     }
+ * }
+ * ```
  */
+
+import { async } from "../effects/Async";
+import { Throw } from "../lang/Throw";
+import { Reader, IoError } from "Io";
+
 
 /** Which of the two output streams. */
 type Stream {
@@ -35,4 +52,61 @@ type Stream {
 effect Console {
     /** Writes the text to the stream as it is, with nothing added. */
     fn write(to: Stream, text: string): unit;
+}
+
+/** The process's standard input. */
+effect Stdin {
+    /** Standard input, as a stream. Getting it never waits; reading it may. */
+    fn stdin(): Reader;
+}
+
+/**
+ * The next line of standard input without its line ending, or `None` once the
+ * input has ended. Throws if the line is not UTF-8 text.
+ */
+fn read_line(): <Stdin, async, Throw<IoError>> Option<string> {
+    var input = stdin();
+    var newline = "\n".bytes()[0];
+    var line: List<byte> = [];
+    while (true) {
+        match input.read(1) {
+            Option.None => {
+                if (line.len() == 0) { return Option.None; }
+                return Option.Some(__line(line));
+            }
+            Option.Some(chunk) => {
+                if (chunk[0] == newline) { return Option.Some(__line(line)); }
+                line.push(chunk[0]);
+            }
+        }
+    }
+    return Option.None;
+}
+
+// A line's bytes as text, less a carriage return before the newline.
+fn __line(bytes: List<byte>): <Throw<IoError>> string {
+    var stop = bytes.len();
+    if (stop > 0 && bytes[stop - 1] == "\r".bytes()[0]) { stop = stop - 1; }
+    var (ok, text) = __utf8(bytes.items[0:stop]);
+    if (!ok) { throw(IoError.Other("standard input is not UTF-8 text")); }
+    return text;
+}
+
+// ---- the terminal's input, which the root hands out ----
+
+type TerminalInput;
+
+impl Reader for TerminalInput {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        var (status, data, message) = suspend { it(__stdin_read(max)) };
+        if (status != 0) { throw(IoError.Other(message)); }
+        if (data.len() == 0) { return Option.None; }
+        return Option.Some(data);
+    }
+}
+
+/** How the root answers `stdin`: with the process's own. */
+fn __stdin_of_process(): Reader {
+    var input: Reader = TerminalInput;
+    return input;
 }
