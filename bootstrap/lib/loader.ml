@@ -448,6 +448,11 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
          | contents -> `Bytes contents
          | exception Sys_error _ -> fail e.Ast.span "Cannot embed '%s'." path)
       | `Code inner -> `Code (go inner)
+      (* What the file declares or imports by name first: an operation of an
+         effect every package imports must not take a name from the file's own
+         `fn write`. *)
+      | `Var name when (not (S.mem name locals)) && (Hashtbl.mem direct name || Hashtbl.mem own name) ->
+        `Var (resolve_local name)
       | `Var name when not (S.mem name locals) ->
         (match Hashtbl.find_opt foreign name with
          | Some (declaring, namespace) ->
@@ -652,6 +657,8 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
                   (fun (o : Ast.op_decl) ->
                     { o with
                       Ast.op_name = Option.value (Hashtbl.find_opt ops o.Ast.op_name) ~default:o.Ast.op_name
+                    ; op_params = List.map param o.Ast.op_params
+                    ; op_ret = Option.map type_expr o.Ast.op_ret
                     })
                   declared )
           | other -> other

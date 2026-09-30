@@ -2,15 +2,16 @@
  * The terminal: standard output and standard error.
  *
  * ```
- * print("hello");                 // standard output, and a newline
- * printerr("warning: no config");   // standard error
+ * print("hello");                    // standard output, and a newline
+ * printerr("warning: no config");    // standard error
  * ```
  *
- * In core because the compiler names it: every program's top level runs under
- * the prelude's `__root`, which handles it. A test captures output by handling
- * it too:
+ * The prelude imports `Console` into every package and handles it at the root.
+ * A test captures output by handling it too:
  *
  * ```
+ * import { Stream } from "std/io/Console";
+ *
  * var said: List<string> = [];
  * run { print("hi"); } handle Console {
  *     fn write(to, text) { said.push(text); }

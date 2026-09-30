@@ -51,6 +51,21 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () -> [], Types.IFloat )
   ; selected_test, "", (fun () -> [], Types.IInt)
   ; ("__write_out", "", fun () -> [ Types.IStr ], Types.IUnit)
+  ; ( "__file_open"
+    , ""
+    , fun () -> [ Types.IStr; Types.IInt ], Types.ITuple [ Types.IInt; Types.IInt; Types.IStr ] )
+  ; ( "__file_read"
+    , ""
+    , fun () ->
+        [ Types.IInt; Types.IInt ], Types.ITuple [ Types.IInt; Types.iarray Types.IByte; Types.IStr ]
+    )
+  ; ( "__file_write"
+    , ""
+    , fun () -> [ Types.IInt; Types.iarray Types.IByte ], Types.ITuple [ Types.IInt; Types.IStr ] )
+  ; ("__file_close", "", fun () -> [ Types.IInt ], Types.ITuple [ Types.IInt; Types.IStr ])
+  ; ( "__utf8"
+    , ""
+    , fun () -> [ Types.iarray Types.IByte ], Types.ITuple [ Types.IBool; Types.IStr ] )
   ; ("__write_err", "", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "str"
     , "The value's written form -- the same one `print` writes."
@@ -118,6 +133,38 @@ let numeral ~fraction text =
     digits (stop + 1) = Some (String.length text)
   | _ -> false
 
+(* Open files, by the handle the program holds. A handle is never reused, so a
+   file closed twice, or used after it was closed, is simply not found. *)
+type file =
+  | Reading of In_channel.t
+  | Writing of Out_channel.t
+
+let files : (int, file) Hashtbl.t = Hashtbl.create 8
+let next_file = ref 0
+
+(* A status the library turns into an `IoError`: 0 is success, then NotFound,
+   Denied and Other. Read off the system's message, which is all `Sys_error`
+   carries. *)
+let status_of message =
+  let mentions part =
+    let n = String.length part and m = String.length message in
+    let rec at i = i + n <= m && (String.sub message i n = part || at (i + 1)) in
+    at 0
+  in
+  if mentions "No such file" then 1 else if mentions "Permission denied" then 2 else 3
+
+let bytes_of (v : Value.value) =
+  match v with
+  | Value.Array items ->
+    Some
+      (String.init (Array.length items) (fun i ->
+         match items.(i) with
+         | Value.Byte c -> c
+         | _ -> '\000'))
+  | _ -> None
+
+let byte_array text = Value.Array (Array.init (String.length text) (fun i -> Value.Byte text.[i]))
+
 let values ~out =
   let native name arity apply = name, Value.Fn { Value.name; arity; apply } in
   let two name f =
@@ -138,6 +185,78 @@ let values ~out =
         out (Utf8.encode text);
         Value.Unit
       | _ -> Value.fail span "__write_out takes a string.")
+  ; two "__file_open" (fun span p m ->
+      match p, m with
+      | Value.Str path, Value.Int mode ->
+        let path = Utf8.encode path in
+        (match
+           match mode with
+           | 0 -> Reading (In_channel.open_bin path)
+           | 1 -> Writing (Out_channel.open_bin path)
+           | _ ->
+             Writing
+               (Out_channel.open_gen
+                  [ Open_wronly; Open_creat; Open_append; Open_binary ]
+                  0o644
+                  path)
+         with
+         | file ->
+           let handle = !next_file in
+           incr next_file;
+           Hashtbl.replace files handle file;
+           Value.Tuple [ Value.Int 0; Value.Int handle; Value.Str [||] ]
+         | exception Sys_error message ->
+           Value.Tuple [ Value.Int (status_of message); Value.Int (-1); Value.Str (Utf8.decode message) ])
+      | _ -> Value.fail span "__file_open takes a path and a mode.")
+  ; two "__file_read" (fun span h m ->
+      match h, m with
+      | Value.Int handle, Value.Int count ->
+        let failed message = Value.Tuple [ Value.Int 3; byte_array ""; Value.Str (Utf8.decode message) ] in
+        (match Hashtbl.find_opt files handle with
+         | Some (Reading channel) ->
+           let buffer = Bytes.create (Int.max 1 count) in
+           (* Fewer than asked is not the end; none at all is. *)
+           (match In_channel.input channel buffer 0 (Bytes.length buffer) with
+            | read -> Value.Tuple [ Value.Int 0; byte_array (Bytes.sub_string buffer 0 read); Value.Str [||] ]
+            | exception Sys_error message ->
+              Value.Tuple [ Value.Int (status_of message); byte_array ""; Value.Str (Utf8.decode message) ])
+         | Some (Writing _) -> failed "The file is open for writing, not reading."
+         | None -> failed "The file is closed.")
+      | _ -> Value.fail span "__file_read takes a handle and a count.")
+  ; two "__file_write" (fun span h d ->
+      match h, bytes_of d with
+      | Value.Int handle, Some data ->
+        let failed message = Value.Tuple [ Value.Int 3; Value.Str (Utf8.decode message) ] in
+        (match Hashtbl.find_opt files handle with
+         | Some (Writing channel) ->
+           (match Out_channel.output_string channel data with
+            | () -> Value.Tuple [ Value.Int 0; Value.Str [||] ]
+            | exception Sys_error message ->
+              Value.Tuple [ Value.Int (status_of message); Value.Str (Utf8.decode message) ])
+         | Some (Reading _) -> failed "The file is open for reading, not writing."
+         | None -> failed "The file is closed.")
+      | _ -> Value.fail span "__file_write takes a handle and bytes.")
+  ; one "__file_close" (fun span h ->
+      match h with
+      | Value.Int handle ->
+        (match Hashtbl.find_opt files handle with
+         | Some file ->
+           Hashtbl.remove files handle;
+           (match
+              match file with
+              | Reading channel -> In_channel.close channel
+              | Writing channel -> Out_channel.close channel
+            with
+            | () -> Value.Tuple [ Value.Int 0; Value.Str [||] ]
+            | exception Sys_error message ->
+              Value.Tuple [ Value.Int (status_of message); Value.Str (Utf8.decode message) ])
+         | None -> Value.Tuple [ Value.Int 3; Value.Str (Utf8.decode "The file is closed.") ])
+      | _ -> Value.fail span "__file_close takes a handle.")
+  ; one "__utf8" (fun span d ->
+      match bytes_of d with
+      | Some data when String.is_valid_utf_8 data -> Value.Tuple [ Value.Bool true; Value.Str (Utf8.decode data) ]
+      | Some _ -> Value.Tuple [ Value.Bool false; Value.Str [||] ]
+      | None -> Value.fail span "__utf8 takes bytes.")
   ; one "__write_err" (fun span v ->
       match v with
       | Value.Str text ->
@@ -180,6 +299,7 @@ let values ~out =
       | Value.Str s -> Value.fail span "%s" (Utf8.encode s)
       | _ -> Value.fail span "Cannot apply panic to these arguments.")
   ; two "same" (fun _ a b -> Value.Bool (Value.same a b))
+  ; one "__upcast" (fun _ v -> v)
   ; two "__structural_eq" (fun _ a b -> Value.Bool (Value.values_equal a b))
   ; one "readfile" (fun span v ->
       match v with

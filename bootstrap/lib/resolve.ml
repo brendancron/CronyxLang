@@ -190,6 +190,15 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
          `Call (fn_ref span name [ a; b ] ann, [ a; b ])
        (* Spelled out, so a third emission form has to be decided here. *)
        | Some { Registry.emit = Registry.Primitive; _ } | None -> `Binop (op, a, b))
+    (* An object passed where one of its supertraits is wanted is that object.
+       Called through an identity, so the node keeps the type it was given. *)
+    | `Coerce (inner, _, [])
+      when match Types.type_name inner.Ast.ann with
+           | Some owner -> Hashtbl.mem Typecheck.ctx_traits owner
+           | None -> false ->
+      let data = expr registry inner in
+      let identity = Types.Fn ([ data.Ast.ann ], ann, Types.closed_row []) in
+      `Call ({ Ast.it = `Var "__upcast"; span; ann = identity }, [ data ])
     | `Coerce (inner, trait, slots) ->
       let data = expr registry inner in
       let owner =

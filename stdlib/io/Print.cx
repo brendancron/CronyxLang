@@ -10,6 +10,8 @@
  * package has them without importing them: the prelude imports them globally.
  */
 
+import { Console, Stream } from "Console";
+
 /** Writes a value and a newline to standard output. */
 fn print<T>(value: T) {
     write(Stream.Out, str(value) + "\n");

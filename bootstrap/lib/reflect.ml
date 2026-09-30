@@ -142,8 +142,10 @@ let shape_of span (ty : Types.ty) =
 let rec expr (e : Ast.resolved_expr) : Ast.reflected_expr =
   let it : Ast.reflected_expr_kind =
     match e.Ast.it with
+    (* As written, as a diagnostic shows it: `Console`, not the name it carries
+       for the module that declared it. *)
     | `Field ({ Ast.it = `Typeof inner; _ }, "name") ->
-      (string_at e.Ast.span (Types.string_of_ty inner.Ast.ann)).Ast.it
+      (string_at e.Ast.span (Diagnostic.as_written (Types.string_of_ty inner.Ast.ann))).Ast.it
     | `Field ({ Ast.it = `Typeof inner; _ }, "shape") ->
       (shape_of e.Ast.span inner.Ast.ann).Ast.it
     | `Field ({ Ast.it = `Typeof inner; _ }, "attrs") ->

@@ -36,6 +36,8 @@ let cases =
   ; "tests/stdlib/async/failure"
   ; "tests/stdlib/async/both"
   ; "tests/stdlib/async/top_level_scope"
+  ; "tests/stdlib/io/files"
+  ; "tests/stdlib/io/fake_fs"
   ; "tests/core/control/for_c"
   ; "tests/core/operators/comparison"
   ; "tests/core/operators/compound_assign"

@@ -1,8 +1,10 @@
 # I/O
 
-Status: **designed.** `Console` and the root are built ([Algebraic
-Effects](Algebraic%20Effects.md#print-is-an-effect)); files, `Reader`, `Writer`
-and `stdin` are not.
+Status: **built**, but for `stdin` and anything beyond opening, reading,
+writing and closing — deleting, listing, metadata. `std/io/Console` is the
+terminal ([Algebraic Effects](Algebraic%20Effects.md#print-is-an-effect)),
+`std/io/Io` the streams and `IoError`, `std/io/Fs` files; `tests/stdlib/io/`
+holds real files and a faked filesystem.
 
 ## I/O is async from the start
 
@@ -37,20 +39,30 @@ how a package would choose one is not decided.
 
 ```cronyx
 effect Fs {
-    ctl open(path: string, mode: Mode): File;
+    ctl open(path: string, mode: Mode): Result<File, IoError>;
 }
 
-trait Reader { fn read(self, max: int): <async, Throw<IoError>> Option<string>; }
-trait Writer { fn write(self, text: string): <async, Throw<IoError>> unit; }
+trait Reader { fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>>; }
+trait Writer { fn write(self, data: Array<byte>): <async, Throw<IoError>> unit; }
+trait File: Reader, Writer { fn close(self): <async, Throw<IoError>> unit; }
 ```
+
+Bytes, since not everything opened is text; `read_text` and `write_text` are the
+UTF-8 layer over `read_file` and `write_file`.
 
 The effect is the capability — a function's row says `<Fs>` exactly when it
 opens something, and a test or a sandbox handles `Fs` to give out in-memory files
 or none. The files themselves are values behind `Reader` and `Writer`, which
 files, standard input and later sockets share, so code handed a `Reader` does not
 care which it has. `open` returns a trait object, so a handler can return a file
-of its own kind. It is `ctl` because the root's handler suspends inside it; a
-`fn` operation's caller holds no continuation to suspend.
+of its own kind (`tests/stdlib/io/fake_fs`), and a `File` passes as a `Reader`
+or a `Writer` as it is, its table already holding their methods. It is `ctl`
+because the root's handler suspends inside it; a `fn` operation's caller holds no
+continuation to suspend.
+
+A failure to open is a value in the result, not a `throw` in the handler: the
+root's arm is outside the caller, so a failure thrown there would pass every
+handler the caller installed. `open_file` throws it where it was asked for.
 
 Threading a filesystem value through every call instead — an interface only — is
 what effects exist to remove; an effect only makes every file operation a free

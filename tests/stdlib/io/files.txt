@@ -1,0 +1,5 @@
+first line
+second line
+
+23
+caught NotFound(no-such-file.txt)

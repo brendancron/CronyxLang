@@ -1,3 +1,5 @@
+import { Stream } from "std/io/Console";
+
 fn greet(name: string) {
     print("hello, " + name);
     printerr("greeted " + name);

@@ -791,6 +791,14 @@ let rec declaring_trait trait (args : Types.infer_ty list) name
 let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
   let span = e.Ast.span in
   match Types.repr expected, Types.infer_type_name (Types.repr e.Ast.ann) with
+  (* An object of a trait is already an object of each of its supertraits: its
+     table holds their methods too. No slots, which `Resolve` reads as that. *)
+  | Types.INamed (trait, _), Some concrete
+    when Hashtbl.mem ctx_traits trait
+         && Hashtbl.mem ctx_traits concrete
+         && (not (String.equal trait concrete))
+         && List.mem trait (trait_closure concrete) ->
+    Ast.annotated span expected (`Coerce (e, trait, []))
   | Types.INamed (trait, _), Some concrete
     when Hashtbl.mem ctx_traits trait && not (String.equal trait concrete) ->
     let reachable = trait_closure trait in

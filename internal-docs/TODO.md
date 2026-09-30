@@ -81,6 +81,16 @@ A meta program is compiled with the same prelude as the program, so it sees ever
 
 Three things are left for the prelude, which is `core` — what the compiler names — and the global imports in `stdlib/prelude.cx` on top of it. Whether it gains a layer only meta programs see. Whether `meta` also handles `Assertion`, which would make `meta assert(…)` a compile-time check with the author's message rather than an unhandled effect. And which builtins a meta program may call — `print` goes to compile-time output today, and file access and the rest are the evaluator's to allow.
 
+## Which of the library every package imports
+
+Owner: [Modules.md](Modules.md)
+
+`stdlib/prelude.cx` globally imports only `print` and `printerr`. `HashMap`, `Result`, `attempt`, `all` and the rest of `std` are imported by the file that wants them, and `core` — `Option`, `List`, `Range`, the operator traits — is in scope everywhere without any import because the compiler names it, not because the prelude lists it.
+
+The prelude does not globally import more of `std` for two reasons. Every global import is loaded and prechecked with every program, whether or not the walk ever reaches a name from it, so each one is a cost every `cx run` pays. And every one is a name in every file's scope, which a program's own declaration of that name has to be told apart from; until modules can hide names, the fewer the better.
+
+When that changes, the choice is how a library name reaches a file without being written: a longer list in the prelude, as .NET's implicit usings grew per project type; or loading a `std` module the first time a file uses a name it exports, so an unused one costs nothing, which needs the loader to know what `std` exports before reading it.
+
 ## What a meta program costs
 
 Owner: [Metaprocessing.md](Metaprocessing.md)
