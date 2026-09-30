@@ -1033,6 +1033,62 @@ let run_rendering () =
    module's. Prepending it again would leave the walk's output with no prelude
    in it at all; walking it without reachability would leave every prelude
    function in. Both show up here. *)
+(* What was printed before a read has to be out before the read waits, or a
+   prompt shows only once the program has its answer. The fixtures cannot see
+   it: their output is a buffer, and a terminal is what the flush is for. So
+   the process's own descriptors are pointed at pipes, the program runs with
+   the driver's output, and whatever is in the pipe once it ends -- before
+   anything else flushes -- is what the read let out. Not a fixture under
+   `tests/`: it reads the process's real input, which `cx-parity.sh` leaves
+   attached to whatever ran it. *)
+let run_prompt_flushed () =
+  let name = "stdout flushed before a read" in
+  let path = Filename.temp_file "prompt_flushed" ".cx" in
+  Out_channel.with_open_bin path (fun channel ->
+    output_string channel "print(\"before\");\nvar line = read_line();\nprint(\"after\");\n");
+  let out_r, out_w = Unix.pipe ()
+  and in_r, in_w = Unix.pipe () in
+  ignore (Unix.write_substring in_w "x\n" 0 2);
+  Unix.close in_w;
+  flush stdout;
+  let saved_out = Unix.dup Unix.stdout
+  and saved_in = Unix.dup Unix.stdin in
+  Unix.dup2 out_w Unix.stdout;
+  Unix.dup2 in_r Unix.stdin;
+  let ran =
+    match Pipeline.compile ~roots:(Driver.roots_for path) ~out:print_string path with
+    | Ok converted ->
+      (match Pipeline.run (Builtins.env ~out:print_string) converted with
+       | Ok () -> Ok ()
+       | Error e -> Error (described path e))
+    | Error [] -> Error "the program does not compile"
+    | Error (e :: _) -> Error (described path e)
+  in
+  let buffer = Bytes.create 256 in
+  let seen =
+    match Unix.select [ out_r ] [] [] 0.0 with
+    | [], _, _ -> ""
+    | _ -> Bytes.sub_string buffer 0 (Unix.read out_r buffer 0 (Bytes.length buffer))
+  in
+  flush stdout;
+  Unix.dup2 saved_out Unix.stdout;
+  Unix.dup2 saved_in Unix.stdin;
+  List.iter Unix.close [ saved_out; saved_in; out_r; out_w; in_r ];
+  Sys.remove path;
+  match ran with
+  | Error message ->
+    Printf.printf "FAIL %s\n  %s\n" name message;
+    false
+  | Ok () when String.equal seen "before\n" ->
+    Printf.printf "ok   %s\n" name;
+    true
+  | Ok () ->
+    Printf.printf
+      "FAIL %s\n  out before the read ended: %S\n"
+      name
+      seen;
+    false
+
 let run_prelude_walk () =
   let path = "<prelude walk>" in
   let source = "var xs: List<int> = [1, 2];
@@ -1155,6 +1211,7 @@ let () =
       @ List.map (run_expected_failing root) expected_failing
       @ List.map (run_known_unsound root) known_unsound
       @ [ run_partition root; run_rendering (); run_prelude_walk (); run_stdlib_parses root ]
+      @ [ run_prompt_flushed () ]
     in
     let failed = List.length (List.filter not results) in
     Printf.printf "\n%d/%d passed\n" (List.length results - failed) (List.length results);
