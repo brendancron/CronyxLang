@@ -20,7 +20,7 @@ std/
 ├── text/                  # String manipulation and pattern matching
 │   ├── String             # String primitives and methods
 │   ├── StringBuilder      # Incremental string construction buffer
-│   ├── Format             # The Display trait and its derive; number formatting (precision, padding, radix)
+│   ├── Format             # Display and Debug, and their derives; number formatting (precision, padding, radix)
 │   ├── Utf8               # Bytes to string and back; decoding that fails as a value
 │   └── Regex              # Regular expressions (AST/Parser hidden internally, built on algo/automata)
 ├── math/                  # Numeric and mathematical utilities

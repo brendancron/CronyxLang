@@ -24,18 +24,23 @@ This needs `core/` to stop being special first. Today `prelude.ml` concatenates 
 - What the compiler names — `List` for a literal, `FromArray`, `TypeShape` for `typeof`, `Option` and `Ordering`, the operator traits — it reaches by module path, so it is loaded whether or not anything imports it, and a program's own `List` is just a different name rather than a replacement `Prelude.owns` has to allow.
 - What a file sees without an import is the `global import`s in `stdlib/prelude.cx`, and nothing else. Which of `core` is global is decided there, and moving a module changes a path in that file rather than the compiler.
 
+A file's own declaration shadows a global import of the same name, as a local shadows an outer one, so adding a name to `prelude.cx` never breaks a program that already declares it. What it shadows stays reachable qualified: `core.print`, `core.List`. Today the global import wins silently over a file's own `fn print`, and a file declaring `type List` crashes the compiler.
+
 `collections/Array`'s `filled` joins `core/Array` rather than keeping a second module of that name.
 
 **Done when**
 
 - Every fixture passes with the new import paths, and no module is left at an old one.
+- A file declaring its own `print` and its own `List` uses them, and reaches the library's as `core.print` and `core.List`.
 - `cx docs std` lists exactly the modules [stdlib.txt](stdlib.txt) does that exist.
 
 ## 1. Printing
 
-`text/Format`: a `Display` trait, its deriver, and `str` and `print` dispatching through it, with the builtin written form as the fallback for a type with no impl. `List`, `Map` and `Set` implement it to print their elements, which answers [How values print](TODO.md#how-values-print): `[1, 2, 3]` rather than the record behind it, strings quoted inside a collection, a `byte` as its number.
+`text/Format`: the `Display` and `Debug` traits, a deriver for each, and `str` and `print` dispatching through `Display`, with the builtin written form as the fallback for a type with no impl. `List`, `Map` and `Set` implement `Display` by writing each element's `Debug`, which answers [How values print](TODO.md#how-values-print): `[1, 2, 3]` rather than the record behind it, strings quoted inside a collection, a `byte` as its number.
 
-`print` and `str` keep no bound. Which form they use is decided where `Type_mono` copies them for a concrete `T`: the impl if `T` has one, the builtin form if not. That fallback cannot be the evaluator's printer, which knows nothing of impls, so a record with a `List` field would print the `List`'s record again; the builtin form is generated per type and goes through `Display` for each part that has one.
+Two traits because a string has two forms: `print("a")` writes `a`, and `print(["a"])` has to write `["a"]`, or `[""]` and `[]` print the same. `Display` is the form a value is shown in; `Debug` is the one that tells values apart, and is what a collection uses for its parts and what `assert_eq` reports a mismatch with, so `"1"` and `1` differ there too. For a type with no `Debug`, the builtin form is the fallback, as it is for `Display`.
+
+`print` and `str` keep no bound. Which form they use is decided where `Type_mono` copies them for a concrete `T`: the impl if `T` has one, the builtin form if not. That fallback cannot be the evaluator's printer, which knows nothing of impls, so a record with a `List` field would print the `List`'s record again; the builtin form is generated per type and goes through `Debug` for each part that has one.
 
 Number formatting — precision, padding, radix — is here too, since `Display for float` is where six significant digits gets replaced.
 
@@ -43,6 +48,7 @@ Number formatting — precision, padding, radix — is here too, since `Display 
 
 - `print` on a `List`, `Map` and `Set` shows its elements, and on a type with `derive Display` shows its fields.
 - A type implementing `Display` by hand is printed with it by `print`, `str` and `printerr`.
+- A list of strings prints them quoted, through `Debug`, and a type with a hand-written `Debug` is printed with it inside a `List`.
 - `"".split(',')` and an empty list print differently.
 
 ## 2. Sequences
@@ -82,11 +88,14 @@ What a program asks of the OS: `os/Args`, `os/Env`, `os/Time`, `os/Process`, `ra
 
 Each is an effect the root handles, as `Fs` is, so a test replaces it — a fixed clock, fixed arguments, a seeded generator. That decides [Launching a process](TODO.md#launching-a-process) for all of them at once, and `readfile`, `writefile` and `clock` stop being builtins.
 
+A `meta` block runs under the same root as a program, so compile time can do anything run time can: read and write files, read the environment and the clock, launch a process. Whether a build is reproducible is the program's business, not the compiler's.
+
 **Done when**
 
 - A program reads its arguments and environment, runs a subprocess and reads its output and exit code.
 - A test handles `Time` and `Random` and gets the same output on every run.
 - No builtin touches the OS that an effect in this list does not.
+- A `meta` block reads a file, the environment and the clock through the same effects.
 
 ## 5. Tasks that talk
 
@@ -101,7 +110,7 @@ Each is an effect the root handles, as `Fs` is, so a test replaces it — a fixe
 
 ## 6. Derivers
 
-`Display` is the first deriver the library ships, and this milestone writes three more — `Encode`, `Decode` and `Cli`. `meta/Derive` is extracted from what the four share rather than designed ahead of them, and `meta/Name` gathers `as_name` and what builds identifiers.
+`Display` and `Debug` come with milestone 1, and this milestone writes three more — `Encode`, `Decode` and `Cli`. `meta/Derive` is extracted from what they share rather than designed ahead of them, and `meta/Name` gathers `as_name` and what builds identifiers.
 
 It starts in `meta/Reflect`, since a deriver cannot see the type of a field and `Cli` has to: `verbose: bool` is a flag and `port: int` takes a value. A field gains `ty: TypeRef`, and a variant's `payload` becomes `Array<TypeRef>`, so `Option<int>` is no longer reported as nothing:
 
@@ -141,9 +150,20 @@ On the bitwise operators from 3.
 
 ## 8. Testing and logging
 
-- `test/Test` waits on discovery moving out of the compiler ([When a declaration query runs](TODO.md#when-a-declaration-query-runs)); until then `cx test` is the runner and `core/Assert` is the library.
+This one starts in the compiler, with `moduleof` as [Modules.md](Modules.md) decides it: a `Module` record of a module's top-level declarations, each with its doc and attributes, and asking for it is a reference to the module, so its top-level `meta` runs first and the record includes what that generates. A `fn`'s doc and a method's become readable from a `meta` block with it, which [Generated Documentation](Generated%20Documentation.md) waits on.
+
+Then the library:
+
+- `test/Test`: discovery as a library. A test root reflects the modules under test and generates a call per `@test` it finds, and `cx test` supplies the root — every file of the package and `tests/` — when the package has none ([When a declaration query runs](TODO.md#when-a-declaration-query-runs)). `cx test` stops finding tests itself.
 - `test/Bench`, on `os/Time`.
 - `log/Logger`, an effect with severity levels, handled at the root to write to standard error.
+
+**Done when**
+
+- A `meta` block lists a module's functions with their docs and attributes, and one a `gen` in that module generated is among them.
+- `cx test` runs the same tests as before with discovery in `test/Test`, and a package's own test root replaces the default.
+- A test handles `Logger` and asserts on what was logged.
+- A benchmark reports through a handled `Time`, so its fixture's output is fixed.
 
 ## 9. Hiding
 
