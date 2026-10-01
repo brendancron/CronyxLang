@@ -3,7 +3,7 @@
  *
  * A recursive-descent parser over the usual precedence: alternation, then
  * concatenation, then the postfix repeats, then a term. Panics on a pattern it
- * cannot read, which `std/lang/Regex.compile` is the caller of.
+ * cannot read, which `std/text/Regex.compile` is the caller of.
  */
 
 import { RegexAst, make, literal, concat, alt, star, plus, quest, dot, class, empty }

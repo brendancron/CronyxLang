@@ -2,7 +2,7 @@
    a package, so `import "std/…"` resolves here and never through the
    filesystem the program happens to sit in. *)
 
-let marker = Filename.concat "stdlib" "lang"
+let marker = Filename.concat "stdlib" "core"
 
 let up_from dir =
   let rec up dir =
@@ -27,7 +27,7 @@ let real path = try Unix.realpath path with Unix.Unix_error _ -> path
 let beside_binary () =
   let prefix = Filename.dirname (Filename.dirname (real Sys.executable_name)) in
   let installed = Filename.concat prefix (Filename.concat "lib" (Filename.concat "cronyx" "stdlib")) in
-  if Sys.file_exists (Filename.concat installed "lang") then Some installed else None
+  if Sys.file_exists (Filename.concat installed "core") then Some installed else None
 
 let stdlib () =
   match Sys.getenv_opt "CRONYX_STDLIB" with

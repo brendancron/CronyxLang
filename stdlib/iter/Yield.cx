@@ -2,7 +2,7 @@
  * An effect for handing values out one at a time.
  *
  * ```
- * import { Yield } from "std/effects/Yield";
+ * import { Yield } from "std/iter/Yield";
  *
  * fn counted(upto: int) <Yield<int>> {
  *     var i = 0;

@@ -594,6 +594,77 @@ let run_library_case dir =
   restore ();
   outcome
 
+(* `cx docs std` reports the modules the library ships, and each has to be where
+   `internal-docs/stdlib.txt` puts it: named there, or in a directory named
+   there. A module left at a path the layout dropped is what this catches. *)
+let run_layout_case ~layout =
+  let index_of ~sub ?(from = 0) text =
+    let n = String.length sub in
+    let rec go i =
+      if i + n > String.length text
+      then None
+      else if String.equal (String.sub text i n) sub
+      then Some i
+      else go (i + 1)
+    in
+    go from
+  in
+  let branch = "\xe2\x94\x80\xe2\x94\x80 " in
+  let listed = Hashtbl.create 64 in
+  let stack = ref [] in
+  List.iter
+    (fun line ->
+      match index_of ~sub:branch line with
+      | None -> ()
+      | Some at ->
+        let rest = String.sub line (at + String.length branch) (String.length line - at - String.length branch) in
+        let name = List.hd (String.split_on_char ' ' rest) in
+        (* Four characters of tree per level, then the entry's own `├` or `└`;
+           counted in characters, since the box-drawing ones are three bytes. *)
+        let characters =
+          String.fold_left
+            (fun n c -> if Char.code c land 0xC0 = 0x80 then n else n + 1)
+            0
+            (String.sub line 0 at)
+        in
+        let depth = (characters - 1) / 4 in
+        stack := List.filteri (fun i _ -> i < depth) !stack @ [ name ];
+        Hashtbl.replace listed (String.concat "" !stack) ())
+    (String.split_on_char '\n' (read_file layout));
+  let shipped =
+    match Cx.Docs.of_stdlib () with
+    | Error _ -> []
+    | Ok index ->
+      let text = Cx.Json.to_string index in
+      let key = "\"path\": \"" in
+      let rec find from acc =
+        match index_of ~sub:key ~from text with
+        | None -> List.rev acc
+        | Some at ->
+          let start = at + String.length key in
+          let stop = String.index_from text start '"' in
+          find stop (Filename.remove_extension (String.sub text start (stop - start)) :: acc)
+      in
+      find 0 []
+  in
+  let placed path =
+    String.equal path "prelude"
+    || Hashtbl.mem listed path
+    || Hashtbl.mem listed (Filename.dirname path ^ "/")
+  in
+  match shipped, List.filter (fun p -> not (placed p)) shipped with
+  | [], _ ->
+    Printf.printf "FAIL library layout\n  `cx docs std` reported no modules\n";
+    false
+  | _, [] ->
+    Printf.printf "ok   library layout\n";
+    true
+  | _, misplaced ->
+    Printf.printf
+      "FAIL library layout\n  not where stdlib.txt puts them:\n%s\n"
+      (String.concat "\n" (List.map (fun p -> "    " ^ p) misplaced));
+    false
+
 (* The `cx` a spawned test runs in. This suite calls `Cx.Test` in-process, so
    `Sys.executable_name` here is the harness rather than `cx`, and a runner that
    spawned itself would run this whole suite once per test. *)
@@ -1455,7 +1526,9 @@ let () =
       @ List.map (expected_failing_package_case packages_dir) expected_failing_packages
       @ List.map (doc_package_case packages_dir) doc_packages
       @ List.map (run_render_case packages_dir) render_packages
-      @ [ run_library_case
+      @ [ run_layout_case
+            ~layout:(Filename.concat root (Filename.concat "internal-docs" "stdlib.txt"))
+        ; run_library_case
             (Filename.concat root (Filename.concat "cx" (Filename.concat "test" "library")))
         ; run_missing_core_case
             ~library:

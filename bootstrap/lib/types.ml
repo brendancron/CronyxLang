@@ -201,15 +201,15 @@ let array_name = "Array"
 
 (* Not a runtime value: [Reflect] folds each projection to the data it names. *)
 let reflection_name = "Type"
-let shape_name = "TypeShape"
-let field_name = "TypeField"
-let variant_name = "TypeVariant"
+let shape_name = Core.shape
+let field_name = Core.field
+let variant_name = Core.variant
 
 let name_name = "Name"
 let iname = INamed (name_name, [])
 let name = Named (name_name, [])
-let attr_name = "Attr"
-let attr_arg_name = "AttrArg"
+let attr_name = Core.attr
+let attr_arg_name = Core.attr_arg
 
 let attr_ty = Named (attr_name, [])
 let iattr_ty = INamed (attr_name, [])

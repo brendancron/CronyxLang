@@ -1,4 +1,4 @@
-import { async, block_on, all, pause } from "std/effects/Async";
+import { async, block_on, all, pause } from "std/async/Task";
 
 fn count(name: string): int {
     for (var i = 0; i < 2; i += 1) { print(name + " " + str(i)); pause(); }

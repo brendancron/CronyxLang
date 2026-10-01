@@ -1,6 +1,6 @@
-import { Throw } from "std/lang/Throw";
-import { async } from "std/effects/Async";
-import { Mode, Fs, open_file, write_text } from "std/io/Fs";
+import { Throw } from "std/core/Error";
+import { async } from "std/async/Task";
+import { Mode, Fs, open_file, write_text } from "std/fs/File";
 import { using, lines, IoError } from "std/io/Io";
 
 write_text("io_lines_to_end.txt", "one\ntwo\nthree\n");

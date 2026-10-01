@@ -5,7 +5,7 @@
  * `float` and anything implementing `PartialOrd`.
  *
  * ```
- * import { min, max, abs } from "std/lang/Math";
+ * import { min, max, abs } from "std/math/Math";
  *
  * print(min(3, 9));   // 3
  * print(abs(0 - 4));  // 4

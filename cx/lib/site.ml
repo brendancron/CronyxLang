@@ -123,8 +123,8 @@ let markdown text =
 type target =
   { t_package : string
   (* The page, as a path under the package and without its extension: a unit is
-     a file, and two files may share a namespace -- `core/Array.cx` and
-     `collections/Array.cx` -- so a page named after the namespace would be one
+     a file, and two files may share a namespace -- `a/Util.cx` and
+     `b/Util.cx` -- so a page named after the namespace would be one
      page for both of them. *)
   ; t_page : string
   ; t_name : string

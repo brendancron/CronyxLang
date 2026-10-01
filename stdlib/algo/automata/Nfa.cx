@@ -5,8 +5,8 @@
  * recurses. A transition on `epsilon()` consumes no input, which is what lets a
  * fragment be joined to another without rewriting either.
  *
- * `std/regex/RegexNfa` builds one from a pattern, and
- * `std/automata/Dfa.subset_construction` turns one into a DFA.
+ * `std/text/regex/RegexNfa` builds one from a pattern, and
+ * `std/algo/automata/Dfa.subset_construction` turns one into a DFA.
  */
 
 fn epsilon(): int { return 0 - 1; }

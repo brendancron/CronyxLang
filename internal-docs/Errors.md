@@ -1,6 +1,6 @@
 # Errors
 
-Status: **built.** Everything here is `std/lang/Throw`, with the fixtures in
+Status: **built.** Everything here is `std/core/Error`, with the fixtures in
 `tests/stdlib/throw/`; [Async](Async.md) uses it.
 
 A failure is a typed value, performed through one effect:

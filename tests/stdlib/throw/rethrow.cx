@@ -1,4 +1,4 @@
-import { Throw, Result, attempt, rethrow, Wraps } from "std/lang/Throw";
+import { Throw, Result, attempt, rethrow, Wraps } from "std/core/Error";
 
 type IoError { NotFound(string) }
 type ParseError { BadLine(int) }

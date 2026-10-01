@@ -2,7 +2,7 @@
  * Failures, carried as values.
  *
  * ```
- * import { Throw, Result, attempt, rethrow, Wraps } from "std/lang/Throw";
+ * import { Throw, Result, attempt, rethrow, Wraps } from "std/core/Error";
  *
  * type IoError { NotFound(string) }
  * type ParseError { BadLine(int) }
@@ -122,4 +122,18 @@ impl Failure for string {
  */
 fn fail<T>(err: Failure): <Throw<Failure>> T {
     return throw(err);
+}
+
+/**
+ * A failure whose handler must produce a value: reported, and answered with a
+ * `T` by the handler.
+ *
+ * `raise` is an `fn` operation rather than a `ctl` one, so the handler's answer
+ * *is* the call's result and the function carries on. That makes it the shape
+ * for a default -- a missing entry standing in as zero -- where `Throw` is the
+ * shape for abandoning the work.
+ */
+effect Fallible<T> {
+    /** Reports the failure and answers with whatever the handler gives back. */
+    fn raise(msg: string): T;
 }

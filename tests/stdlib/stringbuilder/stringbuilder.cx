@@ -1,4 +1,4 @@
-import "std/lang/StringBuilder";
+import "std/text/StringBuilder";
 
 var sb = StringBuilder.new();
 sb.append("hello");

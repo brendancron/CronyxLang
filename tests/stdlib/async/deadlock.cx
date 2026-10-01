@@ -1,4 +1,5 @@
-import { async, block_on, all, promise, await, Promise } from "std/effects/Async";
+import { async, block_on, all } from "std/async/Task";
+import { promise, await, Promise } from "std/async/Promise";
 
 var config: Promise<string> = promise();
 

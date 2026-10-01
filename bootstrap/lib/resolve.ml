@@ -80,10 +80,10 @@ let accessor registry (target : Ast.resolved_expr) (index : Ast.resolved_expr) p
 
 let ordering_test (op : Ast.binop) =
   match op with
-  | Ast.Less -> Some "__is_less"
-  | Ast.Less_equal -> Some "__is_less_equal"
-  | Ast.Greater -> Some "__is_greater"
-  | Ast.Greater_equal -> Some "__is_greater_equal"
+  | Ast.Less -> Some Core.is_less
+  | Ast.Less_equal -> Some Core.is_less_equal
+  | Ast.Greater -> Some Core.is_greater
+  | Ast.Greater_equal -> Some Core.is_greater_equal
   | _ -> None
 
 (* This pass calls these, and nothing in a program names one, so the walk that
@@ -91,7 +91,7 @@ let ordering_test (op : Ast.binop) =
 let synthesized =
   List.filter_map ordering_test [ Ast.Less; Ast.Less_equal; Ast.Greater; Ast.Greater_equal ]
 
-let ordering_result = Types.Sum ("Option", [ Types.Sum ("Ordering", []) ])
+let ordering_result = Types.Sum (Core.option, [ Types.Sum (Core.ordering, []) ])
 
 (* Where a `run` in expression position leaves the statements it lowers to, for
    the statement being resolved to splice in front of itself. *)

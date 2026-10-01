@@ -1,10 +1,26 @@
 /**
- * The functions over a list that a list does not carry itself.
+ * The growable list, which is what a list literal builds.
  *
- * `List` is in scope with no import -- these are the operations that take a
- * function, which is why they are here rather than methods: each carries the
- * effect row of the function it is given, so `map` over an effectful function is
- * effectful and `map` over a pure one is pure.
+ * `[1, 2, 3]` is a `List<int>` when that is what the annotation asks for -- the
+ * literal is an array, and the type it is given says what to build from it, so
+ * a `Set` or a `Map` literal is written the same way.
+ *
+ * ```
+ * var names: List<string> = [];
+ * names.push("ada");
+ * names.push("grace");
+ * print(names[0]);        // ada
+ * print(names.len());     // 2
+ * print(names[1:]);       // grace
+ * ```
+ *
+ * An index outside the list is an index past its backing array, so the array's
+ * own bounds check rejects it; nothing here raises, because nothing in Cronyx
+ * can.
+ *
+ * The operations that take a function are free functions rather than methods:
+ * each carries the effect row of the function it is given, so `map` over an
+ * effectful function is effectful and `map` over a pure one is pure.
  *
  * ```
  * import { map, filter, fold, join } from "std/collections/List";
@@ -14,6 +30,115 @@
  * ```
  */
 
+import { __past_end } from "../core/Array";
+import { __span } from "../core/Range";
+
+/** A run of values, as long as it needs to be. */
+type List<T> {
+    /** The backing array, which has room for at least `count`. */
+    items: Array<T>,
+
+    /** How many of the array's slots hold a value. */
+    count: int
+}
+
+impl FromArray<T> for List<T> {
+    /** The list holding what the array holds, which is what a literal does. */
+    fn from_array(items: Array<T>): List<T> {
+        return List { items: items, count: items.len() };
+    }
+}
+
+impl Index<int> for List<T> {
+    /** An integer index finds one value. */
+    type Output = T;
+
+    /** The value at the index. */
+    fn get(self, at: int): T {
+        if (at < 0 || at >= self.count) {
+            return self.items[__past_end(self.items)];
+        }
+        return self.items[at];
+    }
+}
+
+impl IndexSet<int> for List<T> {
+    /** Puts the value at the index, and answers with it. */
+    fn set(self, at: int, v: T): T {
+        if (at < 0 || at >= self.count) {
+            return self.items[__past_end(self.items)];
+        }
+        self.items[at] = v;
+        return v;
+    }
+}
+
+impl List<T> {
+    /** How many values the list holds. */
+    fn len(self): int {
+        return self.count;
+    }
+
+    /**
+     * Adds the value to the end, growing the list if it was full.
+     *
+     * Growing doubles the backing array, so pushing `n` values copies each of
+     * them a constant number of times rather than once per push.
+     */
+    fn push(self, v: T) {
+        if (self.count == self.items.len()) {
+            var room = self.count * 2;
+            if (room < 4) {
+                room = 4;
+            }
+            self.items = __array_grow(self.items, room, v);
+        }
+        self.items[self.count] = v;
+        self.count = self.count + 1;
+    }
+
+    /**
+     * Removes the last value and answers with it.
+     *
+     * Popping an empty list is an index past the backing array, which the array
+     * rejects.
+     */
+    fn pop(self): T {
+        self.count = self.count - 1;
+        return self.items[self.count];
+    }
+
+    /** Whether any of the values is equal to this one. */
+    fn contains(self, v: T): bool {
+        var i = 0;
+        while (i < self.count) {
+            if (self.items[i] == v) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+}
+
+// Slicing is indexing by a range, so it is the same operator over a different
+// index — and it copies, because a view would need to say how long it lives.
+impl Index<Range> for List<T> {
+    /** A range finds a list of them, copied. */
+    type Output = List<T>;
+
+    /** A new list holding the values the range covers. */
+    fn get(self, r: Range): List<T> {
+        var bounds = __span(r, self.len());
+        var out: List<T> = [];
+        var at = bounds.0;
+        while (at < bounds.1) {
+            out.push(self[at]);
+            at = at + 1;
+        }
+        return out;
+    }
+}
 
 /** A new list of what the function answers for each value, in order. */
 fn map<T, U, E>(items: List<T>, f: (T) -> <E> U): <E> List<U> {

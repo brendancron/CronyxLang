@@ -1,4 +1,4 @@
-import { filled } from "std/collections/Array";
+import { filled } from "std/core/Array";
 
 print(filled<2, int>([3, 3], 0));
 print(filled<3, int>([2, 2], 0));

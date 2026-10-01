@@ -1,6 +1,6 @@
 # Async
 
-Status: **built.** `std/effects/Async` (`stdlib/effects/Async.cx`), with the
+Status: **built.** `std/async/Task` (`stdlib/async/Task.cx`), with the
 fixtures in `tests/stdlib/async/`. `tests/effects/async/` is the effect
 machinery on its own, with a hand-written scheduler.
 

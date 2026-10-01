@@ -1,4 +1,4 @@
-import { async, block_on, all } from "std/effects/Async";
+import { async, block_on, all } from "std/async/Task";
 
 var retry: List<(int) -> unit> = [];
 

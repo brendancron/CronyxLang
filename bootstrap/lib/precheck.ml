@@ -10,7 +10,7 @@ let unknown span : Ast.expr = Ast.at span (`Var unknown_name)
 (* A value parameter is checked as a local of its declared type: its value is
    what a meta block would read, its type is known now. *)
 let erase (p : Ast.program) : Ast.program =
-  let traits = Metaprocess.declared_traits (Prelude.program () @ p) in
+  let traits = Metaprocess.declared_traits p in
   let comptime = Hashtbl.create 16 in
   let rec note (s : Ast.stmt) =
     (match Metaprocess.fn_parts s with
@@ -160,7 +160,7 @@ let erase (p : Ast.program) : Ast.program =
     p
 
 let program (p : Ast.program) : Diagnostic.error list =
-  match Desugar.program (Compile.under_root (erase (Prelude.program () @ p))) with
+  match Desugar.program (Compile.under_root (erase p)) with
   | Error _ -> []
   | Ok desugared ->
     (match Typecheck.check ~policy:Typecheck.partial ~registry:(Registry.builtins ()) desugared with

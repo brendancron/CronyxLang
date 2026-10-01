@@ -1,7 +1,7 @@
 import { Reader, IoError, using, lines } from "std/io/Io";
-import { Mode, open_file, write_text } from "std/io/Fs";
-import { Throw } from "std/lang/Throw";
-import { async } from "std/effects/Async";
+import { Mode, open_file, write_text } from "std/fs/File";
+import { Throw } from "std/core/Error";
+import { async } from "std/async/Task";
 
 type Given { data: Array<byte>, at: List<int> }
 

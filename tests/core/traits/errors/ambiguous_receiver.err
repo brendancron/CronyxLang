@@ -1,1 +1,1 @@
-[2:12] Cannot call 'len': the receiver's type is not known here. Array, List, Map, Set and string declare one, so this needs a bound or an annotation.
+[2:12] Cannot call 'len': the receiver's type is not known here. Array, List, Map, Set, StringBuilder and string declare one, so this needs a bound or an annotation.

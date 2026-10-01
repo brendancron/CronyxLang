@@ -2,7 +2,7 @@
  * Matching a string against a regular expression.
  *
  * ```
- * import { compile, test, find, find_all } from "std/lang/Regex";
+ * import { compile, test, find, find_all } from "std/text/Regex";
  *
  * var dfa = compile("[0-9]+");
  * print(test(dfa, "abc123"));      // true
@@ -17,9 +17,9 @@
  */
 
 import { substring } from "String";
-import { Dfa, subset_construction, dfa_step, dfa_is_accept, no_state } from "../automata/Dfa";
-import "../regex/RegexParser";
-import "../regex/RegexNfa";
+import { Dfa, subset_construction, dfa_step, dfa_is_accept, no_state } from "../algo/automata/Dfa";
+import "regex/RegexParser";
+import "regex/RegexNfa";
 
 // pattern → RegexAst → NFA → DFA. `.` is expanded to printable ASCII while
 // building, so the DFA's alphabet is whatever the pattern actually mentions.

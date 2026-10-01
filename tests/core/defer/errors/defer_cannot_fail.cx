@@ -1,4 +1,4 @@
-import { Throw } from "std/lang/Throw";
+import { Throw } from "std/core/Error";
 
 effect Stop { final ctl stop(): unit; }
 

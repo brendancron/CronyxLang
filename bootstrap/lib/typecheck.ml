@@ -287,7 +287,7 @@ let ctx_associated : (string * string, unit) Hashtbl.t = Hashtbl.create 8
 
 let ctx_traits : (string, string list * Ast.trait_body) Hashtbl.t = Hashtbl.create 8
 
-(* So a program's declaration can be told from the prelude's. *)
+(* What is declared already, so a second declaration of a name is caught. *)
 let ctx_trait_spans : (string, Ast.span) Hashtbl.t = Hashtbl.create 8
 let ctx_type_spans : (string, Ast.span) Hashtbl.t = Hashtbl.create 8
 
@@ -442,24 +442,24 @@ type receiver =
    result at bool rather than binding an `Output`. *)
 let trait_of_operator (op : Ast.binop) =
   match op with
-  | Ast.Add -> Some ("Add", false)
-  | Ast.Sub -> Some ("Sub", false)
-  | Ast.Mul -> Some ("Mul", false)
-  | Ast.Div -> Some ("Div", false)
-  | Ast.Mod -> Some ("Rem", false)
+  | Ast.Add -> Some (Core.add, false)
+  | Ast.Sub -> Some (Core.sub, false)
+  | Ast.Mul -> Some (Core.mul, false)
+  | Ast.Div -> Some (Core.div, false)
+  | Ast.Mod -> Some (Core.rem, false)
   (* `==` compares any two values of a type structurally, so it constrains an
      operand no further. What `T: Eq` asks for is an impl to reach, which is a
      different question from whether the operator works. *)
   | Ast.Equal | Ast.Not_equal -> None
   | Ast.Less | Ast.Less_equal | Ast.Greater | Ast.Greater_equal ->
-    Some ("PartialOrd", true)
+    Some (Core.partial_ord, true)
 
 let operator_traits =
-  [ "Add", (Ast.Add, "add")
-  ; "Sub", (Ast.Sub, "sub")
-  ; "Mul", (Ast.Mul, "mul")
-  ; "Div", (Ast.Div, "div")
-  ; "Rem", (Ast.Mod, "rem")
+  [ Core.add, (Ast.Add, "add")
+  ; Core.sub, (Ast.Sub, "sub")
+  ; Core.mul, (Ast.Mul, "mul")
+  ; Core.div, (Ast.Div, "div")
+  ; Core.rem, (Ast.Mod, "rem")
   ]
 
 (* [seen] guards a cycle, which nothing rejects yet. *)
@@ -1587,7 +1587,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        Types.constrain
          a.Ast.ann
          (Types.Bound
-            [ { Types.bd_trait = "Neg"
+            [ { Types.bd_trait = Core.neg
               ; bd_args = []
               ; bd_bindings = [ "Output", a.Ast.ann ]
               } ]);
@@ -2572,13 +2572,7 @@ and declare_traits (body : Ast.desugared_stmt list) =
     (fun (s : Ast.desugared_stmt) ->
       match s.Ast.it with
       | `Trait_decl (name, params, trait_body) ->
-        (* A program's own declaration replaces the prelude's; two of its own
-           are still a mistake. *)
-        let from_prelude (span : Ast.span) = Prelude.owns (Source_map.Span.path span) in
-        (match Hashtbl.find_opt ctx_trait_spans name with
-         | Some declared when from_prelude declared && not (from_prelude s.Ast.span) -> ()
-         | Some _ -> fail s.Ast.span "Trait '%s' is already declared." name
-         | None -> ());
+        if Hashtbl.mem ctx_trait_spans name then fail s.Ast.span "Trait '%s' is already declared." name;
         Hashtbl.replace ctx_trait_spans name s.Ast.span;
         Hashtbl.replace ctx_traits name (params, trait_body);
         (* A parameter stands in a row where a method's signature puts it in one. *)
@@ -2745,7 +2739,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
               | _ -> fail span "'%s' takes one named type argument." t
             in
             (match t with
-             | "Eq" ->
+             | t when String.equal t Core.eq ->
                with_type_params type_params (fun () ->
                  let self = self_concrete () in
                  List.iter
@@ -2761,7 +2755,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                    [ Ast.Equal; Ast.Not_equal ])
              (* One entry answers all four: [Resolve] turns the `Ordering` the
                 method returns into the bool the operator wanted. *)
-             | "Neg" ->
+             | t when String.equal t Core.neg ->
                with_type_params type_params (fun () ->
                  Registry.register_unary
                    registry
@@ -2774,7 +2768,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                           fail span "'Neg' for '%s' is missing associated type 'Output'." type_name)
                    ; emit = Registry.Call (entry_name "neg")
                    })
-             | "PartialOrd" ->
+             | t when String.equal t Core.partial_ord ->
                with_type_params type_params (fun () ->
                  let self = self_concrete () in
                  List.iter
@@ -2789,11 +2783,11 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                        })
                    [ Ast.Less; Ast.Less_equal; Ast.Greater; Ast.Greater_equal ])
              (* By the names written: `Index<int> for List<T>` is every List. *)
-             | "Index" ->
+             | t when String.equal t Core.index ->
                Registry.register_index_get registry type_name (written_name ()) (entry_name "get")
-             | "IndexSet" ->
+             | t when String.equal t Core.index_set ->
                Registry.register_index_set registry type_name (written_name ()) (entry_name "set")
-             | "FromArray" ->
+             | t when String.equal t Core.from_array ->
                with_type_params type_params (fun () ->
                  let element = one_argument () in
                  let self = self_ty span type_name (List.map (fun (p : Ast.type_param) -> p.Ast.tp_name) params) in
@@ -3095,13 +3089,8 @@ and declare_type_names (body : Ast.desugared_stmt list) =
     (fun (s : Ast.desugared_stmt) ->
       match s.Ast.it with
       | `Type_decl (name, params, body) ->
-        (* A program declaring a type the prelude also declares gets its own,
-           the way it does for a trait. Two of its own are still a mistake. *)
-        let from_prelude (at : Ast.span) = Prelude.owns (Source_map.Span.path at) in
-        (match Hashtbl.find_opt ctx_type_spans name with
-         | Some declared when from_prelude declared && not (from_prelude s.Ast.span) -> ()
-         | Some _ -> fail s.Ast.span "Type '%s' is already declared." name
-         | None -> if Hashtbl.mem ctx_types name then fail s.Ast.span "Type '%s' is already declared." name);
+        if Hashtbl.mem ctx_type_spans name || Hashtbl.mem ctx_types name
+        then fail s.Ast.span "Type '%s' is already declared." name;
         Hashtbl.replace ctx_type_spans name s.Ast.span;
         let vars =
           List.map
@@ -3490,7 +3479,7 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
     in
     let loop =
       match held with
-      | Types.INamed ("Iter", [ _; _ ]) -> Desugar.pulled at names seq ~closes:true body
+      | Types.INamed (name, [ _; _ ]) when String.equal name Core.iter -> Desugar.pulled at names seq ~closes:true body
       | Types.IFn ([], _, _) -> Desugar.pulled at names seq ~closes:false body
       | _ -> Desugar.indexed at names seq body
     in
@@ -4274,17 +4263,17 @@ let admits registry kind (t : Types.infer_ty) =
 let declare_builtin_impls registry =
   List.iter
     (fun ty ->
-      Hashtbl.add ctx_impls (Option.get (Types.type_name ty), "Eq") [])
+      Hashtbl.add ctx_impls (Option.get (Types.type_name ty), Core.eq) [])
     [ Types.Int; Types.Float; Types.Str; Types.Chr; Types.Byte; Types.Bool; Types.Unit ];
   (* Whatever the registry can compare has an order, which is what a
      `PartialOrd` bound asks for. *)
   List.iter
     (fun ty ->
       if Registry.find registry Ast.Less ty ty <> None
-      then Hashtbl.add ctx_impls (Option.get (Types.type_name ty), "PartialOrd") [])
+      then Hashtbl.add ctx_impls (Option.get (Types.type_name ty), Core.partial_ord) [])
     [ Types.Int; Types.Float; Types.Str; Types.Chr; Types.Byte ];
   List.iter
-    (fun ty -> Hashtbl.add ctx_impls (Option.get (Types.type_name ty), "Neg") [])
+    (fun ty -> Hashtbl.add ctx_impls (Option.get (Types.type_name ty), Core.neg) [])
     [ Types.Int; Types.Float ];
   List.iter
     (fun (trait, (binary, _)) ->

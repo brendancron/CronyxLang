@@ -1,0 +1,9 @@
+type List {
+    head: int
+}
+
+var mine = List { head: 3 };
+core.print(mine.head);
+
+var theirs: core.List<int> = [1, 2];
+core.print(theirs.len());

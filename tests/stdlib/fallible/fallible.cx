@@ -1,4 +1,4 @@
-import { Fallible } from "std/lang/Fallible";
+import { Fallible } from "std/core/Error";
 
 fn parse_int(s) {
     if (s == "42") {

@@ -1,5 +1,5 @@
-import { Throw, attempt } from "std/lang/Throw";
-import { async } from "std/effects/Async";
+import { Throw, attempt } from "std/core/Error";
+import { async } from "std/async/Task";
 
 fn quiet(): <Throw<string>> unit { }
 fn waits(): <async, Throw<string>> unit { }

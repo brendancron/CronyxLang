@@ -22,8 +22,10 @@ std/
 │   ├── StringBuilder      # Incremental string construction buffer
 │   ├── Format             # Display and Debug, and their derives; number formatting (precision, padding, radix)
 │   ├── Utf8               # Bytes to string and back; decoding that fails as a value
-│   └── Regex              # Regular expressions (AST/Parser hidden internally, built on algo/automata)
+│   ├── Regex              # Regular expressions (AST/Parser hidden internally, built on algo/automata)
+│   └── regex/             # The pattern's syntax tree, its parser, and its automaton
 ├── math/                  # Numeric and mathematical utilities
+│   ├── Math               # min, max, abs
 │   └── BigInt             # Arbitrary-precision integers, with the operator traits implemented
 ├── algo/                  # General-purpose algorithms
 │   ├── automata/          # Finite automata over integer symbols

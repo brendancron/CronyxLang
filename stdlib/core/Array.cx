@@ -11,7 +11,18 @@
  * row[0] = 7;
  * print(row.len());   // 3
  * ```
+ *
+ * `filled` builds one of more than one dimension:
+ *
+ * ```
+ * import { filled } from "std/core/Array";
+ *
+ * var grid = filled<2, int>([3, 3], 0);
+ * grid[1][1] = 5;
+ * ```
  */
+
+import { __span } from "Range";
 
 impl Array<T> {
     /** Whether any slot holds a value equal to this one. */
@@ -44,5 +55,38 @@ impl Index<Range> for Array<T> {
     fn get(self, r: Range): Array<T> {
         var bounds = __span(r, self.len());
         return __array_copy(self, bounds.0, bounds.1);
+    }
+}
+
+// A level passes on the extents it has not spent, so `dims.len() == n` says the
+// same thing at every depth and only the outermost call can be the one that
+// broke it. `Array<T>(len, v)` puts the one `v` in every slot, so the seed is
+// written over from 1 up; left alone it would alias every row to the first.
+/**
+ * An `n`-deep array of arrays, with `fill` in every leaf.
+ *
+ * `n` is a static *value*, not a type, because it decides the return type: the
+ * copy `filled<2, int>` is the one that answers with `Array<Array<int>>`. It
+ * must equal the number of extents given, and panics if it does not.
+ *
+ * Every slot gets a subtree of its own rather than sharing one, so writing to
+ * `grid[1][1]` does not write to every row.
+ */
+fn filled<n: int, T>(dims: Array<int>, fill: T) {
+    if (dims.len() != n) {
+        panic("filled<" + str(n) + "> takes " + str(n) + " dimensions, but " + str(dims.len()) + " were given.");
+    }
+    meta if (n == 0) {
+        gen return fill;
+    } else {
+        gen var len = dims[0];
+        gen var rest = dims[1:];
+        gen var out = Array(len, filled<n - 1, T>(rest, fill));
+        gen var i = 1;
+        gen while (i < len) {
+            out[i] = filled<n - 1, T>(rest, fill);
+            i = i + 1;
+        }
+        gen return out;
     }
 }

@@ -6,7 +6,7 @@
  * once.
  *
  * ```
- * import { StringBuilder, new } from "std/lang/StringBuilder";
+ * import { StringBuilder, new } from "std/text/StringBuilder";
  *
  * var out = new();
  * out.append("total: ");

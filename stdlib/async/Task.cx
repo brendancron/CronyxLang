@@ -2,7 +2,7 @@
  * Tasks that wait, and the scopes that run them.
  *
  * ```
- * import { async, block_on, all, pause } from "std/effects/Async";
+ * import { async, block_on, all, pause } from "std/async/Task";
  *
  * fn count(name: string): int {
  *     for (var i = 0; i < 2; i += 1) { print(name + " " + str(i)); pause(); }
@@ -21,7 +21,8 @@
  * nothing outlives the scope that started it.
  */
 
-import { Throw } from "../lang/Throw";
+import { Throw } from "../core/Error";
+import { Promise, promise, resolve, await } from "Promise";
 
 /** Waiting, and the one queue waiting tasks are woken through. */
 effect async {
@@ -34,45 +35,6 @@ effect async {
 
     /** The function that puts a wake-up in the scheduler's queue. */
     fn waker(): (() -> unit) -> unit;
-}
-
-/** Either the value, or the callbacks waiting for it. */
-type PromiseState<T> {
-    /** Settled, with this value. */
-    Resolved(T),
-
-    /** Not yet, and these are waiting. */
-    Awaiting(List<(T) -> unit>)
-}
-
-/** A value some task will supply later. */
-type Promise<T> {
-    /** Where it stands. */
-    state: PromiseState<T>
-}
-
-/** A promise nothing has resolved yet. */
-fn promise<T>(): Promise<T> {
-    return Promise { state: PromiseState.Awaiting([]) };
-}
-
-/** Settles the promise and wakes whatever is waiting on it. Panics if it is already settled. */
-fn resolve<T>(p: Promise<T>, value: T) {
-    match p.state {
-        PromiseState.Resolved(_) => { panic("resolved twice"); }
-        PromiseState.Awaiting(waiters) => {
-            p.state = PromiseState.Resolved(value);
-            for (w in waiters) { w(value); }
-        }
-    }
-}
-
-/** The promise's value, waiting for it if it has none yet. */
-fn await<T>(p: Promise<T>): T {
-    match p.state {
-        PromiseState.Resolved(value) => { return value; }
-        PromiseState.Awaiting(waiters) => { return suspend { waiters.push(it); }; }
-    }
 }
 
 /** Lets every other task that is ready run before this one carries on. */

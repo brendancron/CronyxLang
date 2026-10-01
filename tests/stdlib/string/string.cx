@@ -1,6 +1,6 @@
 import { substring, index_of, repeat, pad_left, pad_right,
          is_digit, is_alpha, is_alphanumeric, is_whitespace }
-    from "std/lang/String";
+    from "std/text/String";
 
 print(substring("hello world", 0, 5));
 print(substring("hello world", 6, 11));

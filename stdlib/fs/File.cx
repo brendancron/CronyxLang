@@ -2,7 +2,7 @@
  * Files.
  *
  * ```
- * import { read_text, write_text } from "std/io/Fs";
+ * import { read_text, write_text } from "std/fs/File";
  *
  * write_text("notes.txt", "remember the milk");
  * print(read_text("notes.txt"));
@@ -15,9 +15,9 @@
  * to the directory the program was started in.
  */
 
-import { async } from "../effects/Async";
-import { Throw, Result } from "../lang/Throw";
-import { Reader, Writer, Closer, IoError, using } from "Io";
+import { async } from "../async/Task";
+import { Throw, Result } from "../core/Error";
+import { Reader, Writer, Closer, IoError, using } from "../io/Io";
 
 /** What a file is opened for. */
 type Mode {

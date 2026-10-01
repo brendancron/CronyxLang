@@ -85,7 +85,7 @@ Three things are left for the prelude, which is `core` — what the compiler nam
 
 Owner: [Modules.md](Modules.md)
 
-`stdlib/prelude.cx` globally imports only `print` and `printerr`. `HashMap`, `Result`, `attempt`, `all` and the rest of `std` are imported by the file that wants them, and `core` — `Option`, `List`, `Range`, the operator traits — is in scope everywhere without any import because the compiler names it, not because the prelude lists it.
+`stdlib/prelude.cx` globally imports `core` — `Option`, `List`, `Range`, the operator traits — and `print`, `printerr` and the console. `HashMap`, `Result`, `attempt`, `all` and the rest of `std` are imported by the file that wants them.
 
 The prelude does not globally import more of `std` for two reasons. Every global import is loaded and prechecked with every program, whether or not the walk ever reaches a name from it, so each one is a cost every `cx run` pays. And every one is a name in every file's scope, which a program's own declaration of that name has to be told apart from; until modules can hide names, the fewer the better.
 

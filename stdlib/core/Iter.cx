@@ -2,7 +2,7 @@
  * A sequence pulled one value at a time.
  *
  * ```
- * import { iterator } from "std/effects/Yield";
+ * import { iterator } from "std/iter/Yield";
  *
  * for (n in iterator { yield(1); yield(2); }) { print(n); }
  * ```
