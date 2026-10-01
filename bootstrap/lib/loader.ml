@@ -716,7 +716,16 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
           locals
           (Ast.payload_fields payload) )
   in
-  List.map (stmt S.empty) program
+  (* A top-level `var` binds for the whole file, as a declaration does, so a
+     name the prelude brings -- `Console`'s `write` -- does not take it. *)
+  let rec top_level_vars (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Var_decl (name, _, _) -> [ name ]
+    | `Var_tuple (names, _) -> names
+    | `Attributed (_, inner) -> top_level_vars inner
+    | _ -> []
+  in
+  List.map (stmt (S.of_list (List.concat_map top_level_vars program))) program
 
 (* The declarations, and what each unit of this package exports so that a
    consumer can bind the names without reading the source again. *)
@@ -844,14 +853,6 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                  if not (List.mem name target_exports)
                  then fail span "Module '%s' does not export '%s'." target name;
                  let bound = renamed target_unit ~entry:is_entry name in
-                 if global && from_prelude from then Hashtbl.replace core name bound;
-                 if not global then Hashtbl.replace locally name ();
-                 if not (shadowed name) then begin
-                 (match Hashtbl.find_opt direct name with
-                  | Some earlier when not (String.equal earlier bound) ->
-                    fail span "'%s' is already imported." name
-                  | _ -> ());
-                 Hashtbl.replace direct name bound;
                  (* An artifact records its operations but not whose they are. *)
                  let brought =
                    match target_unit.program with
@@ -861,6 +862,19 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                      |> List.filter (fun (declaring, _) -> String.equal declaring name)
                      |> List.concat_map snd
                  in
+                 if global && from_prelude from
+                 then (
+                   Hashtbl.replace core name bound;
+                   List.iter
+                     (fun op -> Hashtbl.replace core op (renamed target_unit ~entry:is_entry op))
+                     brought);
+                 if not global then Hashtbl.replace locally name ();
+                 if not (shadowed name) then begin
+                 (match Hashtbl.find_opt direct name with
+                  | Some earlier when not (String.equal earlier bound) ->
+                    fail span "'%s' is already imported." name
+                  | _ -> ());
+                 Hashtbl.replace direct name bound;
                  List.iter
                    (fun op -> Hashtbl.replace reachable op (renamed target_unit ~entry:is_entry op))
                    brought

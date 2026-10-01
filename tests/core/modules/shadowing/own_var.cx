@@ -1,0 +1,12 @@
+import "std/io/Console";
+
+var write = 2;
+print(write + 1);
+
+fn twice(): int {
+    return write * 2;
+}
+print(twice());
+
+core.write(Console.Stream.Out, "through core\n");
+Console.write(Console.Stream.Out, "through the module\n");

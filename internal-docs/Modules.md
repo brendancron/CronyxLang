@@ -160,7 +160,7 @@ shape decided by the program rather than by the compiler.
 
 `Ast.span` was `{ line; col }`, and concatenating four units would have made `[3:5]` name nothing. It now carries the file, threaded through the *token* so that no `span_of_token` call site changed. `Ast.locate ~entry` prints a bare `[3:5]` while a span is in the unit being compiled and `[lib.cx 2:12]` once it is not, rendered relative to the entry's directory.
 
-`core` is a set of units like any other, mangled under their own paths. The compiler reaches what it names by those mangled names (`Core`), and `Loader` loads `Core.modules` with every program for that reason; a file sees only what `stdlib/prelude.cx` globally imports. A file's own declaration shadows a global import of the same name, and the prelude's binding stays reachable through `core`: `core.print`, `core.List<int>`.
+`core` is a set of units like any other, mangled under their own paths. The compiler reaches what it names by those mangled names (`Core`), and `Loader` loads `Core.modules` with every program for that reason; a file sees only what `stdlib/prelude.cx` globally imports. A file's own declaration or top-level `var` shadows a global import of the same name, and an operation a global import brings, and the prelude's binding stays reachable through `core`: `core.print`, `core.List<int>`, `core.write`.
 
 ## What this does not do
 
