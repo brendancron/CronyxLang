@@ -1,0 +1,5 @@
+type Door { open: () -> string }
+
+var open = () => { return "the local"; };
+var d = Door { open: () => { return "the field"; } };
+print(d.open());

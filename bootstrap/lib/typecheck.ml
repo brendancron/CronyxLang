@@ -1925,8 +1925,9 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       | _ -> []
     in
     let args = List.map (argument env ctx) (name_implicit_params_from expected args) in
-    (* No method of the name exists, so a field holding a function is what the
-       call means. *)
+    (* The receiver's own field comes first: a record of functions is how an
+       `Iter` or a hand-made table is written, and a local that happens to share
+       the field's name says nothing about the receiver. *)
     let via_field () =
       let field =
         match Types.repr receiver.Ast.ann with
@@ -1984,17 +1985,17 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
         Some
           (node ret (`Call ({ Ast.it = `Var as_function; span; ann = fn }, receiver :: args)))
     in
+    (match via_field () with
+    | Some call -> call
+    | None ->
     (match found with
      | Error e ->
        (match via_function () with
         | Some call -> call
         | None ->
-          (match via_field () with
-           | Some call -> call
-           | None ->
-             !current.unknown
-               (fun () -> raise e)
-               (fun () -> if is_unknown receiver.Ast.ann then anything () else raise e)))
+          !current.unknown
+            (fun () -> raise e)
+            (fun () -> if is_unknown receiver.Ast.ann then anything () else raise e))
      | Ok found ->
        (match found with
      (* The trait declares the signature; which type supplies the body is
@@ -2248,7 +2249,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
                  span
                  fn
                  (`Var (Registry.entry_for_method ctx.registry owner name))
-             , all )))))
+             , all ))))))
   (* A spread stands for however many its tuple holds, so it is read where an
      argument list is and nowhere else. *)
   | `Spread _ -> fail span "A spread is an argument, so it belongs in a call."

@@ -222,6 +222,7 @@ let cases =
   ; "tests/reflection/typeof_slice"
   ; "tests/reflection/typeof_enum"
   ; "tests/core/structs/struct_dot_assign"
+  ; "tests/core/structs/field_over_local"
   ; "tests/core/structs/field_call"
   ; "tests/core/enums/wildcard"
   ; "tests/core/enums/unit_variants"
