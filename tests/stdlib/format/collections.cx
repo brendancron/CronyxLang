@@ -1,0 +1,24 @@
+var xs: List<int> = [1, 2, 3];
+print(xs);
+xs.push(4);
+print(xs);
+
+var words: List<string> = ["a", "b"];
+print(words);
+print(str(words));
+
+var none: List<string> = [];
+print(none);
+print("".split(','));
+
+var nested: List<List<int>> = [[1], [2, 3]];
+print(nested);
+
+var ages: Map<string, int> = [("ada", 36), ("bo", 4)];
+print(ages);
+
+var seen: Set<char> = ['x', 'y'];
+print(seen);
+
+var found: List<Option<string>> = [Option.Some("a"), Option.None];
+print(found);

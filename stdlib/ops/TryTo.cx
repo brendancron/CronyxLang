@@ -4,7 +4,7 @@
  * ```
  * import { TryTo } from "std/ops/TryTo";
  *
- * print("42".try_to<int>());     // Option.Some(42)
+ * print("42".try_to<int>());     // Some(42)
  * print("apples".try_to<int>()); // Option.None
  * ```
  *

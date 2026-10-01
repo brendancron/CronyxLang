@@ -6,7 +6,7 @@
  *
  * var dfa = compile("[0-9]+");
  * print(test(dfa, "abc123"));      // true
- * print(find(dfa, "abc123"));      // Option.Some(123)
+ * print(find(dfa, "abc123"));      // Some(123)
  * ```
  *
  * Compiling goes pattern → AST → NFA → DFA, so matching is a walk with no

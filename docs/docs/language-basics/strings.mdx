@@ -241,7 +241,7 @@ false
 4
 -1
 hell0 w0rld
-[hello, world]
+["hello", "world"]
 HELLO WORLD
 ```
 
@@ -276,8 +276,8 @@ print("one, two, three".split_str(", "));
 
 ```
 4
-[a, b, , c]
-[one, two, three]
+["a", "b", "", "c"]
+["one", "two", "three"]
 ```
 
 `to_upper` and `to_lower` only know the ASCII letters, `a` to `z` and `A` to `Z`. Any other character is left as it is, so `"héllo".to_upper()` is `"HéLLO"`.

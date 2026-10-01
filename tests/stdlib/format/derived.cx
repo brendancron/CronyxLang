@@ -1,0 +1,17 @@
+type Point { x: int, label: string }
+derive Display for Point;
+
+type Origin;
+derive Display for Origin;
+
+type Shape { Circle(float), Square(float), Empty }
+derive Display, Debug for Shape;
+
+print(Point { x: 1, label: "a" });
+print(str(Point { x: 2, label: "b" }));
+print(Origin);
+print(Shape.Circle(1.5));
+print(Shape.Empty);
+
+var shapes: List<Shape> = [Shape.Square(2.0), Shape.Empty];
+print(shapes);

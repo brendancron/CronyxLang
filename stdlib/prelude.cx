@@ -25,6 +25,7 @@ global import { Option } from "std/core/Option";
 global import { Range } from "std/core/Range";
 global import { AttrArg, Attr, TypeField, TypeVariant, TypeShape } from "std/meta/Reflect";
 global import { Set } from "std/collections/Set";
+global import { Display, Debug } from "std/text/Format";
 global import { Console, Stdin, read_line } from "std/io/Console";
 global import { print, printerr } from "std/io/Print";
 

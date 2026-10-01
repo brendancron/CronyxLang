@@ -36,11 +36,11 @@ A file's own declaration shadows a global import of the same name, as a local sh
 
 ## 1. Printing
 
-`text/Format`: the `Display` and `Debug` traits, a deriver for each, and `str` and `print` dispatching through `Display`, with the builtin written form as the fallback for a type with no impl. `List`, `Map` and `Set` implement `Display` by writing each element's `Debug`, which answers [How values print](TODO.md#how-values-print): `[1, 2, 3]` rather than the record behind it, strings quoted inside a collection, a `byte` as its number.
+`text/Format`: the `Display` and `Debug` traits, a deriver for each, and `str` and `print` dispatching through `Display`, with the builtin written form as the fallback for a type with no impl. `List`, `Map` and `Set` implement `Display` by writing each element's `Debug`, which answers how values print: `[1, 2, 3]` rather than the record behind it, strings quoted inside a collection, a `byte` as its number.
 
 Two traits because a string has two forms: `print("a")` writes `a`, and `print(["a"])` has to write `["a"]`, or `[""]` and `[]` print the same. `Display` is the form a value is shown in; `Debug` is the one that tells values apart, and is what a collection uses for its parts and what `assert_eq` reports a mismatch with, so `"1"` and `1` differ there too. For a type with no `Debug`, the builtin form is the fallback, as it is for `Display`.
 
-`print` and `str` keep no bound. Which form they use is decided where `Type_mono` copies them for a concrete `T`: the impl if `T` has one, the builtin form if not. That fallback cannot be the evaluator's printer, which knows nothing of impls, so a record with a `List` field would print the `List`'s record again; the builtin form is generated per type and goes through `Debug` for each part that has one.
+`print` and `str` keep no bound. Which form they use is decided when the value is printed, by the type name it carries: the impl if the type has one, the builtin form if not, and the builtin form goes through `Debug` for each part that has one ([Data Structures](Data%20Structures.md#how-a-value-prints)).
 
 Number formatting — precision, padding, radix — is here too, since `Display for float` is where six significant digits gets replaced.
 

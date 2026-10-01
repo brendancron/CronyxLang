@@ -166,8 +166,16 @@ let token_type_to_string = function
   | Eof -> "EOF"
 
 (* Floats keep a visible fractional part so they never read as ints. *)
+(* The fewest digits that read back as the same float. *)
 let float_to_string n =
-  if Float.is_integer n then Printf.sprintf "%.1f" n else Printf.sprintf "%g" n
+  if Float.is_integer n && Float.abs n < 1e16
+  then Printf.sprintf "%.1f" n
+  else (
+    let rec shortest digits =
+      let text = Printf.sprintf "%.*g" digits n in
+      if digits >= 17 || Float.equal (float_of_string text) n then text else shortest (digits + 1)
+    in
+    shortest 1)
 
 let literal_to_string = function
   | Identifier name -> name

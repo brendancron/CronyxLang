@@ -3,5 +3,5 @@ quote:"q" slash:\
 line1
 line2
 true true true true
-[a, b]
+["a", "b"]
 padded

@@ -1,0 +1,39 @@
+import { Stream } from "std/io/Console";
+
+type Money { pence: int }
+
+impl Display for Money {
+    fn fmt(self): string {
+        return "£" + str(self.pence / 100) + "." + str(self.pence % 100);
+    }
+}
+
+type Tag { name: string }
+
+impl Debug for Tag {
+    fn debug(self): string { return "#" + self.name; }
+}
+
+var price = Money { pence: 1250 };
+print(price);
+print("costs " + str(price));
+
+var err: List<string> = [];
+run {
+    printerr(price);
+} handle Console {
+    fn write(to, text) {
+        match to {
+            Stream.Out => {}
+            Stream.Err => { err.push(text); }
+        }
+    }
+}
+print(err[0] == "£12.50\n");
+
+var tags: List<Tag> = [Tag { name: "new" }, Tag { name: "old" }];
+print(tags);
+print(Tag { name: "alone" });
+print(debug("quoted"));
+print(debug('c'));
+print(debug(price));

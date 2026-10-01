@@ -42,7 +42,7 @@ print(s.len());          // 5
 print(s[1]);             // é
 print(typeof(s[1]));     // char
 print(s.contains("éll"));// true
-print("a,b".split(','));  // [a, b]
+print("a,b".split(','));  // ["a", "b"]
 ```
 
 A string cannot be written through — `s[0] = c` is an error — so an index reads and nothing writes.
@@ -192,3 +192,10 @@ print(seen.len());          // 4
 A set declares a literal and no indexing, so `seen[0]` is an error. The three bracket entries are independent and a type takes only the ones that mean something for it.
 
 Membership is `==`, which is structural — two records with equal fields are the same element, and a set of them holds one. Identity, when that is the question being asked, is `same(a, b)`.
+
+## How a value prints
+
+`str` and `print` write a value through its `Display` impl, then its `Debug` impl, and otherwise as its structure; `debug` writes it through `Debug` alone. The structure writes each part as `debug` does, so a string or a char inside a value is quoted and a byte is its number: `["a", ""]` and `[]` differ, and `print("hé".bytes())` is `[104, 195, 169]`. `List`, `Map` and `Set` implement both, as their elements rather than the record behind them: `[1, 2, 3]`, `{"a": 1}`, `{1, 2}`.
+
+Which impl writes a value is decided when it is printed, by the type name the value carries: the printer looks for the function `Resolve` named the impl's method. Choosing when `str` is copied for a concrete type would miss a value printed as part of another, inside a lambda in a generic body, or in a function that calls itself at a new type, none of which `Type_mono` copies. A float writes the fewest digits that read back as the same float.
+

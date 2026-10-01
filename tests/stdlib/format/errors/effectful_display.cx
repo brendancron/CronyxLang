@@ -1,0 +1,8 @@
+type Loud { n: int }
+impl Display for Loud {
+    fn fmt(self): string {
+        print("formatting");
+        return "loud";
+    }
+}
+print(Loud { n: 1 });

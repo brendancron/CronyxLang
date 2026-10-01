@@ -11,7 +11,7 @@
  *
  * var ages = new<string, int>();
  * ages.set("ada", 36);
- * print(ages.get("ada"));        // Option.Some(36)
+ * print(ages.get("ada"));        // Some(36)
  * print(ages.contains("nobody")); // false
  * ```
  *

@@ -1,5 +1,5 @@
 a char
 true false
 a
-[z, y] 2 true
-[!, !, !] (char, int) -> Array<char>
+['z', 'y'] 2 true
+['!', '!', '!'] (char, int) -> Array<char>

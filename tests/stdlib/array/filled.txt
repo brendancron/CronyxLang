@@ -2,6 +2,6 @@
 Array<int>
 [[0, 7, 0], [0, 0, 0]]
 Array<Array<int>>
-[[[x, x], [x, x]], [[x, y], [x, x]]]
+[[["x", "x"], ["x", "x"]], [["x", "y"], ["x", "x"]]]
 Array<Array<Array<string>>>
 []

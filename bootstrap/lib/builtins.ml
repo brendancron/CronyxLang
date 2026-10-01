@@ -71,8 +71,17 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () -> [ Types.iarray Types.IByte ], Types.ITuple [ Types.IBool; Types.IStr ] )
   ; ("__write_err", "", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "str"
-    , "The value's written form -- the same one `print` writes."
+    , "The value as `print` writes it: through its `Display` impl if it has one, \
+       then its `Debug` impl, and otherwise its structure, each part as `debug` \
+       writes it."
     , fun () -> [ Types.fresh () ], Types.IStr )
+  ; ( "debug"
+    , "The value in the form that tells values apart: through its `Debug` impl \
+       if it has one, and otherwise its structure, with a string or a char \
+       quoted and a byte as its number."
+    , fun () -> [ Types.fresh () ], Types.IStr )
+  ; ("__written", "", fun () -> [ Types.fresh () ], Types.IStr)
+  ; ("__fixed", "", fun () -> [ Types.IFloat; Types.IInt ], Types.IStr)
   ; "ord", "The character's Unicode code point.", (fun () -> [ Types.IChr ], Types.IInt)
   ; ( "chr"
     , "The character at a Unicode code point. Panics if there is none."
@@ -182,7 +191,84 @@ let bytes_of (v : Value.value) =
 
 let byte_array text = Value.Array (Array.init (String.length text) (fun i -> Value.Byte text.[i]))
 
-let values ~out =
+let quoted ~mark text =
+  let buf = Buffer.create (String.length text + 2) in
+  Buffer.add_char buf mark;
+  String.iter
+    (fun c ->
+      match c with
+      | '\\' -> Buffer.add_string buf "\\\\"
+      | '\n' -> Buffer.add_string buf "\\n"
+      | '\t' -> Buffer.add_string buf "\\t"
+      | '\r' -> Buffer.add_string buf "\\r"
+      | c when Char.equal c mark -> Buffer.add_char buf '\\'; Buffer.add_char buf c
+      | c -> Buffer.add_char buf c)
+    text;
+  Buffer.add_char buf mark;
+  Buffer.contents buf
+
+(* What `str` and `debug` write. A record or variant whose type implements
+   `Display` or `Debug` is written by that impl, found by the name its method
+   was given rather than chosen where the call was checked: a part of a value
+   is printed wherever it sits, and only the value knows its type there. The
+   method is called directly, so one that performs an effect cannot be
+   reached from here. *)
+let written ~globals =
+  let method_of name trait method_ =
+    match Value.lookup globals (Ast.generated [ name; trait; method_ ]) with
+    | Some { contents = Value.Fn f } -> Some f
+    | _ -> None
+  in
+  let called span (f : Value.fn) v =
+    if f.Value.arity <> Some 1
+    then Value.fail span "'%s' performs an effect, so it cannot write a printed value." f.Value.name;
+    match f.Value.apply span [ v ] with
+    | Value.Str text -> Utf8.encode text
+    | other -> Value.fail span "'%s' answered %s rather than a string." f.Value.name (Value.type_name other)
+  in
+  let rec shown span mode (v : Value.value) =
+    let declared =
+      match v with
+      | Value.Record (Some name, _) | Value.Variant (Some name, _, _) -> Some name
+      | _ -> None
+    in
+    let impl =
+      Option.bind declared (fun name ->
+        match mode with
+        | `Display ->
+          (match method_of name Core.display "fmt" with
+           | Some f -> Some f
+           | None -> method_of name Core.debug "debug")
+        | `Debug -> method_of name Core.debug "debug")
+    in
+    match impl, v with
+    | Some f, _ -> called span f v
+    | None, Value.Str s -> if mode = `Debug then quoted ~mark:'"' (Utf8.encode s) else Utf8.encode s
+    | None, Value.Chr c ->
+      let buf = Buffer.create 4 in
+      Buffer.add_utf_8_uchar buf c;
+      if mode = `Debug then quoted ~mark:'\'' (Buffer.contents buf) else Buffer.contents buf
+    | None, Value.Object (data, _) -> shown span mode data
+    | None, v -> form span v
+  (* The builtin form: the structure, each part as `debug` writes it. *)
+  and form span (v : Value.value) =
+    let part = shown span `Debug in
+    match v with
+    | Value.Array items -> "[" ^ String.concat ", " (Array.to_list (Array.map part items)) ^ "]"
+    | Value.Tuple items -> "(" ^ String.concat ", " (List.map part items) ^ ")"
+    | Value.Variant (_, name, []) -> name
+    | Value.Variant (_, name, fields) ->
+      name ^ "(" ^ String.concat ", " (List.map (fun (_, v) -> part v) fields) ^ ")"
+    | Value.Record (_, fields) ->
+      "{ " ^ String.concat ", " (List.map (fun (l, v) -> l ^ ": " ^ part !v) fields) ^ " }"
+    | Value.Byte b -> string_of_int (Char.code b)
+    | Value.Object (data, _) -> form span data
+    | other -> Value.string_of_value other
+  in
+  shown, form
+
+let values ~out ~globals =
+  let shown, form = written ~globals in
   let native name arity apply = name, Value.Fn { Value.name; arity; apply } in
   let two name f =
     native name (Some 2) (fun span args ->
@@ -311,7 +397,15 @@ let values ~out =
         flush stderr;
         Value.Unit
       | _ -> Value.fail span "__write_err takes a string.")
-  ; one "str" (fun _ v -> Value.Str (Utf8.decode (Value.string_of_value v)))
+  ; one "str" (fun span v -> Value.Str (Utf8.decode (shown span `Display v)))
+  ; one "debug" (fun span v -> Value.Str (Utf8.decode (shown span `Debug v)))
+  ; one "__written" (fun span v -> Value.Str (Utf8.decode (form span v)))
+  ; two "__fixed" (fun span x digits ->
+      match x, digits with
+      | Value.Float x, Value.Int digits when digits >= 0 ->
+        Value.Str (Utf8.decode (Printf.sprintf "%.*f" digits x))
+      | _, Value.Int digits -> Value.fail span "fixed takes a count of digits, not %d." digits
+      | _ -> Value.fail span "Cannot apply fixed to these arguments.")
   ; one "ord" (fun span v ->
       match v with
       | Value.Chr c -> Value.Int (Uchar.to_int c)
@@ -426,5 +520,5 @@ let values ~out =
 
 let env ~out =
   let env = Value.new_env None in
-  List.iter (fun (name, v) -> Value.define env name v) (values ~out);
+  List.iter (fun (name, v) -> Value.define env name v) (values ~out ~globals:env);
   env

@@ -123,6 +123,25 @@ impl List<T> {
 
 // Slicing is indexing by a range, so it is the same operator over a different
 // index — and it copies, because a view would need to say how long it lives.
+/** The values in order, each as `debug` writes it: `[1, 2, 3]`. */
+impl Debug for List<T> {
+    fn debug(self): string {
+        var out = "[";
+        var i = 0;
+        while (i < self.count) {
+            if (i > 0) { out = out + ", "; }
+            out = out + debug(self.items[i]);
+            i = i + 1;
+        }
+        return out + "]";
+    }
+}
+
+/** As `Debug` writes it, so a list of strings shows each one quoted. */
+impl Display for List<T> {
+    fn fmt(self): string { return debug(self); }
+}
+
 impl Index<Range> for List<T> {
     /** A range finds a list of them, copied. */
     type Output = List<T>;

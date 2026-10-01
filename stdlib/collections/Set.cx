@@ -36,6 +36,25 @@ impl Set<T> {
     }
 }
 
+/** The values in insertion order: `{1, 2, 3}`. */
+impl Debug for Set<T> {
+    fn debug(self): string {
+        var out = "{";
+        var i = 0;
+        while (i < self.items.len()) {
+            if (i > 0) { out = out + ", "; }
+            out = out + debug(self.items[i]);
+            i = i + 1;
+        }
+        return out + "}";
+    }
+}
+
+/** As `Debug` writes it. */
+impl Display for Set<T> {
+    fn fmt(self): string { return debug(self); }
+}
+
 impl FromArray<T> for Set<T> {
     /** The set of what the array holds, duplicates dropped. */
     fn from_array(items: Array<T>): Set<T> {

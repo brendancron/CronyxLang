@@ -8,7 +8,7 @@
    primitive, which are reached through the value rather than a name. *)
 let modules =
   [ "core/Array"; "core/Assert"; "core/Iter"; "collections/List"; "collections/Map"; "core/Ops"
-  ; "core/Option"; "core/Range"; "meta/Reflect"; "collections/Set"; "text/String"
+  ; "core/Option"; "core/Range"; "meta/Reflect"; "collections/Set"; "text/String"; "text/Format"
   ]
 
 (* As [Ast.generated] spells it, which [Types] cannot reach. *)
@@ -18,6 +18,10 @@ let option = name "core/Option" "Option"
 let iter = name "core/Iter" "Iter"
 let assertion = name "core/Assert" "Assertion"
 let assertion_failed = name "core/Assert" "failed"
+
+(* Found at run time by the printer, through the name an impl's method gets. *)
+let display = name "text/Format" "Display"
+let debug = name "text/Format" "Debug"
 
 let ops = name "core/Ops"
 let ordering = ops "Ordering"

@@ -3611,6 +3611,26 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
           mangled, fn_type, { m with Ast.md_body = body; md_ann = fn_type }))
         impl.Ast.ib_methods
     in
+    (* The printer calls these wherever a value is written, inside another
+       value or not, and nothing there handles an effect. *)
+    (match trait with
+     | Some (t, _) when String.equal t Core.display || String.equal t Core.debug ->
+       List.iter
+         (fun (_, fn_type, (m : (checked_stmt, Types.infer_ty) Ast.method_def)) ->
+           match fn_type with
+           | Types.IFn (_, _, row) ->
+             (match fst (Types.labels_of_infer_row row) with
+              | [] -> ()
+              | (label, _) :: _ ->
+                fail
+                  span
+                  "'%s' in this impl performs '%s', and a value is printed by calling it wherever \
+                   the value is written, where nothing handles an effect."
+                  m.Ast.md_name
+                  label)
+           | _ -> ())
+         inferred
+     | _ -> ());
     (* One variable per impl parameter is shared by every method, so the impl
        generalizes as a group or not at all. *)
     List.iter (fun (mangled, _, _) -> Hashtbl.remove env.bindings mangled) inferred;
