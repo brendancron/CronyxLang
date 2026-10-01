@@ -1,4 +1,4 @@
-import { Yield, iterator } from "std/effects/Yield";
+import { Yield, iterator } from "std/iter/Yield";
 
 fn count(upto: int): <Yield<int>, Console> unit {
     defer print("count cleaned up");

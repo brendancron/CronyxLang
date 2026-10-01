@@ -85,7 +85,7 @@ Three things are left for the prelude, which is `core` — what the compiler nam
 
 Owner: [Modules.md](Modules.md)
 
-`stdlib/prelude.cx` globally imports only `print` and `printerr`. `HashMap`, `Result`, `attempt`, `all` and the rest of `std` are imported by the file that wants them, and `core` — `Option`, `List`, `Range`, the operator traits — is in scope everywhere without any import because the compiler names it, not because the prelude lists it.
+`stdlib/prelude.cx` globally imports `core` — `Option`, `List`, `Range`, the operator traits — and `print`, `printerr` and the console. `HashMap`, `Result`, `attempt`, `all` and the rest of `std` are imported by the file that wants them.
 
 The prelude does not globally import more of `std` for two reasons. Every global import is loaded and prechecked with every program, whether or not the walk ever reaches a name from it, so each one is a cost every `cx run` pays. And every one is a name in every file's scope, which a program's own declaration of that name has to be told apart from; until modules can hide names, the fewer the better.
 
@@ -173,14 +173,6 @@ This prints only `caught`. Running the cleanup at the arm's exit would be wrong 
 Owner: [Package Manager.md](Package%20Manager.md)
 
 `Toolchain_store.install` copies the `cx` binary it is given to `~/.cronyx/toolchains/<v>/bin/cx` and nothing else, so an installed toolchain cannot find its standard library and every `import "std/…"` fails with `Cannot find the standard library.` The release archive already has the install layout — `bin/cx`, `bin/cronyxc`, `lib/cronyx/stdlib` — so the direction is for `install` to take the unpacked archive and copy `bin/` and `lib/` together; the alternative is to keep the binary-only form and make `CRONYX_STDLIB` part of the documented setup.
-
-## How values print
-
-Owner: [Data Structures.md](Data%20Structures.md)
-
-`print(xs)` and `str(xs)` on a `List` show the record behind it — `{ items: [1, 2, 3], count: 3 }` — and after `[1, 2]` and a `push(3)` the backing array's spare capacity too: `{ items: [1, 2, 3, 3], count: 3 }`. The direction is to print the live elements the way an `Array` prints, `[1, 2, 3]`, and give `Map` and `Set` the same treatment; what is open is whether that is a `Show` impl in the prelude or a case in the evaluator's printer.
-
-Three more cases belong to the same decision. A `byte` prints as its raw octet, so `print("hé".bytes())` shows `[h, �, �]`, and nothing turns a `byte` into its number. A `float` prints with six significant digits — `1.0 / 3.0` is `0.333333` and `1234567.5` is `1.23457e+06` — while a whole one prints as `9.0`. And a string inside a collection prints without quotes, so `"".split(',')`, one empty string, prints as `[]`, the same as no strings at all.
 
 ## A `Default` trait
 

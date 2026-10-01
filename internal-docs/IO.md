@@ -3,7 +3,7 @@
 Status: **built**, but for anything beyond opening, reading, writing and
 closing a file — deleting, listing, metadata. `std/io/Console` is the
 terminal ([Algebraic Effects](Algebraic%20Effects.md#print-is-an-effect)),
-`std/io/Io` the streams and `IoError`, `std/io/Fs` files; `tests/stdlib/io/`
+`std/io/Io` the streams and `IoError`, `std/fs/File` files; `tests/stdlib/io/`
 holds real files and a faked filesystem.
 
 ## I/O is async from the start

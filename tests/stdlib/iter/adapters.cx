@@ -1,0 +1,15 @@
+import { Yield, iterator } from "std/iter/Yield";
+import { map, filter, take, collect, zip, enumerate, chain } from "std/iter/Adapters";
+
+var naturals = iterator { var n = 0; while (true) { yield(n); n = n + 1; } };
+var squares = map(naturals, (n) => { return n * n; });
+print(collect(take(filter(squares, (n) => { return n % 2 == 0; }), 3)));
+var a = iterator { yield("x"); yield("y"); };
+var b = iterator { yield(1); yield(2); yield(3); };
+print(collect(zip(a, b)));
+print(collect(enumerate(iterator { yield('p'); yield('q'); })));
+print(collect(chain(iterator { yield(1); }, iterator { yield(2); yield(3); })));
+
+var none: Iter<int, <>> = iterator { };
+print(collect(map(none, (n) => { return n + 1; })));
+print(collect(take(iterator { yield(1); yield(2); }, 0)));

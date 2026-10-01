@@ -1,0 +1,69 @@
+/**
+ * A collection with no duplicates, which is what a set literal builds.
+ *
+ * ```
+ * var seen: Set<string> = {"ada", "grace", "ada"};
+ * print(seen.len());            // 2
+ * print(seen.contains("ada"));  // true
+ * ```
+ *
+ * Membership is a scan, so this is the small-collection answer;
+ * `std/collections/HashSet` is the one that hashes.
+ */
+
+/** The values, each held once. */
+type Set<T> {
+    /** In insertion order, with no two equal to each other. */
+    items: List<T>
+}
+
+impl Set<T> {
+    /** How many values the set holds. */
+    fn len(self): int {
+        return self.items.len();
+    }
+
+    /** Whether the set holds a value equal to this one. */
+    fn contains(self, v: T): bool {
+        return self.items.contains(v);
+    }
+
+    /** Adds the value unless an equal one is already held. */
+    fn insert(self, v: T) {
+        if (!self.items.contains(v)) {
+            self.items.push(v);
+        }
+    }
+}
+
+/** The values in insertion order: `{1, 2, 3}`. */
+impl Debug for Set<T> {
+    fn debug(self): string {
+        var out = "{";
+        var i = 0;
+        while (i < self.items.len()) {
+            if (i > 0) { out = out + ", "; }
+            out = out + debug(self.items[i]);
+            i = i + 1;
+        }
+        return out + "}";
+    }
+}
+
+/** As `Debug` writes it. */
+impl Display for Set<T> {
+    fn fmt(self): string { return debug(self); }
+}
+
+impl FromArray<T> for Set<T> {
+    /** The set of what the array holds, duplicates dropped. */
+    fn from_array(items: Array<T>): Set<T> {
+        var out = Set { items: [] };
+        var i = 0;
+        while (i < items.len()) {
+            out.insert(items[i]);
+            i = i + 1;
+        }
+        return out;
+    }
+}

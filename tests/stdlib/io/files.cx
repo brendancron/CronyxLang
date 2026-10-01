@@ -1,6 +1,6 @@
-import { Mode, File, Fs, open_file, read_all, read_file, read_text, write_file, write_text } from "std/io/Fs";
+import { Mode, File, Fs, open_file, read_all, read_file, read_text, write_file, write_text } from "std/fs/File";
 import { IoError, Reader, Writer } from "std/io/Io";
-import { Throw, Result, attempt } from "std/lang/Throw";
+import { Throw, Result, attempt } from "std/core/Error";
 
 write_text("fs_files_notes.txt", "first line\n");
 var log = open_file("fs_files_notes.txt", Mode.Append);

@@ -5,6 +5,4 @@ var hello = embed("hello.txt");
 print(hello.len());
 print(str(hello[0]) + " " + str(hello[7]));
 
-var text = "";
-for (b in hello) { text = text + str(b); }
-print(text);
+print(hello[0:5]);

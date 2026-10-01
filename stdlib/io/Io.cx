@@ -4,12 +4,12 @@
  * `IoError` says why one could not.
  *
  * Bytes rather than text, since not everything read is text; `read_text` in
- * `std/io/Fs` decodes when it is.
+ * `std/fs/File` decodes when it is.
  */
 
-import { async } from "../effects/Async";
-import { Yield, iterator } from "../effects/Yield";
-import { Throw, Failure, attempt } from "../lang/Throw";
+import { async } from "../async/Task";
+import { Yield, iterator } from "../iter/Yield";
+import { Throw, Failure, attempt } from "../core/Error";
 
 /** Why a file could not be read, written or opened. */
 type IoError {

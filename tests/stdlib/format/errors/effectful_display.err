@@ -1,0 +1,1 @@
+[2:1] 'fmt' in this impl performs 'Console', and a value is printed by calling it wherever the value is written, where nothing handles an effect.

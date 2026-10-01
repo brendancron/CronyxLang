@@ -123,6 +123,36 @@
               "row": null
             },
             {
+              "id": "builtin#debug",
+              "package": "std",
+              "unit": "builtins",
+              "name": "debug",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The value in the form that tells values apart: through its `Debug` impl if it has one, and otherwise its structure, with a string or a char quoted and a byte as its number.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "string",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
               "id": "builtin#float#to_int",
               "package": "std",
               "unit": "builtins",
@@ -319,7 +349,7 @@
               "kind": "fn",
               "line": null,
               "exported": true,
-              "doc": "The value's written form -- the same one `print` writes.",
+              "doc": "The value as `print` writes it: through its `Display` impl if it has one, then its `Debug` impl, and otherwise its structure, each part as `debug` writes it.",
               "attrs": [],
               "static": [],
               "params": [

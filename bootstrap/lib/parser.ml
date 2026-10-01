@@ -144,7 +144,15 @@ let rec type_expr s : Ast.type_expr =
         ignore (advance s);
         let member = consume_identifier s "Expected an associated type name after '.'." in
         let sp = Source_map.Span.join sp (Ast.span_of_token (previous s)) in
-        projected (Ast.at sp (Ast.Ty_assoc (owner, member))))
+        match owner.Ast.it with
+        (* `geom.Box<int>`: an associated type takes no arguments, so this is a
+           type read out of a module. *)
+        | Ast.Ty_name namespace when check s Token.Less ->
+          ignore (advance s);
+          let args = listed_until s Token.Greater type_argument in
+          ignore (consume s Token.Greater "Expected '>' after type arguments.");
+          Ast.at sp (Ast.Ty_app (namespace ^ "." ^ member, args))
+        | _ -> projected (Ast.at sp (Ast.Ty_assoc (owner, member))))
       else owner
     in
     projected head
@@ -609,7 +617,7 @@ and index_or_range s : Ast.expr =
   let sp = Ast.span_of_token (peek s) in
   let range variant args =
     let payload = if args = [] then Ast.P_none else Ast.P_tuple args in
-    Ast.at sp (`New_variant ("Range", variant, payload))
+    Ast.at sp (`New_variant ("core.Range", variant, payload))
   in
   if check s Token.Colon
   then (

@@ -1,0 +1,17 @@
+import { fixed, radix } from "std/text/Format";
+
+print(1.0 / 3.0);
+print(0.1 + 0.2);
+print(2.5);
+print(9.0);
+print(1234567.5);
+
+print(fixed(3.14159, 2));
+print(fixed(2.0, 0));
+print(fixed(0.5, 3));
+
+print(radix(255, 16));
+print(radix(-5, 2));
+print(radix(0, 8));
+
+print("hé".bytes());

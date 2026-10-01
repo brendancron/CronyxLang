@@ -1,0 +1,105 @@
+/**
+ * The nondeterministic finite automaton.
+ *
+ * States are integers and transitions are a flat list, so nothing here
+ * recurses. A transition on `epsilon()` consumes no input, which is what lets a
+ * fragment be joined to another without rewriting either.
+ *
+ * `std/text/regex/RegexNfa` builds one from a pattern, and
+ * `std/algo/automata/Dfa.subset_construction` turns one into a DFA.
+ */
+
+fn epsilon(): int { return 0 - 1; }
+
+type Transition {
+    src: int,
+    on: int,
+    to: int
+}
+
+type Nfa {
+    states: List<int>,
+    alphabet: List<int>,
+    transitions: List<Transition>,
+    start: int,
+    accept: List<int>
+}
+
+fn new(start: int): Nfa {
+    var states: List<int> = [start];
+    var alphabet: List<int> = [];
+    var transitions: List<Transition> = [];
+    var accept: List<int> = [];
+    return Nfa {
+        states: states,
+        alphabet: alphabet,
+        transitions: transitions,
+        start: start,
+        accept: accept
+    };
+}
+
+fn set_contains(set: List<int>, val: int): bool {
+    for (member in set) {
+        if (member == val) { return true; }
+    }
+    return false;
+}
+
+// The states reachable from these without consuming anything. The worklist is
+// walked by index rather than being re-sliced, so it costs one pass.
+fn epsilon_closure(nfa: Nfa, states: List<int>): List<int> {
+    var closure: List<int> = [];
+    for (state in states) { closure.push(state); }
+    var at = 0;
+    while (at < closure.len()) {
+        var state = closure[at];
+        for (t in nfa.transitions) {
+            if (t.src == state && t.on == epsilon() && !set_contains(closure, t.to)) {
+                closure.push(t.to);
+            }
+        }
+        at = at + 1;
+    }
+    return closure;
+}
+
+fn step(nfa: Nfa, states: List<int>, symbol: int): List<int> {
+    var reached: List<int> = [];
+    for (state in states) {
+        for (t in nfa.transitions) {
+            if (t.src == state && t.on != epsilon() && t.on == symbol
+                && !set_contains(reached, t.to)) {
+                reached.push(t.to);
+            }
+        }
+    }
+    return reached;
+}
+
+fn is_accept(nfa: Nfa, id: int): bool { return set_contains(nfa.accept, id); }
+
+fn simulate(nfa: Nfa, input: List<int>): bool {
+    var start: List<int> = [nfa.start];
+    var current = epsilon_closure(nfa, start);
+    for (symbol in input) {
+        current = epsilon_closure(nfa, step(nfa, current, symbol));
+    }
+    for (state in current) {
+        if (is_accept(nfa, state)) { return true; }
+    }
+    return false;
+}
+
+impl Nfa {
+    fn add_state(self, id: int) { self.states.push(id); }
+    fn add_symbol(self, symbol: int) { self.alphabet.push(symbol); }
+    fn add_transition(self, src: int, on: int, to: int) {
+        self.transitions.push(Transition { src: src, on: on, to: to });
+    }
+    fn add_epsilon(self, src: int, to: int) {
+        self.transitions.push(Transition { src: src, on: epsilon(), to: to });
+    }
+    fn add_accept(self, id: int) { self.accept.push(id); }
+    fn accepts(self, input: List<int>): bool { return simulate(self, input); }
+}

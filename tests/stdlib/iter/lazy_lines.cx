@@ -1,0 +1,32 @@
+import { Reader, IoError, lines } from "std/io/Io";
+import { Throw } from "std/core/Error";
+import { async } from "std/async/Task";
+import { map, filter, take, collect } from "std/iter/Adapters";
+
+// Hands out four bytes a read, and counts the reads.
+type Slow { data: Array<byte>, at: List<int>, reads: List<int> }
+
+impl Reader for Slow {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        self.reads[0] = self.reads[0] + 1;
+        var start = self.at[0];
+        if (start >= self.data.len()) { return Option.None; }
+        var stop = start + 4;
+        if (stop > self.data.len()) { stop = self.data.len(); }
+        self.at[0] = stop;
+        return Option.Some(self.data[start:stop]);
+    }
+}
+
+var file = Slow { data: "ab\ncd\nef\ngh\nij\nkl\n".bytes(), at: [0], reads: [0] };
+var given: Reader = file;
+
+var shouted: Iter<string, <async, Throw<IoError>>> =
+    map(filter(lines(given), (line) => { return line != "cd"; }), (line) => { return line.to_upper(); });
+print(collect(take(shouted, 2)));
+print(file.reads[0]);
+
+var whole = Slow { data: "ab\ncd\nef\ngh\nij\nkl\n".bytes(), at: [0], reads: [0] };
+var all: Reader = whole;
+print(collect(lines(all)).len());
+print(whole.reads[0]);

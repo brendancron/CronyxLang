@@ -1,4 +1,4 @@
-import { async, block_on, both, interleaved, pause } from "std/effects/Async";
+import { async, block_on, both, interleaved, pause } from "std/async/Task";
 
 fn user(): string { pause(); return "ada"; }
 fn count(): int { return 3; }

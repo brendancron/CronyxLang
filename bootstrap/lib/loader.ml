@@ -257,7 +257,7 @@ let prelude roots =
     if Sys.file_exists path then Some (normalize path) else None
   | None -> None
 
-let load roots ?namespace:entry_namespace ?(seeds = []) entry =
+let load roots ?namespace:entry_namespace ?(seeds = []) ?(core = true) entry =
   let visited = Hashtbl.create 8 in
   let units = ref [] in
   (* The namespace comes from the import as written, not from the file it
@@ -285,6 +285,26 @@ let load roots ?namespace:entry_namespace ?(seeds = []) entry =
   walk root ~namespace:(Option.value entry_namespace ~default:(namespace_of entry)) entry;
   List.iter (fun path -> walk root ~namespace:(namespace_of path) path) seeds;
   Option.iter (fun path -> walk root ~namespace:(namespace_of path) path) (prelude roots);
+  (match roots.std with
+   | _ when not core -> ()
+   | Some dir ->
+     List.iter
+       (fun m ->
+         let path = with_extension (Filename.concat dir m) in
+         if not (Sys.file_exists path)
+         then
+           fail
+             root
+             "The standard library has no `%s`, and every program is compiled with `core`. Set \
+              CRONYX_STDLIB to the library this toolchain ships."
+             m;
+         walk root ~namespace:(namespace_of path) path)
+       Core.modules
+   | None ->
+     fail
+       root
+       "Cannot find the standard library, which every program is compiled with. Set \
+        CRONYX_STDLIB to the library this toolchain ships.");
   let all = List.rev !units in
   let entry_path = normalize entry in
   match List.partition (fun u -> String.equal u.path entry_path) all with
@@ -595,10 +615,19 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
             ; ib_methods =
                 List.map
                   (fun (m : (Ast.stmt, unit) Ast.method_def) ->
+                    let inner =
+                      List.fold_left
+                        (fun acc (p : Ast.param) -> S.add p.Ast.name acc)
+                        locals
+                        m.Ast.md_params
+                    in
+                    let inner =
+                      List.fold_left (fun acc s -> S.union acc (S.of_list (bound_by s))) inner m.Ast.md_body
+                    in
                     { m with
                       Ast.md_params = List.map param m.Ast.md_params
                     ; md_signature = signature m.Ast.md_signature
-                    ; md_body = List.map (stmt locals) m.Ast.md_body
+                    ; md_body = List.map (stmt inner) m.Ast.md_body
                     })
                   impl.Ast.ib_methods
             } )
@@ -738,13 +767,21 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
     List.iter (fun name -> Hashtbl.replace own name ()) (exports u);
     let aliases = Hashtbl.create 4 in
     let direct = Hashtbl.create 4 in
+    (* What the prelude binds, whatever this file shadows: `core.print` reaches
+       it past the file's own `print`. *)
+    let core = Hashtbl.create 16 in
+    let from_prelude from = Some from = prelude roots in
+    (* Names this file binds itself, by declaring or importing them, which a
+       global import then leaves alone. *)
+    let locally = Hashtbl.create 4 in
     (* Each operation this file may perform bare, and the name it has. *)
     let reachable = Hashtbl.create 8 in
     List.iter
       (fun op -> Hashtbl.replace reachable op (renamed u ~entry op))
       (List.concat_map operations u.program);
     List.iter
-      (fun (decl, span, from) ->
+      (fun (global, (decl, span, from)) ->
+        let shadowed name = global && (Hashtbl.mem own name || Hashtbl.mem locally name) in
         let written = path_of decl in
         let target = namespace_of written in
         let found =
@@ -787,6 +824,8 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
           (* The same module under the same name twice is one binding: a file
              may write an import its package also makes global. *)
           let bind under =
+            if not global then Hashtbl.replace locally under ();
+            if not (shadowed under) then
             match Hashtbl.find_opt aliases under with
             | Some (path, _) when String.equal path target_unit.path -> ()
             | Some _ -> fail span "'%s' is already bound. Import one of them with `as`." under
@@ -805,6 +844,9 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                  if not (List.mem name target_exports)
                  then fail span "Module '%s' does not export '%s'." target name;
                  let bound = renamed target_unit ~entry:is_entry name in
+                 if global && from_prelude from then Hashtbl.replace core name bound;
+                 if not global then Hashtbl.replace locally name ();
+                 if not (shadowed name) then begin
                  (match Hashtbl.find_opt direct name with
                   | Some earlier when not (String.equal earlier bound) ->
                     fail span "'%s' is already imported." name
@@ -821,10 +863,18 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                  in
                  List.iter
                    (fun op -> Hashtbl.replace reachable op (renamed target_unit ~entry:is_entry op))
-                   brought)
+                   brought
+                 end)
                names
            | Ast.Wildcard _ -> ()))
-      (written_in `Local u @ globals_of u);
+      (List.map (fun i -> false, i) (written_in `Local u)
+       @ List.map (fun i -> true, i) (globals_of u));
+    if not (Hashtbl.mem aliases "core" || Hashtbl.mem own "core")
+    then
+      Hashtbl.replace
+        aliases
+        "core"
+        ("", fun name -> Option.value (Hashtbl.find_opt core name) ~default:name);
     let foreign = Hashtbl.create 8 in
     List.iter
       (fun (op, owner) -> if not (Hashtbl.mem reachable op) then Hashtbl.replace foreign op owner)
@@ -900,7 +950,9 @@ let library ?(roots = anywhere) ~package:name paths =
   | first :: _ ->
     (* No [namespace] argument, so the file that happens to be walked first is
        named after itself like every other rather than after the library. *)
-    let entry_unit, rest = load roots ~seeds:paths first in
+    (* Documenting a library needs only what it declares, so one with no `core`
+       is still a library. *)
+    let entry_unit, rest = load roots ~seeds:paths ~core:false first in
     let owned (u : unit_) = if String.equal u.package "" then { u with package = name } else u in
     assemble
       roots

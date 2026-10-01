@@ -1,6 +1,6 @@
 import { Closer, IoError, using } from "std/io/Io";
-import { Throw, Result, attempt } from "std/lang/Throw";
-import { async } from "std/effects/Async";
+import { Throw, Result, attempt } from "std/core/Error";
+import { async } from "std/async/Task";
 
 type Tap { name: string, fails: bool, log: List<string> }
 

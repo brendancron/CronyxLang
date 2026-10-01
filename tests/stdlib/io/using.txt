@@ -1,13 +1,13 @@
 closing a
 a used
 closing b
-Err(Other(body failed))
+Err(Other("body failed"))
 in c
 closing c
-Err(Other(c would not close))
+Err(Other("c would not close"))
 closing d
-Err(Other(body failed first))
+Err(Other("body failed first"))
 visiting e
 closing e
 e
-Err(Stuck(door))
+Err(Stuck("door"))

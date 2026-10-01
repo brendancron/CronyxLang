@@ -1,5 +1,5 @@
-import "std/automata/Dfa";
-import "std/automata/Nfa";
+import "std/algo/automata/Dfa";
+import "std/algo/automata/Nfa";
 
 // Test 1: accepts exactly [1]
 var dfa1 = Dfa.new(0);

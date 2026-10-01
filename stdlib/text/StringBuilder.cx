@@ -1,0 +1,61 @@
+/**
+ * Building a string a piece at a time.
+ *
+ * Concatenation copies, so building a long string with `+` in a loop copies
+ * what is already there on every turn. This keeps the pieces and joins them
+ * once.
+ *
+ * ```
+ * import { StringBuilder, new } from "std/text/StringBuilder";
+ *
+ * var out = new();
+ * out.append("total: ");
+ * out.append_int(42);
+ * print(out.build());   // total: 42
+ * ```
+ */
+
+/** The pieces so far, and how long they come to. */
+type StringBuilder {
+    /** In the order they were appended. */
+    parts: List<string>,
+    /** The total length, kept as the pieces arrive rather than counted. */
+    length: int,
+}
+
+/** An empty builder. */
+fn new(): StringBuilder {
+    return StringBuilder { parts: [], length: 0 };
+}
+
+impl StringBuilder {
+    /** Adds the string to the end. */
+    fn append(self, s: string) {
+        self.parts.push(s);
+        self.length = self.length + s.len();
+    }
+    /** Adds the integer's written form. */
+    fn append_int(self, n: int) {
+        self.append(str(n));
+    }
+    /** Adds the string and a newline. */
+    fn append_line(self, s: string) {
+        self.append(s);
+        self.append("\n");
+    }
+    /** The pieces joined into one string. The builder is left as it was. */
+    fn build(self): string {
+        var out = "";
+        for (part in self.parts) { out = out + part; }
+        return out;
+    }
+    /** How long the built string will be. */
+    fn len(self): int {
+        return self.length;
+    }
+    /** Drops every piece, leaving an empty builder. */
+    fn clear(self) {
+        self.parts = [];
+        self.length = 0;
+    }
+}

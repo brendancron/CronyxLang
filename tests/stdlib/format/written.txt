@@ -1,0 +1,8 @@
+£12.50
+costs £12.50
+true
+[#new, #old]
+#alone
+"quoted"
+'c'
+{ pence: 1250 }

@@ -1,0 +1,91 @@
+/**
+ * Matching a string against a regular expression.
+ *
+ * ```
+ * import { compile, test, find, find_all } from "std/text/Regex";
+ *
+ * var dfa = compile("[0-9]+");
+ * print(test(dfa, "abc123"));      // true
+ * print(find(dfa, "abc123"));      // Some(123)
+ * ```
+ *
+ * Compiling goes pattern → AST → NFA → DFA, so matching is a walk with no
+ * backtracking and no pattern can be made to run away. Supported: literals,
+ * `.`, `[…]` classes with ranges and negation, `|`, `*`, `+`, `?` and
+ * parentheses. `.` is expanded to printable ASCII while compiling, so a DFA's
+ * alphabet is whatever its pattern actually mentions.
+ */
+
+import { substring } from "String";
+import { Dfa, subset_construction, dfa_step, dfa_is_accept, no_state } from "../algo/automata/Dfa";
+import "regex/RegexParser";
+import "regex/RegexNfa";
+
+// pattern → RegexAst → NFA → DFA. `.` is expanded to printable ASCII while
+// building, so the DFA's alphabet is whatever the pattern actually mentions.
+/** The pattern as an automaton, ready to match with. Panics on a pattern it cannot parse. */
+fn compile(pattern: string): Dfa {
+    return subset_construction(RegexNfa.build(RegexParser.parse(pattern)));
+}
+
+// How far the DFA gets from `start`, and the end of the last position it
+// accepted at — `no_match` when it never accepted.
+fn no_match(): int { return 0 - 1; }
+
+fn longest_from(dfa: Dfa, cps: List<int>, start: int): int {
+    var state = dfa.start;
+    var accepted = no_match();
+    var at = start;
+    if (dfa_is_accept(dfa, state)) { accepted = at; }
+    while (at < cps.len()) {
+        var next = dfa_step(dfa, state, cps[at]);
+        if (next == no_state()) { return accepted; }
+        state = next;
+        at = at + 1;
+        if (dfa_is_accept(dfa, state)) { accepted = at; }
+    }
+    return accepted;
+}
+
+fn code_points(input: string): List<int> {
+    var cps: List<int> = [];
+    for (c in input.chars()) { cps.push(ord(c)); }
+    return cps;
+}
+
+// The whole input, not a prefix of it.
+/** Whether the pattern matches anywhere in the input. */
+fn test(dfa: Dfa, input: string): bool {
+    var cps = code_points(input);
+    return longest_from(dfa, cps, 0) == cps.len();
+}
+
+/** The leftmost-longest match, or `None` if there is none. */
+fn find(dfa: Dfa, input: string): Option<string> {
+    var cps = code_points(input);
+    var at = 0;
+    while (at < cps.len()) {
+        var end = longest_from(dfa, cps, at);
+        if (end != no_match()) { return Option.Some(substring(input, at, end)); }
+        at = at + 1;
+    }
+    return Option.None;
+}
+
+// Non-overlapping, leftmost-longest.
+/** Every non-overlapping match, left to right. */
+fn find_all(dfa: Dfa, input: string): List<string> {
+    var cps = code_points(input);
+    var found: List<string> = [];
+    var at = 0;
+    while (at < cps.len()) {
+        var end = longest_from(dfa, cps, at);
+        if (end != no_match() && end > at) {
+            found.push(substring(input, at, end));
+            at = end;
+        } else {
+            at = at + 1;
+        }
+    }
+    return found;
+}

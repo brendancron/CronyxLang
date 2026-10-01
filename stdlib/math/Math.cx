@@ -1,0 +1,31 @@
+/**
+ * The comparisons that need no type of their own.
+ *
+ * Each of these takes whatever `<` and `>` accept, so they work on `int`,
+ * `float` and anything implementing `PartialOrd`.
+ *
+ * ```
+ * import { min, max, abs } from "std/math/Math";
+ *
+ * print(min(3, 9));   // 3
+ * print(abs(0 - 4));  // 4
+ * ```
+ */
+
+/** Whichever is smaller. */
+fn min(a, b) {
+    if (a < b) { return a; }
+    return b;
+}
+
+/** Whichever is larger. */
+fn max(a, b) {
+    if (a > b) { return a; }
+    return b;
+}
+
+/** The value without its sign. */
+fn abs(a) {
+    if (a < 0) { return 0 - a; }
+    return a;
+}

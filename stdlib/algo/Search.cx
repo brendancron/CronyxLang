@@ -1,0 +1,50 @@
+/**
+ * Finding a place in a sorted list by halving it.
+ *
+ * ```
+ * import { binary_search, lower_bound, upper_bound, partition_point } from "std/algo/Search";
+ *
+ * var xs: List<int> = [1, 3, 3, 3, 8];
+ * print(binary_search(xs, 8));    // Some(4)
+ * print(binary_search(xs, 5));    // None
+ * print(lower_bound(xs, 3));      // 1
+ * print(upper_bound(xs, 3));      // 4
+ * print(partition_point(xs, (x) => { return x < 5; }));   // 4
+ * ```
+ *
+ * Each assumes the list is sorted by `<`, or for `partition_point` that every
+ * value the function accepts comes before every value it does not. On a list
+ * that is not, the answer is some position, not an error.
+ */
+
+/** Where a value equal to `target` is, or `None` if there is none. */
+fn binary_search<T: PartialOrd>(xs: List<T>, target: T): Option<int> {
+    var at = lower_bound(xs, target);
+    if (at < xs.len() && !(target < xs[at])) { return Option.Some(at); }
+    return Option.None;
+}
+
+/** The first position whose value is not less than `target`: where it would go first. */
+fn lower_bound<T: PartialOrd>(xs: List<T>, target: T): int {
+    return partition_point(xs, (x) => { return x < target; });
+}
+
+/** The first position whose value is greater than `target`: where it would go last. */
+fn upper_bound<T: PartialOrd>(xs: List<T>, target: T): int {
+    return partition_point(xs, (x) => { return !(target < x); });
+}
+
+/** The first position whose value the function does not accept. */
+fn partition_point<T, E>(xs: List<T>, accept: (T) -> <E> bool): <E> int {
+    var low = 0;
+    var high = xs.len();
+    while (low < high) {
+        var mid = low + (high - low) / 2;
+        if (accept(xs[mid])) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}

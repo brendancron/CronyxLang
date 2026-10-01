@@ -366,12 +366,12 @@ let file_roots ?(mode = unrestricted) ?note path =
       in
       Ok (Workspace.roots ~located manifest)
 
-(* Each package embeds whatever of the standard library it imported, and the
-   prelude, since the library is not itself compiled to an artifact yet. Two of
-   them embedding the same module declare it twice, so the link keeps the first
-   of each name -- and of each impl written in one file, which has no name. An
-   impl keyed by file as well as by what it implements is still a conflict
-   when two packages write it. *)
+(* Each package embeds whatever of the standard library it imported, `core`
+   and the prelude, since the library is not itself compiled to an artifact
+   yet. Two of them embedding the same module declare it twice, so the link
+   keeps the first of each name -- and of each impl written in one file, which
+   has no name. An impl keyed by file as well as by what it implements is still
+   a conflict when two packages write it. *)
 let deduplicated (program : Ast.program) =
   let seen = Hashtbl.create 256 in
   let rec impl_key (s : Ast.stmt) =

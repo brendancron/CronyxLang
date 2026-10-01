@@ -1,4 +1,4 @@
-import { Throw, Result, attempt } from "std/lang/Throw";
+import { Throw, Result, attempt } from "std/core/Error";
 
 fn half(n: int): int {
     if (n % 2 != 0) { throw("odd: " + str(n)); }

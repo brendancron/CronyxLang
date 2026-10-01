@@ -4,7 +4,7 @@
 é char
 true false
 true
-[héllo, wörld]
+["héllo", "wörld"]
 true
 héllo
 3 Array<byte>

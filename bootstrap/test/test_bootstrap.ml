@@ -22,6 +22,8 @@ let cases =
   ; "tests/core/modules/alias/main"
   ; "tests/core/modules/multi_export/main"
   ; "tests/core/modules/global_import/main"
+  ; "tests/core/modules/shadowing/own_print"
+  ; "tests/core/modules/shadowing/own_type"
   ; "tests/core/modules/qualified/main"
   ; "tests/core/modules/same_dir/main"
   ; "tests/core/modules/selective/main"
@@ -220,6 +222,7 @@ let cases =
   ; "tests/reflection/typeof_slice"
   ; "tests/reflection/typeof_enum"
   ; "tests/core/structs/struct_dot_assign"
+  ; "tests/core/structs/field_over_local"
   ; "tests/core/structs/field_call"
   ; "tests/core/enums/wildcard"
   ; "tests/core/enums/unit_variants"
@@ -288,6 +291,15 @@ let cases =
   ; "tests/core/strings/parse"
   ; "tests/core/strings/split_str"
   ; "tests/stdlib/string/string"
+  ; "tests/stdlib/format/collections"
+  ; "tests/stdlib/format/derived"
+  ; "tests/stdlib/format/written"
+  ; "tests/stdlib/format/numbers"
+  ; "tests/stdlib/iter/adapters"
+  ; "tests/stdlib/iter/lazy_lines"
+  ; "tests/stdlib/algo/sort"
+  ; "tests/stdlib/algo/stable"
+  ; "tests/stdlib/algo/search"
   ; "tests/stdlib/stringbuilder/stringbuilder"
   ; "tests/core/traits/written_target"
   ; "tests/core/traits/bound_target"
@@ -414,6 +426,7 @@ let cases =
   ; "tests/core/traits/generic_impl_operator/main"
   ; "tests/core/traits/try_from/main"
   ; "tests/core/traits/associated"
+  ; "tests/core/traits/impl_after_use"
   ; "tests/core/traits/associated_builtin"
   ; "tests/core/traits/associated_type"
   ; "tests/core/traits/supertrait"
@@ -603,6 +616,7 @@ let error_cases =
   ; "tests/core/traits/errors/arity"
   ; "tests/core/traits/errors/unknown_method"
   ; "tests/core/traits/errors/ambiguous_receiver"
+  ; "tests/stdlib/format/errors/effectful_display"
   ; "tests/core/traits/errors/generic_impl_no_operator"
   ; "tests/core/traits/errors/impl_signature_mismatch"
   ; "tests/core/traits/errors/impl_method_arity"
@@ -1090,23 +1104,13 @@ let run_prompt_flushed () =
     false
 
 let run_prelude_walk () =
-  let path = "<prelude walk>" in
-  let source = "var xs: List<int> = [1, 2];
-print(xs.len() < 3);
-" in
-  let parsed =
-    match Scanner.scan_tokens (Source_map.File.create ~path ~text:source) with
-    | Error _ -> Error "the probe does not scan"
-    | Ok tokens ->
-      (match Parser.parse tokens with
-       | Ok program -> Ok program
-       | Error _ -> Error "the probe does not parse")
-  in
+  let path = Filename.temp_file "prelude_walk" ".cx" in
+  Out_channel.with_open_bin path (fun channel ->
+    output_string channel "var xs: List<int> = [1, 2];\nprint(xs.len() < 3);\n");
   let walked =
-    Result.bind parsed (fun program ->
-      match Metaprocess.program ~out:(fun _ -> ()) program with
-      | Ok processed -> Ok (Bootstrap.Source.program processed)
-      | Error e -> Error ("the probe does not metaprocess: " ^ e.Metaprocess.message))
+    match Pipeline.front ~roots:(Driver.roots_for path) ~out:(fun _ -> ()) path with
+    | Ok processed -> Ok (Bootstrap.Source.program processed)
+    | Error _ -> Error "the probe does not metaprocess"
   in
   match walked with
   | Error message ->
@@ -1123,9 +1127,9 @@ print(xs.len() < 3);
       go 0
     in
     let expectations =
-      [ "the prelude reaches the walk", mentions "type List", true
-      ; "a prelude function a later pass calls survives", mentions "__is_less", true
-      ; "an unreached prelude function is dropped", mentions "fn assert", false
+      [ "the prelude reaches the walk", mentions "type std#List#List", true
+      ; "a prelude function a later pass calls survives", mentions "fn std#Ops#__is_less(", true
+      ; "an unreached prelude function is dropped", mentions "fn std#Assert#assert", false
       ]
     in
     List.for_all

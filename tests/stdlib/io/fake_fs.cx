@@ -1,7 +1,7 @@
-import { Mode, File, Fs, read_text, write_text } from "std/io/Fs";
+import { Mode, File, Fs, read_text, write_text } from "std/fs/File";
 import { IoError, Reader, Writer, Closer } from "std/io/Io";
-import { Throw, Result } from "std/lang/Throw";
-import { async } from "std/effects/Async";
+import { Throw, Result } from "std/core/Error";
+import { async } from "std/async/Task";
 
 type Memory { data: List<byte>, at: List<int> }
 

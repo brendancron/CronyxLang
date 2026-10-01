@@ -27,7 +27,7 @@ let derived_eq span target : Ast.stmt =
   Ast.at
     span
     (`Impl_decl
-      ( Some ("Eq", [])
+      ( Some (Core.eq, [])
       , target
       , []
       , { Ast.ib_assoc = []
@@ -1425,7 +1425,7 @@ let structural_eq w ty =
   not
     (List.exists
        (fun st ->
-         st.trait = Some "Eq"
+         st.trait = Some Core.eq
          && st.target = Some ty
          &&
          match impl_parts st.stmt with
@@ -2108,7 +2108,7 @@ and derive w (s : Ast.stmt) traits target =
     Hashtbl.mem w.entries (deriver t)
   in
   (* `Eq` is the compiler's to derive unless a program wrote its own. *)
-  let compiler t = String.equal t "Eq" && not (has_deriver t) in
+  let compiler t = String.equal t Core.eq && not (has_deriver t) in
   let derived = if List.exists compiler traits then [ derived_eq s.Ast.span target ] else [] in
   let calls =
     List.filter_map
@@ -2809,7 +2809,7 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
   in
   try
     Hashtbl.iter (fun name _ -> Hashtbl.replace w.known name ()) (Builtins.env ~out:ignore).Value.vars;
-    let p = lift_comptime (types_of w (Prelude.program () @ p)) in
+    let p = lift_comptime (types_of w p) in
     List.iter (collect w) p;
     w.standing <- List.filter_map (fun s -> if is_standing s then Some (standing_of w s) else None) p;
     List.iter (fun st -> if st.is_plain then walk_standing w st) w.standing;

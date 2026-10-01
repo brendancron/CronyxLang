@@ -1,0 +1,144 @@
+/**
+ * Putting a list or an array in order, in place.
+ *
+ * ```
+ * import { sort, sort_by_key } from "std/algo/Sort";
+ *
+ * var xs: List<int> = [3, 1, 2];
+ * sort(xs);
+ * print(xs);   // [1, 2, 3]
+ *
+ * var people: List<(string, int)> = [("ada", 36), ("bo", 4), ("cy", 36)];
+ * sort_by_key(people, (p) => { return p.1; });
+ * print(people);   // [("bo", 4), ("ada", 36), ("cy", 36)]
+ * ```
+ *
+ * `sort`, `sort_by` and `sort_by_key` are stable: values that compare equal
+ * keep the order they were in, which is what makes sorting by one key and then
+ * another sort by both. They merge, and use a copy of the values as they go.
+ * The `unstable` ones make no such promise and use no extra room. Each has an
+ * `_array` form for an `Array`.
+ */
+
+/** In order by `<`, keeping equal values as they were. */
+fn sort<T: PartialOrd>(xs: List<T>) {
+    __merge(xs.items, xs.len(), (a, b) => { return a < b; });
+}
+
+/** In the order the comparison says, keeping equal values as they were. */
+fn sort_by<T, E>(xs: List<T>, compare: (T, T) -> <E> Ordering): <E> unit {
+    __merge(xs.items, xs.len(), (a, b) => { return compare(a, b) == Ordering.Less; });
+}
+
+/** In order by each value's key, keeping values with equal keys as they were. */
+fn sort_by_key<T, K: PartialOrd, E>(xs: List<T>, key: (T) -> <E> K): <E> unit {
+    __merge(xs.items, xs.len(), (a, b) => { return key(a) < key(b); });
+}
+
+/** In order by `<`. Equal values may end up in any order. */
+fn sort_unstable<T: PartialOrd>(xs: List<T>) {
+    __heap(xs.items, xs.len(), (a, b) => { return a < b; });
+}
+
+/** In the order the comparison says. Equal values may end up in any order. */
+fn sort_unstable_by<T, E>(xs: List<T>, compare: (T, T) -> <E> Ordering): <E> unit {
+    __heap(xs.items, xs.len(), (a, b) => { return compare(a, b) == Ordering.Less; });
+}
+
+/** As `sort`, for an array. */
+fn sort_array<T: PartialOrd>(xs: Array<T>) {
+    __merge(xs, xs.len(), (a, b) => { return a < b; });
+}
+
+/** As `sort_by`, for an array. */
+fn sort_array_by<T, E>(xs: Array<T>, compare: (T, T) -> <E> Ordering): <E> unit {
+    __merge(xs, xs.len(), (a, b) => { return compare(a, b) == Ordering.Less; });
+}
+
+/** As `sort_by_key`, for an array. */
+fn sort_array_by_key<T, K: PartialOrd, E>(xs: Array<T>, key: (T) -> <E> K): <E> unit {
+    __merge(xs, xs.len(), (a, b) => { return key(a) < key(b); });
+}
+
+/** As `sort_unstable`, for an array. */
+fn sort_array_unstable<T: PartialOrd>(xs: Array<T>) {
+    __heap(xs, xs.len(), (a, b) => { return a < b; });
+}
+
+/** As `sort_unstable_by`, for an array. */
+fn sort_array_unstable_by<T, E>(xs: Array<T>, compare: (T, T) -> <E> Ordering): <E> unit {
+    __heap(xs, xs.len(), (a, b) => { return compare(a, b) == Ordering.Less; });
+}
+
+// Bottom-up, alternating between the slots and a copy of them. A value from
+// the right run is taken first only when it is strictly before the left one,
+// which is what keeps equal values in order.
+fn __merge<T, E>(items: Array<T>, n: int, before: (T, T) -> <E> bool): <E> unit {
+    if (n < 2) { return; }
+    var from = items;
+    var into = __array_copy(items, 0, n);
+    var width = 1;
+    while (width < n) {
+        var start = 0;
+        while (start < n) {
+            var mid = start + width;
+            if (mid > n) { mid = n; }
+            var stop = start + 2 * width;
+            if (stop > n) { stop = n; }
+            var i = start;
+            var j = mid;
+            var k = start;
+            while (k < stop) {
+                if (j < stop && (i >= mid || before(from[j], from[i]))) {
+                    into[k] = from[j];
+                    j = j + 1;
+                } else {
+                    into[k] = from[i];
+                    i = i + 1;
+                }
+                k = k + 1;
+            }
+            start = stop;
+        }
+        var swap = from;
+        from = into;
+        into = swap;
+        width = width * 2;
+    }
+    if (!same(from, items)) {
+        var k = 0;
+        while (k < n) {
+            items[k] = from[k];
+            k = k + 1;
+        }
+    }
+}
+
+fn __heap<T, E>(items: Array<T>, n: int, before: (T, T) -> <E> bool): <E> unit {
+    var start = n / 2 - 1;
+    while (start >= 0) {
+        __sift(items, start, n, before);
+        start = start - 1;
+    }
+    var end = n - 1;
+    while (end > 0) {
+        var top = items[0];
+        items[0] = items[end];
+        items[end] = top;
+        __sift(items, 0, end, before);
+        end = end - 1;
+    }
+}
+
+fn __sift<T, E>(items: Array<T>, root: int, n: int, before: (T, T) -> <E> bool): <E> unit {
+    var at = root;
+    while (2 * at + 1 < n) {
+        var child = 2 * at + 1;
+        if (child + 1 < n && before(items[child], items[child + 1])) { child = child + 1; }
+        if (!before(items[at], items[child])) { return; }
+        var held = items[at];
+        items[at] = items[child];
+        items[child] = held;
+        at = child;
+    }
+}

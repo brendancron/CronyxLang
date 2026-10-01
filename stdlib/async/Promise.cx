@@ -1,0 +1,54 @@
+/**
+ * A value one task supplies and another waits for.
+ *
+ * ```
+ * import { block_on, both } from "std/async/Task";
+ * import { promise, resolve, await } from "std/async/Promise";
+ *
+ * block_on {
+ *     var ready = promise();
+ *     both(() => { print(await(ready)); }, () => { resolve(ready, "here"); });
+ * };
+ * ```
+ */
+
+import { async } from "Task";
+
+/** Either the value, or the callbacks waiting for it. */
+type PromiseState<T> {
+    /** Settled, with this value. */
+    Resolved(T),
+
+    /** Not yet, and these are waiting. */
+    Awaiting(List<(T) -> unit>)
+}
+
+/** A value some task will supply later. */
+type Promise<T> {
+    /** Where it stands. */
+    state: PromiseState<T>
+}
+
+/** A promise nothing has resolved yet. */
+fn promise<T>(): Promise<T> {
+    return Promise { state: PromiseState.Awaiting([]) };
+}
+
+/** Settles the promise and wakes whatever is waiting on it. Panics if it is already settled. */
+fn resolve<T>(p: Promise<T>, value: T) {
+    match p.state {
+        PromiseState.Resolved(_) => { panic("resolved twice"); }
+        PromiseState.Awaiting(waiters) => {
+            p.state = PromiseState.Resolved(value);
+            for (w in waiters) { w(value); }
+        }
+    }
+}
+
+/** The promise's value, waiting for it if it has none yet. */
+fn await<T>(p: Promise<T>): T {
+    match p.state {
+        PromiseState.Resolved(value) => { return value; }
+        PromiseState.Awaiting(waiters) => { return suspend { waiters.push(it); }; }
+    }
+}

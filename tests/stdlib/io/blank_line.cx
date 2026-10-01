@@ -1,6 +1,6 @@
 import { Reader, IoError } from "std/io/Io";
-import { Throw } from "std/lang/Throw";
-import { async } from "std/effects/Async";
+import { Throw } from "std/core/Error";
+import { async } from "std/async/Task";
 
 type Given { data: Array<byte>, at: List<int> }
 

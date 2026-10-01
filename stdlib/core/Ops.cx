@@ -71,7 +71,7 @@ trait Rem<Rhs> {
  * `self == rhs`, and `!=` as its negation.
  *
  * Both operands are the same type and the answer is always a bool, so this one
- * takes no argument and binds nothing. `@derive(Eq)` writes it field by field.
+ * takes no argument and binds nothing. `derive Eq for T;` writes it field by field.
  */
 trait Eq {
     /** Whether the two are equal. */

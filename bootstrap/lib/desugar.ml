@@ -143,9 +143,9 @@ and pulled span (names : binder) seq ~closes (body : desugared_stmt) : desugared
           , node
               (`Match
                 ( asked
-                , [ ( Pat_variant ("Option", "Some", P_tuple [ element ])
+                , [ ( Pat_variant (Core.option, "Some", P_tuple [ element ])
                     , bound_desugared span names (value (`Var element)) @ [ body ] )
-                  ; ( Pat_variant ("Option", "None", P_none)
+                  ; ( Pat_variant (Core.option, "None", P_none)
                     , [ node (`Expr (value (`Assign (more, value (`Bool false))))) ] )
                   ] )) ))
     ]

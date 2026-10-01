@@ -1,0 +1,6 @@
+fn print(x: int) {
+    core.print("mine: " + str(x));
+}
+
+print(1);
+core.print("the library's");

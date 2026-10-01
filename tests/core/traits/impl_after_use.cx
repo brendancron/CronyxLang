@@ -1,0 +1,27 @@
+type Bag<T> {
+    items: Array<T>
+}
+
+fn ints(): int {
+    var b = Bag { items: [1, 2] };
+    return b.first();
+}
+
+fn strings(): string {
+    var b = Bag { items: ["a", "b"] };
+    return b.first();
+}
+
+impl Bag<T> {
+    fn first(self): T {
+        return self.items[0];
+    }
+
+    fn sizes(self): int {
+        return ints() + strings().len() + self.items.len();
+    }
+}
+
+print(ints());
+print(strings());
+print(Bag { items: [true] }.sizes());

@@ -1,0 +1,6 @@
+Point { x: 1, label: "a" }
+Point { x: 2, label: "b" }
+Origin
+Shape.Circle(1.5)
+Shape.Empty
+[Shape.Square(2.0), Shape.Empty]

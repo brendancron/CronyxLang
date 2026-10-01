@@ -1,0 +1,127 @@
+/**
+ * How a value is written.
+ *
+ * `Display` is the form a value is shown in, and what `print` and `str` write.
+ * `Debug` is the form that tells values apart, and what a collection writes
+ * its parts in, so a string inside one is quoted:
+ *
+ * ```
+ * print("a");          // a
+ * print(debug("a"));   // "a"
+ * var xs: List<string> = ["a", ""];
+ * print(xs);           // ["a", ""]
+ * ```
+ *
+ * A type with neither impl is written as its structure, each part through its
+ * own impl if it has one. `derive Display` and `derive Debug` write that same
+ * structure under the type's name:
+ *
+ * ```
+ * type Point { x: int, y: int }
+ * derive Display for Point;
+ * print(Point { x: 1, y: 2 });   // Point { x: 1, y: 2 }
+ * ```
+ *
+ * An impl's method is called wherever the value is printed, including inside
+ * another value, so it may not perform an effect.
+ */
+
+/** A value as a person reads it. */
+trait Display {
+    /** The value, written for a person. */
+    fn fmt(self): string;
+}
+
+/** A value written so that two different ones read differently. */
+trait Debug {
+    /** The value, written to be told apart from any other. */
+    fn debug(self): string;
+}
+
+fn derive(shape: TypeShape) for Display {
+    match shape {
+        TypeShape.Product(t, fields) => {
+            var label = str(t);
+            if (fields.len() == 0) {
+                gen impl Display for t {
+                    fn fmt(self): string { return label; }
+                }
+            } else {
+                gen impl Display for t {
+                    fn fmt(self): string { return label + " " + __written(self); }
+                }
+            }
+        }
+        TypeShape.Sum(t, variants) => {
+            var label = str(t);
+            gen impl Display for t {
+                fn fmt(self): string { return label + "." + __written(self); }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn derive(shape: TypeShape) for Debug {
+    match shape {
+        TypeShape.Product(t, fields) => {
+            var label = str(t);
+            if (fields.len() == 0) {
+                gen impl Debug for t {
+                    fn debug(self): string { return label; }
+                }
+            } else {
+                gen impl Debug for t {
+                    fn debug(self): string { return label + " " + __written(self); }
+                }
+            }
+        }
+        TypeShape.Sum(t, variants) => {
+            var label = str(t);
+            gen impl Debug for t {
+                fn debug(self): string { return label + "." + __written(self); }
+            }
+        }
+        _ => {}
+    }
+}
+
+/**
+ * The float with exactly `digits` digits after the point, rounded to the
+ * nearest.
+ *
+ * ```
+ * print(fixed(3.14159, 2));   // 3.14
+ * print(fixed(2.0, 0));       // 2
+ * ```
+ */
+fn fixed(x: float, digits: int): string {
+    return __fixed(x, digits);
+}
+
+/**
+ * The integer in base `base`, from 2 to 36, in lower-case digits and with a
+ * `-` in front of a negative one. Panics on any other base.
+ *
+ * ```
+ * print(radix(255, 16));   // ff
+ * print(radix(-5, 2));     // -101
+ * ```
+ */
+fn radix(n: int, base: int): string {
+    if (base < 2 || base > 36) {
+        panic("radix takes a base from 2 to 36, not " + str(base) + ".");
+    }
+    if (n == 0) { return "0"; }
+    var digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+    var rest = n;
+    var out = "";
+    while (rest != 0) {
+        var d = rest % base;
+        if (d < 0) { d = -d; }
+        out = str(digits[d]) + out;
+        rest = rest / base;
+    }
+    if (n < 0) { out = "-" + out; }
+    return out;
+}

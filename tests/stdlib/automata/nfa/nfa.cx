@@ -1,4 +1,4 @@
-import "std/automata/Nfa";
+import "std/algo/automata/Nfa";
 
 // Test 1: accepts exactly [42]
 var nfa1 = Nfa.new(0);

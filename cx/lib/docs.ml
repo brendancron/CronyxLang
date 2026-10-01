@@ -335,8 +335,7 @@ type entry =
   { name : string (* what the entry is titled and sorted by *)
   ; id : string
   (* The file it was written in, which is what a unit is. Two units may share a
-     namespace -- the library has a `core/Array.cx` and a
-     `collections/Array.cx` -- so grouping by name would put both on one page and
+     namespace -- `a/Util.cx` and `b/Util.cx` are both `Util` -- so grouping by name would put both on one page and
      report the same module twice. *)
   ; unit_ : string
   ; kind : string
@@ -846,13 +845,6 @@ let natives_json () =
 
 (* Every declaration of every package, so a type reference resolves across a
    package boundary as readily as inside one. *)
-(* Whether the declaration was written in the library's `core`, whose names the
-   compiler and the syntax produce and so cannot wait for an import. *)
-let core ~places (s : Ast.stmt) =
-  match place places s.Ast.span with
-  | Some (_, path) -> String.starts_with ~prefix:"core/" (Ast.slashed path)
-  | None -> false
-
 let is_trait (s : Ast.stmt) =
   match s.Ast.it with
   | `Attributed (_, { Ast.it = `Trait_decl _; _ }) | `Trait_decl _ -> true
@@ -875,15 +867,7 @@ let known_of (artifacts : Artifact.t list) =
           | Some mangled ->
             (match split prefixes mangled with
              | Some (_, name) ->
-               let entry = { display = name; is_trait = is_trait s } in
-               Hashtbl.replace known mangled entry;
-               (* A declaration in `core` is reached by its plain name and is
-                  never imported, so that is the name every other module's
-                  signatures carry -- and the name a reference has to resolve if
-                  `List<T>` in one of them is to be a link rather than grey
-                  text. The mangled id is still what the page is anchored by. *)
-               if core ~places:(places a.Artifact.units) s
-               then Hashtbl.replace known name entry
+               Hashtbl.replace known mangled { display = name; is_trait = is_trait s }
              | None -> ()))
         a.Artifact.program)
     artifacts;

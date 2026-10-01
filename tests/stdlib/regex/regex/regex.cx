@@ -1,4 +1,4 @@
-import "std/lang/Regex";
+import "std/text/Regex";
 
 // ── test: literal ─────────────────────────────────────────────────────────────
 var lit = Regex.compile("abc");

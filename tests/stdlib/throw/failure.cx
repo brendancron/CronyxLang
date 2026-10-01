@@ -1,4 +1,4 @@
-import { Throw, Failure, fail } from "std/lang/Throw";
+import { Throw, Failure, fail } from "std/core/Error";
 
 type IoError { NotFound(string) }
 

@@ -1,5 +1,5 @@
-import { iterator, Yield } from "std/effects/Yield";
-import { async, pause } from "std/effects/Async";
+import { iterator, Yield } from "std/iter/Yield";
+import { async, pause } from "std/async/Task";
 
 var log: List<string> = [];
 

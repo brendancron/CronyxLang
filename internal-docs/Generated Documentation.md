@@ -84,7 +84,7 @@ One JSON document per invocation. `cx docs --json` writes it; every renderer rea
 }
 ```
 
-**A unit is a file, not a name.** `path` is where it was written, relative to the root of the package that owns it, and units are ordered and grouped by it. Two units may share a namespace — the library has a `core/Array.cx` and a `collections/Array.cx`, both of which `Loader.namespace_of` calls `Array` — so a document keyed by namespace would merge their declarations and report the module twice. The path is also what a renderer groups a tree by, and what a source link is resolved against; it is relative because nothing in the document may hold a path from the building machine.
+**A unit is a file, not a name.** `path` is where it was written, relative to the root of the package that owns it, and units are ordered and grouped by it. Two units may share a namespace — `Loader.namespace_of` calls both `a/Util.cx` and `b/Util.cx` `Util` — so a document keyed by namespace would merge their declarations and report the module twice. The path is also what a renderer groups a tree by, and what a source link is resolved against; it is relative because nothing in the document may hold a path from the building machine.
 
 A unit the artifact *embeds* rather than owns has `path: null` — a dependency's layout is its own package's business — and that is also the filter that keeps another package's declarations out of this one's reference.
 
@@ -293,23 +293,13 @@ Zig serves its reference from a WASM binary that walks serialized compiler data,
 
 That also means `cx docs` must work outside a package. Standing nowhere in particular and asking for the library is the common case — it is most of what `zig std` is for — so the command cannot begin by demanding a `cronyx.toml`.
 
-### The prelude is `stdlib/core`
+### `core` is loaded like any other module
 
-The declarations every program has before it imports anything — `Option`, `Ordering`, `Range`, `List`, `Set`, `Map`, `impl Array<T>`, `impl string`, the operator traits, the reflection types, `Assertion` and `assert` — were 570 lines of Cronyx inside a string literal in `lib/prelude.ml`. They are now `stdlib/core/*.cx`, which is what makes them documentable at all: a file has a path, a module doc, and a place in the tree, and `cx docs std` walks every file the library ships.
+The declarations every program has before it imports anything — `Option`, `Ordering`, `Range`, `impl Array<T>`, `impl string`, the operator traits, `Assertion` and `assert`, and beside them `collections/List`, `Map` and `Set`, `meta/Reflect` and `text/String` — are ordinary files under `stdlib/`, loaded and mangled under their own paths like every other module. `cx docs std` walks them with the rest.
 
-They are still not imported, and that is not an oversight. Sort the declarations by what names them:
+Two things reach them. The compiler names about twenty itself — the operator traits, `Option` and `Ordering` for what `partial_cmp` answers, `Range` for what `a[1:]` becomes, the reflection types, the `__is_*` tests behind `< <= > >=`, and `Assertion`, whose handler `cx test` synthesises — and reaches each by the name the loader gives it, listed in `Core`. `Core.modules` is what `Loader` loads with every program for that reason, whether or not anything imports them, which also puts the methods of a primitive in every program: `"a,b".split(',')` is reached through the value rather than a name. What a *file* sees without an import is only the `global import`s in `stdlib/prelude.cx`, so a program's own `Option` is a different name rather than a replacement, and the library's stays reachable as `core.Option`.
 
-- **The compiler names about twenty by string.** `TypeShape` and `Name` (`types.ml`), the reflection types `Reflect` builds, `Add` `Sub` `Mul` `Div` `Rem` `Neg` for the operators, `Eq` (and its deriver), `PartialOrd` with `partial_cmp`, `Index`, `IndexSet`, `FromArray` with `from_array`, `Option` and `Ordering` because `Resolve` builds `Option<Ordering>` as what `partial_cmp` answers, `Range` because `Parser` desugars `a[1:]` into its variants, the `__is_*` family emitted for `< <= > >=`, and `Assertion`, whose handler `cx test` synthesises.
-- **The syntax names the rest.** `List`, `Set` and `Map` with their `FromArray` impls, for the collection literals; `Index<int>` and `IndexSet<int>` for a list; the `Index<Range>` impls for slicing.
-- **Only a caller names the methods** — `impl List<T>`, `impl string` and the others.
-
-Only the third group could live behind an import, and it is where `xs.push(v)` and `"a,b".split(',')` are; `Loader` loads only what something imports, so an impl in an unimported module is not in the linked program at all and the method does not resolve. A name the language itself produces cannot wait for an import, so `lib/prelude.ml` reads the files and hands the declarations to `Precheck` and `Metaprocess` as before, with their names plain.
-
-Each file scans under `<core>/List.cx` rather than under its path on disk: a span is rendered relative to the entry, so a real path would put the building machine's layout in a diagnostic. `Prelude.owns` is the test that replaces comparing against one `<prelude>`, and the checker asks it for one thing only — a program declaring a type or a trait that core also declares gets its own.
-
-The reference documents core like any other directory, with one addition: `Docs.known_of` registers a core declaration under its **plain** name as well as its mangled id, because the plain name is what every other module's signatures carry and without the alias `List<T>` in one of them is grey text rather than a link.
-
-**What it cost.** `Toolchain.stdlib ()` must now succeed for every compile rather than only for an `import "std/…"`, and a declaration the compiler names by string became a mismatch found when the compiler looks for it rather than one the language cannot express.
+**What it cost.** `Toolchain.stdlib ()` must succeed for every compile rather than only for an `import "std/…"`, and a declaration the compiler names became a mismatch found when the compiler looks for it rather than one the language cannot express.
 
 **What it found.** `Metaprocess` registered a trait in its trait table by matching `Trait_decl` directly, so a trait wrapped in `Attributed` — which is what a doc comment makes — was invisible to it. Every bound naming such a trait was then read as a static *value* parameter and the walk demanded arguments nobody had written. Nothing showed it while the prelude carried no doc comments; documenting the operator traits broke four fixtures at once. `tests/core/traits/documented_bound` is the case.
 
@@ -363,7 +353,7 @@ What follows from that:
 - `handle`, `with` and `handler x : E` take a qualified name, through the same `Parser.qualified_name` that `derive` already used.
 - A written effect row names declarations, so `Loader` resolves one.
 - `sig.boop` resolves to the operation rather than to a mangled name. The alias needs the target's operation names to know that, so `Artifact.unit_interface` carries `operations` — an artifact a consumer reads is one the same compiler wrote, so the field costs a rebuild and nothing else.
-- A consumer reaches an effect the way it reaches a type: `import "sig" { Beep }`, or `sig.Beep`. `import "std/lang/Throw"; handle Throw` does not resolve; `import { Throw } from "std/lang/Throw"` does.
+- A consumer reaches an effect the way it reaches a type: `import "sig" { Beep }`, or `sig.Beep`. `import "std/core/Error"; handle Throw` does not resolve; `import { Throw } from "std/core/Error"` does.
 
 *(`tests/effects/named_import` imports an effect selectively; `tests/effects/qualified_op` calls an operation through its module from a non-entry unit. `tests/effects/errors/across_modules` performs an operation bare after a plain `import`, which the loader rejects with the two forms that would reach it.)*
 

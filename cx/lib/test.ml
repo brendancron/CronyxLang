@@ -23,7 +23,7 @@ let emit text = say (str (marker ^ text))
 
 let wrapped index (name, _, _) : Ast.stmt =
   let arm =
-    { Ast.arm_name = "failed"
+    { Ast.arm_name = Core.assertion_failed
     ; arm_kind = Ast.Op_final
     ; arm_params = [ "msg" ]
     ; arm_body =
@@ -39,7 +39,7 @@ let wrapped index (name, _, _) : Ast.stmt =
        , stmt
            (`Run
               ( [ emit (">" ^ name); stmt (`Expr (call name [])); emit ("+" ^ name) ]
-              , [ Ast.Inline { Ast.handled = "Assertion"; arms = [ arm ] } ] ))
+              , [ Ast.Inline { Ast.handled = Core.assertion; arms = [ arm ] } ] ))
        , None ))
 
 (* The flag the runner spawns itself with. Not in the usage text: it is how the
