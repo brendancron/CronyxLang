@@ -1,0 +1,33 @@
+import { sort_by_key, sort_unstable_by, sort_array_by_key } from "std/algo/Sort";
+
+fn people(): List<(string, int)> {
+    return [("ada", 2), ("bo", 1), ("cy", 2), ("di", 1), ("ed", 2), ("fe", 1)];
+}
+
+// Stable: within each age, the order the list was in.
+var stable = people();
+sort_by_key(stable, (p) => { return p.1; });
+print(stable);
+
+// The same input through the unstable sort comes out in another order, which
+// is what the line above would print if `sort_by_key` stopped being stable.
+var unstable = people();
+sort_unstable_by(unstable, (a, b) => {
+    if (a.1 < b.1) { return Ordering.Less; }
+    if (a.1 > b.1) { return Ordering.Greater; }
+    return Ordering.Equal;
+});
+print(unstable);
+
+// Sorting by one key and then by another sorts by both.
+var both = people();
+sort_by_key(both, (p) => { return p.0; });
+sort_by_key(both, (p) => { return p.1; });
+print(both);
+
+var arr = Array<(string, int)>(3, ("", 0));
+arr[0] = ("x", 1);
+arr[1] = ("y", 0);
+arr[2] = ("z", 1);
+sort_array_by_key(arr, (p) => { return p.1; });
+print(arr);

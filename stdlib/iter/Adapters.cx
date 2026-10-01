@@ -1,0 +1,141 @@
+/**
+ * Building one sequence out of another, lazily.
+ *
+ * ```
+ * import { Yield, iterator } from "std/iter/Yield";
+ * import { map, filter, take, collect } from "std/iter/Adapters";
+ *
+ * var naturals = iterator { var n = 0; while (true) { yield(n); n = n + 1; } };
+ * var squares = map(naturals, (n) => { return n * n; });
+ * print(collect(take(filter(squares, (n) => { return n % 2 == 0; }), 3)));   // [0, 4, 16]
+ * ```
+ *
+ * Each adapter answers an `Iter` that pulls from the one it was given only when
+ * it is itself pulled, so an infinite sequence is fine and a file is read only
+ * as far as something asks. The functions given to one perform what pulling
+ * does, so the row `E` carries through: mapping over `lines(file)` is still
+ * `<async, Throw<IoError>>`. Closing an adapter closes what it pulls from.
+ */
+
+/** Each value as the function answers for it. */
+fn map<T, U, E>(source: Iter<T, E>, f: (T) -> <E> U): Iter<U, E> {
+    var next = () => {
+        match source.next() {
+            Option.Some(v) => { return Option.Some(f(v)); }
+            Option.None => { return Option.None; }
+        }
+    };
+    return Iter { next: next, close: source.close };
+}
+
+/** The values the function accepts, in order. */
+fn filter<T, E>(source: Iter<T, E>, accept: (T) -> <E> bool): Iter<T, E> {
+    var next = () => {
+        while (true) {
+            match source.next() {
+                Option.Some(v) => {
+                    if (accept(v)) { return Option.Some(v); }
+                }
+                Option.None => { return Option.None; }
+            }
+        }
+        return Option.None;
+    };
+    return Iter { next: next, close: source.close };
+}
+
+/** Pairs of a value from each, ending with whichever ends first. */
+fn zip<A, B, E>(a: Iter<A, E>, b: Iter<B, E>): Iter<(A, B), E> {
+    var next = () => {
+        match a.next() {
+            Option.Some(x) => {
+                match b.next() {
+                    Option.Some(y) => { return Option.Some((x, y)); }
+                    Option.None => { return Option.None; }
+                }
+            }
+            Option.None => { return Option.None; }
+        }
+    };
+    var close = () => {
+        a.close();
+        b.close();
+    };
+    return Iter { next: next, close: close };
+}
+
+/** Each value with its position, counting from 0. */
+fn enumerate<T, E>(source: Iter<T, E>): Iter<(int, T), E> {
+    var at = 0;
+    var next = () => {
+        match source.next() {
+            Option.Some(v) => {
+                var pair = (at, v);
+                at = at + 1;
+                return Option.Some(pair);
+            }
+            Option.None => { return Option.None; }
+        }
+    };
+    return Iter { next: next, close: source.close };
+}
+
+/**
+ * The first `n` values. The source is closed once the `n`th is handed out, so
+ * a file is not held open for values nobody will ask for.
+ */
+fn take<T, E>(source: Iter<T, E>, n: int): Iter<T, E> {
+    var left = n;
+    var closed = false;
+    var shut = () => {
+        if (!closed) {
+            closed = true;
+            source.close();
+        }
+    };
+    // Not through `shut`: calling that from here would give it this
+    // function's row, and an `Iter`'s `close` performs nothing.
+    var next = () => {
+        if (left <= 0) {
+            if (!closed) {
+                closed = true;
+                source.close();
+            }
+            return Option.None;
+        }
+        left = left - 1;
+        var v = source.next();
+        if (left == 0 && !closed) {
+            closed = true;
+            source.close();
+        }
+        return v;
+    };
+    return Iter { next: next, close: shut };
+}
+
+/** The first's values, then the second's. */
+fn chain<T, E>(first: Iter<T, E>, second: Iter<T, E>): Iter<T, E> {
+    var on_second = false;
+    var next = () => {
+        if (!on_second) {
+            match first.next() {
+                Option.Some(v) => { return Option.Some(v); }
+                Option.None => { on_second = true; }
+            }
+        }
+        return second.next();
+    };
+    var close = () => {
+        first.close();
+        second.close();
+    };
+    return Iter { next: next, close: close };
+}
+
+/** Every value, pulled now, in a list. */
+fn collect<T, E>(source: Iter<T, E>): <E> List<T> {
+    var out: List<T> = [];
+    for (v in source) { out.push(v); }
+    return out;
+}

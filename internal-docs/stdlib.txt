@@ -31,8 +31,8 @@ std/
 │   ├── automata/          # Finite automata over integer symbols
 │   │   ├── Nfa            # Nondeterministic automaton, epsilon closure, simulation
 │   │   └── Dfa            # Deterministic automaton, subset construction, minimisation
-│   ├── sort/              # Ordering sequences
-│   ├── search/            # Finding values in sequences
+│   ├── Sort               # Stable and unstable sorts, by order, key or comparison
+│   ├── Search             # Binary search, lower and upper bound, partition point
 │   └── graph/             # Graphs and the algorithms over them
 ├── encoding/              # Serialization and data format parsers
 │   ├── Codec              # Encode and Decode traits and their derives; the Encoder/Decoder interface formats implement

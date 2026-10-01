@@ -1,0 +1,19 @@
+import { binary_search, lower_bound, upper_bound, partition_point } from "std/algo/Search";
+
+var xs: List<int> = [1, 3, 3, 3, 8];
+print(binary_search(xs, 8));
+print(binary_search(xs, 3));
+print(binary_search(xs, 5));
+print(binary_search(xs, 0));
+print(lower_bound(xs, 3));
+print(upper_bound(xs, 3));
+print(lower_bound(xs, 9));
+print(upper_bound(xs, 0));
+print(partition_point(xs, (x) => { return x < 5; }));
+
+var none: List<int> = [];
+print(binary_search(none, 1));
+print(lower_bound(none, 1));
+
+var words: List<string> = ["ant", "bee", "cat"];
+print(binary_search(words, "bee"));
