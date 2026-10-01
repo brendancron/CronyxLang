@@ -3274,7 +3274,8 @@ and hoist env (body : Ast.desugared_stmt list) =
                 bind
                   env
                   mangled
-                  (Types.mono
+                  (declared_scheme
+                     type_params
                      (Types.IFn
                         ( param_types
                         , annotated_or_fresh m.Ast.md_signature.Ast.ret
@@ -3296,7 +3297,8 @@ and hoist env (body : Ast.desugared_stmt list) =
                 bind
                   env
                   mangled
-                  (Types.mono
+                  (declared_scheme
+                     type_params
                      (Types.IFn
                         ( List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) written
                         , annotated_or_fresh m.Ast.md_signature.Ast.ret
@@ -3357,12 +3359,24 @@ and infer_in_order env ctx assigned ~attempt (body : Ast.desugared_stmt list) =
       let together =
         List.length group > 1 && List.for_all (fun i -> Option.is_some (name_of i)) group
       in
+      (* A method call names every method of that name, so unrelated impls and
+         the functions calling them often land in one group. Each impl
+         generalizes as it is checked, so checking them first means a caller
+         instantiates a method rather than fixing its impl's `T` and row at the
+         first call. *)
+      let impls_first =
+        List.stable_sort
+          (fun a b ->
+            let rank i = match stmts.(i).Ast.it with `Impl_decl _ -> 0 | _ -> 1 in
+            compare (rank a) (rank b))
+          group
+      in
       List.iter
         (fun i ->
           checked.(i)
           <- attempt (fun () ->
                infer_stmt ~generalize:(not together) env ctx assigned stmts.(i)))
-        group;
+        impls_first;
       if together
       then (
         let members =

@@ -282,8 +282,9 @@ let load roots ?namespace:entry_namespace ?(seeds = []) ?(core = true) entry =
         (imports program))
   in
   let root = Source_map.Span.nowhere in
-  (* First, because the checker still reads declarations in order, and a method
-     of `List` used before its impl is checked would fix its `T` at that use. *)
+  walk root ~namespace:(Option.value entry_namespace ~default:(namespace_of entry)) entry;
+  List.iter (fun path -> walk root ~namespace:(namespace_of path) path) seeds;
+  Option.iter (fun path -> walk root ~namespace:(namespace_of path) path) (prelude roots);
   (match roots.std with
    | _ when not core -> ()
    | Some dir ->
@@ -304,9 +305,6 @@ let load roots ?namespace:entry_namespace ?(seeds = []) ?(core = true) entry =
        root
        "Cannot find the standard library, which every program is compiled with. Set \
         CRONYX_STDLIB to the library this toolchain ships.");
-  Option.iter (fun path -> walk root ~namespace:(namespace_of path) path) (prelude roots);
-  walk root ~namespace:(Option.value entry_namespace ~default:(namespace_of entry)) entry;
-  List.iter (fun path -> walk root ~namespace:(namespace_of path) path) seeds;
   let all = List.rev !units in
   let entry_path = normalize entry in
   match List.partition (fun u -> String.equal u.path entry_path) all with

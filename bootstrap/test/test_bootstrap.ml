@@ -416,6 +416,7 @@ let cases =
   ; "tests/core/traits/generic_impl_operator/main"
   ; "tests/core/traits/try_from/main"
   ; "tests/core/traits/associated"
+  ; "tests/core/traits/impl_after_use"
   ; "tests/core/traits/associated_builtin"
   ; "tests/core/traits/associated_type"
   ; "tests/core/traits/supertrait"
