@@ -1,0 +1,4 @@
+Ok("hé")
+Err(Invalid(4))
+Other("utf8_invalid.txt: the byte at offset 4 is not part of a UTF-8 character")
+Other("the byte at offset 4 is not part of a UTF-8 character")

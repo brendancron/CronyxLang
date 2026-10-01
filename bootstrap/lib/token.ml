@@ -15,6 +15,10 @@ type token_type =
   | Dot_dot_dot
   | Amp_amp
   | Pipe_pipe
+  | Amp
+  | Pipe
+  | Caret
+  | Tilde
   | Star
   | Colon
   | Dot
@@ -106,6 +110,10 @@ let token_type_to_string = function
   | Dot_dot_dot -> "DOT_DOT_DOT"
   | Amp_amp -> "AMP_AMP"
   | Pipe_pipe -> "PIPE_PIPE"
+  | Amp -> "AMP"
+  | Pipe -> "PIPE"
+  | Caret -> "CARET"
+  | Tilde -> "TILDE"
   | Star -> "STAR"
   | Colon -> "COLON"
   | Dot -> "DOT"

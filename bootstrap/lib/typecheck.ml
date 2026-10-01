@@ -447,6 +447,11 @@ let trait_of_operator (op : Ast.binop) =
   | Ast.Mul -> Some (Core.mul, false)
   | Ast.Div -> Some (Core.div, false)
   | Ast.Mod -> Some (Core.rem, false)
+  | Ast.Bit_and -> Some (Core.bit_and, false)
+  | Ast.Bit_or -> Some (Core.bit_or, false)
+  | Ast.Bit_xor -> Some (Core.bit_xor, false)
+  | Ast.Shl -> Some (Core.shl, false)
+  | Ast.Shr -> Some (Core.shr, false)
   (* `==` compares any two values of a type structurally, so it constrains an
      operand no further. What `T: Eq` asks for is an impl to reach, which is a
      different question from whether the operator works. *)
@@ -460,6 +465,11 @@ let operator_traits =
   ; Core.mul, (Ast.Mul, "mul")
   ; Core.div, (Ast.Div, "div")
   ; Core.rem, (Ast.Mod, "rem")
+  ; Core.bit_and, (Ast.Bit_and, "bit_and")
+  ; Core.bit_or, (Ast.Bit_or, "bit_or")
+  ; Core.bit_xor, (Ast.Bit_xor, "bit_xor")
+  ; Core.shl, (Ast.Shl, "shl")
+  ; Core.shr, (Ast.Shr, "shr")
   ]
 
 (* [seen] guards a cycle, which nothing rejects yet. *)
@@ -558,7 +568,38 @@ let receiver_of span registry (receiver : (_, Types.infer_ty) Ast.node) name ele
 
 (* A callee quantifying no rows is concrete, or still being inferred and
    sharing a row variable with its own definition. Only the second ties. *)
-let admits_row (callee : Types.scheme option) row (caller : Types.infer_row) =
+(* The functions and methods hoisted and not yet generalized, by name. *)
+let unchecked : (string, unit) Hashtbl.t = Hashtbl.create 64
+
+(* A call to one of them, whose row is not written: its callee's row is
+   contained in its caller's once the callee is checked. Containment is
+   recorded rather than the two rows made equal, because a method call names
+   every method of its name, so a group of declarations checked together is
+   often wider than what calls what, and equal rows would give a pure method
+   the effects of whichever caller met it first. *)
+let pending_calls : (string * Types.infer_row * Types.infer_row) list ref = ref []
+
+(* Until nothing changes, since a callee may gain labels from its own pending
+   callees after a caller has been given its labels. A callee generalized
+   since the last time has its final row, so its calls are settled for good. *)
+let discharge_pending () =
+  pending_calls := List.filter (fun (name, _, _) -> Hashtbl.mem unchecked name) !pending_calls;
+  let size () =
+    List.fold_left
+      (fun n (_, callee, caller) ->
+        n + List.length (fst (Types.labels_of_infer_row callee))
+        + List.length (fst (Types.labels_of_infer_row caller)))
+      0
+      !pending_calls
+  in
+  let rec settle before =
+    List.iter (fun (_, callee, caller) -> Types.row_within callee caller) !pending_calls;
+    let after = size () in
+    if after <> before then settle after
+  in
+  settle (size ())
+
+let admits_row ?name (callee : Types.scheme option) row (caller : Types.infer_row) =
   let pending =
     (not (Types.row_is_declared row))
     &&
@@ -570,7 +611,10 @@ let admits_row (callee : Types.scheme option) row (caller : Types.infer_row) =
   (match !open_defer with
    | Some d when caller == d.d_row && Types.row_is_declared row -> d.d_open <- true
    | _ -> ());
-  if pending then Types.unify_row row caller else Types.row_within row caller
+  match name with
+  | Some name when Hashtbl.mem unchecked name && not (Types.row_is_declared row) ->
+    pending_calls := (name, row, caller) :: !pending_calls
+  | _ -> if pending then Types.unify_row row caller else Types.row_within row caller
 
 let unify_at span expected actual =
   try Types.unify expected actual with
@@ -1572,26 +1616,29 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        let value = if is_trait_type target then coerced target value else value in
        Types.unify target value.Ast.ann;
        node target (`Assign (name, value)))
-  | `Unop (Ast.Neg, a) ->
+  | `Unop (((Ast.Neg | Ast.Bit_not) as op), a) ->
     let a = infer_expr env ctx a in
+    let trait, what = if op = Ast.Neg then Core.neg, "negate" else Core.bit_not, "apply '~' to" in
     (match Types.concrete a.Ast.ann with
      | Some operand ->
-       (match Registry.find_unary ctx.registry Ast.Neg operand with
-        | Some entry -> node (Types.of_ty (Registry.result_of entry operand)) (`Unop (Ast.Neg, a))
+       (match Registry.find_unary ctx.registry op operand with
+        | Some entry -> node (Types.of_ty (Registry.result_of entry operand)) (`Unop (op, a))
         | None ->
           fail
             span
-            "Cannot negate %s: it does not implement Neg."
-            (Types.string_of_ty operand))
+            "Cannot %s %s: it does not implement %s."
+            what
+            (Types.string_of_ty operand)
+            (if op = Ast.Neg then "Neg" else "BitNot"))
      | None ->
        Types.constrain
          a.Ast.ann
          (Types.Bound
-            [ { Types.bd_trait = Core.neg
+            [ { Types.bd_trait = trait
               ; bd_args = []
               ; bd_bindings = [ "Output", a.Ast.ann ]
               } ]);
-       node a.Ast.ann (`Unop (Ast.Neg, a)))
+       node a.Ast.ann (`Unop (op, a)))
   | `Unop (Ast.Not, a) ->
     let a = infer_expr env ctx a in
     Types.unify Types.IBool a.Ast.ann;
@@ -1746,12 +1793,12 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        Types.unify
          callee_node.Ast.ann
          (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
-       let scheme =
+       let name, scheme =
          match callee.Ast.it with
-         | `Var name -> lookup env name
-         | _ -> None
+         | `Var name -> Some name, lookup env name
+         | _ -> None, None
        in
-       admits_row scheme row ctx.row;
+       admits_row ?name scheme row ctx.row;
        node ret (`Call (callee_node, args)))
   (* `f.to<bool>()`. The receiver says which type, and the written targets say
      which of that type's impls, which is the one thing a call by name alone
@@ -1802,7 +1849,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     Types.unify
       fn
       (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) all, ret, row));
-    admits_row (Some scheme) row ctx.row;
+    admits_row ~name:entry.Registry.mangled (Some scheme) row ctx.row;
     node ret (`Call (Ast.annotated span fn (`Var entry.Registry.mangled), all))
   | `Static_call (callee, static_args, args) ->
     let name =
@@ -1853,7 +1900,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     Types.unify
       fn
       (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
-    admits_row (lookup env name) row ctx.row;
+    admits_row ~name (lookup env name) row ctx.row;
     node ret (`Call (callee_node, args))
   (* `Option.Some(x)` and `Option.None` read as a method call and a field until
      `Option` turns out to be a type with that variant. *)
@@ -1981,7 +2028,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
         let ret = Types.fresh () in
         let row = Types.fresh_row () in
         Types.unify fn (Types.IFn (passed, ret, row));
-        admits_row (Some scheme) row ctx.row;
+        admits_row ~name:as_function (Some scheme) row ctx.row;
         Some
           (node ret (`Call ({ Ast.it = `Var as_function; span; ann = fn }, receiver :: args)))
     in
@@ -2238,6 +2285,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          let row = Types.fresh_row () in
          Types.unify fn (Types.IFn (passed, ret, row));
          admits_row
+           ~name:(Registry.entry_for_method ctx.registry owner name)
            (lookup env (Registry.entry_for_method ctx.registry owner name))
            row
            ctx.row;
@@ -2336,7 +2384,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        Types.unify
          fn_ty
          (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
-       admits_row (lookup env fn) row ctx.row;
+       admits_row ~name:fn (lookup env fn) row ctx.row;
        if type_args <> []
        then
          unify_at
@@ -2756,18 +2804,21 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                    [ Ast.Equal; Ast.Not_equal ])
              (* One entry answers all four: [Resolve] turns the `Ordering` the
                 method returns into the bool the operator wanted. *)
-             | t when String.equal t Core.neg ->
+             | t when String.equal t Core.neg || String.equal t Core.bit_not ->
+               let op, written, method_ =
+                 if String.equal t Core.neg then Ast.Neg, "Neg", "neg" else Ast.Bit_not, "BitNot", "bit_not"
+               in
                with_type_params type_params (fun () ->
                  Registry.register_unary
                    registry
-                   Ast.Neg
+                   op
                    (self_concrete ())
                    { Registry.result =
                        (match Ast.assoc_bound impl.Ast.ib_assoc "Output" with
                         | Some bound -> Types.concrete (infer_ty_of_annotation bound)
                         | None ->
-                          fail span "'Neg' for '%s' is missing associated type 'Output'." type_name)
-                   ; emit = Registry.Call (entry_name "neg")
+                          fail span "'%s' for '%s' is missing associated type 'Output'." written type_name)
+                   ; emit = Registry.Call (entry_name method_)
                    })
              | t when String.equal t Core.partial_ord ->
                with_type_params type_params (fun () ->
@@ -3262,6 +3313,7 @@ and hoist env (body : Ast.desugared_stmt list) =
                 @ type_params_of s.Ast.span m.Ast.md_signature.Ast.static_params
               in
               Hashtbl.replace ctx_fn_params mangled type_params;
+              Hashtbl.replace unchecked mangled ();
               with_type_params type_params (fun () ->
                 let param_types =
                   self_ty s.Ast.span type_name (List.map fst impl_params)
@@ -3289,6 +3341,7 @@ and hoist env (body : Ast.desugared_stmt list) =
                 impl_params @ type_params_of s.Ast.span m.Ast.md_signature.Ast.static_params
               in
               Hashtbl.replace ctx_fn_params mangled type_params;
+              Hashtbl.replace unchecked mangled ();
               with_type_params type_params (fun () ->
                 let row =
                   match m.Ast.md_signature.Ast.row with
@@ -3308,6 +3361,7 @@ and hoist env (body : Ast.desugared_stmt list) =
       | `Fn (name, params, signature, _) ->
         let type_params = type_params_of s.Ast.span signature.Ast.static_params in
         Hashtbl.replace ctx_fn_params name type_params;
+        Hashtbl.replace unchecked name ();
         with_type_params type_params (fun () ->
           let param_types =
             List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) params
@@ -3357,47 +3411,77 @@ and infer_in_order env ctx assigned ~attempt (body : Ast.desugared_stmt list) =
         | `Fn (name, _, _, _) -> Some name
         | _ -> None
       in
-      let together =
-        List.length group > 1 && List.for_all (fun i -> Option.is_some (name_of i)) group
+      let is_impl i =
+        match stmts.(i).Ast.it with
+        | `Impl_decl _ -> true
+        | _ -> false
       in
       (* A method call names every method of that name, so unrelated impls and
-         the functions calling them often land in one group. Each impl
-         generalizes as it is checked, so checking them first means a caller
-         instantiates a method rather than fixing its impl's `T` and row at the
-         first call. *)
-      let impls_first =
-        List.stable_sort
-          (fun a b ->
-            let rank i = match stmts.(i).Ast.it with `Impl_decl _ -> 0 | _ -> 1 in
-            compare (rank a) (rank b))
-          group
+         the functions calling them often land in one group. Its declarations
+         are generalized together, once all of them are checked, as functions
+         calling each other are: a method's or a function's row is open until
+         it is checked, so one generalized while another it calls is unchecked
+         keeps that row, and every later caller would add its effects to it.
+         The impls go first, so a function in the group instantiates a method
+         its impl has already answered for. *)
+      let together =
+        List.length group > 1
+        && List.for_all (fun i -> Option.is_some (name_of i) || is_impl i) group
       in
+      let impls, rest = List.partition is_impl group in
+      let methods () =
+        List.concat_map
+          (fun i ->
+            match checked.(i) with
+            | Some { Ast.it = `Impl_decl (trait, type_name, _, impl); _ } ->
+              List.map
+                (fun (m : (checked_stmt, Types.infer_ty) Ast.method_def) ->
+                  Ast.impl_method_name trait type_name m.Ast.md_name, m.Ast.md_ann)
+                impl.Ast.ib_methods
+            | _ -> [])
+          impls
+      in
+      List.iter
+        (fun i -> checked.(i) <- attempt (fun () -> infer_stmt ~generalize:false env ctx assigned stmts.(i)))
+        impls;
+      discharge_pending ();
+      if not together then generalize_methods env (methods ());
       List.iter
         (fun i ->
           checked.(i)
           <- attempt (fun () ->
                infer_stmt ~generalize:(not together) env ctx assigned stmts.(i)))
-        impls_first;
+        rest;
+      discharge_pending ();
       if together
-      then (
-        let members =
-          List.filter_map
-            (fun i ->
-              match name_of i, checked.(i) with
-              | Some name, Some (c : checked_stmt) -> Some (name, c.Ast.ann)
-              | _ -> None)
-            group
-        in
-        List.iter (fun (name, _) -> Hashtbl.remove env.bindings name) members;
-        let env_vars = env_free_vars env
-        and env_rows = env_free_row_vars env
-        and env_fields = env_free_field_vars env in
-        List.iter
-          (fun (name, fn_type) ->
-            bind env name (Types.generalize ~env_vars ~env_rows ~env_fields fn_type))
-          members))
+      then
+        generalize_methods
+          env
+          (methods ()
+           @ List.filter_map
+               (fun i ->
+                 match name_of i, checked.(i) with
+                 | Some name, Some (c : checked_stmt) -> Some (name, c.Ast.ann)
+                 | _ -> None)
+               rest))
     (dependency_order body);
   Array.to_list checked
+
+and generalize_methods env methods =
+  if methods <> [] then generalize_listed env methods
+
+and generalize_listed env methods =
+  List.iter
+    (fun (mangled, _) ->
+      Hashtbl.remove unchecked mangled;
+      Hashtbl.remove env.bindings mangled)
+    methods;
+  let env_vars = env_free_vars env
+  and env_rows = env_free_row_vars env
+  and env_fields = env_free_field_vars env in
+  List.iter
+    (fun (mangled, fn_type) -> bind env mangled (Types.generalize ~env_vars ~env_rows ~env_fields fn_type))
+    methods
 
 and infer_stmt ?(generalize = true) env ctx assigned (s : Ast.desugared_stmt)
   : checked_stmt
@@ -3543,6 +3627,8 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
        count as free in the enclosing scope. *)
     if generalize
     then (
+      discharge_pending ();
+      Hashtbl.remove unchecked name;
       Hashtbl.remove env.bindings name;
       bind
         env
@@ -3634,14 +3720,10 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
      | _ -> ());
     (* One variable per impl parameter is shared by every method, so the impl
        generalizes as a group or not at all. *)
-    List.iter (fun (mangled, _, _) -> Hashtbl.remove env.bindings mangled) inferred;
-    let env_vars = env_free_vars env
-    and env_rows = env_free_row_vars env
-    and env_fields = env_free_field_vars env in
-    List.iter
-      (fun (mangled, fn_type, _) ->
-        bind env mangled (Types.generalize ~env_vars ~env_rows ~env_fields fn_type))
-      inferred;
+    if generalize
+    then (
+      discharge_pending ();
+      generalize_methods env (List.map (fun (mangled, fn_type, _) -> mangled, fn_type) inferred));
     node
       (`Impl_decl (trait, type_name, params, { impl with Ast.ib_methods = List.map (fun (_, _, m) -> m) inferred }))
   | `Match (scrutinee, cases) ->
@@ -4311,6 +4393,9 @@ let declare_builtin_impls registry =
     (fun ty -> Hashtbl.add ctx_impls (Option.get (Types.type_name ty), Core.neg) [])
     [ Types.Int; Types.Float ];
   List.iter
+    (fun ty -> Hashtbl.add ctx_impls (Option.get (Types.type_name ty), Core.bit_not) [])
+    [ Types.Int; Types.Byte ];
+  List.iter
     (fun (trait, (binary, _)) ->
       List.iter
         (fun ty ->
@@ -4368,6 +4453,8 @@ let check_with ~registry (program : Ast.desugared_stmt list)
   Types.assoc_binding := (fun owner member -> Hashtbl.find_opt ctx_assoc (owner, member));
   reset_effects ();
   deferred_rows := [];
+  pending_calls := [];
+  Hashtbl.reset unchecked;
   let env = new_env None in
   declare_builtins env;
   declare_builtin_impls registry;

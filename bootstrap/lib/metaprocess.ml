@@ -1382,6 +1382,7 @@ let rec key_of w (e : Ast.expr) : string option =
   | `Bool b -> Some (string_of_bool b)
   | `Bytes b -> Some ("bytes:" ^ Digest.to_hex (Digest.string b))
   | `Unop (Ast.Neg, inner) -> Option.map (fun key -> "-" ^ key) (key_of w inner)
+  | `Unop (Ast.Bit_not, inner) -> Option.map (fun key -> "~" ^ key) (key_of w inner)
   | `Tuple items -> Option.map (fun k -> "(" ^ k ^ ")") (all items)
   | `Collection_lit items -> Option.map (fun k -> "[" ^ k ^ "]") (all items)
   | `Record_lit fs -> fields fs
@@ -1501,6 +1502,7 @@ let rec fold w (e : Ast.expr) : Ast.expr =
      | Ast.Neg, `Int n -> at (`Int (-n))
      | Ast.Neg, `Float n -> at (`Float (-.n))
      | Ast.Not, `Bool b -> at (`Bool (not b))
+     | Ast.Bit_not, `Int n -> at (`Int (lnot n))
      | _ -> e)
   | `And (a, b) | `Or (a, b) ->
     (match (fold w a).Ast.it, (fold w b).Ast.it, e.Ast.it with
@@ -1532,6 +1534,9 @@ let rec fold w (e : Ast.expr) : Ast.expr =
       | Ast.Mul, `Int x, `Int y -> at (`Int (x * y))
       | Ast.Div, `Int x, `Int y when y <> 0 -> at (`Int (x / y))
       | Ast.Mod, `Int x, `Int y when y <> 0 -> at (`Int (x mod y))
+      | Ast.Bit_and, `Int x, `Int y -> at (`Int (x land y))
+      | Ast.Bit_or, `Int x, `Int y -> at (`Int (x lor y))
+      | Ast.Bit_xor, `Int x, `Int y -> at (`Int (x lxor y))
       | Ast.Add, `Float x, `Float y -> at (`Float (x +. y))
       | Ast.Sub, `Float x, `Float y -> at (`Float (x -. y))
       | Ast.Mul, `Float x, `Float y -> at (`Float (x *. y))

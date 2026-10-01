@@ -24,6 +24,7 @@ let escape ?(quote = '"') text =
 let string_of_unop = function
   | Ast.Neg -> "-"
   | Ast.Not -> "!"
+  | Ast.Bit_not -> "~"
 
 let rec row_annotation entries =
   match entries with

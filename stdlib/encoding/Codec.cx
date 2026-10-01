@@ -1,0 +1,29 @@
+/**
+ * What decoding a format fails with.
+ *
+ * Every decoder in `encoding/` throws a `DecodeError`, which says where in the
+ * input it stopped and why, so a caller can point at the character rather than
+ * only report that the input was bad.
+ */
+
+import { Failure } from "../core/Error";
+
+/** Why input does not decode. */
+type DecodeError {
+    /** The input ended where more was needed. The offset is its length. */
+    Truncated(int),
+
+    /** The character at this offset means nothing where it stands. */
+    Unexpected(int, char)
+}
+
+impl Failure for DecodeError {
+    fn message(self): string {
+        match self {
+            DecodeError.Truncated(at) => { return "the input ends at offset " + str(at) + " where more was needed"; }
+            DecodeError.Unexpected(at, c) => {
+                return debug(c) + " at offset " + str(at) + " is not valid here";
+            }
+        }
+    }
+}

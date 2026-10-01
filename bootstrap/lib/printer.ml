@@ -5,6 +5,7 @@ let string_of_binop = Ast.string_of_binop
 let string_of_unop : Ast.unop -> string = function
   | Ast.Neg -> "-"
   | Ast.Not -> "!"
+  | Ast.Bit_not -> "~"
 
 let rec string_of_row entries =
   match entries with

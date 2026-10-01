@@ -62,6 +62,20 @@ let eval_binop span (op : Ast.binop) a b =
     Bool (compare_ordered op (Char.code x) (Char.code y))
   | (Ast.Less | Ast.Less_equal | Ast.Greater | Ast.Greater_equal), Str x, Str y ->
     Bool (compare_ordered op (Utf8.compare x y) 0)
+  | Ast.Bit_and, Int x, Int y -> Int (x land y)
+  | Ast.Bit_or, Int x, Int y -> Int (x lor y)
+  | Ast.Bit_xor, Int x, Int y -> Int (x lxor y)
+  | Ast.Bit_and, Byte x, Byte y -> Byte (Char.chr (Char.code x land Char.code y))
+  | Ast.Bit_or, Byte x, Byte y -> Byte (Char.chr (Char.code x lor Char.code y))
+  | Ast.Bit_xor, Byte x, Byte y -> Byte (Char.chr (Char.code x lxor Char.code y))
+  | (Ast.Shl | Ast.Shr), _, Int n when n < 0 -> fail span "Cannot shift by %d, which is negative." n
+  (* OCaml leaves a shift by the word size or more unspecified; past every bit,
+     a left shift has shifted them all out and a right shift has copied the
+     sign into all of them. *)
+  | Ast.Shl, Int x, Int n -> Int (if n >= Sys.int_size then 0 else x lsl n)
+  | Ast.Shr, Int x, Int n -> Int (if n >= Sys.int_size then (if x < 0 then -1 else 0) else x asr n)
+  | Ast.Shl, Byte x, Int n -> Byte (Char.chr (if n >= 8 then 0 else (Char.code x lsl n) land 0xff))
+  | Ast.Shr, Byte x, Int n -> Byte (Char.chr (if n >= 8 then 0 else Char.code x lsr n))
   | Ast.Equal, _, _ -> Bool (values_equal a b)
   | Ast.Not_equal, _, _ -> Bool (not (values_equal a b))
   | _ ->
@@ -122,6 +136,11 @@ let rec eval env (e : Ast.cps_expr) : value =
      | Float n -> Float (-.n)
      | v -> fail span "Cannot negate %s." (type_name v))
   | `Unop (Ast.Not, a) -> Bool (not (as_bool span (eval env a)))
+  | `Unop (Ast.Bit_not, a) ->
+    (match eval env a with
+     | Int n -> Int (lnot n)
+     | Byte b -> Byte (Char.chr (lnot (Char.code b) land 0xff))
+     | v -> fail span "Cannot apply '~' to %s." (type_name v))
   | `Binop (op, a, b) ->
     let a = eval env a in
     let b = eval env b in

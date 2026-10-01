@@ -338,7 +338,37 @@ and comparison s : Ast.expr =
   binary_level
     s
     [ Token.Greater; Token.Greater_equal; Token.Less; Token.Less_equal ]
-    term
+    bit_or
+
+and bit_or s : Ast.expr = binary_level s [ Token.Pipe ] bit_xor
+and bit_xor s : Ast.expr = binary_level s [ Token.Caret ] bit_and
+and bit_and s : Ast.expr = binary_level s [ Token.Amp ] shift
+
+(* `<<` and `>>` are two tokens written touching, because `>>` is also the end
+   of `List<List<int>>`, and only the parser knows which it is reading. *)
+and shift s : Ast.expr =
+  let touching (a : Token.token) (b : Token.token) =
+    match Source_map.Span.view a.Token.span, Source_map.Span.view b.Token.span with
+    | Source_map.Span.Located a, Source_map.Span.Located b -> a.line = b.line && b.col = a.col + 1
+    | _ -> false
+  in
+  let doubled kind =
+    let a = peek s and b = peek_at s 1 in
+    a.Token.token_type = kind && b.Token.token_type = kind && touching a b
+  in
+  let rec loop left =
+    let op =
+      if doubled Token.Less then Some Ast.Shl else if doubled Token.Greater then Some Ast.Shr else None
+    in
+    match op with
+    | Some op ->
+      ignore (advance s);
+      ignore (advance s);
+      let right = term s in
+      loop (Ast.at left.Ast.span (`Binop (op, left, right)))
+    | None -> left
+  in
+  loop (term s)
 
 and term s : Ast.expr = binary_level s [ Token.Minus; Token.Plus ] factor
 and factor s : Ast.expr = binary_level s [ Token.Slash; Token.Star; Token.Percent ] unary

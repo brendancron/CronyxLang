@@ -13,6 +13,36 @@
           "doc": "What the compiler provides with no declaration behind it. These names are always in scope and are not imported.",
           "entries": [
             {
+              "id": "builtin#byte#to_int",
+              "package": "std",
+              "unit": "builtins",
+              "name": "byte.to_int",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The byte as a number from 0 to 255.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "byte",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "int",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
               "id": "builtin#char#to_lower",
               "package": "std",
               "unit": "builtins",
@@ -177,6 +207,36 @@
               "ret": {
                 "kind": "name",
                 "name": "int",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#int#to_byte",
+              "package": "std",
+              "unit": "builtins",
+              "name": "int.to_byte",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The integer's lowest eight bits as a byte, so 256 is 0 and -1 is 255.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "int",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "byte",
                 "ref": null,
                 "param": false
               },

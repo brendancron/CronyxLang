@@ -155,12 +155,12 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
       let current : Ast.typed_expr = { Ast.it = `Field (target_again, label); span; ann } in
       let combined = { e with Ast.it = `Binop (op, current, v) } in
       (expr registry { e with Ast.it = `Field_assign (target, label, combined) }).Ast.it
-    | `Unop (Ast.Neg, a) ->
+    | `Unop (((Ast.Neg | Ast.Bit_not) as op), a) ->
       let a = expr registry a in
-      (match Registry.find_unary registry Ast.Neg a.Ast.ann with
+      (match Registry.find_unary registry op a.Ast.ann with
        | Some { Registry.emit = Registry.Call name; _ } ->
          `Call (fn_ref span name [ a ] ann, [ a ])
-       | Some { Registry.emit = Registry.Primitive; _ } | None -> `Unop (Ast.Neg, a))
+       | Some { Registry.emit = Registry.Primitive; _ } | None -> `Unop (op, a))
     | `Binop (op, a, b) ->
       let a = expr registry a
       and b = expr registry b in

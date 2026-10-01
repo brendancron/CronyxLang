@@ -184,7 +184,8 @@ let result_of entry operand =
 
 let unresolved_result (op : Ast.binop) operand =
   match op with
-  | Ast.Add | Ast.Sub | Ast.Mul | Ast.Div | Ast.Mod -> operand
+  | Ast.Add | Ast.Sub | Ast.Mul | Ast.Div | Ast.Mod | Ast.Bit_and | Ast.Bit_or | Ast.Bit_xor
+  | Ast.Shl | Ast.Shr -> operand
   | Ast.Less | Ast.Less_equal | Ast.Greater | Ast.Greater_equal | Ast.Equal
   | Ast.Not_equal -> Types.IBool
 
@@ -216,4 +217,18 @@ let builtins () =
     [ Ast.Equal; Ast.Not_equal ];
   register_unary t Ast.Neg Types.Int (prim Types.Int);
   register_unary t Ast.Neg Types.Float (prim Types.Float);
+  (* A byte shifts by an int, as an int does: the amount is a count, not an
+     octet. *)
+  List.iter
+    (fun op ->
+      register t op Types.Int Types.Int (prim Types.Int);
+      register t op Types.Byte Types.Byte (prim Types.Byte))
+    [ Ast.Bit_and; Ast.Bit_or; Ast.Bit_xor ];
+  List.iter
+    (fun op ->
+      register t op Types.Int Types.Int (prim Types.Int);
+      register t op Types.Byte Types.Int (prim Types.Byte))
+    [ Ast.Shl; Ast.Shr ];
+  register_unary t Ast.Bit_not Types.Int (prim Types.Int);
+  register_unary t Ast.Bit_not Types.Byte (prim Types.Byte);
   t

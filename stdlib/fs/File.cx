@@ -18,6 +18,7 @@
 import { async } from "../async/Task";
 import { Throw, Result } from "../core/Error";
 import { Reader, Writer, Closer, IoError, using } from "../io/Io";
+import { decode } from "../text/Utf8";
 
 /** What a file is opened for. */
 type Mode {
@@ -69,11 +70,13 @@ fn read_file(path: string): <Fs, async, Throw<IoError>> Array<byte> {
     return using(open_file(path, Mode.Read)) { file -> read_all(file) };
 }
 
-/** The file at the path, as text. Throws if it is not UTF-8. */
+/** The file at the path, as text. Throws, naming the offset, if it is not UTF-8. */
 fn read_text(path: string): <Fs, async, Throw<IoError>> string {
-    var (ok, text) = __utf8(read_file(path));
-    if (!ok) { throw(IoError.Other(path + " is not UTF-8 text")); }
-    return text;
+    match decode(read_file(path)) {
+        Result.Ok(text) => { return text; }
+        Result.Err(e) => { throw(IoError.Other(path + ": " + e.message())); }
+    }
+    return "";
 }
 
 /** Replaces the file at the path with the bytes, creating it if need be. */

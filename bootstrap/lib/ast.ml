@@ -45,6 +45,7 @@ let annotated span ann it = { it; span; ann }
 type unop =
   | Neg (* - *)
   | Not (* ! *)
+  | Bit_not (* ~ *)
 
 type binop =
   | Add
@@ -52,6 +53,11 @@ type binop =
   | Mul
   | Div
   | Mod
+  | Bit_and
+  | Bit_or
+  | Bit_xor
+  | Shl
+  | Shr
   | Equal
   | Not_equal
   | Less
@@ -1017,6 +1023,11 @@ let string_of_binop = function
   | Mul -> "*"
   | Div -> "/"
   | Mod -> "%"
+  | Bit_and -> "&"
+  | Bit_or -> "|"
+  | Bit_xor -> "^"
+  | Shl -> "<<"
+  | Shr -> ">>"
   | Equal -> "=="
   | Not_equal -> "!="
   | Less -> "<"
@@ -1030,6 +1041,9 @@ let binop_of_token : Token.token_type -> binop option = function
   | Token.Star -> Some Mul
   | Token.Slash -> Some Div
   | Token.Percent -> Some Mod
+  | Token.Amp -> Some Bit_and
+  | Token.Pipe -> Some Bit_or
+  | Token.Caret -> Some Bit_xor
   | Token.Equal_equal -> Some Equal
   | Token.Bang_equal -> Some Not_equal
   | Token.Less -> Some Less
@@ -1041,6 +1055,7 @@ let binop_of_token : Token.token_type -> binop option = function
 let unop_of_token : Token.token_type -> unop option = function
   | Token.Minus -> Some Neg
   | Token.Bang -> Some Not
+  | Token.Tilde -> Some Bit_not
   | _ -> None
 
 let span_of_token (t : Token.token) = t.Token.span

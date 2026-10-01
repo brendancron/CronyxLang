@@ -139,6 +139,32 @@ true
 
 Comparisons don't chain. `1 < x < 10` compares a `bool` with an `int` and fails to compile; write `1 < x && x < 10`.
 
+## Bitwise operators
+
+`&` (and), `|` (or), `^` (exclusive or), `~` (not), `<<` and `>>` work on the bits of an `int` or a `byte`. An integer can be written in hexadecimal or binary for this, as `0xff` or `0b1010`:
+
+```cronyx
+print(0b1100 & 0b1010);
+print(0b1100 | 0b1010);
+print(0b1100 ^ 0b1010);
+print(~0);
+print(1 << 4);
+print(-8 >> 1);
+print(0x1234 >> 8 & 0xff);
+```
+
+```
+8
+14
+6
+-1
+16
+-4
+18
+```
+
+`>>` copies the sign bit into the top, so a negative number stays negative. A `byte` shifts by an `int` and stays a `byte`, with the bits shifted past its eighth lost. Shifting by a negative amount stops the program. `byte.to_int()` and `int.to_byte()` move between the two, the second keeping the lowest eight bits.
+
 ## Logical operators
 
 `&&` (and), `||` (or), and `!` (not) work on `bool`s:
@@ -280,9 +306,13 @@ When an expression mixes operators, the tighter-binding ones group first. From t
 | Operators                          | Groups        |
 | ---------------------------------- | ------------- |
 | `f()`, `xs[i]`, `p.x`, `n++`, `n--` | left to right |
-| `-x`, `!x`                         | right to left |
+| `-x`, `!x`, `~x`                   | right to left |
 | `*`, `/`, `%`                      | left to right |
 | `+`, `-`                           | left to right |
+| `<<`, `>>`                         | left to right |
+| `&`                                | left to right |
+| `^`                                | left to right |
+| `\|`                               | left to right |
 | `<`, `<=`, `>`, `>=`               | left to right |
 | `==`, `!=`                         | left to right |
 | `&&`                               | left to right |
@@ -318,7 +348,13 @@ Every operator on this page is a trait that the built-in types implement. `a + b
 | `a * b`                  | `Mul<Rhs>`      | `mul`         |
 | `a / b`                  | `Div<Rhs>`      | `div`         |
 | `a % b`                  | `Rem<Rhs>`      | `rem`         |
+| `a & b`                  | `BitAnd<Rhs>`   | `bit_and`     |
+| `a \| b`                 | `BitOr<Rhs>`    | `bit_or`      |
+| `a ^ b`                  | `BitXor<Rhs>`   | `bit_xor`     |
+| `a << b`                 | `Shl<Rhs>`      | `shl`         |
+| `a >> b`                 | `Shr<Rhs>`      | `shr`         |
 | `-a`                     | `Neg`           | `neg`         |
+| `~a`                     | `BitNot`        | `bit_not`     |
 | `a == b`, `a != b`       | `Eq`            | `eq`          |
 | `a < b`, `<=`, `>`, `>=` | `PartialOrd`    | `partial_cmp` |
 | `xs[i]`                  | `Index<Idx>`    | `get`         |

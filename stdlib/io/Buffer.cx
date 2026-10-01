@@ -1,0 +1,142 @@
+/**
+ * Growable bytes in memory, read from the front and written to the back.
+ *
+ * ```
+ * import { Buffer, ByteOrder, buffer } from "std/io/Buffer";
+ *
+ * var b = buffer();
+ * b.write_int(258, 2, ByteOrder.Big);
+ * b.write_text("hi");
+ * print(b.bytes());                        // [1, 2, 104, 105]
+ * print(b.read_int(2, ByteOrder.Big));     // Some(258)
+ * print(b.remaining());                    // [104, 105]
+ * ```
+ *
+ * A `Buffer` is a `Reader` and a `Writer`, so code written against either can
+ * be given one in a test, and what it writes read back, without a file.
+ */
+
+import { Reader, Writer, IoError } from "Io";
+import { Throw } from "../core/Error";
+import { async } from "../async/Task";
+
+/** Which end of an integer is written first. */
+type ByteOrder {
+    /** The most significant byte first, as the network and most formats do. */
+    Big,
+
+    /** The least significant byte first, as most processors do. */
+    Little
+}
+
+/** Bytes written to the back and read from the front. */
+type Buffer {
+    /** Every byte written, read or not. */
+    data: List<byte>,
+
+    /** How many of them have been read. */
+    read_at: int
+}
+
+/** An empty buffer. */
+fn buffer(): Buffer {
+    return Buffer { data: [], read_at: 0 };
+}
+
+/** A buffer holding these bytes, ready to be read. */
+fn buffer_of(bytes: Array<byte>): Buffer {
+    var out = buffer();
+    out.write_bytes(bytes);
+    return out;
+}
+
+impl Buffer {
+    /** How many bytes have been written and not yet read. */
+    fn len(self): int {
+        return self.data.len() - self.read_at;
+    }
+
+    /** Every byte written, including those already read. */
+    fn bytes(self): Array<byte> {
+        return self.data.items[0:self.data.len()];
+    }
+
+    /** The bytes not yet read, without reading them. */
+    fn remaining(self): Array<byte> {
+        return self.data.items[self.read_at:self.data.len()];
+    }
+
+    /** Appends the bytes. */
+    fn write_bytes(self, bytes: Array<byte>) {
+        for (b in bytes) { self.data.push(b); }
+    }
+
+    /** Appends the text's UTF-8 bytes. */
+    fn write_text(self, text: string) {
+        self.write_bytes(text.bytes());
+    }
+
+    /**
+     * Appends the integer's lowest `size` bytes, from 1 to 8, in the order
+     * given. A negative one is written in two's complement, so it reads back
+     * as negative only at a size that holds its sign.
+     */
+    fn write_int(self, value: int, size: int, order: ByteOrder) {
+        var i = 0;
+        while (i < size) {
+            var shift = match order {
+                ByteOrder.Big => 8 * (size - 1 - i),
+                ByteOrder.Little => 8 * i,
+            };
+            self.data.push((value >> shift).to_byte());
+            i = i + 1;
+        }
+    }
+
+    /** The next byte, or `None` once every byte has been read. */
+    fn read_byte(self): Option<byte> {
+        if (self.read_at >= self.data.len()) { return Option.None; }
+        var b = self.data[self.read_at];
+        self.read_at = self.read_at + 1;
+        return Option.Some(b);
+    }
+
+    /**
+     * The next `size` bytes, from 1 to 8, as an unsigned integer in the order
+     * given, or `None` if fewer than that are left, in which case none are
+     * read.
+     */
+    fn read_int(self, size: int, order: ByteOrder): Option<int> {
+        if (self.len() < size) { return Option.None; }
+        var value = 0;
+        var i = 0;
+        while (i < size) {
+            var b = self.data[self.read_at + i].to_int();
+            var shift = match order {
+                ByteOrder.Big => 8 * (size - 1 - i),
+                ByteOrder.Little => 8 * i,
+            };
+            value = value | (b << shift);
+            i = i + 1;
+        }
+        self.read_at = self.read_at + size;
+        return Option.Some(value);
+    }
+}
+
+impl Reader for Buffer {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        if (self.len() == 0) { return Option.None; }
+        var stop = self.read_at + max;
+        if (stop > self.data.len()) { stop = self.data.len(); }
+        var chunk = self.data.items[self.read_at:stop];
+        self.read_at = stop;
+        return Option.Some(chunk);
+    }
+}
+
+impl Writer for Buffer {
+    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+        self.write_bytes(data);
+    }
+}

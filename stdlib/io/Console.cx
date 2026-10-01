@@ -34,8 +34,9 @@
  */
 
 import { async } from "../async/Task";
-import { Throw } from "../core/Error";
+import { Throw, Result } from "../core/Error";
 import { Reader, IoError } from "Io";
+import { decode } from "../text/Utf8";
 
 
 /** Which of the two output streams. */
@@ -86,9 +87,11 @@ fn read_line(): <Stdin, async, Throw<IoError>> Option<string> {
 fn __line(bytes: List<byte>): <Throw<IoError>> string {
     var stop = bytes.len();
     if (stop > 0 && bytes[stop - 1] == "\r".bytes()[0]) { stop = stop - 1; }
-    var (ok, text) = __utf8(bytes.items[0:stop]);
-    if (!ok) { throw(IoError.Other("standard input is not UTF-8 text")); }
-    return text;
+    match decode(bytes.items[0:stop]) {
+        Result.Ok(text) => { return text; }
+        Result.Err(e) => { throw(IoError.Other("standard input: " + e.message())); }
+    }
+    return "";
 }
 
 // ---- the terminal's input, which the root hands out ----

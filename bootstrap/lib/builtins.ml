@@ -31,6 +31,11 @@ let methods
     , "to_int"
     , "The float truncated towards zero."
     , fun () -> [ Types.IFloat ], Types.IInt )
+  ; "byte", "to_int", "The byte as a number from 0 to 255.", (fun () -> [ Types.IByte ], Types.IInt)
+  ; ( "int"
+    , "to_byte"
+    , "The integer's lowest eight bits as a byte, so 256 is 0 and -1 is 255."
+    , fun () -> [ Types.IInt ], Types.IByte )
   ]
 
 (* No HM type describes these. A call is checked structurally; a bare reference
@@ -68,7 +73,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () -> [ Types.IInt ], Types.ITuple [ Types.IInt; Types.iarray Types.IByte; Types.IStr ] )
   ; ( "__utf8"
     , ""
-    , fun () -> [ Types.iarray Types.IByte ], Types.ITuple [ Types.IBool; Types.IStr ] )
+    , fun () -> [ Types.iarray Types.IByte ], Types.ITuple [ Types.IInt; Types.IStr ] )
   ; ("__write_err", "", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "str"
     , "The value as `print` writes it: through its `Display` impl if it has one, \
@@ -383,10 +388,21 @@ let values ~out ~globals =
               Value.Tuple [ Value.Int (status_of message); Value.Str (Utf8.decode message) ])
          | None -> Value.Tuple [ Value.Int 3; Value.Str (Utf8.decode "The file is closed.") ])
       | _ -> Value.fail span "__file_close takes a handle.")
+  (* The offset of the first byte that is not part of a character, or -1 and the
+     text. *)
   ; one "__utf8" (fun span d ->
       match bytes_of d with
-      | Some data when String.is_valid_utf_8 data -> Value.Tuple [ Value.Bool true; Value.Str (Utf8.decode data) ]
-      | Some _ -> Value.Tuple [ Value.Bool false; Value.Str [||] ]
+      | Some data ->
+        let rec first_bad at =
+          if at >= String.length data
+          then None
+          else (
+            let d = String.get_utf_8_uchar data at in
+            if Uchar.utf_decode_is_valid d then first_bad (at + Uchar.utf_decode_length d) else Some at)
+        in
+        (match first_bad 0 with
+         | None -> Value.Tuple [ Value.Int (-1); Value.Str (Utf8.decode data) ]
+         | Some at -> Value.Tuple [ Value.Int at; Value.Str [||] ])
       | None -> Value.fail span "__utf8 takes bytes.")
   ; one "__write_err" (fun span v ->
       match v with
@@ -503,6 +519,14 @@ let values ~out ~globals =
       match v with
       | Value.Int n -> Value.Float (float_of_int n)
       | _ -> Value.fail span "Cannot apply to_float to these arguments.")
+  ; one (Ast.method_name "byte" "to_int") (fun span v ->
+      match v with
+      | Value.Byte b -> Value.Int (Char.code b)
+      | _ -> Value.fail span "Cannot apply to_int to these arguments.")
+  ; one (Ast.method_name "int" "to_byte") (fun span v ->
+      match v with
+      | Value.Int n -> Value.Byte (Char.chr (n land 0xff))
+      | _ -> Value.fail span "Cannot apply to_byte to these arguments.")
   ; one (Ast.method_name "float" "to_int") (fun span v ->
       match v with
       | Value.Float x when Float.is_finite x && Float.abs x < 0x1p62 ->

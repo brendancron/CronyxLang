@@ -19,7 +19,8 @@ global import { Iter } from "std/core/Iter";
 global import { List } from "std/collections/List";
 global import { Map } from "std/collections/Map";
 global import {
-    Add, Sub, Mul, Div, Rem, Eq, Ordering, PartialOrd, Neg, Index, IndexSet, FromArray
+    Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr, BitNot, Eq, Ordering, PartialOrd, Neg,
+    Index, IndexSet, FromArray
 } from "std/core/Ops";
 global import { Option } from "std/core/Option";
 global import { Range } from "std/core/Range";

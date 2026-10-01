@@ -1,0 +1,18 @@
+6869
+[104, 105]
+[255, 0]
+Err(Unexpected(1, 'g'))
+Err(Truncated(3))
+
+Zg==
+Zm8=
+Zm9v
+Zm9vYg==
+Zm9vYmE=
+Zm9vYmFy
+aGk_
+[102, 111, 111, 98, 97]
+[102, 111, 111, 98, 97]
+[104, 105, 63]
+Err(Unexpected(4, '!'))
+Err(Truncated(1))

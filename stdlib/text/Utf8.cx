@@ -1,0 +1,48 @@
+/**
+ * Bytes to text and back.
+ *
+ * ```
+ * import { decode } from "std/text/Utf8";
+ * import { Result } from "std/core/Error";
+ *
+ * match decode("hé".bytes()) {
+ *     Result.Ok(text) => { print(text); }                  // hé
+ *     Result.Err(e) => { print(e); }
+ * }
+ * print(decode("hé".bytes()[0:2]));   // Err(Invalid(1))
+ * ```
+ *
+ * Decoding fails as a value naming where the input stopped being UTF-8, so a
+ * caller can say which byte of which file was wrong rather than only that one
+ * was.
+ */
+
+import { Result, Failure } from "../core/Error";
+
+/** Why bytes are not UTF-8 text. */
+type Utf8Error {
+    /** The byte at this offset begins no character, or ends one too soon. */
+    Invalid(int)
+}
+
+impl Failure for Utf8Error {
+    fn message(self): string {
+        match self {
+            Utf8Error.Invalid(at) => {
+                return "the byte at offset " + str(at) + " is not part of a UTF-8 character";
+            }
+        }
+    }
+}
+
+/** The text the bytes encode, or where they stop being UTF-8. */
+fn decode(bytes: Array<byte>): Result<string, Utf8Error> {
+    var (bad, text) = __utf8(bytes);
+    if (bad >= 0) { return Result.Err(Utf8Error.Invalid(bad)); }
+    return Result.Ok(text);
+}
+
+/** The text's bytes, which is how it is stored. */
+fn encode(text: string): Array<byte> {
+    return text.bytes();
+}
