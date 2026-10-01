@@ -12,3 +12,4 @@ dist/
 tests/core/builtins/writefile_out.txt
 io_lines.txt
 io_lines_to_end.txt
+utf8_invalid.txt
