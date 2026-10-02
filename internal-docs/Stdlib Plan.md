@@ -86,7 +86,7 @@ Then the library:
 
 What a program asks of the OS: `os/Args`, `os/Env`, `os/Time`, `os/Process`, `random/`, and `fs/Path` with directory listing in `fs/`.
 
-Each is an effect the root handles, as `Fs` is, so a test replaces it — a fixed clock, fixed arguments, a seeded generator. That decides [Launching a process](TODO.md#launching-a-process) for all of them at once, and `readfile`, `writefile` and `clock` stop being builtins.
+Each is an effect the root handles, as `Fs` is, so a test replaces it — a fixed clock, fixed arguments, a seeded generator. That decides launching a process for all of them at once ([I/O](IO.md#everything-else-the-os-offers-is-an-effect-too)), and `readfile`, `writefile` and `clock` stop being builtins.
 
 A `meta` block runs under the same root as a program, so compile time can do anything run time can: read and write files, read the environment and the clock, launch a process. Whether a build is reproducible is the program's business, not the compiler's.
 

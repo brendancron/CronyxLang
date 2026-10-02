@@ -467,8 +467,9 @@ let rec suspends_stmt info (s : Ast.reflected_stmt) =
    is the next thing that happens. *)
 let ready_call info (e : Ast.reflected_expr) =
   match e.Ast.it with
-  | `Call (_, args) | `Dyn_call (_, _, _, args) ->
-    suspends info e && not (List.exists (suspends info) args)
+  | `Call (_, args) -> suspends info e && not (List.exists (suspends info) args)
+  | `Dyn_call (receiver, _, _, args) ->
+    suspends info e && not (List.exists (suspends info) (receiver :: args))
   | _ -> false
 
 let suspending_logic info (e : Ast.reflected_expr) =
@@ -488,9 +489,12 @@ let rec extract_with select info (e : Ast.reflected_expr)
   | _ when select info e ->
     Some (e, fun name -> { Ast.it = `Var name; span = e.Ast.span; ann = e.Ast.ann })
   | #Ast.lit | `Var _ | `Lambda _ -> None
-  | `Object _ -> None
+  | `Object (data, table) ->
+    extract info data |> Option.map (fun (c, f) -> c, fun n -> rebuild (`Object (f n, table)))
   | `Dyn_call (receiver, name, performs, args) ->
-    extract_list info args (fun args -> rebuild (`Dyn_call (receiver, name, performs, args)))
+    extract_list info (receiver :: args) (function
+      | receiver :: args -> rebuild (`Dyn_call (receiver, name, performs, args))
+      | [] -> assert false)
   | `Call (callee, args) -> extract_list info args (fun args -> rebuild (`Call (callee, args)))
   | `Tuple items -> extract_list info items (fun items -> rebuild (`Tuple items))
   | `Array_lit items -> extract_list info items (fun items -> rebuild (`Array_lit items))

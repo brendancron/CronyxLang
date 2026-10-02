@@ -50,11 +50,7 @@ let variadic : (string * (unit -> Types.infer_ty)) list =
 let selected_test = Ast.generated [ "test"; "selected" ]
 
 let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
-  [ ( "clock"
-    , "Seconds of processor time used so far. For measuring a duration, not for \
-       telling the time."
-    , fun () -> [], Types.IFloat )
-  ; selected_test, "", (fun () -> [], Types.IInt)
+  [ selected_test, "", (fun () -> [], Types.IInt)
   ; ("__write_out", "", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "__file_open"
     , ""
@@ -104,13 +100,6 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
         let t = Types.fresh () in
         [ t; t ], Types.IBool )
   (* What a derived `Eq` reaches, through an impl so a type has to ask. *)
-  ; ( "readfile"
-    , "The contents of a file. A relative path is relative to the file that \
-       wrote the call, as an import is."
-    , fun () -> [ Types.IStr ], Types.IStr )
-  ; ( "writefile"
-    , "Writes the contents to a path, replacing whatever was there."
-    , fun () -> [ Types.IStr; Types.IStr ], Types.IUnit )
   ; ( "__structural_eq"
     , ""
     , fun () ->
@@ -131,17 +120,9 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
         let t = Types.fresh () in
         [ Types.iarray t; Types.IInt; t ], Types.iarray t )
   ]
+  @ System.functions
 
 (* ---- values ---- *)
-
-(* A relative path is relative to the file that wrote the call, the way an
-   import and an `embed` are. Where the program was started from is not
-   something the source can see. *)
-let beside (span : Ast.span) path =
-  let from = Source_map.Span.path span in
-  if Filename.is_relative path && not (String.equal from "")
-  then Filename.concat (Filename.dirname from) path
-  else path
 
 let ascii f c = if Uchar.is_char c then Uchar.of_char (f (Uchar.to_char c)) else c
 let upper = ascii Char.uppercase_ascii
@@ -184,17 +165,8 @@ let status_of message =
   in
   if mentions "No such file" then 1 else if mentions "Permission denied" then 2 else 3
 
-let bytes_of (v : Value.value) =
-  match v with
-  | Value.Array items ->
-    Some
-      (String.init (Array.length items) (fun i ->
-         match items.(i) with
-         | Value.Byte c -> c
-         | _ -> '\000'))
-  | _ -> None
-
-let byte_array text = Value.Array (Array.init (String.length text) (fun i -> Value.Byte text.[i]))
+let bytes_of = System.bytes_of
+let byte_array = System.byte_array
 
 let quoted ~mark text =
   let buf = Buffer.create (String.length text + 2) in
@@ -456,30 +428,6 @@ let values ~out ~globals =
   ; two "same" (fun _ a b -> Value.Bool (Value.same a b))
   ; one "__upcast" (fun _ v -> v)
   ; two "__structural_eq" (fun _ a b -> Value.Bool (Value.values_equal a b))
-  ; one "readfile" (fun span v ->
-      match v with
-      | Value.Str path ->
-        let written = Utf8.encode path in
-        let resolved = beside span written in
-        Inputs.record resolved;
-        (match In_channel.with_open_bin resolved In_channel.input_all with
-         | contents -> Value.Str (Utf8.decode contents)
-         (* The path as written, the way `embed` reports one: what the reader
-            has in front of them is not where it resolved to. *)
-         | exception Sys_error _ -> Value.fail span "Cannot read '%s'." written)
-      | _ -> Value.fail span "readfile takes a path.")
-  ; two "writefile" (fun span p v ->
-      match p, v with
-      | Value.Str path, Value.Str contents ->
-        let written = Utf8.encode path in
-        (match
-           Out_channel.with_open_bin (beside span written) (fun channel ->
-             Out_channel.output_string channel (Utf8.encode contents))
-         with
-         | () -> Value.Unit
-         | exception Sys_error _ -> Value.fail span "Cannot write '%s'." written)
-      | _ -> Value.fail span "writefile takes a path and its contents.")
-  ; native "clock" (Some 0) (fun _ _ -> Value.Float (Sys.time ()))
   ; one (Ast.method_name "string" "as_name") (fun span v ->
       match v with
       | Value.Str s ->
@@ -541,6 +489,7 @@ let values ~out ~globals =
         Value.Array (Array.init (String.length bytes) (fun i -> Value.Byte bytes.[i]))
       | _ -> Value.fail span "Cannot apply bytes to these arguments.")
   ]
+  @ System.values ~native:(fun name arity apply -> native name (Some arity) apply)
 
 let env ~out =
   let env = Value.new_env None in

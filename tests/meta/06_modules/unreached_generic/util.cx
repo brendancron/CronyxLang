@@ -1,0 +1,8 @@
+fn used(): int { return 1; }
+
+fn helper(): int { return 2; }
+
+fn unused<T>(x: T): T {
+    helper();
+    return x;
+}

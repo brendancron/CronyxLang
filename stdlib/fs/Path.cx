@@ -1,0 +1,156 @@
+/**
+ * Paths, taken apart and put together as text, without asking the file system.
+ *
+ * ```
+ * import "std/fs/Path";
+ *
+ * var config = Path.join("settings", "app.toml");
+ * print(config);                            // settings/app.toml
+ * print(Path.extension(config));            // Some("toml")
+ * print(Path.parent(config));               // Some("settings")
+ * print(Path.normalize("a/./b/../c"));      // a/c
+ * ```
+ *
+ * Either slash separates parts when a path is read, so one written on Windows
+ * takes apart the same way; a path this module builds uses `/`, which Windows
+ * accepts too.
+ */
+
+fn __is_separator(c: char): bool { return c == '/' || c == '\\'; }
+
+/** Whether the path starts from a root rather than the working directory: `/x`, `\x` or `C:\x`. */
+fn is_absolute(path: string): bool {
+    var chars = path.chars();
+    if (chars.len() == 0) { return false; }
+    if (__is_separator(chars[0])) { return true; }
+    return chars.len() >= 3 && chars[1] == ':' && __is_separator(chars[2]);
+}
+
+/** The second path, read from the first. An absolute second path is itself. */
+fn join(base: string, part: string): string {
+    if (base.len() == 0 || is_absolute(part)) { return part; }
+    if (part.len() == 0) { return base; }
+    var chars = base.chars();
+    if (__is_separator(chars[chars.len() - 1])) { return base + part; }
+    return base + "/" + part;
+}
+
+/** The parts between the separators, without empty ones. A root is not a part. */
+fn components(path: string): Array<string> {
+    var parts: List<string> = [];
+    var current = "";
+    var chars = path.chars();
+    if (__root_of(path).len() == 3) { chars = chars[3:]; }
+    for (c in chars) {
+        if (__is_separator(c)) {
+            if (current.len() > 0) { parts.push(current); }
+            current = "";
+        } else {
+            current = current + str(c);
+        }
+    }
+    if (current.len() > 0) { parts.push(current); }
+    return parts.items[0:parts.len()];
+}
+
+/** The text before the first part: `/`, `C:/`, or nothing. */
+fn __root_of(path: string): string {
+    if (!is_absolute(path)) { return ""; }
+    var chars = path.chars();
+    if (__is_separator(chars[0])) { return "/"; }
+    return str(chars[0]) + ":/";
+}
+
+fn __joined(root: string, parts: List<string>): string {
+    var out = root;
+    var i = 0;
+    while (i < parts.len()) {
+        if (i > 0) { out = out + "/"; }
+        out = out + parts[i];
+        i = i + 1;
+    }
+    return out;
+}
+
+/** The last part, or `None` for a root or an empty path. */
+fn file_name(path: string): Option<string> {
+    var parts = components(path);
+    if (parts.len() == 0) { return Option.None; }
+    return Option.Some(parts[parts.len() - 1]);
+}
+
+/** The path without its last part, or `None` if it has no part to drop. */
+fn parent(path: string): Option<string> {
+    var parts = components(path);
+    if (parts.len() == 0) { return Option.None; }
+    var kept: List<string> = [];
+    var i = 0;
+    while (i < parts.len() - 1) {
+        kept.push(parts[i]);
+        i = i + 1;
+    }
+    var root = __root_of(path);
+    if (kept.len() == 0 && root.len() == 0) { return Option.Some("."); }
+    return Option.Some(__joined(root, kept));
+}
+
+// Where the last part's extension starts, or -1. A leading dot names a hidden
+// file rather than starting an extension.
+fn __dot(name: string): int {
+    var chars = name.chars();
+    var i = chars.len() - 1;
+    while (i > 0) {
+        if (chars[i] == '.') { return i; }
+        i = i - 1;
+    }
+    return -1;
+}
+
+/** The last part's text after its final dot: `toml` in `app.toml`. */
+fn extension(path: string): Option<string> {
+    match file_name(path) {
+        Option.Some(name) => {
+            var at = __dot(name);
+            if (at < 0) { return Option.None; }
+            return Option.Some(name[at + 1:]);
+        }
+        Option.None => { return Option.None; }
+    }
+    return Option.None;
+}
+
+/** The last part without its extension: `app` in `app.toml`. */
+fn stem(path: string): Option<string> {
+    match file_name(path) {
+        Option.Some(name) => {
+            var at = __dot(name);
+            if (at < 0) { return Option.Some(name); }
+            return Option.Some(name[0:at]);
+        }
+        Option.None => { return Option.None; }
+    }
+    return Option.None;
+}
+
+/**
+ * The same path with `.` parts dropped and each `..` taking the part before
+ * it, worked out from the text alone. A `..` with nothing before it to take is
+ * kept, except at a root, where there is nowhere further up to go.
+ */
+fn normalize(path: string): string {
+    var root = __root_of(path);
+    var kept: List<string> = [];
+    for (part in components(path)) {
+        if (part == "..") {
+            if (kept.len() > 0 && kept[kept.len() - 1] != "..") {
+                kept.pop();
+            } else {
+                if (root.len() == 0) { kept.push(part); }
+            }
+        } else {
+            if (part != ".") { kept.push(part); }
+        }
+    }
+    if (kept.len() == 0 && root.len() == 0) { return "."; }
+    return __joined(root, kept);
+}

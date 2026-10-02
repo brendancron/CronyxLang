@@ -1,0 +1,38 @@
+import {
+    Dirs, EntryKind, make_dir, make_dirs, list_dir, metadata, exists, is_dir, remove_path, remove_all,
+    move_path, write_text, read_text
+} from "std/fs/File";
+import { IoError } from "std/io/Io";
+import { Result, attempt } from "std/core/Error";
+
+make_dirs("dir_fixture/a/b");
+make_dirs("dir_fixture/a/b");
+write_text("dir_fixture/a/b/note.txt", "12345");
+write_text("dir_fixture/a/other.txt", "x");
+make_dir("dir_fixture/c");
+
+print(list_dir("dir_fixture"));
+print(list_dir("dir_fixture/a"));
+print(metadata("dir_fixture/a/b/note.txt"));
+print(metadata("dir_fixture/a").kind);
+print(is_dir("dir_fixture/a"));
+print(is_dir("dir_fixture/a/other.txt"));
+
+move_path("dir_fixture/a/other.txt", "dir_fixture/c/moved.txt");
+print(list_dir("dir_fixture/c"));
+print(read_text("dir_fixture/c/moved.txt"));
+
+var not_empty = attempt { remove_path("dir_fixture/c") };
+match not_empty {
+    Result.Ok(_) => { print("removed a full directory"); }
+    Result.Err(_) => { print("a full directory stays"); }
+}
+
+var nothing = attempt { list_dir("dir_fixture/none") };
+match nothing {
+    Result.Ok(_) => { print("listed nothing"); }
+    Result.Err(e) => { print(e); }
+}
+
+remove_all("dir_fixture");
+print(exists("dir_fixture"));

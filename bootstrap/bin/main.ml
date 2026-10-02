@@ -1,7 +1,7 @@
 open Bootstrap
 
 let usage =
-  "usage: bootstrap [options] <file.cx>\n\
+  "usage: bootstrap [options] <file.cx> [-- <arguments>]\n\
   \  --dump-source   echo the source before running\n\
   \  --dump-tokens   print the token stream\n\
   \  --dump-ast      print the parsed AST\n\
@@ -49,5 +49,7 @@ let () =
   set_binary_mode_out stderr true
 
 let () =
-  let path, dumps = parse_args Sys.argv in
+  let ours, theirs = Driver.split_arguments (Array.to_list Sys.argv) in
+  System.arguments := theirs;
+  let path, dumps = parse_args (Array.of_list ours) in
   Driver.execute ~dumps path

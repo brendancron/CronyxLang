@@ -2408,7 +2408,8 @@ and meta_program w deps =
           !refs;
         out := with_body e.walked body :: !out)
   in
-  S.iter add (Hashtbl.fold (fun name _ acc -> if Ast.is_root name then S.add name acc else acc) w.entries deps);
+  let from = S.union deps (S.of_list Resolve.synthesized) in
+  S.iter add (Hashtbl.fold (fun name _ acc -> if Ast.is_root name then S.add name acc else acc) w.entries from);
   let standing =
     List.filter_map
       (fun st ->
@@ -2903,13 +2904,13 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
       | Some _ when Hashtbl.mem emitted name -> []
       | Some e ->
         Hashtbl.add emitted name ();
-        if takes_static_params e
+        if not (Hashtbl.mem reachable name)
+        then []
+        else if takes_static_params e
         then if instantiated w e then [] else [ e.written ]
         else if e.gens || performs_gen w name
         then []
-        else if Hashtbl.mem reachable name
-        then [ e.walked ]
-        else []
+        else [ e.walked ]
     in
     let generated =
       List.concat_map

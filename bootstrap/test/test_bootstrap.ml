@@ -43,6 +43,15 @@ let cases =
   ; "tests/stdlib/async/top_level_scope"
   ; "tests/stdlib/io/files"
   ; "tests/stdlib/io/fake_fs"
+  ; "tests/stdlib/fs/paths"
+  ; "tests/stdlib/fs/directories"
+  ; "tests/stdlib/os/args"
+  ; "tests/stdlib/os/env"
+  ; "tests/stdlib/os/time"
+  ; "tests/stdlib/os/process"
+  ; "tests/stdlib/os/fake_process"
+  ; "tests/stdlib/os/meta_environment"
+  ; "tests/stdlib/random/seeded"
   ; "tests/stdlib/io/fake_stdin"
   ; "tests/stdlib/io/blank_line"
   ; "tests/stdlib/io/using"
@@ -191,9 +200,6 @@ let cases =
   ; "tests/core/resolution/symbol_res"
   ; "tests/core/resolution/hoisting"
   ; "tests/core/builtins/print_value"
-  ; "tests/core/builtins/readfile"
-  ; "tests/core/builtins/writefile"
-  ; "tests/core/builtins/readfile_meta"
   ; "tests/core/variadic/basics"
   ; "tests/core/variadic/generic"
   ; "tests/core/variadic/packs/basics"
@@ -376,6 +382,7 @@ let cases =
   ; "tests/meta/06_modules/comptime_across/main"
   ; "tests/meta/06_modules/comptime_two_importers/main"
   ; "tests/meta/06_modules/unreached_fn/main"
+  ; "tests/meta/06_modules/unreached_generic/main"
   ; "tests/meta/06_modules/unused_import/main"
   ; "tests/meta/07_precheck/alias_generated"
   ; "tests/meta/07_precheck/depends_on_meta"
@@ -439,6 +446,7 @@ let cases =
   ; "tests/core/traits/supertrait"
   ; "tests/core/traits/builtin_receiver/main"
   ; "tests/effects/methods/methods"
+  ; "tests/effects/methods/suspending_receiver"
   ; "tests/core/static_params/type_params/main"
   ; "tests/core/static_params/type_reuse/main"
   ; "tests/core/static_params/parameterized_types/main"
@@ -660,8 +668,7 @@ let error_cases =
 (* Accepted, then failing while running. Separate from [error_cases], which
    never reach the interpreter. *)
 let runtime_cases =
-  [ "tests/core/builtins/readfile_missing"
-  ; "tests/core/collections/index_out_of_range"
+  [ "tests/core/collections/index_out_of_range"
   ; "tests/core/slices/negative_index"
   ; "tests/core/builtins/chr_invalid"
   ; "tests/operators/negative_shift"
@@ -868,9 +875,13 @@ let run_round_trip root name =
          Printf.printf "FAIL %s (round trip)\n  printing it twice differs\n" name;
          false))
 
+(* What follows `--` on the command line, for the fixtures that read it. *)
+let arguments_for = [ "tests/stdlib/os/args", [ "one"; "two three" ] ]
+
 let run_case root name =
   let path ext = Filename.concat root (name ^ ext) in
   let expected = read_file (path ".txt") in
+  System.arguments := Option.value (List.assoc_opt name arguments_for) ~default:[];
   match interpret (path ".cx") with
   | Error message ->
     Printf.printf "FAIL %s\n  %s\n" name message;

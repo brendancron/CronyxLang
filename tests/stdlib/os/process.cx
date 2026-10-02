@@ -1,0 +1,37 @@
+import { Command, Stdio, Child, output, spawn, status } from "std/os/Process";
+import { make_dir, write_text, remove_all } from "std/fs/File";
+import { Result, attempt } from "std/core/Error";
+
+var ran = output(Command.new("sh").arg("-c").arg("echo out; echo err >&2; exit 3"));
+print(ran.exit_code);
+print(ran.success());
+print(ran.stdout_text().trim());
+print(ran.stderr_text().trim());
+
+var greeted = output(Command.new("sh").args(["-c", "echo $CX_GREETING"]).env("CX_GREETING", "hello"));
+print(greeted.stdout_text().trim());
+
+make_dir("process_fixture_dir");
+write_text("process_fixture_dir/inside.txt", "");
+print(output(Command.new("sh").args(["-c", "ls"]).dir("process_fixture_dir")).stdout_text().trim());
+remove_all("process_fixture_dir");
+
+var child = spawn(Command.new("sh").args(["-c", "read x; echo got $x"]).stdin(Stdio.Piped).stdout(Stdio.Piped));
+match child.stdin() {
+    Option.Some(input) => { input.write("abc\n".bytes()); }
+    Option.None => { }
+}
+print(child.wait_with_output().stdout_text().trim());
+
+// More than a pipe holds, on the stream read second.
+var loud = output(Command.new("sh").args(["-c", "head -c 200000 /dev/zero >&2; echo done"]));
+print(loud.stderr.len());
+print(loud.stdout_text().trim());
+
+print(status(Command.new("sh").args(["-c", "exit 4"])));
+
+var missing = attempt { output(Command.new("cronyx-no-such-program")) };
+match missing {
+    Result.Ok(o) => { print("ran " + str(o.exit_code)); }
+    Result.Err(e) => { print("caught " + str(e)); }
+}

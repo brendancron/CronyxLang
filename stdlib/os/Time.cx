@@ -1,0 +1,256 @@
+/**
+ * Clocks, durations and moments.
+ *
+ * ```
+ * import { Duration, Time, elapsed } from "std/os/Time";
+ *
+ * print(now());                  // 2026-10-01T09:30:00.25Z
+ * var start = instant();
+ * work();
+ * print(elapsed(start));         // 1.204ms
+ * print(Duration.seconds(90) > Duration.minutes(1));   // true
+ * ```
+ *
+ * Two clocks, because they answer different questions. `now` is the time of
+ * day, which the system may set backwards; `instant` never goes backwards, and
+ * is what a duration is measured with. The root answers both from the system.
+ * A test fixes them by handling `Time`, so what it prints does not depend on
+ * when it ran.
+ */
+
+/** A length of time, to the nanosecond. */
+type Duration {
+    /** The whole length, in nanoseconds. */
+    nanos: int
+}
+
+impl Duration {
+    /** So many nanoseconds. */
+    fn nanoseconds(n: int): Duration { return Duration { nanos: n }; }
+
+    /** So many microseconds. */
+    fn microseconds(n: int): Duration { return Duration { nanos: n * 1000 }; }
+
+    /** So many milliseconds. */
+    fn milliseconds(n: int): Duration { return Duration { nanos: n * 1000000 }; }
+
+    /** So many seconds. */
+    fn seconds(n: int): Duration { return Duration { nanos: n * 1000000000 }; }
+
+    /** So many minutes. */
+    fn minutes(n: int): Duration { return Duration { nanos: n * 60000000000 }; }
+
+    /** So many hours. */
+    fn hours(n: int): Duration { return Duration { nanos: n * 3600000000000 }; }
+
+    /** The length in whole milliseconds, rounded towards zero. */
+    fn as_millis(self): int { return self.nanos / 1000000; }
+
+    /** The length in seconds. */
+    fn as_seconds(self): float { return self.nanos.to_float() / 1000000000.0; }
+}
+
+impl Add<Duration> for Duration {
+    type Output = Duration;
+    fn add(self, rhs: Duration): Duration { return Duration { nanos: self.nanos + rhs.nanos }; }
+}
+
+impl Sub<Duration> for Duration {
+    type Output = Duration;
+    fn sub(self, rhs: Duration): Duration { return Duration { nanos: self.nanos - rhs.nanos }; }
+}
+
+impl Eq for Duration {
+    fn eq(self, rhs: Duration): bool { return self.nanos == rhs.nanos; }
+}
+
+impl PartialOrd for Duration {
+    fn partial_cmp(self, rhs: Duration): Option<Ordering> { return __compare(self.nanos, rhs.nanos); }
+}
+
+// In the largest unit it has a whole one of, with as many decimals as it needs:
+// `1.5s`, `250ms`, `12us`, `0s`.
+impl Display for Duration {
+    fn fmt(self): string {
+        var n = self.nanos;
+        var sign = "";
+        if (n < 0) {
+            sign = "-";
+            n = -n;
+        }
+        if (n >= 1000000000) { return sign + __decimal(n, 1000000000, 9) + "s"; }
+        if (n >= 1000000) { return sign + __decimal(n, 1000000, 6) + "ms"; }
+        if (n >= 1000) { return sign + __decimal(n, 1000, 3) + "us"; }
+        if (n == 0) { return "0s"; }
+        return sign + str(n) + "ns";
+    }
+}
+
+impl Debug for Duration {
+    fn debug(self): string { return self.fmt(); }
+}
+
+/** A reading of the clock that never goes backwards. Only the difference between two means anything. */
+type Instant {
+    /** Nanoseconds since an arbitrary point fixed for the run. */
+    nanos: int
+}
+
+impl Sub<Instant> for Instant {
+    type Output = Duration;
+    fn sub(self, rhs: Instant): Duration { return Duration { nanos: self.nanos - rhs.nanos }; }
+}
+
+impl Add<Duration> for Instant {
+    type Output = Instant;
+    fn add(self, rhs: Duration): Instant { return Instant { nanos: self.nanos + rhs.nanos }; }
+}
+
+impl Eq for Instant {
+    fn eq(self, rhs: Instant): bool { return self.nanos == rhs.nanos; }
+}
+
+impl PartialOrd for Instant {
+    fn partial_cmp(self, rhs: Instant): Option<Ordering> { return __compare(self.nanos, rhs.nanos); }
+}
+
+/** A moment in time, as the calendar names it. */
+type Timestamp {
+    /** Nanoseconds since 1970-01-01T00:00:00Z, ignoring leap seconds. */
+    nanos: int
+}
+
+/** A moment broken into its parts, in UTC. */
+type DateTime {
+    year: int,
+    /** From 1, January, to 12. */
+    month: int,
+    /** From 1. */
+    day: int,
+    hour: int,
+    minute: int,
+    second: int,
+    /** Within the second. */
+    nanosecond: int
+}
+
+impl Timestamp {
+    /** The moment so many seconds after 1970-01-01T00:00:00Z. */
+    fn from_unix_seconds(seconds: int): Timestamp {
+        return Timestamp { nanos: seconds * 1000000000 };
+    }
+
+    /** Whole seconds since 1970-01-01T00:00:00Z, rounded down. */
+    fn unix_seconds(self): int { return __floor_div(self.nanos, 1000000000); }
+
+    /** The moment's year, month, day and time of day, in UTC. */
+    fn utc(self): DateTime {
+        var seconds = self.unix_seconds();
+        var nanosecond = self.nanos - seconds * 1000000000;
+        var days = __floor_div(seconds, 86400);
+        var of_day = seconds - days * 86400;
+        // Howard Hinnant's civil_from_days, over eras of 400 years that start
+        // on 1 March so the leap day falls last.
+        var z = days + 719468;
+        var era = __floor_div(z, 146097);
+        var doe = z - era * 146097;
+        var yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        var doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        var mp = (5 * doy + 2) / 153;
+        var day = doy - (153 * mp + 2) / 5 + 1;
+        var month = mp + 3;
+        if (mp >= 10) { month = mp - 9; }
+        var year = yoe + era * 400;
+        if (month <= 2) { year = year + 1; }
+        return DateTime {
+            year: year,
+            month: month,
+            day: day,
+            hour: of_day / 3600,
+            minute: (of_day / 60) % 60,
+            second: of_day % 60,
+            nanosecond: nanosecond
+        };
+    }
+}
+
+impl Sub<Timestamp> for Timestamp {
+    type Output = Duration;
+    fn sub(self, rhs: Timestamp): Duration { return Duration { nanos: self.nanos - rhs.nanos }; }
+}
+
+impl Add<Duration> for Timestamp {
+    type Output = Timestamp;
+    fn add(self, rhs: Duration): Timestamp { return Timestamp { nanos: self.nanos + rhs.nanos }; }
+}
+
+impl Eq for Timestamp {
+    fn eq(self, rhs: Timestamp): bool { return self.nanos == rhs.nanos; }
+}
+
+impl PartialOrd for Timestamp {
+    fn partial_cmp(self, rhs: Timestamp): Option<Ordering> { return __compare(self.nanos, rhs.nanos); }
+}
+
+// RFC 3339 in UTC, with as many decimals of a second as it has.
+impl Display for Timestamp {
+    fn fmt(self): string {
+        var t = self.utc();
+        var text = __padded(t.year, 4) + "-" + __padded(t.month, 2) + "-" + __padded(t.day, 2)
+            + "T" + __padded(t.hour, 2) + ":" + __padded(t.minute, 2) + ":" + __padded(t.second, 2);
+        if (t.nanosecond != 0) {
+            text = text + "." + __trimmed(__padded(t.nanosecond, 9));
+        }
+        return text + "Z";
+    }
+}
+
+impl Debug for Timestamp {
+    fn debug(self): string { return self.fmt(); }
+}
+
+/** The clocks. */
+effect Time {
+    /** The time of day. The system may set it, forwards or back. */
+    fn now(): Timestamp;
+
+    /** The clock that never goes backwards, for measuring how long something took. */
+    fn instant(): Instant;
+}
+
+/** How long since the instant. */
+fn elapsed(since: Instant): <Time> Duration {
+    return instant() - since;
+}
+
+fn __compare(a: int, b: int): Option<Ordering> {
+    if (a < b) { return Option.Some(Ordering.Less); }
+    if (a > b) { return Option.Some(Ordering.Greater); }
+    return Option.Some(Ordering.Equal);
+}
+
+// `/` rounds towards zero, and a moment before 1970 belongs to the day before.
+fn __floor_div(a: int, b: int): int {
+    var q = a / b;
+    if (a % b != 0 && a < 0) { q = q - 1; }
+    return q;
+}
+
+fn __padded(n: int, width: int): string {
+    var text = str(n);
+    while (text.len() < width) { text = "0" + text; }
+    return text;
+}
+
+fn __trimmed(digits: string): string {
+    var chars = digits.chars();
+    var stop = chars.len();
+    while (stop > 0 && chars[stop - 1] == '0') { stop = stop - 1; }
+    return digits[0:stop];
+}
+
+fn __decimal(n: int, unit: int, places: int): string {
+    var fraction = n % unit;
+    if (fraction == 0) { return str(n / unit); }
+    return str(n / unit) + "." + __trimmed(__padded(fraction, places));
+}

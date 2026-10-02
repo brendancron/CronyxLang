@@ -269,7 +269,7 @@ It retracts part of a diagnostic: `doc_not_a_declaration` exists to reject a doc
 
 ## The natives are documented from a table
 
-`print`, `str`, `panic`, `readfile` and the methods on the primitives are OCaml in `builtins.ml`: a thunk producing their type, and an implementation. There is no AST node, so there is nothing to carry a doc comment — and they are the most-used names in the language, so a reference without them has a hole in the middle of it.
+`print`, `str`, `panic`, `ord` and the methods on the primitives are OCaml in `builtins.ml`: a thunk producing their type, and an implementation. There is no AST node, so there is nothing to carry a doc comment — and they are the most-used names in the language, so a reference without them has a hole in the middle of it.
 
 Each entry carries its prose beside its thunk, and `Docs` emits it as an entry of kind `builtin` in a synthetic unit of the `std` package. The printed signature is built *from the thunk's types* rather than from a second written form, so only the prose is written once rather than the signature twice. Ids are synthesised — `builtin#print`, `builtin#string#bytes` — because nothing mangles a name that is never declared, and without one no signature could link to it.
 

@@ -1,2 +1,0 @@
-var contents = readfile("readfile_data.txt");
-print(contents.trim());

@@ -67,6 +67,15 @@ let dump_front ~entry dumps file =
 
 (* A file run on its own is its own package: the directory holding it, plus the
    standard library. *)
+(* Everything after the first `--` is the program's, flags included. *)
+let split_arguments args =
+  let rec go before = function
+    | [] -> List.rev before, []
+    | "--" :: rest -> List.rev before, rest
+    | arg :: rest -> go (arg :: before) rest
+  in
+  go [] args
+
 let roots_for entry =
   { Loader.package = Filename.dirname entry; std = Toolchain.stdlib (); deps = [] }
 

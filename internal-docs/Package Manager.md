@@ -323,7 +323,7 @@ Cronyx already has `meta` blocks that run at compile time — they are the langu
 
 What the manifest *does* need is `[build-dependencies]`: packages available to `meta` blocks but not to runtime code. The distinction matters because a build-dep may itself pull in native code or heavy transitive deps that should not end up in the shipping binary.
 
-A file `embed` reads participates in the build's input hash — anything read while a package is built is a build input, and rebuilding when it changes is the tool's job. A `meta` block's `readfile` is not one: a package's artifact is loaded and mangled but not metaprocessed, so its `meta` blocks run when the program using it is put together, and read the file again each time.
+A file `embed` reads participates in the build's input hash — anything read while a package is built is a build input, and rebuilding when it changes is the tool's job. A file a `meta` block reads through `Fs` is not one: a package's artifact is loaded and mangled but not metaprocessed, so its `meta` blocks run when the program using it is put together, and read the file again each time.
 
 ## Reproducibility
 

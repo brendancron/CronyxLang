@@ -133,26 +133,6 @@
               "row": null
             },
             {
-              "id": "builtin#clock",
-              "package": "std",
-              "unit": "builtins",
-              "name": "clock",
-              "kind": "fn",
-              "line": null,
-              "exported": true,
-              "doc": "Seconds of processor time used so far. For measuring a duration, not for telling the time.",
-              "attrs": [],
-              "static": [],
-              "params": [],
-              "ret": {
-                "kind": "name",
-                "name": "float",
-                "ref": null,
-                "param": false
-              },
-              "row": null
-            },
-            {
               "id": "builtin#debug",
               "package": "std",
               "unit": "builtins",
@@ -327,36 +307,6 @@
               "ret": {
                 "kind": "name",
                 "name": "unit",
-                "ref": null,
-                "param": false
-              },
-              "row": null
-            },
-            {
-              "id": "builtin#readfile",
-              "package": "std",
-              "unit": "builtins",
-              "name": "readfile",
-              "kind": "fn",
-              "line": null,
-              "exported": true,
-              "doc": "The contents of a file. A relative path is relative to the file that wrote the call, as an import is.",
-              "attrs": [],
-              "static": [],
-              "params": [
-                {
-                  "name": "",
-                  "type": {
-                    "kind": "name",
-                    "name": "string",
-                    "ref": null,
-                    "param": false
-                  }
-                }
-              ],
-              "ret": {
-                "kind": "name",
-                "name": "string",
                 "ref": null,
                 "param": false
               },
@@ -554,45 +504,6 @@
               "ret": {
                 "kind": "name",
                 "name": "string",
-                "ref": null,
-                "param": false
-              },
-              "row": null
-            },
-            {
-              "id": "builtin#writefile",
-              "package": "std",
-              "unit": "builtins",
-              "name": "writefile",
-              "kind": "fn",
-              "line": null,
-              "exported": true,
-              "doc": "Writes the contents to a path, replacing whatever was there.",
-              "attrs": [],
-              "static": [],
-              "params": [
-                {
-                  "name": "",
-                  "type": {
-                    "kind": "name",
-                    "name": "string",
-                    "ref": null,
-                    "param": false
-                  }
-                },
-                {
-                  "name": "",
-                  "type": {
-                    "kind": "name",
-                    "name": "string",
-                    "ref": null,
-                    "param": false
-                  }
-                }
-              ],
-              "ret": {
-                "kind": "name",
-                "name": "unit",
                 "ref": null,
                 "param": false
               },

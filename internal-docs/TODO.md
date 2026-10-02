@@ -115,15 +115,7 @@ Promotion in `code(…)` waits on the same work. Inside a `gen`, the largest sub
 
 Owner: [Testing.md](Testing.md)
 
-An index out of range, a division by zero or a failed `readfile` ends the program; nothing can handle it. Making it an effect, `Panic` say, would let a program recover from one the way it recovers from any other, and would let a test runner isolate a crashing test in-process. The cost is that indexing and division then carry it in their row everywhere, which needs a design for keeping it out of the way — Koka's `exn` is the precedent. Tests do not wait on this: each already runs in a process of its own.
-
-## Launching a process
-
-Owner: [Algebraic Effects.md](Algebraic%20Effects.md)
-
-A program cannot start one. Its I/O is `print` and whole-file `readfile` and `writefile`; there is no `spawn` or `exec`, no environment and no command-line arguments, and `stdlib/` has nothing for them either. (`cx test` forks per test, but that is `cx` itself, in OCaml, not the program.)
-
-The likely shape is an effect rather than a builtin — `effect Process { fn spawn(cmd: string, args: Array<string>): ProcessHandle; … }` — so a function's row says it launches processes, and a test or a sandbox can handle it differently. The same argument covers file access, the environment and arguments, which are builtins today; deciding one decides the pattern for the rest.
+An index out of range, a division by zero or a `panic` ends the program; nothing can handle it. Making it an effect, `Panic` say, would let a program recover from one the way it recovers from any other, and would let a test runner isolate a crashing test in-process. The cost is that indexing and division then carry it in their row everywhere, which needs a design for keeping it out of the way — Koka's `exn` is the precedent. Tests do not wait on this: each already runs in a process of its own.
 
 ## Whether resumptions share locals
 

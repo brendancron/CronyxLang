@@ -1,4 +1,4 @@
-[20:5] A deferred statement cannot fail, and this one calls through an effect row its caller decides, which could hold an operation that never resumes.
 [8:5] A deferred statement cannot fail, and this one can: 'Throw<string>' never resumes, and would replace whatever is already unwinding. Handle it inside the 'defer'.
 [12:5] A deferred statement cannot fail, and this one can: 'Throw<string>' never resumes, and would replace whatever is already unwinding. Handle it inside the 'defer'.
 [16:5] A deferred statement cannot fail, and this one can: 'Stop' never resumes, and would replace whatever is already unwinding. Handle it inside the 'defer'.
+[20:5] A deferred statement cannot fail, and this one calls through an effect row its caller decides, which could hold an operation that never resumes.

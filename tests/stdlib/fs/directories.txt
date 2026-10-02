@@ -1,0 +1,11 @@
+["a", "c"]
+["b", "other.txt"]
+{ kind: File, size: 5 }
+Directory
+true
+false
+["moved.txt"]
+x
+a full directory stays
+NotFound("dir_fixture/none")
+false

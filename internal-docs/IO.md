@@ -96,6 +96,39 @@ a line suspends like one waiting for a file. Koka has one `console` label for
 both directions, but there it is a label the checker tracks, not operations a
 handler answers, so the question of answering both does not arise.
 
+## Everything else the OS offers is an effect too
+
+Directories, subprocesses, arguments, the environment, the clocks and entropy
+are each an effect the root handles, as `Fs` is, so a function's row says which
+of them it reaches and a test replaces any one — a fixed clock, fixed arguments,
+a seeded generator, a child process that prints what the test wants:
+
+| Effect | Module | The root answers with |
+|---|---|---|
+| `Dirs` | `std/fs/File` | the disk: `read_dir`, `stat`, `create_dir`, `remove`, `rename` |
+| `Process` | `std/os/Process` | a program the system starts, as a `Child` |
+| `Args` | `std/os/Args` | what followed `--` on the command line |
+| `Env` | `std/os/Env` | a copy of the environment the program started with |
+| `Time` | `std/os/Time` | the wall clock and one that never goes backwards |
+| `Random` | `std/random/Random` | the system's entropy |
+
+Each is its own effect for the reason `Stdin` is: a handler answers every
+operation of its effect, and a test faking files does not want to answer for
+directories too. `Process.start` is `ctl`, as `open` is, so a handler can hand
+back a child that waits; the rest are `fn`, since the root answers them without
+suspending, and evidence passing is cheaper than continuations. A failure is a
+value in the result, as `open`'s is, and the library function over the
+operation — `list_dir`, `spawn` — throws it.
+
+Setting a variable changes the copy, which a child is started with; the
+process's own environment is never written, since nothing in the interpreter
+reads it and OCaml cannot unset a variable. OCaml has no monotonic clock either,
+so `instant` is the wall clock held from going backwards.
+
+Nothing else reaches the OS: each builtin that touches it is how the root
+answers one of these operations, which is what lets a handler stand in for all
+of it.
+
 ## A failure is `Throw<IoError>`
 
 ```cronyx
@@ -108,8 +141,9 @@ caller's error type with `Wraps`, or left to reach the root ([Errors](Errors.md)
 
 ## A path is relative to the working directory
 
-At run time, as in C, Python, Rust, Go, Java, Node and C#: a program opening
-`"data.txt"` gets the one in the directory it was started in. At compile time a
-path is relative to the source file that wrote it, as Rust's `include_str!`,
-Zig's `@embedFile` and Go's `go:embed` are, which is what `embed`, and `readfile`
-in a `meta` block, already do.
+As in C, Python, Rust, Go, Java, Node and C#: a program opening `"data.txt"`
+gets the one in the directory it was started in. A `meta` block runs under the
+same root, so the same holds at compile time, and `cx` compiles from the package
+root — where Cargo runs a build script. `embed` is the exception: the loader
+resolves it against the source file that wrote it, as Rust's `include_str!`,
+Zig's `@embedFile` and Go's `go:embed` are.

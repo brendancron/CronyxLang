@@ -141,20 +141,13 @@ This works only because every name says which module it comes from. An unqualifi
 
 A file that is not there is a load error naming it, at the span of the call.
 
-## `readfile` and `writefile` resolve the same way
+## A `meta` block reads files as a program does
 
-Both take a path relative to the file that wrote the call, resolved through the
-span the builtin is handed — the same rule as `import` and `embed`, so where the
-compiler was started from is never something the source can see.
-
-`readfile` yields a `string` rather than the bytes `embed` gives, because it is
-reached while the program runs and a program that wanted bytes would decode
-them itself. A path that cannot be read is a runtime error naming the path *as
-written*, not as resolved: what the reader has in front of them is the former.
-
-**They work at compile time too.** A `meta` block calling `readfile` reads while
-compiling, and what it read can be baked into generated code — `embed` with a
-shape decided by the program rather than by the compiler.
+Through `Fs`, which the root handles at compile time as at run time, so a path
+is relative to the working directory rather than to the file — `cx` compiles
+from the package root ([I/O](IO.md#a-path-is-relative-to-the-working-directory)).
+What it read can be baked into generated code: `embed` with a shape decided by
+the program rather than by the compiler.
 
 ## Spans carry a file
 

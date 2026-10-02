@@ -60,7 +60,7 @@ std/
 │   ├── Console            # Console and Stdin effects, read_line
 │   └── Print              # print and printerr, imported globally by the prelude
 ├── fs/                    # File system operations
-│   ├── File               # File handle management and I/O
+│   ├── File               # File handle management and I/O; listing, creating and removing directories
 │   └── Path               # Platform-agnostic path manipulation
 ├── net/                   # Low-level networking primitives
 ├── os/                    # Operating system integration & environmental controls
@@ -75,5 +75,6 @@ std/
 ├── crypto/                # Cryptographic digests and primitives
 │   └── Sha256             # SHA-256 digest; a Writer, so a stream can be hashed as it is read
 ├── random/                # Random number generation, including a secure source
+│   └── Random             # The Random effect; ranges, shuffling, and a seeded generator
 └── log/                   # Structured logging infrastructure
     └── Logger             # Logging facade and severity levels

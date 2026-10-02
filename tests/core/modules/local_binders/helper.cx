@@ -11,3 +11,18 @@ fn use_loop(): int {
 fn use_match(b: Box): int {
     match b { Box.Hold(item) => { return item; } }
 }
+
+fn pair(): (int, int) { return (1, 2); }
+
+fn use_tuple(): int {
+    var (item, other) = pair();
+    return item + other;
+}
+
+fn use_lambda(): int {
+    var f = () => {
+        var start = 5;
+        return start;
+    };
+    return f();
+}

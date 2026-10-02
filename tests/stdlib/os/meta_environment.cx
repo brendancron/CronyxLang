@@ -1,0 +1,22 @@
+import { write_text, read_text, remove_path } from "std/fs/File";
+import { Env } from "std/os/Env";
+import { Time, Timestamp } from "std/os/Time";
+
+meta {
+    write_text("meta_environment_data.txt", "written at compile time");
+    var contents = read_text("meta_environment_data.txt");
+    remove_path("meta_environment_data.txt");
+
+    set_env_var("CRONYX_META_FIXTURE", "from the environment");
+    var variable = env_var("CRONYX_META_FIXTURE");
+
+    var compiled_after_2020 = now() > Timestamp.from_unix_seconds(1577836800);
+
+    gen fn report() {
+        print(contents);
+        print(variable);
+        print(compiled_after_2020);
+    }
+}
+
+report();

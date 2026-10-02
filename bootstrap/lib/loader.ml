@@ -370,6 +370,7 @@ let renamed (unit_ : unit_) ~entry name =
 let rec bound_by (s : Ast.stmt) =
   match s.Ast.it with
   | `Var_decl (name, _, _) | `Fn (name, _, _, _) -> [ name ]
+  | `Var_tuple (names, _) -> names
   | `Block body -> List.concat_map bound_by body
   | _ -> []
 
@@ -455,6 +456,7 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
         let inner =
           List.fold_left (fun acc (p : Ast.param) -> S.add p.Ast.name acc) locals params
         in
+        let inner = List.fold_left (fun acc s -> S.union acc (S.of_list (bound_by s))) inner body in
         `Lambda (params, signature, List.map (stmt inner) body)
       (* Read here, where the source file it was written in is known. *)
       | `Call ({ Ast.it = `Var "embed"; _ }, [ { Ast.it = `Str path; _ } ]) ->
