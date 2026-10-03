@@ -749,6 +749,17 @@ and cps_stmts info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt li
            name, [ declaration ])
        in
        let k', wrapped_k = wrapper k in
+       (* A discontinued continuation inside a `run` goes straight to the
+          block's end, past [k'], so that exit is wrapped as well. *)
+       let outer_run_end = info.run_end in
+       let wrapped_run_end =
+         match outer_run_end with
+         | Some finished when info.inside_run ->
+           let name, declaration = wrapper finished in
+           info.run_end <- Some name;
+           [ declaration ]
+         | _ -> []
+       in
        (* Leaving the loop leaves the deferred scope too. *)
        let outer_breaking = info.breaking
        and outer_continuing = info.continuing in
@@ -786,12 +797,14 @@ and cps_stmts info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt li
              open_defers := outer_defers;
              open_unwinds := outer_unwinds;
              info.breaking <- outer_breaking;
-             info.continuing <- outer_continuing)
+             info.continuing <- outer_continuing;
+             info.run_end <- outer_run_end)
            (fun () -> cps info ret' k' ~at:span rest)
        in
        (node span (`Var_decl (armed, None, Some (flag true)))
         :: wrapped_ret)
        @ wrapped_break
+       @ wrapped_run_end
        @ [ wrapped_k; node span (`On_unwind (converted_rest, cleanup)) ]
      | `Expr e when suspends info e ->
        (match extract info e with

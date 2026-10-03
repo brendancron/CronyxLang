@@ -202,6 +202,7 @@ let cases =
   ; "tests/core/embed/embed"
   ; "tests/core/defer/defer_return"
   ; "tests/core/defer/defer_scope"
+  ; "tests/core/defer/defer_in_run"
   ; "tests/core/defer/defer_handles_failure"
   ; "tests/core/defer/defer_suspends_on_unwind"
   ; "tests/core/defer/defer_effect"

@@ -345,8 +345,7 @@ and exec env (s : Ast.cps_stmt) : unit =
   | `Scope (scope, body, on_abort) ->
     let saved = !active_scopes in
     active_scopes := (scope, on_abort, env) :: saved;
-    (match Fun.protect ~finally:(fun () -> active_scopes := saved) (fun () ->
-             List.iter (exec env) body)
+    (match Fun.protect ~finally:(fun () -> active_scopes := saved) (fun () -> run_block env body)
      with
      | () -> ()
      | exception Aborted (caught, _) when String.equal caught scope ->
