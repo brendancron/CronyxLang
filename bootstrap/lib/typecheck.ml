@@ -1962,8 +1962,8 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       try Ok (receiver_of span ctx.registry receiver name owners) with
       | Located _ as e -> Error e
     in
-    (* The method's own parameters, so a trailing lambda is sized before its body
-       is read rather than after. *)
+    (* The method's own parameters, so a lambda among the arguments is sized and
+       typed before its body is read rather than after. *)
     let expected =
       match found with
       | Ok (Owner owner) when not (Hashtbl.mem ctx_associated (owner, name)) ->
@@ -1981,7 +1981,16 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          | None -> [])
       | _ -> []
     in
-    let args = List.map (argument env ctx) (name_implicit_params_from expected args) in
+    let args =
+      List.mapi
+        (fun i (a : Ast.desugared_expr) ->
+          (match a.Ast.it, List.nth_opt expected i with
+           | `Lambda _, Some param when List.length expected = List.length args ->
+             expected_lambda := Some param
+           | _ -> ());
+          argument env ctx a)
+        (name_implicit_params_from expected args)
+    in
     (* The receiver's own field comes first: a record of functions is how an
        `Iter` or a hand-made table is written, and a local that happens to share
        the field's name says nothing about the receiver. *)

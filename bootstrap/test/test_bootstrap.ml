@@ -80,6 +80,7 @@ let cases =
   ; "tests/core/functions/evaluation_order"
   ; "tests/types/inference/annotations"
   ; "tests/types/inference/local_named_like_method"
+  ; "tests/types/inference/method_lambda_param"
   ; "tests/types/inference/numeric_defaulting"
   ; "tests/types/inference/polymorphism"
   ; "tests/types/inference/float_math"

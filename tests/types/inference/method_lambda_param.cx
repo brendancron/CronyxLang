@@ -1,0 +1,12 @@
+type Box<T> { value: T }
+
+impl Box<T> {
+    fn peek<R>(self, look: (Option<T>) -> R): R { return look(Option.Some(self.value)); }
+}
+
+print(Box { value: 3 }.peek((seen) => {
+    match seen {
+        Option.Some(n) => { return n + 1; }
+        Option.None => { return 0; }
+    }
+}));
