@@ -78,6 +78,7 @@ let cases =
   ; "tests/core/functions/generic_captures"
   ; "tests/core/functions/evaluation_order"
   ; "tests/types/inference/annotations"
+  ; "tests/types/inference/local_named_like_method"
   ; "tests/types/inference/numeric_defaulting"
   ; "tests/types/inference/polymorphism"
   ; "tests/types/inference/float_math"

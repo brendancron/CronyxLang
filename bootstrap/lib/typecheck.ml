@@ -1212,19 +1212,29 @@ let rec resumes (s : Ast.desugared_stmt) =
 let assigned_names body =
   List.fold_left (fun acc s -> assigned_in_stmt s acc) [] body
 
+(* A method's own name is reached only through a call on a receiver, so it is
+   kept apart from the names a bare identifier reaches. Otherwise a local
+   sharing a method's name -- `var close` inside `iterator` -- joins the
+   function to every impl with that method, and inside one component a generic
+   function is not generic yet: the first caller there fixes its row for every
+   caller outside. *)
+type dependency_name =
+  | Value of string
+  | Member of string
+
 (* A method call names every method of that name, since which impl answers is
-   not known yet. Shadowing is not tracked: a name too many only merges
-   components, and a component is checked in source order. *)
+   not known yet. Shadowing is not tracked, which is safe only because a value
+   name never reaches a method. *)
 let names_used (s : Ast.desugared_stmt) =
   let used = Hashtbl.create 16 in
   let note name = Hashtbl.replace used name () in
   let rec expr (e : Ast.desugared_expr) =
     (match e.Ast.it with
      | `Var name | `Assign (name, _) | `Compound (_, name, _) | `New_call (name, _, _) ->
-       note name
+       note (Value name)
      | `Method_call (_, name, as_function, _) ->
-       note name;
-       note as_function
+       note (Member name);
+       note (Value as_function)
      | _ -> ());
     let (_ : Ast.desugared_expr_kind) =
       match e.Ast.it with
@@ -1260,7 +1270,7 @@ let names_used (s : Ast.desugared_stmt) =
       (* What the checker lowers it to calls these, and an order that misses
          one checks the loop before the method it reaches. *)
       | `For_in (names, iterable, body) ->
-        List.iter note [ "len"; "next"; "close" ];
+        List.iter (fun name -> note (Member name)) [ "len"; "next"; "close" ];
         `For_in (names, expr iterable, stmt body)
     in
     s
@@ -1270,12 +1280,12 @@ let names_used (s : Ast.desugared_stmt) =
 
 let names_declared (s : Ast.desugared_stmt) =
   match s.Ast.it with
-  | `Fn (name, _, _, _) | `Var_decl (name, _, _) -> [ name ]
-  | `Var_tuple (names, _) -> names
+  | `Fn (name, _, _, _) | `Var_decl (name, _, _) -> [ Value name ]
+  | `Var_tuple (names, _) -> List.map (fun name -> Value name) names
   | `Impl_decl (trait, type_name, _, impl) ->
     List.concat_map
       (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
-        [ m.Ast.md_name; Ast.impl_method_name trait type_name m.Ast.md_name ])
+        [ Member m.Ast.md_name; Value (Ast.impl_method_name trait type_name m.Ast.md_name) ])
       impl.Ast.ib_methods
   | _ -> []
 
