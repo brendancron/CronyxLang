@@ -1,0 +1,31 @@
+effect Log { fn log(s: string): unit; }
+effect Ask { ctl ask(): int; }
+effect Fail { final ctl fail(why: string); }
+
+run {
+    run { log("inner"); } handle Log { fn log(s) { log("wrapped " + s); } }
+} handle Log { fn log(s) { print("outer got " + s); } }
+
+run {
+    run { print(ask() + 1); } handle Ask { ctl ask() { resume ask() * 10; } }
+} handle Ask { ctl ask() { resume 4; } }
+
+run {
+    run { print(ask() + 2); } handle Ask {
+        ctl ask() {
+            var seen = ask();
+            resume seen * 100;
+            print("inner arm done");
+        }
+    }
+} handle Ask { ctl ask() { resume 3; } }
+
+run {
+    run { fail("deep"); } handle Fail { final ctl fail(why) { fail("rethrown " + why); } }
+} handle Fail { final ctl fail(why) { print("outer caught " + why); } }
+
+fn wrapped() {
+    run { log("from a function"); } handle Log { fn log(s) { log("[" + s + "]"); } }
+}
+run { wrapped(); } handle Log { fn log(s) { print(s); } }
+print("done");

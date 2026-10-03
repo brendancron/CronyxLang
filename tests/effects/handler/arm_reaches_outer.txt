@@ -1,0 +1,7 @@
+outer got wrapped inner
+41
+302
+inner arm done
+outer caught rethrown deep
+[from a function]
+done

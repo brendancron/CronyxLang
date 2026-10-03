@@ -274,6 +274,12 @@ let convert_cps
    of the same name. By scope rather than by name alone, because two functions
    may each declare a `helper`, and `Type_mono` copies a function with the ones
    it declares, at a different row in each copy. *)
+(* A function takes the evidence its row names as parameters, under the
+   canonical names, so a `run` it is written inside does not answer for those
+   operations in its body: whoever calls it does. *)
+let own_evidence info row f =
+  with_bound info (List.map (fun op -> op, evidence_name op) (evidence_of_row info row)) f
+
 let scoped info (params : Ast.param list) (body : Ast.reflected_stmt list) f =
   let declared = ref []
   and shadowed = ref (List.map (fun (p : Ast.param) -> p.Ast.name) params) in
@@ -344,6 +350,7 @@ let rec expr info (e : Ast.reflected_expr) : Ast.cps_expr =
     | `Lambda (params, signature, body) ->
       scoped info params body (fun () ->
       let row = row_of e.Ast.ann in
+      own_evidence info row (fun () ->
       let evidence =
         evidence_of_row info row
         |> List.map (fun op -> { Ast.name = evidence_name op; ty = None; implicit = false })
@@ -357,7 +364,7 @@ let rec expr info (e : Ast.reflected_expr) : Ast.cps_expr =
           ( params @ evidence @ [ { Ast.name = own; ty = None; implicit = false } ]
           , signature
           , !convert_cps info own e.Ast.span body ))
-      else `Lambda (params @ evidence, signature, !convert_body info body))
+      else `Lambda (params @ evidence, signature, !convert_body info body)))
     | `Var name ->
       (match adapted info e name with
        | Some lambda ->
@@ -920,9 +927,14 @@ and cps_stmts info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt li
        let scope = fresh "scope" in
        (* An abort skipped the body's own continuation. *)
        let on_abort = [ call span after [ ignored span ] ] in
+       let installed, arms = direct_arms info span ~scope handlers in
        frame_decl span after [ fresh "x" ] (cps info ret k ~at:span rest)
-       :: (direct_arms info span ~scope handlers
-           @ [ node span (`Scope (scope, cps info ret after ~at:span body, on_abort)) ])
+       :: (arms
+           @ [ node
+                 span
+                 (`Scope
+                   (scope, with_bound info installed (fun () -> cps info ret after ~at:span body), on_abort))
+             ])
      | _ ->
        (match stmt info s with
         | Some s -> s :: cps info ret k ~at:span rest
@@ -1185,6 +1197,7 @@ and stmt info (s : Ast.reflected_stmt) : Ast.cps_stmt option =
   | `Fn (name, params, signature, body) ->
     scoped info params body (fun () ->
     let row = row_of s.Ast.ann in
+    own_evidence info row (fun () ->
     let evidence =
       evidence_of_row info row |> List.map (fun op -> { Ast.name = evidence_name op; ty = None; implicit = false })
     in
@@ -1251,37 +1264,52 @@ and stmt info (s : Ast.reflected_stmt) : Ast.cps_stmt option =
                   , node span (`Block [ call span own [ var span Types.Unit stash ] ])
                   , None ))
             ] )))
-    else keep (`Fn (name, params @ evidence, signature, sequence_body info body)))
+    else keep (`Fn (name, params @ evidence, signature, sequence_body info body))))
   | `Run (body, handlers) when handlers_delimited info handlers ->
     unsupported
       s.Ast.span
       "A 'run' whose handler needs a continuation is not supported yet in this position."
   | `Run (body, handlers) ->
     let scope = fresh "scope" in
+    let installed, arms = direct_arms info s.Ast.span ~scope handlers in
     keep
       (`Block
-        (direct_arms info s.Ast.span ~scope handlers
+        (arms
          (* The statements after the block are still statements. *)
-         @ [ node s.Ast.span (`Scope (scope, sequence_body info body, [])) ]))
+         @ [ node
+               s.Ast.span
+               (`Scope (scope, with_bound info installed (fun () -> sequence_body info body), []))
+           ]))
   | #Ast.stmts as st ->
     keep (Ast.map_stmts (expr info) (block info) st :> Ast.cps_stmt_kind)
 
-(* Each arm is a function of the operation's parameters alone. *)
+(* Each arm is a function of the operation's parameters alone, under a name of
+   its own: the arm is converted before that name is bound, so an operation it
+   performs itself reaches whatever answered it outside the block. *)
 and direct_arms info span ~scope handlers =
-  List.concat_map
-    (fun (h : Ast.reflected_stmt Ast.handler) ->
-      List.map
-        (fun (a : Ast.reflected_stmt Ast.arm) ->
-          let converted =
-            match a.Ast.arm_kind with
-            | Ast.Op_fn -> sequence_body info a.Ast.arm_body
-            | Ast.Op_ctl -> sequence_body info (Option.get (tail_resumptive a.Ast.arm_body))
-            (* Whatever it did, it does not go back. *)
-            | Ast.Op_final -> sequence_body info a.Ast.arm_body @ [ node span (`Abort scope) ]
-          in
-          arm_decl span (evidence_name a.Ast.arm_name) a.Ast.arm_params converted)
-        h.Ast.arms)
-    handlers
+  let installed =
+    List.concat_map
+      (fun (h : Ast.reflected_stmt Ast.handler) ->
+        List.map (fun (a : Ast.reflected_stmt Ast.arm) -> a.Ast.arm_name, fresh "ev") h.Ast.arms)
+      handlers
+  in
+  let arms =
+    List.concat_map
+      (fun (h : Ast.reflected_stmt Ast.handler) ->
+        List.map
+          (fun (a : Ast.reflected_stmt Ast.arm) ->
+            let converted =
+              match a.Ast.arm_kind with
+              | Ast.Op_fn -> sequence_body info a.Ast.arm_body
+              | Ast.Op_ctl -> sequence_body info (Option.get (tail_resumptive a.Ast.arm_body))
+              (* Whatever it did, it does not go back. *)
+              | Ast.Op_final -> sequence_body info a.Ast.arm_body @ [ node span (`Abort scope) ]
+            in
+            arm_decl span (List.assoc a.Ast.arm_name installed) a.Ast.arm_params converted)
+          h.Ast.arms)
+      handlers
+  in
+  installed, arms
 
 and block info (s : Ast.reflected_stmt) : Ast.cps_stmt =
   match stmt info s with
