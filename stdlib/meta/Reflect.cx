@@ -130,3 +130,59 @@ type TypeShape {
     /** Something with no shape to report -- a function, a tuple. */
     Other,
 }
+
+/**
+ * What a module declares, which is what `moduleof` answers with.
+ *
+ * ```
+ * import "helpers";
+ *
+ * meta {
+ *     match moduleof(helpers) {
+ *         Module.File(name, declarations) => {
+ *             for (d in declarations) { print(str(d.name) + ": " + d.doc); }
+ *         }
+ *         _ => {}
+ *     }
+ * }
+ * ```
+ *
+ * Asking is a reference to the module, so its top-level `meta` blocks run first
+ * and what they generate is among its declarations.
+ */
+type Module {
+    /** A file: its name as imported, and its top-level declarations in source order, written or generated. */
+    File(Name, Array<Declaration>),
+
+    /** A directory: its name, and the modules inside it. */
+    Directory(Name, Array<Module>),
+}
+
+/** A named top-level declaration. An impl has no name, and is reached through its type. */
+type Declaration {
+    /** Its name, which a `gen` can call it by. */
+    name: Name,
+
+    kind: DeclarationKind,
+
+    /** Its doc comment, empty where there is none. */
+    doc: string,
+
+    /** Its attributes, with the doc comment not among them. */
+    attrs: Array<Attr>,
+
+    /** A function's parameter names, in order; empty for anything else. */
+    params: Array<Name>,
+
+    /** Where it was written, so a meta block can report a mistake there with `compile_error`. */
+    span: Span
+}
+
+/** What a declaration declares. */
+type DeclarationKind {
+    Function,
+    Type,
+    Trait,
+    Effect,
+    Handler,
+}

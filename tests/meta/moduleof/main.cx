@@ -1,0 +1,35 @@
+import "helpers";
+
+fn kind(k: DeclarationKind): string {
+    match k {
+        DeclarationKind.Function => { return "fn"; }
+        DeclarationKind.Type => { return "type"; }
+        DeclarationKind.Trait => { return "trait"; }
+        DeclarationKind.Effect => { return "effect"; }
+        DeclarationKind.Handler => { return "handler"; }
+    }
+    return "";
+}
+
+meta {
+    match moduleof(helpers) {
+        Module.File(name, declarations) => {
+            print("module " + str(name));
+            for (d in declarations) {
+                var attrs = "";
+                for (a in d.attrs) { attrs = attrs + " @" + str(a.name); }
+                print("  " + kind(d.kind) + " " + str(d.name) + attrs + " -- " + d.doc.replace("\n", " / "));
+            }
+            for (d in declarations) {
+                if (str(d.name) == "triple") {
+                    var f = d.name;
+                    var call = code(f(14));
+                    gen fn tripled(): int { return call; }
+                }
+            }
+        }
+        Module.Directory(_, _) => {}
+    }
+}
+
+print(tripled());

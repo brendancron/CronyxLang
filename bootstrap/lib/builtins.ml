@@ -49,8 +49,9 @@ let variadic : (string * (unit -> Types.infer_ty)) list =
   ; Ast.generated [ "meta"; "code_decl" ], (fun () -> Types.INamed (Core.syntax "Decl", []))
   ]
 
-(* Which test a `cx test` process is for. Only that runner defines it. *)
-let selected_test = Ast.generated [ "test"; "selected" ]
+(* Which test a `cx test` process is for. The runner defines it per process;
+   anywhere else it is -1, which asks `std/test/Test` for the list instead. *)
+let selected_test = "__test_selected"
 
 let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
   [ selected_test, "", (fun () -> [], Types.IInt)
@@ -85,7 +86,14 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
        quoted and a byte as its number."
     , fun () -> [ Types.fresh () ], Types.IStr )
   ; ("__written", "", fun () -> [ Types.fresh () ], Types.IStr)
+  ; ( Ast.generated [ "meta"; "moduleof" ]
+    , ""
+    , fun () -> [ Types.IStr; Types.IStr ], Types.ISum (Core.reflect "Module", []) )
   ; ("__span_generated", "", fun () -> [], Types.ispan)
+  ; ( "compile_error"
+    , "Stops the build with the message, reported at the span: how a meta block \
+       says that what it was asked to generate from is wrong, where the mistake is."
+    , fun () -> [ Types.ispan; Types.IStr ], Types.fresh () )
   ; ("__fixed", "", fun () -> [ Types.IFloat; Types.IInt ], Types.IStr)
   ; "ord", "The character's Unicode code point.", (fun () -> [ Types.IChr ], Types.IInt)
   ; ( "chr"
@@ -393,6 +401,17 @@ let values ~out ~globals =
   ; one "debug" (fun span v -> Value.Str (Utf8.decode (shown span `Debug v)))
   ; one "__written" (fun span v -> Value.Str (Utf8.decode (form span v)))
   ; native "__span_generated" (Some 0) (fun _ _ -> Value.Span Source_map.Span.nowhere)
+  ; native selected_test (Some 0) (fun _ _ -> Value.Int (-1))
+  ; two "compile_error" (fun span at message ->
+      match at, message with
+      | Value.Span at, Value.Str message ->
+        let at =
+          match Source_map.Span.view at with
+          | Source_map.Span.Nowhere_in_source -> span
+          | Source_map.Span.Located _ -> at
+        in
+        raise (Value.Runtime_error { Value.span = at; message = Utf8.encode message })
+      | _ -> Value.fail span "compile_error takes a span and a message.")
   ; two "__fixed" (fun span x digits ->
       match x, digits with
       | Value.Float x, Value.Int digits when digits >= 0 ->

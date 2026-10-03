@@ -496,6 +496,20 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
            (match Hashtbl.find_opt ops name with
             | Some operation -> `Var operation
             | None -> `Var (resolve_local name)))
+      (* `moduleof(helpers)` names a module, which only the loader can tell: it
+         becomes the prefix the module's declarations carry, and the name it
+         was imported under. *)
+      | `Call ({ Ast.it = `Var "moduleof"; _ }, [ { Ast.it = `Var m; span = at; _ } ])
+        when not (S.mem "moduleof" locals) ->
+        if S.mem m locals || not (Hashtbl.mem aliases m)
+        then fail at "'%s' is not an imported module, so it cannot be reflected." m;
+        let probe = "moduleof" in
+        let qualified = (Hashtbl.find aliases m) probe in
+        let prefix = String.sub qualified 0 (String.length qualified - String.length probe) in
+        if String.equal prefix "" then fail at "'%s' names no module of its own to reflect." m;
+        `Call
+          ( { e with Ast.it = `Var "__moduleof" }
+          , [ { e with Ast.it = `Str (Utf8.decode prefix) }; { e with Ast.it = `Str (Utf8.decode m) } ] )
       (* A method call unless `math` names a module and nothing took the name. *)
       | `Method_call ({ Ast.it = `Var receiver; _ }, name, _, args)
         when (not (S.mem receiver locals)) && Hashtbl.mem aliases receiver ->

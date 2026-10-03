@@ -1,0 +1,10 @@
+import { Logger, info, warn } from "std/log/Logger";
+
+fn serve(port: int): bool {
+    info("listening on " + str(port));
+    if (port < 1024) {
+        warn("port " + str(port) + " needs privileges");
+        return false;
+    }
+    return true;
+}

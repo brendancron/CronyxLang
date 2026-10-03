@@ -1,0 +1,4 @@
+sum to 100: 20 runs, 1.5us each
+nothing: 0 runs, 0s each
+0s
+21

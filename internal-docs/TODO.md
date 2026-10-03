@@ -2,22 +2,6 @@
 
 Decisions deferred deliberately, with enough context to pick them up cold. A line leaves when it is answered — in the document that owns the subject, not here.
 
-## When a declaration query runs
-
-Owner: [Attributes and Test Frameworks.md](Attributes%20and%20Test%20Frameworks.md)
-
-Metaprocessing generates declarations, so a `gen` can emit a function carrying `@Test`. A meta block that enumerates declarations therefore sees a different program depending on when it runs, and nothing in the source says when that is — it falls out of the walk order, so reaching a module earlier could change which tests exist.
-
-The three answers in the wild: rounds to a fixpoint, as Java's annotation processors do; a hard phase split where generation finishes before any query runs and generated code is invisible to other generators, as C# source generators do; or no answer at all, as Rust proc macros, which is why that ecosystem builds registries at link time instead.
-
-What the walk does is neither: a generated declaration is visible to every block the walk reaches after the one that generated it, and a use it reaches before is an error ([Metaprocessing.md](Metaprocessing.md#generated-names)). That answers a single name; it does not answer a query over all of them.
-
-The direction is that a query is asked of a module, not of the program. A module is reflected the way a type is ([Modules.md](Modules.md), decision 2): `moduleof(m)` gives a `Module` record of its top-level declarations with their attributes, and asking is a reference to the module, so its top-level `meta` runs first and the answer includes what it generates. A collector names the modules it reads, so nothing about ordering is new and a module nobody asks about is never metaprocessed. Zig's `zig test` works this way: tests are found in what the test root reaches.
-
-`cx test` then runs a dedicated test root, which reflects the package — recursively, through its directories — and generates a call per `@test` it finds; reflecting a module is the walk's first reference to it, so that is when the module is metaprocessed. A test run is a root like any other — a file that reflects the modules under test and generates a call per `@test` — with `cx test` supplying the obvious root (every file of the package and `tests/`) when there is none, and discovery moving out of the compiler into a test library. An HTTP framework collecting `@route` functions is the same shape. Not built: `moduleof`, the test root, and discovery as a library.
-
-Until then, `cx test` runs the walk with every `@test` function as a root, after running every loaded module's top-level `meta`, and finds tests on what it produced ([Testing](Testing.md)).
-
 ## What "generic" names
 
 Owner: [Type System.md](Type%20System.md)
@@ -198,4 +182,4 @@ fn f(): int {
 }
 ```
 
-`cx build` accepts this, and so does the build `cx publish` runs before publishing; the mistake surfaces in the first consumer that calls `f`. The direction is to treat every top-level function of a library as a root when building it, the way `cx test` treats each `@test` function, so the public surface is checked where it is written. The alternative — reporting an undefined name early whenever no reachable `meta` block could generate it — needs the early check to know what every `meta` block might emit.
+`cx build` accepts this, and so does the build `cx publish` runs before publishing; the mistake surfaces in the first consumer that calls `f`. The direction is to treat every top-level function of a library as a root when building it, so the public surface is checked where it is written. The alternative — reporting an undefined name early whenever no reachable `meta` block could generate it — needs the early check to know what every `meta` block might emit.

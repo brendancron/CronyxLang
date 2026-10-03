@@ -61,6 +61,7 @@ let capturer = Ast.generated [ "meta"; "value" ]
 let quoter = Ast.generated [ "meta"; "code" ]
 let quoter_stmts = Ast.generated [ "meta"; "code_stmts" ]
 let quoter_decl = Ast.generated [ "meta"; "code_decl" ]
+let reflector = Ast.generated [ "meta"; "moduleof" ]
 
 let syntax span read =
   try read () with
@@ -459,7 +460,7 @@ let emit_into { table; current; _ } span args =
 
 (* Run against an environment holding the three entries a lowered `gen` or
    `code` calls. *)
-let run ~out ~codes ~emit ~capture (program : Ast.program) =
+let run ~out ~codes ~emit ~capture ~reflect (program : Ast.program) =
   match Compile.program program with
   | Error [] -> fail Source_map.Span.nowhere "The meta block does not check."
   | Error (e :: _) -> fail e.Diagnostic.span "%s" e.Diagnostic.message
@@ -495,6 +496,12 @@ let run ~out ~codes ~emit ~capture (program : Ast.program) =
     native emitter None (fun span args ->
       emit span args;
       Value.Unit);
+    native reflector (Some 2) (fun span args ->
+      match args with
+      | [ Value.Str prefix; Value.Str shown ] ->
+        (try reflect (Utf8.encode prefix) (Utf8.encode shown) with
+         | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message }))
+      | _ -> Value.fail span "moduleof takes a module.");
     (match Compile.run env converted with
      | Ok 0 -> ()
      | Ok code ->
@@ -690,6 +697,8 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
       let index = Hashtbl.length codes in
       Hashtbl.replace codes index inner;
       { e with Ast.it = (call sp index scope quoter).Ast.it }
+    | `Call ({ Ast.it = `Var "__moduleof"; _ } as callee, args) ->
+      { e with Ast.it = `Call ({ callee with Ast.it = `Var reflector }, List.map (expr scope) args) }
     | `Code_stmts _ | `Code_decl _ ->
       let index = Hashtbl.length codes in
       Hashtbl.replace codes index e;
@@ -1246,6 +1255,9 @@ type world =
        argument list when first built, like a comptime function. *)
     comptime_types : (string, comptime_type) Hashtbl.t
   ; type_copies : (string, unit) Hashtbl.t
+  ; (* Every named top-level declaration, written or generated, newest first:
+       what `moduleof` lists. *)
+    mutable declared : Ast.stmt list
   }
 
 and comptime_type =
@@ -1762,6 +1774,7 @@ let rec declared_of (s : Ast.stmt) =
 
 (* Set once [register] exists; the walk and registration call each other. *)
 let register_hook : (world -> Ast.stmt -> unit) ref = ref (fun _ _ -> ())
+let module_hook : (world -> string -> string -> Value.value) ref = ref (fun _ _ _ -> Value.Unit)
 
 let starts_with ~prefix name =
   let n = String.length prefix in
@@ -2257,6 +2270,7 @@ and run_meta w ~statics ~runtime ~outer body =
        ~codes:w.context.codes
        ~emit:(emit_into w.context)
        ~capture:(fun _ -> ())
+       ~reflect:(fun prefix shown -> !module_hook w prefix shown)
        program
    with
    | Failed e ->
@@ -2513,6 +2527,111 @@ let rec method_names (s : Ast.stmt) =
   | `Attributed (_, inner) -> method_names inner
   | _ -> []
 
+let rec declaration_kind (s : Ast.stmt) =
+  match s.Ast.it with
+  | `Fn _ -> Some "Function"
+  | `Type_decl _ | `Type_members _ -> Some "Type"
+  | `Trait_decl _ -> Some "Trait"
+  | `Effect_decl _ -> Some "Effect"
+  | `Handler_decl _ -> Some "Handler"
+  | `Attributed (_, inner) -> declaration_kind inner
+  | _ -> None
+
+let note_declared w (s : Ast.stmt) =
+  if Option.is_some (declaration_kind s) then w.declared <- s :: w.declared
+
+(* What `moduleof` answers: the module's top-level meta run first, so what it
+   generates is listed with what was written. *)
+let module_record w prefix shown =
+  (* Any name under the prefix wakes the module, and no identifier holds a `?`. *)
+  wake w (prefix ^ "?");
+  let owned name =
+    String.length name > String.length prefix
+    && starts_with ~prefix name
+    && not (String.contains (String.sub name (String.length prefix) (String.length name - String.length prefix)) '#')
+  in
+  let rec name_of (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Fn (n, _, _, _) | `Type_decl (n, _, _) | `Trait_decl (n, _, _) | `Effect_decl (n, _, _)
+    | `Handler_decl (n, _) -> Some n
+    | `Type_members (decl, _) -> name_of decl
+    | `Attributed (_, inner) -> name_of inner
+    | _ -> None
+  in
+  let rec attrs_of (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Attributed (list, inner) -> list @ attrs_of inner
+    | _ -> []
+  in
+  let attr_arg (a : Ast.attr_arg) =
+    let label, v =
+      match a with
+      | Ast.A_str t -> "Str", Value.Str (Utf8.decode t)
+      | Ast.A_int n -> "Int", Value.Int n
+      | Ast.A_float f -> "Float", Value.Float f
+      | Ast.A_bool b -> "Bool", Value.Bool b
+    in
+    Value.Variant (Some Core.attr_arg, label, [ "0", v ])
+  in
+  (* Where the declaration itself starts, past any attribute above it. *)
+  let rec unwrapped (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Attributed (_, inner) -> unwrapped inner
+    | _ -> s
+  in
+  let declaration (s : Ast.stmt) name kind =
+    let attrs = attrs_of s in
+    let doc, written = List.partition (fun (a : Ast.attr) -> String.equal a.Ast.a_name Ast.doc_attr) attrs in
+    let doc =
+      match doc with
+      | { Ast.a_args = [ Ast.A_str text ]; _ } :: _ -> text
+      | _ -> ""
+    in
+    Value.Record
+      ( Some (Core.reflect "Declaration")
+      , [ "name", ref (Value.Name name)
+        ; "kind", ref (Value.Variant (Some (Core.reflect "DeclarationKind"), kind, []))
+        ; "doc", ref (Value.Str (Utf8.decode doc))
+        ; ( "params"
+          , ref
+              (Value.Array
+                 (Array.of_list
+                    (match fn_parts s with
+                     | Some (_, params, _, _) -> List.map (fun (p : Ast.param) -> Value.Name p.Ast.name) params
+                     | None -> []))) )
+        ; "span", ref (Value.Span (unwrapped s).Ast.span)
+        ; ( "attrs"
+          , ref
+              (Value.Array
+                 (Array.of_list
+                    (List.map
+                       (fun (a : Ast.attr) ->
+                         Value.Record
+                           ( Some Core.attr
+                           , [ "name", ref (Value.Name a.Ast.a_name)
+                             ; "args", ref (Value.Array (Array.of_list (List.map attr_arg a.Ast.a_args)))
+                             ] ))
+                       written))) )
+        ] )
+  in
+  let seen = Hashtbl.create 16 in
+  let listed =
+    List.filter_map
+      (fun s ->
+        match name_of s, declaration_kind s with
+        | Some name, Some kind when owned name && not (Hashtbl.mem seen name) ->
+          Hashtbl.replace seen name ();
+          Some (declaration s name kind)
+        | _ -> None)
+      (List.rev w.declared)
+  in
+  Value.Variant
+    ( Some (Core.reflect "Module")
+    , "File"
+    , [ "0", Value.Name shown; "1", Value.Array (Array.of_list listed) ] )
+
+let () = module_hook := module_record
+
 let rec is_type_level (s : Ast.stmt) =
   match s.Ast.it with
   | `Type_decl _ | `Trait_decl _ | `Effect_decl _ -> true
@@ -2654,6 +2773,7 @@ let note_meta_methods w (s : Ast.stmt) =
 
 (* A declaration a meta block generated, from the point it was generated. *)
 let register w (s : Ast.stmt) =
+  note_declared w s;
   note_type w s;
   note_meta_methods w s;
   List.iter
@@ -2691,6 +2811,7 @@ let register w (s : Ast.stmt) =
 let () = register_hook := register
 
 let collect w (s : Ast.stmt) =
+  note_declared w s;
   note_type w s;
   note_meta_methods w s;
   (match deferred_prefix s with
@@ -2843,17 +2964,7 @@ let lift_comptime (p : Ast.program) =
   in
   List.rev !lifted @ top
 
-let rec carries attribute (s : Ast.stmt) =
-  match s.Ast.it with
-  | `Attributed (attrs, inner) ->
-    List.exists (fun (a : Ast.attr) -> String.equal a.Ast.a_name attribute) attrs
-    || carries attribute inner
-  | _ -> false
-
-(* [rooted_by] makes every function carrying that attribute a root, written or
-   generated, once every module's top-level meta has run: nothing calls a test,
-   so nothing else would reach one. *)
-let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
+let program ~out (p : Ast.program) : (Ast.program, error) result =
   let context =
     { out
     ; table = Hashtbl.create 16
@@ -2882,6 +2993,7 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
     ; meta_methods = Hashtbl.create 8
     ; comptime_types = Hashtbl.create 8
     ; type_copies = Hashtbl.create 8
+    ; declared = []
     }
   in
   try
@@ -2942,19 +3054,6 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
                scope := inner;
                slot (fun _ -> out))))
       p;
-    Option.iter
-      (fun attribute ->
-        List.iter
-          (fun prefix -> wake w (prefix ^ "_"))
-          (Hashtbl.fold (fun prefix _ acc -> prefix :: acc) w.units []);
-        let marked =
-          Hashtbl.fold
-            (fun name (e : entry) acc -> if carries attribute e.written then name :: acc else acc)
-            w.entries
-            []
-        in
-        List.iter (fun name -> ignore (reach w ~deps:roots name)) (List.sort compare marked))
-      rooted_by;
     (* Only what the running program reaches is emitted; what nothing reaches
        was checked by [Precheck], so an error there is still reported. *)
     let reachable = Hashtbl.create 64 in

@@ -1,0 +1,23 @@
+import { Logger, Level, trace, info, warn, error } from "std/log/Logger";
+
+fn work() {
+    trace("entering");
+    info("working");
+    warn("slow disk");
+    error("gave up");
+}
+
+// Only what is at least a warning, as a program quieting its logs would.
+var kept: List<string> = [];
+run {
+    work();
+} handle Logger {
+    fn record(level, message) {
+        if (level.rank() >= Level.Warn.rank()) { kept.push(level.label() + " " + message); }
+    }
+}
+print(kept);
+
+// Unhandled, it reaches the root, which writes to standard error.
+info("to standard error");
+print("done");

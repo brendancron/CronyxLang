@@ -1,0 +1,4 @@
+var helpers = 1;
+meta {
+    print(moduleof(nothing));
+}

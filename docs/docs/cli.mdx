@@ -163,7 +163,7 @@ It takes `--offline`, but not `--locked` or `--frozen`, since changing the lockf
 cx test [filter] [--locked | --offline | --frozen]
 ```
 
-Builds the package and runs every function marked `@test`, both in `src/` and in the files under `tests/`. A file under `tests/` imports the package by its name, the same way code outside the package would:
+Builds the package and runs every function marked `@test` in the files under `tests/`, including in its subdirectories. A test file imports the package by its name, the same way code outside the package would:
 
 ```cronyx title="tests/example.cx"
 import "hello" as pkg;
@@ -174,20 +174,17 @@ fn greets() {
 }
 ```
 
-A test in `src/` can call anything in the package directly, including what the package does not export.
-
 Each test runs in a process of its own, so a test that crashes does not take the others with it. A test must take no parameters.
 
 `cx test` prints one line per test, and then a count:
 
 ```
-ok   inline_check
 ok   greets
 FAIL adds
   arithmetic is broken
   | checking addition
 
-2/3 passed
+1/2 passed
 ```
 
 A failing test prints its failure message on the next line, then anything the test printed, each line marked with `|`. `cx test` exits with status 1 if any test failed.

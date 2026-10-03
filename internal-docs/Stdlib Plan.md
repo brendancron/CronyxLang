@@ -156,14 +156,14 @@ This one starts in the compiler, with `moduleof` as [Modules.md](Modules.md) dec
 
 Then the library:
 
-- `test/Test`: discovery as a library. A test root reflects the modules under test and generates a call per `@test` it finds, and `cx test` supplies the root — every file of the package and `tests/` — when the package has none ([When a declaration query runs](TODO.md#when-a-declaration-query-runs)). `cx test` stops finding tests itself.
+- `test/Test`: discovery as a library. `@test` is only an attribute; the framework looks through `tests/`, recursively, reflects each file with `moduleof`, and generates a call per `@test` it finds ([Testing](Testing.md#discovery-is-a-library)). `cx test` stops finding tests itself, and a `@test` in `src/` is no longer looked for. A manifest key naming a different folder is left for later.
 - `test/Bench`, on `os/Time`.
 - `log/Logger`, an effect with severity levels, handled at the root to write to standard error.
 
 **Done when**
 
 - A `meta` block lists a module's functions with their docs and attributes, and one a `gen` in that module generated is among them.
-- `cx test` runs the same tests as before with discovery in `test/Test`, and a package's own test root replaces the default.
+- `cx test` runs the tests under `tests/` with discovery in `test/Test`, a generated one among them.
 - A test handles `Logger` and asserts on what was logged.
 - A benchmark reports through a handled `Time`, so its fixture's output is fixed.
 

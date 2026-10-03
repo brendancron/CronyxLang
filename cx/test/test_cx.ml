@@ -45,7 +45,7 @@ let bad_packages =
 
 (* Run through `cx test` rather than `cx run`: the expectation is the report,
    not what the program prints. *)
-let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "crashing_test" ]
+let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "crashing_test"; "logged" ]
 
 (* Paired with an `expected.json` of the documentation index, which is compared
    twice: once built cold and once over the artifacts the first build left, so
