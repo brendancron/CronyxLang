@@ -165,14 +165,6 @@ Then the library:
 - A test handles `Logger` and asserts on what was logged.
 - A benchmark reports through a handled `Time`, so its fixture's output is fixed.
 
-## 9. Hiding
-
-A module can declare a name its importers cannot reach, which is a language feature rather than a library one. Once it exists, the helpers leaking today — `Toml`'s tokenizer, `HashMap`'s probing, the regex parser — are hidden, and `algo/automata` gets the API pass it waits on: one of methods or free functions, `Option` rather than `no_state()`, and minimisation.
-
-**Done when**
-
-- `cx docs std` shows no name that exists only to implement another.
-
 ## What is not in the plan
 
 `net/` and HTTP over it, and `algo/graph`. `net/` is the next step after 5, since it shares the scheduler work.
