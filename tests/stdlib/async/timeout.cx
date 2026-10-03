@@ -1,0 +1,21 @@
+import { block_on } from "std/async/Task";
+import { sleep, timeout } from "std/async/Timer";
+import { Duration, Time } from "std/os/Time";
+
+var start = instant();
+block_on {
+    var abandoned = timeout(Duration.milliseconds(10), () => {
+        defer { print("cleanup ran"); }
+        sleep(Duration.seconds(5));
+        print("never printed");
+        return 1;
+    });
+    print(abandoned);
+
+    var finished = timeout(Duration.seconds(5), () => {
+        sleep(Duration.milliseconds(1));
+        return 2;
+    });
+    print(finished);
+};
+print(instant() - start < Duration.seconds(1));

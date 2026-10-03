@@ -1,0 +1,49 @@
+import { block_on, both } from "std/async/Task";
+import { Channel, Case, channel, select } from "std/async/Channel";
+
+block_on {
+    var numbers: Channel<int> = channel(1);
+    var words: Channel<string> = channel(1);
+    both(
+        () => {
+            numbers.send(1);
+            words.send("a");
+            numbers.send(2);
+            numbers.close();
+            words.send("b");
+            words.close();
+        },
+        () => {
+            var numbers_open = true;
+            var words_open = true;
+            while (numbers_open || words_open) {
+                var cases: List<Case<string>> = [];
+                if (numbers_open) {
+                    cases.push(numbers.receiving((n) => {
+                        match n {
+                            Option.Some(v) => { return "number " + str(v); }
+                            Option.None => { numbers_open = false; return "numbers closed"; }
+                        }
+                    }));
+                }
+                if (words_open) {
+                    cases.push(words.receiving((w) => {
+                        match w {
+                            Option.Some(v) => { return "word " + v; }
+                            Option.None => { words_open = false; return "words closed"; }
+                        }
+                    }));
+                }
+                print(select(cases));
+            }
+        }
+    );
+};
+
+block_on {
+    var out: Channel<int> = channel(1);
+    var into: Channel<int> = channel(1);
+    into.send(7);
+    print(select([ out.sending(1, () => "sent to out"), into.receiving((n) => "took from into") ]));
+    print(select([ out.sending(2, () => "sent to out"), into.receiving((n) => "took from into") ]));
+};

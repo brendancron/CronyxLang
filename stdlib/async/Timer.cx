@@ -1,0 +1,107 @@
+/**
+ * Waiting for time to pass, and giving up on a task that takes too long.
+ *
+ * ```
+ * import { block_on } from "std/async/Task";
+ * import { sleep, timeout } from "std/async/Timer";
+ * import { Duration } from "std/os/Time";
+ *
+ * block_on {
+ *     sleep(Duration.milliseconds(50));
+ *     match timeout(Duration.seconds(2), fetch) {
+ *         Option.Some(page) => { print(page); }
+ *         Option.None => { print("gave up"); }
+ *     }
+ * };
+ * ```
+ *
+ * A sleeping task lets the others run. Time is measured by the scheduler's
+ * clock, so a test that handles `Time` around a `block_on` decides how long a
+ * sleep takes.
+ */
+
+import { async, __once } from "Task";
+import { Throw } from "../core/Error";
+import { Duration } from "../os/Time";
+import { Promise, promise, resolve, await } from "Promise";
+
+/** Waits until `delay` has passed, while other tasks run. */
+fn sleep(delay: Duration) {
+    // `suspend`'s callback cannot set a timer itself, so the timer is set first
+    // and handed the wake-up once there is one. It cannot fire before then: the
+    // scheduler runs timers only once this task has parked.
+    var wake: Option<(unit) -> unit> = Option.None;
+    var cancel = after(delay, () => {
+        match wake {
+            Option.Some(it) => { it(()); }
+            Option.None => {}
+        }
+    });
+    // A task abandoned while asleep would otherwise leave the scheduler waiting
+    // for a timer nothing is listening to.
+    defer { cancel(); }
+    suspend { wake = Option.Some(it); };
+}
+
+/**
+ * Runs the task and returns its result, or `None` if `limit` passes first.
+ *
+ * A task that runs out of time is cancelled where it is waiting, and its
+ * `defer`s run before this returns. One that never waits cannot be stopped,
+ * and finishes however long it takes.
+ */
+fn timeout<T, X, E>(limit: Duration, task: () -> <async, Throw<X>, E> T): <async, Throw<X>, E> Option<T> {
+    var result: Option<T> = Option.None;
+    var failure: Option<X> = Option.None;
+    var over = false;
+    var stop: Option<() -> unit> = Option.None;
+    var settled: Promise<unit> = promise();
+
+    fn settle() {
+        if (!over) {
+            over = true;
+            resolve(settled, ());
+        }
+    }
+
+    var cancel_timer = after(limit, () => {
+        if (!over) {
+            over = true;
+            match stop {
+                Option.Some(unwind) => { unwind(); }
+                Option.None => {}
+            }
+            resolve(settled, ());
+        }
+    });
+
+    run {
+        run {
+            result = Option.Some(task());
+        } handle Throw {
+            final ctl throw(e) { failure = Option.Some(e); }
+        }
+        settle();
+    } handle async {
+        ctl suspend(register) {
+            stop = Option.Some(() => { discontinue; });
+            var wake = waker();
+            register(__once(wake, (value) => {
+                if (!over) {
+                    stop = Option.None;
+                    resume value;
+                }
+            }));
+        }
+        fn waker() { return waker(); }
+        fn after(delay, wake) { return after(delay, wake); }
+    }
+
+    if (!over) { await(settled); }
+    cancel_timer();
+    match failure {
+        Option.Some(e) => { throw(e); }
+        Option.None => {}
+    }
+    return result;
+}

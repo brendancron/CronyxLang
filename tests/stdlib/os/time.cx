@@ -33,6 +33,7 @@ run {
         ticks = ticks + 1;
         return Instant { nanos: ticks * 1250000 };
     }
+    fn wait_until(at) { }
 }
 
 // The system's clocks, which only have to agree with each other.

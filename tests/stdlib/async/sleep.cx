@@ -1,0 +1,13 @@
+import { block_on, interleaved } from "std/async/Task";
+import { sleep } from "std/async/Timer";
+import { Duration, Time } from "std/os/Time";
+
+var start = instant();
+block_on {
+    interleaved([
+        () => { sleep(Duration.milliseconds(30)); print("slow"); },
+        () => { sleep(Duration.milliseconds(10)); print("fast"); },
+        () => { print("awake"); }
+    ]);
+};
+print(instant() - start >= Duration.milliseconds(30));

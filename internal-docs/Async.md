@@ -1,24 +1,27 @@
 # Async
 
-Status: **built.** `std/async/Task` (`stdlib/async/Task.cx`), with the
-fixtures in `tests/stdlib/async/`. `tests/effects/async/` is the effect
-machinery on its own, with a hand-written scheduler.
+Status: **built.** `std/async/Task` (`stdlib/async/Task.cx`), with
+`Promise`, `Channel` and `Timer` beside it and the fixtures in
+`tests/stdlib/async/`. `tests/effects/async/` is the effect machinery on its
+own, with a hand-written scheduler.
 
-The effect has two operations:
+The effect has three operations:
 
 ```cronyx
 effect async {
     ctl suspend<T>(register: ((T) -> unit) -> unit): T;
     fn waker(): (() -> unit) -> unit;
+    fn after(delay: Duration, wake: () -> unit): () -> unit;
 }
 ```
 
 `suspend` hands `register` a callback and parks. Whoever calls that callback
 supplies the value `suspend` returns. `waker` hands out the function that puts a
-wake-up in the scheduler's queue. Promises, `await`, yielding and the scopes —
-`all`, `interleaved` and `both` — are ordinary code over the two.
+wake-up in the scheduler's queue, and `after` puts one on the scheduler's clock.
+Promises, `await`, channels, `select`, `sleep`, `timeout`, yielding and the
+scopes — `all`, `interleaved` and `both` — are ordinary code over the three.
 
-## Why two operations
+## Why these operations
 
 Koka's `std/async` declares four — `do-await`, `no-await`, `async-iox` and
 `cancel` — and three of them exist to talk to the host event loop: register a
@@ -29,7 +32,9 @@ no event loop, so the other three have nothing to bridge to and `suspend` is
 
 `waker` is what a scope needs from the root and cannot make itself: a way to put
 a wake-up in the one queue. It hands out a function rather than the queue, so
-what reaches the root is only ever something to run.
+what reaches the root is only ever something to run. `after` is the same for
+time: only the root can wait on the clock, because only the root knows that
+every task is parked ([Timers](#timers)).
 
 ## A promise is data
 
@@ -54,7 +59,7 @@ It holds the only queue, and what is in it is wake-ups — a continuation to
 resume, `() -> unit` — never a task:
 
 ```cronyx
-fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <E> unit {
+fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
     var ready: List<() -> unit> = [];
     var finished = false;
     run {
@@ -67,13 +72,11 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <E> unit {
     } handle async {
         ctl suspend(register) { register(__once((k) => { ready.push(k); }, (v) => { resume v; })); }
         fn waker() { return (k) => { ready.push(k); }; }
+        fn after(delay, wake) { … }   // onto the timer list
     }
-    var at = 0;
-    while (at < ready.len()) {
-        var next = ready[at];
-        at += 1;
-        next();
-    }
+    // Drain the queue; when it is empty, wait for the first timer and fire it;
+    // stop when there is neither.
+    …
     if (!finished) { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
 }
 ```
@@ -136,8 +139,9 @@ and switches), Trio (`trio.run` and nurseries) and Kotlin (`runBlocking` and
   scope, the inner one drains, returns with its task still parked, and the
   wake-up lands in a queue nobody reads.
 - **A deadlock is seen.** When the queue empties before the root task has
-  finished, every task is waiting on something no task will do, and `block_on`
-  stops with that rather than returning as if the work were done. Only the root
+  finished and no timer is pending, every task is waiting on something no task
+  will do, and `block_on` stops with that rather than returning as if the work
+  were done. Only the root
   can tell this from a scope waiting on its parent. Go's runtime makes the same
   call from the same position (`all goroutines are asleep - deadlock!`), as does
   Eio.
@@ -191,6 +195,46 @@ A task is cancelled at its next suspension point: when it is woken, the scope
 does not resume it. A task that never suspends runs to its end first, as it
 would in Trio or Eio. A task abandoned this way runs none of its `defer`s
 ([TODO](TODO.md#defer-under-a-ctl-arm-that-does-not-resume)).
+
+## Timers
+
+`after(delay, wake)` adds a timer to the root's list and hands back what cancels
+it. When the queue is empty the root takes the earliest timer still live, waits
+for it through `Time.wait_until`, and calls its `wake`; of two due together, the
+one set first fires first, so tasks asleep for the same time wake in the order
+they went to sleep. A cancelled timer is never waited for, which is why `sleep`
+cancels its own in a `defer`: a task abandoned while asleep would otherwise hold
+the program open until a timer nobody listens to went off.
+
+The root reads and waits on the clock through `Time`, the effect a program uses
+for it, rather than a builtin. So a test that handles `Time` around its own
+`block_on` decides how long a sleep takes — `wait_until` there just moves a fake
+clock forward, and an hour's sleep finishes at once with the same output every
+run (`tests/stdlib/async/fake_clock`). Waiting is the scheduler's alone: a task
+that called `wait_until` would hold every other task with it, so tasks `sleep`.
+
+This is the one place the root blocks on the OS, and `net/` will need it to
+block on sockets as well as the clock: the wait becomes "until the first timer
+or until a socket is ready", in the same position.
+
+## A channel wakes to look again
+
+A `Channel` holds its values and two lists of waiting tasks, one for a value and
+one for room. A change wakes every task on the relevant list, and each looks
+again, rather than one being handed the value. That costs a woken task that
+finds nothing and parks again, and buys `select`: a task waiting on several
+channels is on each one's list, and when one wakes it the others' entries go
+stale. A stale entry handed a value would lose it; a stale entry told to look
+again does nothing, because `select`'s wake-up runs once.
+
+## A timeout unwinds what it abandons
+
+`timeout(limit, task)` runs the task under its own handler for `async` and sets a
+timer. While the task is parked the handler keeps a closure that `discontinue`s
+it; if the timer fires first, that closure unwinds the task, so its `defer`s run
+— the sleeping timer's cancellation among them — and `timeout` returns `None`.
+If the task finishes first, its timer is cancelled. A scope's cancellation still
+drops the task instead ([A failure lands in its scope](#a-failure-lands-in-its-scope)).
 
 ## A task is woken once
 

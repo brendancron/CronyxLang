@@ -1,0 +1,13 @@
+sending 1
+sent 1
+sending 2
+sent 2
+sending 3
+got 1
+got 2
+sent 3
+sending 4
+sent 4
+got 3
+got 4
+closed and drained

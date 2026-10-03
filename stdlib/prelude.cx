@@ -75,6 +75,7 @@ fn __root<T, X, E>(
     } handle Time {
         fn now() { return Timestamp { nanos: __time_wall() }; }
         fn instant() { return Instant { nanos: __time_instant() }; }
+        fn wait_until(at) { __time_wait_until(at.nanos); }
     } handle Random {
         fn random_bits() { return __random_bits(); }
     } handle Stdin {

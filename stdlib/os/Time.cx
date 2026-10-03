@@ -216,6 +216,13 @@ effect Time {
 
     /** The clock that never goes backwards, for measuring how long something took. */
     fn instant(): Instant;
+
+    /**
+     * Holds the whole program until `instant` reaches `at`. The scheduler calls
+     * it when every task is asleep; a task waits with `sleep` from
+     * `std/async/Timer` instead, which lets the others run.
+     */
+    fn wait_until(at: Instant): unit;
 }
 
 /** How long since the instant. */

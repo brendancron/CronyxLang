@@ -1,0 +1,20 @@
+import { block_on, both } from "std/async/Task";
+import { Channel, channel } from "std/async/Channel";
+
+block_on {
+    var numbers: Channel<int> = channel(2);
+    both(
+        () => {
+            for (var i = 1; i <= 4; i += 1) {
+                print("sending " + str(i));
+                numbers.send(i);
+                print("sent " + str(i));
+            }
+            numbers.close();
+        },
+        () => {
+            for (n in numbers.values()) { print("got " + str(n)); }
+            print("closed and drained");
+        }
+    );
+};

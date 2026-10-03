@@ -84,6 +84,15 @@ let instant () =
   if now > !last_instant then last_instant := now;
   !last_instant
 
+(* Measured against [instant], which is what a deadline was computed from. A
+   signal cuts a sleep short, so it is taken again until the deadline passes. *)
+let rec wait_until deadline =
+  let left = deadline - instant () in
+  if left > 0
+  then (
+    (try Unix.sleepf (Float.of_int left /. 1e9) with Unix.Unix_error (Unix.EINTR, _, _) -> ());
+    wait_until deadline)
+
 (* ---- entropy ---- *)
 
 let urandom = lazy (try Some (open_in_bin "/dev/urandom") with Sys_error _ -> None)
@@ -231,6 +240,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   ; "__env_all", "", (fun () -> [], iarray (ITuple [ IStr; IStr ]))
   ; "__time_wall", "", (fun () -> [], IInt)
   ; "__time_instant", "", (fun () -> [], IInt)
+  ; "__time_wait_until", "", (fun () -> [ IInt ], IUnit)
   ; "__random_bits", "", (fun () -> [], IInt)
   ; "__fs_list", "", (fun () -> [ IStr ], ITuple [ IInt; iarray IStr; IStr ])
   ; "__fs_metadata", "", (fun () -> [ IStr ], ITuple [ IInt; IInt; IInt; IStr ])
@@ -278,6 +288,12 @@ let values ~native =
         (Array.of_list (List.map (fun (k, v) -> Value.Tuple [ str k; str v ]) (variables ()))))
   ; native "__time_wall" 0 (fun _ _ -> Value.Int (nanos (Unix.gettimeofday ())))
   ; native "__time_instant" 0 (fun _ _ -> Value.Int (instant ()))
+  ; native "__time_wait_until" 1 (fun span args ->
+      match args with
+      | [ Value.Int deadline ] ->
+        wait_until deadline;
+        Value.Unit
+      | _ -> Value.fail span "__time_wait_until takes an instant.")
   ; native "__random_bits" 0 (fun _ _ -> Value.Int (random_bits ()))
   ; native "__fs_list" 1 (fun span args ->
       match args with
