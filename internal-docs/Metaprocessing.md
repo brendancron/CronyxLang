@@ -376,10 +376,10 @@ fn build() {
 meta build();
 ```
 
-`check` is an ordinary local holding a `Code`. The fold is what joins the pieces, so there is no `join`, no operator-as-a-value, and no control flow inside `gen` — the loop that builds the code is the loop the language already has, which is the point. A quasi-quote with a repetition marker can only repeat what the marker anticipated; this can sort the fields, skip one, or call a helper, and the helper is an ordinary function (`code/helper`):
+`check` is an ordinary local holding an `Expr`, from `std/compiler/Ast` ([Syntax Trees](Syntax%20Trees.md)). The fold is what joins the pieces, so there is no `join`, no operator-as-a-value, and no control flow inside `gen` — the loop that builds the code is the loop the language already has, which is the point. A quasi-quote with a repetition marker can only repeat what the marker anticipated; this can sort the fields, skip one, or call a helper, and the helper is an ordinary function (`code/helper`):
 
 ```cronyx
-fn doubled(v: Code): Code { return code(v + v); }
+fn doubled(v: Expr): Expr { return code(v + v); }
 ```
 
 `code` works in a meta block and in any function only a meta block reaches. Reaching run time with one is *'code' is only allowed inside a meta block.* (`code/errors/outside_meta`).
@@ -391,11 +391,11 @@ var one = compare(f.name);
 check = code(check && one);
 ```
 
-**`Code` and `Name` are compile-time types**, next to `Type`. A `Code` cannot reach a running program. A `Name` is ordinary once it is in hand; what is restricted is making one, since that is where a name could otherwise be forged.
+**A quote is data.** `code(…)` is an `Expr`, `code { … }` a `List<Stmt>` and `code fn …` a `Decl`: ordinary values a meta program can take apart, build by hand and pass around. A meta variable holding one splices by its kind — an expression where an expression stands, a statement, a declaration or a list of statements where a statement stands, a type where a type does — and `gen d;` emits a `Decl`. The tree and the reasons for it are [Syntax Trees](Syntax%20Trees.md).
+
+**`Name` and `Span` are compile-time types**, next to `Type`. Either is ordinary once it is in hand; what is restricted is making one, since that is where a name or a source location could otherwise be forged.
 
 **How it is built.** `code` reuses what `gen` already had. Both are lowered before the meta program runs — into a call carrying an index into a table of captured syntax, plus the meta-bound names in scope. `gen`'s call emits, `code`'s returns. The one difference is scope: lowering follows the names bound *up to that point*, because `var body = code(…)` cannot be handed `body`.
-
-**A `Code` holds an expression.** A deriver that emits several statements wants `code { … }` as well, and the two are different modes with only one valid in a given position. It goes with `Gen` as an effect, which needs the same thing.
 
 ## Deriving
 
@@ -414,7 +414,7 @@ trait Hash {
 
 fn derive(shape: TypeShape) for Hash {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, _, fields) => {
             gen impl Hash for t {
                 fn hash(self): int { … built with `code`, above … }
             }
@@ -426,7 +426,7 @@ fn derive(shape: TypeShape) for Hash {
 
 **`derive A, B for X;` is a meta block** calling one deriver per trait with `typeof(X).shape` (`derive/two_traits`). It is reached like any other top-level `meta`, and what it generates lands at the `derive` — including an impl a helper the deriver calls generated (`03_derive/gen_in_helper`). The trait and the type may be qualified: `derive named.Named for animals.Cat;`.
 
-**It takes a `TypeShape`, not a `Type`.** A `Type` cannot be passed anywhere — it answers a question where it stands — so the name of the type comes out of the shape with the fields. `Type.name` stays a string, because `typeof(f).name` is `(int) -> int`, which no identifier could be; a name that can be spliced exists exactly where a declaration does, so `Product` and `Sum` carry a `Name` and the other shapes do not.
+**It takes a `TypeShape`, not a `Type`.** A `Type` cannot be passed anywhere — it answers a question where it stands — so the name of the type comes out of the shape with the fields. `Type.name` stays a string, because `typeof(f).name` is `(int) -> int`, which no identifier could be; a name that can be spliced exists exactly where a declaration does, so `Product` and `Sum` carry a `Name` and the other shapes do not. They carry the type's parameters too, so a deriver can write `impl Encode for Page<T: Encode>`; `meta/Derive`'s `with_params` puts them on a quoted impl.
 
 **The name written is not the name registered.** Every deriver is called `derive`, which would collide; `for Hash` registers it under a hidden name per trait that no program can write. A second deriver for one trait is *Trait 'Eq' already has a deriver.* (`derive/errors/two_derivers`), and a `derive` naming a trait without one is *Trait 'Show' has no deriver.* (`derive/errors/no_deriver`). `Eq` is derived by the compiler unless the program writes its own deriver for it.
 
@@ -443,6 +443,5 @@ meta derive_eq(typeof(Dog).shape);
 ## Not built
 
 - **`Gen` as an effect**, and handling it in a program to test a deriver — [TODO](TODO.md).
-- **`code { … }`** for statements and declarations, above.
 - **What a meta program inherits** from the prelude, and **what compiling one per block costs** — [TODO](TODO.md).
 - **Field defaults, a `meta` generating fields, and value arguments in type annotations**, under [Types with members](#types-with-members).

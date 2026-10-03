@@ -1,0 +1,38 @@
+(a + (b * 2))
+Point { x: 1, y: f(2, "two") }
+xs.map((v) => { return (v * 2); })
+var total = 0;
+for (x in xs) {
+    if ((x > 0)) {
+        total += x;
+    } else {
+        continue;
+    }
+}
+return total;
+
+type Shape {
+    /** A round one. */
+    Circle(int),
+    @wide Rect { w: int, h: int },
+    Dot
+}
+
+impl Show for Shape {
+    fn show(self): string {
+        match self {
+            Shape.Circle(r) => {
+                return "circle";
+            }
+            _ => {
+                return "other";
+            }
+        }
+    }
+}
+
+effect Log {
+    fn log(s: string): unit;
+    ctl ask<T>(): T;
+}
+

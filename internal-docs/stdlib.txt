@@ -35,11 +35,11 @@ std/
 │   ├── Search             # Binary search, lower and upper bound, partition point
 │   └── graph/             # Graphs and the algorithms over them
 ├── encoding/              # Serialization and data format parsers
-│   ├── Codec              # Encode and Decode traits and their derives; the Encoder/Decoder interface formats implement
+│   ├── Codec              # Encode and Decode and their derivers; Data, which every format reads and writes; Format
 │   ├── Base64             # Standard and URL-safe alphabets, with and without padding
 │   ├── Hex                # Bytes to hex digits and back
-│   ├── Json               # JSON parser, serializer, and value AST
-│   └── Toml               # TOML configuration reader and writer
+│   ├── Json               # JSON to and from Data
+│   └── Toml               # TOML to and from Data
 ├── ops/                   # Common traits and conversions
 │   ├── Hash               # Hashing interface for collections
 │   ├── To                 # Infallible type conversion trait
@@ -48,6 +48,9 @@ std/
 │   ├── Reflect            # TypeShape, fields, variants, attributes -- what typeof answers
 │   ├── Name               # Identifiers, and building them from strings
 │   └── Derive             # Helpers for writing derivers: walking a shape, emitting impls
+├── compiler/              # The compiler as a library: Cronyx syntax as data
+│   ├── Ast                # The syntax tree: what `code` quotes, what a deriver builds and `gen` emits
+│   └── Printer            # A syntax tree as source text
 ├── async/                 # Cooperative tasks: block_on, all/both, promises, pause
 │   ├── Task               # block_on, the all/both/interleaved scopes, pause
 │   ├── Promise            # promise, resolve, await
@@ -60,7 +63,7 @@ std/
 │   ├── Console            # Console and Stdin effects, read_line
 │   └── Print              # print and printerr, imported globally by the prelude
 ├── fs/                    # File system operations
-│   ├── File               # File handle management and I/O
+│   ├── File               # File handle management and I/O; listing, creating and removing directories
 │   └── Path               # Platform-agnostic path manipulation
 ├── net/                   # Low-level networking primitives
 ├── os/                    # Operating system integration & environmental controls
@@ -75,5 +78,6 @@ std/
 ├── crypto/                # Cryptographic digests and primitives
 │   └── Sha256             # SHA-256 digest; a Writer, so a stream can be hashed as it is read
 ├── random/                # Random number generation, including a secure source
+│   └── Random             # The Random effect; ranges, shuffling, and a seeded generator
 └── log/                   # Structured logging infrastructure
     └── Logger             # Logging facade and severity levels

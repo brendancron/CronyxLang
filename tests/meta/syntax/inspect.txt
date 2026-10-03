@@ -1,0 +1,3 @@
+(the number 1) plus ((the variable x) times (the number 2))
+a call to the variable f with 3 arguments
+something else

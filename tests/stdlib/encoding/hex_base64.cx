@@ -1,0 +1,21 @@
+import { Result, attempt } from "std/core/Error";
+import { DecodeError } from "std/encoding/Codec";
+import "std/encoding/Hex";
+import "std/encoding/Base64";
+
+print(Hex.encode("hi".bytes()));
+print(Hex.decode("6869"));
+print(Hex.decode("FF00"));
+var bad = attempt { Hex.decode("6g") };
+print(bad);
+var odd = attempt { Hex.decode("686") };
+print(odd);
+for (s in ["", "f", "fo", "foo", "foob", "fooba", "foobar"]) {
+    print(Base64.encode(s.bytes()));
+}
+print(Base64.encode_with("hi?".bytes(), Base64.Alphabet.UrlSafe, false));
+print(Base64.decode("Zm9vYmE="));
+print(Base64.decode("Zm9vYmE"));
+print(Base64.decode_with("aGk_", Base64.Alphabet.UrlSafe));
+print(attempt { Base64.decode("Zm9v!mE=") });
+print(attempt { Base64.decode("Z") });

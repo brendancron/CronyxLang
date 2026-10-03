@@ -1,0 +1,23 @@
+type Flags { bits: int }
+impl BitOr<Flags> for Flags {
+    type Output = Flags;
+    fn bit_or(self, rhs: Flags): Flags { return Flags { bits: self.bits | rhs.bits }; }
+}
+impl BitAnd<Flags> for Flags {
+    type Output = Flags;
+    fn bit_and(self, rhs: Flags): Flags { return Flags { bits: self.bits & rhs.bits }; }
+}
+impl BitNot for Flags {
+    type Output = Flags;
+    fn bit_not(self): Flags { return Flags { bits: ~self.bits & 7 }; }
+}
+impl Shl<int> for Flags {
+    type Output = Flags;
+    fn shl(self, n: int): Flags { return Flags { bits: self.bits << n }; }
+}
+var read = Flags { bits: 1 };
+var writes = Flags { bits: 2 };
+print((read | writes).bits);
+print(((read | writes) & writes).bits);
+print((~read).bits);
+print((read << 2).bits);

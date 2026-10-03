@@ -1,0 +1,21 @@
+import { bench } from "std/test/Bench";
+import { Duration, Instant, Timestamp, Time } from "std/os/Time";
+
+var clock = 0;
+var counted = 0;
+run {
+    print(bench("sum to 100", 20, () => {
+        var total = 0;
+        for (var i = 0; i < 100; i += 1) { total += i; }
+        counted += 1;
+        clock += 1500;
+    }));
+    var quick = bench("nothing", 0, () => {});
+    print(quick);
+    print(quick.each());
+} handle Time {
+    fn now() { return Timestamp { nanos: clock }; }
+    fn instant() { return Instant { nanos: clock }; }
+    fn wait_until(at) { clock = at.nanos; }
+}
+print(counted);

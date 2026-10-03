@@ -58,7 +58,7 @@ let rec expr (e : Ast.cps_expr) : unit =
   | `Assign (_, v) ->
     expr v;
     expect span "An assignment" v.Ast.ann ann
-  | `Unop (Ast.Neg, a) ->
+  | `Unop ((Ast.Neg | Ast.Bit_not), a) ->
     expr a;
     expect span "A negation" a.Ast.ann ann
   | `Unop (Ast.Not, a) ->
@@ -68,9 +68,13 @@ let rec expr (e : Ast.cps_expr) : unit =
   | `Binop (op, a, b) ->
     expr a;
     expr b;
-    expect b.Ast.span "Both operands" a.Ast.ann b.Ast.ann;
+    (* A shift's amount is a count whatever is being shifted. *)
     (match op with
-     | Ast.Add | Ast.Sub | Ast.Mul | Ast.Div | Ast.Mod ->
+     | Ast.Shl | Ast.Shr -> expect b.Ast.span "A shift's amount" Types.Int b.Ast.ann
+     | _ -> expect b.Ast.span "Both operands" a.Ast.ann b.Ast.ann);
+    (match op with
+     | Ast.Add | Ast.Sub | Ast.Mul | Ast.Div | Ast.Mod | Ast.Bit_and | Ast.Bit_or | Ast.Bit_xor
+     | Ast.Shl | Ast.Shr ->
        expect span "An arithmetic result" a.Ast.ann ann
      | Ast.Equal | Ast.Not_equal | Ast.Less | Ast.Less_equal | Ast.Greater
      | Ast.Greater_equal -> expect span "A comparison" Types.Bool ann)

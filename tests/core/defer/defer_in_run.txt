@@ -1,0 +1,15 @@
+finished
+finished: cleanup
+stopped
+stopped: cleanup
+discontinued: cleanup
+discontinued
+nested: cleanup
+outer: cleanup
+nested: discontinued
+resumed with 5
+resumed: cleanup
+resumed: arm's rest
+in a function
+in a function: cleanup
+1

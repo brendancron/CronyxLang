@@ -1,0 +1,36 @@
+import { Encode, Decode, DecodeError, Data } from "std/encoding/Codec";
+import { to_json, to_json_pretty, from_json, parse_json, write_json } from "std/encoding/Json";
+import { Result, attempt } from "std/core/Error";
+
+type Point { x: int, y: float, label: string, tags: List<string>, note: Option<string> }
+derive Encode, Decode for Point;
+
+var p = Point { x: 1, y: 2.5, label: "a \"quoted\"\nline", tags: ["t"], note: Option.None };
+print(to_json(p));
+print(to_json_pretty(p));
+
+var q: Point = from_json(" { \"x\": -7, \"y\": 1e2, \"label\": \"caf\\u00e9 \\ud83d\\ude00\", \"tags\": [], \"note\": \"n\" } ");
+print(q.x);
+print(q.y);
+print(q.label);
+print(q.note);
+
+print(write_json(parse_json("[1, 2.0, true, false, null, {\"a\": []}, \"\\t\"]")));
+
+fn report(text: string) {
+    var outcome: Result<Data, DecodeError> = attempt { parse_json(text) };
+    match outcome {
+        Result.Ok(d) => { print(write_json(d)); }
+        Result.Err(e) => { print(e.message()); }
+    }
+}
+report("[1, 2");
+report("{\"a\" 1}");
+report("[1] x");
+report("-");
+
+var wrong: Result<Point, DecodeError> = attempt { from_json("{\"x\": 1, \"y\": \"no\"}") };
+match wrong {
+    Result.Ok(_) => { print("decoded"); }
+    Result.Err(e) => { print(e.message()); }
+}

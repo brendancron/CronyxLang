@@ -1,0 +1,52 @@
+{"title":"demo","version":3,"ratio":0.5,"big":1000000,"mask":255,"enabled":true,"tags":["a","b","c"],"point":{"x":1,"y":2},"site":{"home page":"https://example.com"},"server":{"host":"localhost","ports":[8080,8081],"limits":{"connections":10}},"plugin":[{"name":"one"},{"name":"two","note":"raw \\ text"}]}
+title = "demo"
+version = 3
+ratio = 0.5
+big = 1000000
+mask = 255
+enabled = true
+tags = ["a", "b", "c"]
+
+[point]
+x = 1
+y = 2
+
+[site]
+"home page" = "https://example.com"
+
+[server]
+host = "localhost"
+ports = [8080, 8081]
+
+[server.limits]
+connections = 10
+
+[[plugin]]
+name = "one"
+
+[[plugin]]
+name = "two"
+note = "raw \\ text"
+
+demo 3 localhost [8080, 8081] 10
+Some("raw \\ text")
+title = "demo"
+version = 3
+
+[server]
+host = "localhost"
+ports = [8080, 8081]
+
+[server.limits]
+connections = 10
+
+[[plugin]]
+name = "one"
+
+[[plugin]]
+name = "two"
+note = "raw \\ text"
+
+the input ends at offset 4 where more was needed
+a: set twice
+'b' at offset 6 is not valid here

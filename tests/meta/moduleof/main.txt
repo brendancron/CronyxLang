@@ -1,0 +1,9 @@
+module helpers
+  fn add @fast -- Adds two numbers.
+  fn greet @route -- Says hello. / To whoever is asked.
+  type Point -- A point on the plane.
+  trait Shape -- 
+  effect Log -- 
+  fn __helper -- 
+  fn triple @generated -- 
+42

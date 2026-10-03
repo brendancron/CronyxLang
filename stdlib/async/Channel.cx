@@ -1,0 +1,169 @@
+/**
+ * Values passed from one task to another, in order, through a queue of fixed
+ * size.
+ *
+ * ```
+ * import { block_on, both } from "std/async/Task";
+ * import { channel } from "std/async/Channel";
+ *
+ * block_on {
+ *     var jobs = channel(8);
+ *     both(
+ *         () => { for (n in [1, 2, 3]) { jobs.send(n); } jobs.close(); },
+ *         () => { for (n in jobs.values()) { print(n * n); } }
+ *     );
+ * };
+ * ```
+ *
+ * A sender waits while the channel is full and a receiver while it is empty,
+ * so a fast producer is held to the pace of its consumer. `select` waits on
+ * several at once.
+ */
+
+import { async } from "Task";
+import { Yield, iterator } from "../iter/Yield";
+
+/** A queue between tasks, holding at most `capacity` values. */
+type Channel<T> {
+    items: List<T>,
+    // Where the front is in `items`: what is before it has been received.
+    head: int,
+    capacity: int,
+    closed: bool,
+    // Tasks waiting for a value, and for room. Each is woken to look again
+    // rather than handed anything, so a `select` that has already gone another
+    // way loses nothing by being woken.
+    readers: List<() -> unit>,
+    writers: List<() -> unit>
+}
+
+/** A channel holding at most `capacity` values. Panics unless `capacity` is at least 1. */
+fn channel<T>(capacity: int): Channel<T> {
+    if (capacity < 1) { panic("a channel holds at least one value"); }
+    return Channel { items: [], head: 0, capacity: capacity, closed: false, readers: [], writers: [] };
+}
+
+/** One way a `select` may go: a channel it waits on, and what it returns if that one is ready first. */
+type Case<R> {
+    ready: () -> bool,
+    take: () -> R,
+    watch: (() -> unit) -> unit
+}
+
+impl Channel<T> {
+    /** Puts a value at the back, waiting for room while the channel is full. Panics if it is closed. */
+    fn send(self, value: T) {
+        while (self.len() >= self.capacity && !self.closed) {
+            suspend { self.writers.push(() => { it(()); }); };
+        }
+        self.__put(value);
+    }
+
+    /** The value at the front, waiting for one while the channel is empty, or `None` once it is closed and empty. */
+    fn recv(self): Option<T> {
+        while (self.len() == 0 && !self.closed) {
+            suspend { self.readers.push(() => { it(()); }); };
+        }
+        return self.__take();
+    }
+
+    /**
+     * Says no more values are coming. Those already sent can still be received,
+     * and after them `recv` answers `None`.
+     */
+    fn close(self) {
+        self.closed = true;
+        __wake_all(self.readers);
+        __wake_all(self.writers);
+    }
+
+    /** How many values are waiting to be received. */
+    fn len(self): int { return self.items.len() - self.head; }
+
+    /** Every value until the channel is closed and empty, receiving each as it is asked for. */
+    fn values(self): Iter<T, <async>> {
+        return iterator {
+            var more = true;
+            while (more) {
+                match self.recv() {
+                    Option.Some(value) => { yield(value); }
+                    Option.None => { more = false; }
+                }
+            }
+        };
+    }
+
+    /** A `select` case taking the next value, or `None` once the channel is closed and empty. */
+    fn receiving<R>(self, then: (Option<T>) -> R): Case<R> {
+        return Case {
+            ready: () => { return self.len() > 0 || self.closed; },
+            take: () => { return then(self.__take()); },
+            watch: (wake) => { self.readers.push(wake); }
+        };
+    }
+
+    /** A `select` case sending `value` once there is room. */
+    fn sending<R>(self, value: T, then: () -> R): Case<R> {
+        return Case {
+            ready: () => { return self.len() < self.capacity || self.closed; },
+            take: () => {
+                self.__put(value);
+                return then();
+            },
+            watch: (wake) => { self.writers.push(wake); }
+        };
+    }
+
+    fn __put(self, value: T) {
+        if (self.closed) { panic("sent on a closed channel"); }
+        self.items.push(value);
+        __wake_all(self.readers);
+    }
+
+    fn __take(self): Option<T> {
+        if (self.len() == 0) { return Option.None; }
+        var first = self.items[self.head];
+        self.head += 1;
+        if (self.head == self.items.len()) {
+            self.items = [];
+            self.head = 0;
+        }
+        __wake_all(self.writers);
+        return Option.Some(first);
+    }
+}
+
+/**
+ * Waits until one of the cases is ready, takes it, and returns what it gives.
+ * Of several ready at once, the first listed is taken.
+ */
+fn select<R>(cases: List<Case<R>>): R {
+    while (true) {
+        for (case in cases) {
+            if (case.ready()) { return case.take(); }
+        }
+        suspend {
+            var woken = false;
+            var once = () => {
+                if (!woken) {
+                    woken = true;
+                    it(());
+                }
+            };
+            for (case in cases) { case.watch(once); }
+        };
+    }
+    panic("unreachable");
+}
+
+// Emptied before any is called, since each one woken may wait again and add
+// itself back.
+fn __wake_all(waiting: List<() -> unit>) {
+    var woken: List<() -> unit> = [];
+    while (waiting.len() > 0) { woken.push(waiting.pop()); }
+    var i = woken.len() - 1;
+    while (i >= 0) {
+        woken[i]();
+        i -= 1;
+    }
+}

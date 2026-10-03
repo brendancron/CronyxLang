@@ -1,0 +1,6 @@
+type R { a: int, b: Nope }
+type S { Good(int), Bad(Missing) }
+var r = R { a: 1, b: 2 };
+print(r.a);
+var s = S.Good(3);
+print(s);

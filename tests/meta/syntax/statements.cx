@@ -1,0 +1,21 @@
+import { Stmt, Decl } from "std/compiler/Ast";
+
+meta {
+    var body: List<Stmt> = [];
+    for (n in [1, 2, 3]) {
+        var label = "step " + str(n);
+        body.push(code { print(label); }[0]);
+    }
+    var setup = code { var total = 10; total += 5; };
+    gen fn run_steps(): int {
+        setup;
+        body;
+        return total;
+    }
+
+    var helper: Decl = code fn twice(n: int): int { return n * 2; };
+    gen helper;
+}
+
+print(run_steps());
+print(twice(21));

@@ -1,0 +1,21 @@
+/**
+ * The program's command-line arguments.
+ *
+ * ```
+ * import { Args } from "std/os/Args";
+ *
+ * for (arg in args()) { print(arg); }
+ * ```
+ *
+ * They are what follows `--` when the program is run, as in
+ * `cx run main.cx -- one two`, and do not include the program itself. The root
+ * answers `args` with them; a test hands a function arguments of its own by
+ * handling `Args`.
+ */
+
+/** The program's command-line arguments. */
+effect Args {
+    /** Each argument, in the order given. */
+    fn args(): Array<string>;
+}
+

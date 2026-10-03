@@ -1,5 +1,5 @@
 /**
- * Files.
+ * Files and directories.
  *
  * ```
  * import { read_text, write_text } from "std/fs/File";
@@ -9,7 +9,8 @@
  * ```
  *
  * Opening is the `Fs` effect, so a function's row says `<Fs>` exactly when it
- * opens something, and a test hands out files of its own by handling it. What
+ * opens something, and a test hands out files of its own by handling it.
+ * Listing, creating, moving and removing are `Dirs`, handled the same way. What
  * `open` hands back is a `File`, which is a `Reader`, a `Writer` and a `Closer`; the
  * program's root answers `open` with files on disk. A relative path is relative
  * to the directory the program was started in.
@@ -18,6 +19,8 @@
 import { async } from "../async/Task";
 import { Throw, Result } from "../core/Error";
 import { Reader, Writer, Closer, IoError, using } from "../io/Io";
+import { decode } from "../text/Utf8";
+import { join, parent } from "Path";
 
 /** What a file is opened for. */
 type Mode {
@@ -29,6 +32,23 @@ type Mode {
 
     /** Writing after whatever is there, or creating it. */
     Append
+}
+
+/** What is at a path. */
+type EntryKind {
+    File,
+    Directory,
+
+    /** A device, a socket, or anything else that is neither. */
+    Other
+}
+
+/** What the file system knows about a path. */
+type Metadata {
+    kind: EntryKind,
+
+    /** In bytes. */
+    size: int
 }
 
 /** An open file, closed with `using`. */
@@ -43,12 +63,103 @@ effect Fs {
     ctl open(path: string, mode: Mode): Result<File, IoError>;
 }
 
-/** The file at the path, opened for the mode. */
-fn open_file(path: string, mode: Mode): <Fs, Throw<IoError>> File {
-    match open(path, mode) {
-        Result.Ok(file) => { return file; }
+/**
+ * What is at each path: listing, creating, moving and removing. Apart from
+ * `Fs`, since a test that hands out files of its own seldom wants to answer
+ * for directories too. A failure is a value, as `open`'s is.
+ */
+effect Dirs {
+    /** The names in the directory, in order, without `.` and `..`. */
+    fn read_dir(path: string): Result<Array<string>, IoError>;
+
+    /** What is at the path. A link is followed. */
+    fn stat(path: string): Result<Metadata, IoError>;
+
+    /** A new, empty directory at the path, whose parent must exist. */
+    fn create_dir(path: string): Result<unit, IoError>;
+
+    /** Removes the file, or the directory if it is empty. */
+    fn remove(path: string): Result<unit, IoError>;
+
+    /** Moves what is at the first path to the second, replacing a file there. */
+    fn rename(from: string, to: string): Result<unit, IoError>;
+}
+
+fn __thrown<T>(outcome: Result<T, IoError>): <Throw<IoError>> T {
+    match outcome {
+        Result.Ok(value) => { return value; }
         Result.Err(e) => { return throw(e); }
     }
+}
+
+/** The file at the path, opened for the mode. */
+fn open_file(path: string, mode: Mode): <Fs, Throw<IoError>> File {
+    return __thrown(open(path, mode));
+}
+
+/** The names in the directory, in order. */
+fn list_dir(path: string): <Dirs, Throw<IoError>> Array<string> {
+    return __thrown(read_dir(path));
+}
+
+/** What is at the path. */
+fn metadata(path: string): <Dirs, Throw<IoError>> Metadata {
+    return __thrown(stat(path));
+}
+
+/** Whether anything is at the path. */
+fn exists(path: string): <Dirs> bool {
+    match stat(path) {
+        Result.Ok(_) => { return true; }
+        Result.Err(_) => { return false; }
+    }
+}
+
+/** Whether a directory is at the path. */
+fn is_dir(path: string): <Dirs> bool {
+    match stat(path) {
+        Result.Ok(m) => {
+            match m.kind {
+                EntryKind.Directory => { return true; }
+                _ => { return false; }
+            }
+        }
+        Result.Err(_) => { return false; }
+    }
+    return false;
+}
+
+/** A new, empty directory at the path, whose parent must exist. */
+fn make_dir(path: string): <Dirs, Throw<IoError>> unit {
+    __thrown(create_dir(path));
+}
+
+/** A directory at the path, and each of its parents that is missing. One already there is left alone. */
+fn make_dirs(path: string): <Dirs, Throw<IoError>> unit {
+    if (is_dir(path)) { return; }
+    match parent(path) {
+        Option.Some(above) => { make_dirs(above); }
+        Option.None => { }
+    }
+    __thrown(create_dir(path));
+}
+
+/** Removes the file, or the directory if it is empty. */
+fn remove_path(path: string): <Dirs, Throw<IoError>> unit {
+    __thrown(remove(path));
+}
+
+/** Removes the file, or the directory and everything in it. */
+fn remove_all(path: string): <Dirs, Throw<IoError>> unit {
+    if (is_dir(path)) {
+        for (name in list_dir(path)) { remove_all(join(path, name)); }
+    }
+    __thrown(remove(path));
+}
+
+/** Moves what is at the first path to the second, replacing a file there. */
+fn move_path(from: string, to: string): <Dirs, Throw<IoError>> unit {
+    __thrown(rename(from, to));
 }
 
 /** Everything a reader has left. */
@@ -69,11 +180,13 @@ fn read_file(path: string): <Fs, async, Throw<IoError>> Array<byte> {
     return using(open_file(path, Mode.Read)) { file -> read_all(file) };
 }
 
-/** The file at the path, as text. Throws if it is not UTF-8. */
+/** The file at the path, as text. Throws, naming the offset, if it is not UTF-8. */
 fn read_text(path: string): <Fs, async, Throw<IoError>> string {
-    var (ok, text) = __utf8(read_file(path));
-    if (!ok) { throw(IoError.Other(path + " is not UTF-8 text")); }
-    return text;
+    match decode(read_file(path)) {
+        Result.Ok(text) => { return text; }
+        Result.Err(e) => { throw(IoError.Other(path + ": " + e.message())); }
+    }
+    return "";
 }
 
 /** Replaces the file at the path with the bytes, creating it if need be. */
@@ -136,4 +249,42 @@ fn __open_on_disk(path: string, mode: Mode): Result<File, IoError> {
     if (status != 0) { return Result.Err(__failure(status, path, message)); }
     var file: File = DiskFile { fd: fd, path: path };
     return Result.Ok(file);
+}
+
+fn __done(path: string, outcome: (int, string)): Result<unit, IoError> {
+    var (status, message) = outcome;
+    if (status != 0) { return Result.Err(__failure(status, path, message)); }
+    return Result.Ok(());
+}
+
+/** How the root answers `read_dir`: from the disk. */
+fn __read_dir_on_disk(path: string): Result<Array<string>, IoError> {
+    var (status, names, message) = __fs_list(path);
+    if (status != 0) { return Result.Err(__failure(status, path, message)); }
+    return Result.Ok(names);
+}
+
+/** How the root answers `stat`: from the disk. */
+fn __stat_on_disk(path: string): Result<Metadata, IoError> {
+    var (status, kind, size, message) = __fs_metadata(path);
+    if (status != 0) { return Result.Err(__failure(status, path, message)); }
+    var k = EntryKind.Other;
+    if (kind == 0) { k = EntryKind.File; }
+    if (kind == 1) { k = EntryKind.Directory; }
+    return Result.Ok(Metadata { kind: k, size: size });
+}
+
+/** How the root answers `create_dir`: on the disk. */
+fn __create_dir_on_disk(path: string): Result<unit, IoError> {
+    return __done(path, __fs_make_dir(path));
+}
+
+/** How the root answers `remove`: on the disk. */
+fn __remove_on_disk(path: string): Result<unit, IoError> {
+    return __done(path, __fs_remove(path));
+}
+
+/** How the root answers `rename`: on the disk. */
+fn __rename_on_disk(from: string, to: string): Result<unit, IoError> {
+    return __done(from, __fs_rename(from, to));
 }

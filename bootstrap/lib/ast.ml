@@ -45,6 +45,7 @@ let annotated span ann it = { it; span; ann }
 type unop =
   | Neg (* - *)
   | Not (* ! *)
+  | Bit_not (* ~ *)
 
 type binop =
   | Add
@@ -52,6 +53,11 @@ type binop =
   | Mul
   | Div
   | Mod
+  | Bit_and
+  | Bit_or
+  | Bit_xor
+  | Shl
+  | Shr
   | Equal
   | Not_equal
   | Less
@@ -324,6 +330,10 @@ type 'e method_call = [ `Method_call of 'e * string * string * 'e list ]
 type 'ty dispatch =
   { dp_trait : string
   ; dp_targets : 'ty list
+  (* The copy a trait object's slot holds, when the impl is generic and
+     [Type_mono] made one for the value's type: the generic method itself has
+     nothing to dispatch its own bounds on. *)
+  ; dp_instance : string option
   }
 
 (* A receiver whose type is still a variable. Which impl answers is settled when
@@ -417,7 +427,13 @@ type ('e, 's, 'h) effects =
 
 type 'e reflect = [ `Typeof of 'e ]
 
-type 'e quote = [ `Code of 'e ]
+(* `code(e)`, `code { … }` and `code fn …`: syntax held as a value rather than
+   run, so only metaprocessing ever meets one. *)
+type ('e, 's) quote =
+  [ `Code of 'e
+  | `Code_stmts of 's list
+  | `Code_decl of 's
+  ]
 
 (* The names a binder introduces. More than one takes a tuple apart. *)
 type binder = string list
@@ -504,7 +520,7 @@ and expr_kind =
   | expr static_call
   | expr method_call
   | expr reflect
-  | expr quote
+  | (expr, stmt) quote
   | expr generic_new
   | (expr, stmt) lambdas
   | (expr, stmt, stmt handler_clause) run_expr
@@ -841,7 +857,7 @@ let map_coercion (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) coercions)
       , trait
       , List.map
           (fun (name, d) ->
-            name, { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets })
+            name, { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets; dp_instance = d.dp_instance })
           slots )
 
 let map_bound_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) bound_calls)
@@ -852,7 +868,7 @@ let map_bound_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) bound_calls)
     `Bound_call
       ( f receiver
       , name
-      , { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets }
+      , { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets; dp_instance = d.dp_instance }
       , List.map f args )
 
 let map_dyn_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) dyn_calls)
@@ -1017,6 +1033,11 @@ let string_of_binop = function
   | Mul -> "*"
   | Div -> "/"
   | Mod -> "%"
+  | Bit_and -> "&"
+  | Bit_or -> "|"
+  | Bit_xor -> "^"
+  | Shl -> "<<"
+  | Shr -> ">>"
   | Equal -> "=="
   | Not_equal -> "!="
   | Less -> "<"
@@ -1030,6 +1051,9 @@ let binop_of_token : Token.token_type -> binop option = function
   | Token.Star -> Some Mul
   | Token.Slash -> Some Div
   | Token.Percent -> Some Mod
+  | Token.Amp -> Some Bit_and
+  | Token.Pipe -> Some Bit_or
+  | Token.Caret -> Some Bit_xor
   | Token.Equal_equal -> Some Equal
   | Token.Bang_equal -> Some Not_equal
   | Token.Less -> Some Less
@@ -1041,6 +1065,7 @@ let binop_of_token : Token.token_type -> binop option = function
 let unop_of_token : Token.token_type -> unop option = function
   | Token.Minus -> Some Neg
   | Token.Bang -> Some Not
+  | Token.Tilde -> Some Bit_not
   | _ -> None
 
 let span_of_token (t : Token.token) = t.Token.span

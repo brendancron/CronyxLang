@@ -1,46 +1,15 @@
-(* `cx test`: every `@test` function in the package, each in a process of its
-   own, as `nextest` does. A file is compiled once; each test's wrapper runs
-   only in the process that is for it, so a crash that is not an effect — an
-   index out of range — ends that test and nothing else. Within the process a
-   failed assertion is `Assertion::failed`, and `final ctl` means its handler
-   cannot resume, so the test's `run` block is left at the failure. *)
+(* `cx test`: every `@test` function under `tests/`, each in a process of its
+   own, as `nextest` does. Finding them is `std/test/Test`'s: for each file
+   this writes a program that reflects the file and has the library generate a
+   call per test, compiles it once, asks it for the list, and runs each test in
+   a process that calls only that one -- so a crash that is not an effect, an
+   index out of range, ends that test and nothing else. *)
 
 open Bootstrap
 
 (* The runner talks to `cx` through the same stream the program prints on, so a
    line it owns is prefixed with a character a program has no reason to write. *)
 let marker = "\x1e"
-
-let sp = Source_map.Span.nowhere
-let at it = Ast.at sp it
-let str text : Ast.expr = at (`Str (Utf8.decode text))
-let call name args : Ast.expr = at (`Call (at (`Var name), args))
-let stmt it : Ast.stmt = Ast.at sp it
-(* The native, not `print`: the harness is built after loading, where nothing
-   resolves the name the prelude imports. Each line it writes is a string. *)
-let say e = stmt (`Expr (call "__write_out" [ at (`Binop (Ast.Add, e, str "\n")) ]))
-let emit text = say (str (marker ^ text))
-
-let wrapped index (name, _, _) : Ast.stmt =
-  let arm =
-    { Ast.arm_name = Core.assertion_failed
-    ; arm_kind = Ast.Op_final
-    ; arm_params = [ "msg" ]
-    ; arm_body =
-        [ emit ("-" ^ name)
-        ; say (at (`Binop (Ast.Add, str (marker ^ "!"), at (`Var "msg"))))
-        ]
-    }
-  in
-  let chosen = at (`Binop (Ast.Equal, call Builtins.selected_test [], at (`Int index))) in
-  stmt
-    (`If
-       ( chosen
-       , stmt
-           (`Run
-              ( [ emit (">" ^ name); stmt (`Expr (call name [])); emit ("+" ^ name) ]
-              , [ Ast.Inline { Ast.handled = Core.assertion; arms = [ arm ] } ] ))
-       , None ))
 
 (* The flag the runner spawns itself with. Not in the usage text: it is how the
    two halves of `cx test` talk to each other, and naming it invites someone to
@@ -76,7 +45,8 @@ let run_one path index name =
     (Value.Fn { Value.name = Builtins.selected_test; arity = Some 0; apply = (fun _ _ -> Value.Int index) });
   let failed message = out (Printf.sprintf "%s-%s\n%s!%s\n" marker name marker message) in
   (match Pipeline.run env converted with
-   | Ok () -> ()
+   | Ok 0 -> ()
+   | Ok code -> failed (Printf.sprintf "The test ended the program with exit code %d." code)
    | Error e -> failed e.Diagnostic.message
    | exception e -> failed (Printexc.to_string e));
   flush stdout;
@@ -84,7 +54,7 @@ let run_one path index name =
 
 (* One test in a process of its own: what it prints comes back through a pipe,
    and a test whose process ended before it reported is a failure. *)
-let in_process ~self carrier index (name, _, _) =
+let in_process ~self carrier (index, name) =
   let reading, writing = Unix.pipe () in
   let child =
     Unix.create_process
@@ -116,17 +86,6 @@ let shown name =
   match String.rindex_opt name '#' with
   | None -> name
   | Some i -> String.sub name (i + 1) (String.length name - i - 1)
-
-(* A test takes no arguments: it is called by name and there is nowhere for one
-   to come from. *)
-let runnable (name, params, span) =
-  if params = [] then Ok (name, params, span)
-  else
-    Error
-      (Diagnostic.at
-         Diagnostic.Load
-         span
-         (Printf.sprintf "'%s' is a test, so it takes no parameters." (shown name)))
 
 type outcome =
   { name : string
@@ -173,7 +132,7 @@ let outcomes text =
     (fun o -> { o with output = List.rev o.output })
     (flush done_ current)
 
-let matching filter (name, _, _) =
+let matching filter name =
   match filter with
   | None -> true
   | Some needle ->
@@ -202,17 +161,6 @@ let report outcomes =
     (Printf.sprintf "\n%d/%d passed\n" (List.length outcomes - failed) (List.length outcomes));
   Buffer.contents out, failed
 
-let all_runnable found =
-  List.fold_left
-    (fun acc t ->
-      match acc, runnable t with
-      | Error e, _ -> Error e
-      | Ok _, Error e -> Error [ e ]
-      | Ok ts, Ok t -> Ok (t :: ts))
-    (Ok [])
-    found
-  |> Result.map List.rev
-
 (* The package as a test file sees it: its declarations, without the top level
    that `cx run` would execute. A test links the library, not the program --
    otherwise every test file re-runs whatever `main.cx` prints. *)
@@ -227,40 +175,74 @@ let declarations program =
     program
 
 (* One program per test file, as a Rust integration test is its own crate: a
-   file that fails to compile takes only itself down. *)
+   file that fails to compile takes only itself down. The program is a file
+   this writes under `target/`, importing the test file so it can be
+   reflected: the test file's own top-level meta runs when it is, so a test it
+   generates is found. *)
+let harness ~root file =
+  let relative =
+    let tests = Loader.normalize (Filename.concat root "tests") ^ "/" in
+    let file = Loader.normalize file in
+    String.sub file (String.length tests) (String.length file - String.length tests)
+  in
+  let stem = Filename.chop_suffix relative ".cx" in
+  let path = Filename.concat (Filename.concat (Build.target_dir root) "test") (stem ^ ".cx") in
+  let rec ensure dir =
+    if not (Sys.file_exists dir)
+    then (
+      ensure (Filename.dirname dir);
+      Sys.mkdir dir 0o755)
+  in
+  ensure (Filename.dirname path);
+  (* From the harness back up to the package root, then down to the file. *)
+  let depth = List.length (String.split_on_char '/' stem) + 1 in
+  let up = String.concat "" (List.init depth (fun _ -> "../")) in
+  let source =
+    Printf.sprintf
+      "import { collect, run_tests } from \"std/test/Test\";\n\
+       import \"%stests/%s\" as suite;\n\n\
+       meta { collect(moduleof(suite)); }\n\
+       run_tests(__test_names(), __test_run);\n"
+      up
+      stem
+  in
+  Out_channel.with_open_bin path (fun out -> Out_channel.output_string out source);
+  path
+
 let of_file ~root ~manifest ~package program file =
   let ( let* ) = Result.bind in
   let deps =
     (manifest.Manifest.name, { Loader.dep_root = root; compiled = Some package })
     :: Workspace.dependency_roots manifest
   in
-  let roots =
-    { Loader.package = Filename.concat root "tests"; std = Toolchain.stdlib (); deps }
-  in
-  let* loaded, _ = Pipeline.package ~roots ~seeds:[ file ] file in
+  let roots = { Loader.package = root; std = Toolchain.stdlib (); deps } in
+  let entry = harness ~root file in
+  let* loaded, _ = Pipeline.package ~roots ~seeds:[ entry ] entry in
   (* Both carry the prelude and what it imports, as two linked packages do. *)
-  Ok (Build.deduplicated (declarations program @ loaded), loaded)
+  Ok (Build.deduplicated (declarations program @ loaded))
 
-(* A test is found on the program the walk produced, so one a meta block
-   generated is found under the name it was given. [own] says which of them
-   this run is for. *)
-let executed ~self ~root ~filter ~own program =
+(* What the program lists when no test is chosen: each name, on a line of the
+   runner's own. *)
+let listed converted =
+  let buffer = Buffer.create 256 in
+  let env = Builtins.env ~out:(Buffer.add_string buffer) in
+  match Pipeline.run env converted with
+  | Error e -> Error [ e ]
+  | Ok _ ->
+    Ok
+      (String.split_on_char '\n' (Buffer.contents buffer)
+       |> List.filter_map (fun line ->
+         let n = String.length marker + 1 in
+         if String.length line > n && String.equal (String.sub line 0 n) (marker ^ "?")
+         then Some (String.sub line n (String.length line - n))
+         else None))
+
+let executed ~self ~root ~filter whole =
   let ( let* ) = Result.bind in
-  let buffer = Buffer.create 4096 in
-  let out = Buffer.add_string buffer in
-  let tests = ref [] in
-  let wrap processed =
-    let* found =
-      all_runnable
-        (List.filter (matching filter) (List.filter own (Discover.carrying "test" processed)))
-    in
-    tests := found;
-    Ok (List.mapi wrapped found)
-  in
-  let* converted =
-    Build.within root (fun () -> Pipeline.rooted ~attribute:"test" ~wrap ~out program)
-  in
-  if !tests = []
+  let* converted = Build.within root (fun () -> Pipeline.linked ~out:(fun _ -> ()) whole) in
+  let* names = Build.within root (fun () -> listed converted) in
+  let chosen = List.filter (fun (_, name) -> matching filter name) (List.mapi (fun i n -> i, n) names) in
+  if chosen = []
   then Ok []
   else (
     flush_all ();
@@ -269,7 +251,7 @@ let executed ~self ~root ~filter ~own program =
         let carrier = carrier converted in
         Fun.protect
           ~finally:(fun () -> try Sys.remove carrier with Sys_error _ -> ())
-          (fun () -> List.mapi (in_process ~self carrier) !tests))
+          (fun () -> List.map (in_process ~self carrier) chosen))
     in
     Ok (outcomes (String.concat "" ran)))
 
@@ -288,27 +270,15 @@ let run ?(mode = Build.unrestricted) ?note ?filter ~self root =
   let* manifest = Build.manifest_of root in
   let program = Build.link artifacts in
   let package = List.nth artifacts (List.length artifacts - 1) in
-  (* Inline tests run in the whole program: they are part of it, and reach what
-     the package does not export. *)
-  let* inline = executed ~self ~root ~filter ~own:(fun _ -> true) program in
   (* Each file is compiled on its own, so one that does not compile is reported
      with the rest rather than standing in front of them. *)
-  let from_files, broken =
+  let ran, broken =
     List.fold_left
       (fun (seen, broken) file ->
-        let ran =
-          let* whole, _ = of_file ~root ~manifest ~package program file in
-          (* Only this file's own tests: the package's inline ones are in
-             [whole] too, and have already run. *)
-          let here = Loader.normalize file in
-          executed
-            ~self
-            ~root
-            ~filter
-            ~own:(fun (_, _, span) -> String.equal (Source_map.Span.path span) here)
-            whole
-        in
-        match ran with
+        match
+          let* whole = of_file ~root ~manifest ~package program file in
+          executed ~self ~root ~filter whole
+        with
         | Ok outcomes -> seen @ outcomes, broken
         | Error errors -> seen, broken @ errors)
       ([], [])
@@ -317,6 +287,6 @@ let run ?(mode = Build.unrestricted) ?note ?filter ~self root =
   if broken <> []
   then Error broken
   else (
-    match inline @ from_files with
+    match ran with
     | [] -> Ok ("no tests\n", 0)
     | all -> Ok (report all))

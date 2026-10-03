@@ -217,8 +217,11 @@ let iattr_ty = INamed (attr_name, [])
 let ireflected = INamed (reflection_name, [])
 let reflected = Named (reflection_name, [])
 
-let code_name = "Code"
-let icode = INamed (code_name, [])
+(* Where a piece of syntax was written, carried by a tree a `meta` block holds.
+   Opaque, so a program cannot forge one. *)
+let span_name = "Span"
+let ispan = INamed (span_name, [])
+let span = Named (span_name, [])
 
 let string_name = "string"
 

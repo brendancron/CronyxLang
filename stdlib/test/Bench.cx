@@ -1,0 +1,47 @@
+/**
+ * Timing a piece of code.
+ *
+ * ```
+ * import { bench } from "std/test/Bench";
+ *
+ * print(bench("sum to 1000", 100, () => {
+ *     var total = 0;
+ *     for (var i = 0; i < 1000; i += 1) { total += i; }
+ * }));
+ * // sum to 1000: 100 runs, 41.2us each
+ * ```
+ *
+ * The clock is `Time`'s, so a test that handles `Time` with a fixed clock gets
+ * the same report every run.
+ */
+
+import { Duration, Instant, Time } from "../os/Time";
+
+/** How long a piece of code took, over how many runs. */
+type Measurement {
+    name: string,
+    runs: int,
+    total: Duration
+}
+
+impl Measurement {
+    /** The time one run took, on average. */
+    fn each(self): Duration {
+        if (self.runs == 0) { return Duration.nanoseconds(0); }
+        return Duration.nanoseconds(self.total.nanos / self.runs);
+    }
+}
+
+impl Display for Measurement {
+    fn fmt(self): string {
+        return self.name + ": " + str(self.runs) + " runs, " + str(self.each()) + " each";
+    }
+}
+
+/** Runs `body` `runs` times, after one run to warm up, and measures how long they took together. */
+fn bench<E>(name: string, runs: int, body: () -> <E> unit): <Time, E> Measurement {
+    body();
+    var start = instant();
+    for (var i = 0; i < runs; i += 1) { body(); }
+    return Measurement { name: name, runs: runs, total: instant() - start };
+}

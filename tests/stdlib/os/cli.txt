@@ -1,0 +1,62 @@
+$ serve ["--host", "0.0.0.0", "--port=80", "--verbose", "--header", "x-a", "--header=x-b", "--max-connections", "5"]
+0.0.0.0 Some(80) true ["x-a", "x-b"] 5 None
+$ serve ["--max-connections", "1", "--host", "h"]
+h None false [] 1 None
+$ serve ["--help"]
+Options:
+  --host <string>          The address to listen on. Required.
+  --port <int>             The port to listen on, 8080 if not given.
+  --verbose                Print every request.
+  --header <string>...     A header to add to every response.
+                           Give it more than once for several.
+  --max-connections <int>  How many connections at once. Required.
+  -h, --help               Show this help.
+[exit 0]
+$ serve ["--host", "h"]
+[stderr] error: --max-connections is required
+
+Options:
+  --host <string>          The address to listen on. Required.
+  --port <int>             The port to listen on, 8080 if not given.
+  --verbose                Print every request.
+  --header <string>...     A header to add to every response.
+                           Give it more than once for several.
+  --max-connections <int>  How many connections at once. Required.
+  -h, --help               Show this help.
+[exit 2]
+$ serve ["--host", "h", "--max-connections", "lots"]
+[stderr] error: --max-connections takes an int, not 'lots'
+
+Options:
+  --host <string>          The address to listen on. Required.
+  --port <int>             The port to listen on, 8080 if not given.
+  --verbose                Print every request.
+  --header <string>...     A header to add to every response.
+                           Give it more than once for several.
+  --max-connections <int>  How many connections at once. Required.
+  -h, --help               Show this help.
+[exit 2]
+$ serve ["--host", "h", "--colour"]
+[stderr] error: there is no option --colour
+
+Options:
+  --host <string>          The address to listen on. Required.
+  --port <int>             The port to listen on, 8080 if not given.
+  --verbose                Print every request.
+  --header <string>...     A header to add to every response.
+                           Give it more than once for several.
+  --max-connections <int>  How many connections at once. Required.
+  -h, --help               Show this help.
+[exit 2]
+$ serve ["--host", "h", "extra"]
+[stderr] error: unexpected argument 'extra'
+
+Options:
+  --host <string>          The address to listen on. Required.
+  --port <int>             The port to listen on, 8080 if not given.
+  --verbose                Print every request.
+  --header <string>...     A header to add to every response.
+                           Give it more than once for several.
+  --max-connections <int>  How many connections at once. Required.
+  -h, --help               Show this help.
+[exit 2]

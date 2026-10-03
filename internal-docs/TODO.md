@@ -2,22 +2,6 @@
 
 Decisions deferred deliberately, with enough context to pick them up cold. A line leaves when it is answered — in the document that owns the subject, not here.
 
-## When a declaration query runs
-
-Owner: [Attributes and Test Frameworks.md](Attributes%20and%20Test%20Frameworks.md)
-
-Metaprocessing generates declarations, so a `gen` can emit a function carrying `@Test`. A meta block that enumerates declarations therefore sees a different program depending on when it runs, and nothing in the source says when that is — it falls out of the walk order, so reaching a module earlier could change which tests exist.
-
-The three answers in the wild: rounds to a fixpoint, as Java's annotation processors do; a hard phase split where generation finishes before any query runs and generated code is invisible to other generators, as C# source generators do; or no answer at all, as Rust proc macros, which is why that ecosystem builds registries at link time instead.
-
-What the walk does is neither: a generated declaration is visible to every block the walk reaches after the one that generated it, and a use it reaches before is an error ([Metaprocessing.md](Metaprocessing.md#generated-names)). That answers a single name; it does not answer a query over all of them.
-
-The direction is that a query is asked of a module, not of the program. A module is reflected the way a type is ([Modules.md](Modules.md), decision 2): `moduleof(m)` gives a `Module` record of its top-level declarations with their attributes, and asking is a reference to the module, so its top-level `meta` runs first and the answer includes what it generates. A collector names the modules it reads, so nothing about ordering is new and a module nobody asks about is never metaprocessed. Zig's `zig test` works this way: tests are found in what the test root reaches.
-
-`cx test` then runs a dedicated test root, which reflects the package — recursively, through its directories — and generates a call per `@test` it finds; reflecting a module is the walk's first reference to it, so that is when the module is metaprocessed. A test run is a root like any other — a file that reflects the modules under test and generates a call per `@test` — with `cx test` supplying the obvious root (every file of the package and `tests/`) when there is none, and discovery moving out of the compiler into a test library. An HTTP framework collecting `@route` functions is the same shape. Not built: `moduleof`, the test root, and discovery as a library.
-
-Until then, `cx test` runs the walk with every `@test` function as a root, after running every loaded module's top-level `meta`, and finds tests on what it produced ([Testing](Testing.md)).
-
 ## What "generic" names
 
 Owner: [Type System.md](Type%20System.md)
@@ -101,29 +85,21 @@ Each `meta` block — and under the walk each instantiation's `meta` — is comp
 
 Owner: [Metaprocessing.md](Metaprocessing.md)
 
-The design is an effect in the prelude, `effect Gen { fn emit(item: Code): unit; }`, with `gen S` performing it and a `meta` block handling it by splicing what it collects. What is built is the behaviour without the effect: `gen` is lowered to a native call that appends to whichever block is collecting, and whether a function performs `Gen` is worked out by the walk — it holds a `gen` outside any meta block, or calls something that does — which is what rejects calling one at run time.
+The design is an effect in the prelude, `effect Gen { fn emit(item: Decl): unit; }`, with `gen S` performing it and a `meta` block handling it by splicing what it collects. What is built is the behaviour without the effect: `gen` is lowered to a native call that appends to whichever block is collecting, and whether a function performs `Gen` is worked out by the walk — it holds a `gen` outside any meta block, or calls something that does — which is what rejects calling one at run time.
 
 The walk misses one case the checker would not: a comptime function holding a bare `gen` has its instance dropped rather than rejected, so `fib<10>()` reports `Undefined variable 'fib#0'` instead of that it performs `Gen` (`03_derive/errors/gen_in_comptime`, in `expected_failing`).
 
-The effect is what would let a program handle `Gen` itself, and so test a deriver by collecting what it would generate rather than generating it. It needs `Code` to hold declarations and statements as well as expressions, which is the open question about `code` itself, so the two go together.
+The effect is what would let a program handle `Gen` itself, and so test a deriver by collecting what it would generate rather than generating it. The tree it would collect exists ([Syntax Trees](Syntax%20Trees.md)): a quote is an `Expr`, a `List<Stmt>` or a `Decl`.
 
-`Reifiable` is built with it too: how a value crosses from a meta block into what a `gen` emits is decided per type by `fn reify(self): Code` ([Reify](Reify.md)), and until then a value of a named type — a `List`, a `Point` — is written back as an anonymous record.
+`Reifiable` is built with it too: how a value crosses from a meta block into what a `gen` emits is decided per type by `fn reify(self): Expr` ([Reify](Reify.md)), and until then a value of a named type — a `List`, a `Point` — is written back as an anonymous record.
 
-Promotion in `code(…)` waits on the same work. Inside a `gen`, the largest subexpression made of meta values is evaluated and written back; inside `code(…)` only a bare meta variable is, so `code(str(t) + " {")` keeps `str(t)` as syntax. Doing what `gen` does is unsafe while the walk sees only syntax: in `code(check && n > 0)`, `check` holds a `Code` value, and evaluating the whole expression early fails. With `Code` typed, the checker can say which subexpressions hold one, and promotion in `code` becomes as safe as in `gen`. Until then the way through is a meta variable: `var label = str(t); … code(label + " {")`.
+Promotion in `code(…)` waits on the same work. Inside a `gen`, the largest subexpression made of meta values is evaluated and written back; inside `code(…)` only a bare meta variable is, so `code(str(t) + " {")` keeps `str(t)` as syntax. Doing what `gen` does is unsafe while the walk sees only syntax: in `code(check && n > 0)`, `check` holds an `Expr`, and evaluating the whole expression early fails. With quotes typed as trees, the checker can say which subexpressions hold one, and promotion in `code` becomes as safe as in `gen`. Until then the way through is a meta variable: `var label = str(t); … code(label + " {")`.
 
 ## Runtime errors as an effect
 
 Owner: [Testing.md](Testing.md)
 
-An index out of range, a division by zero or a failed `readfile` ends the program; nothing can handle it. Making it an effect, `Panic` say, would let a program recover from one the way it recovers from any other, and would let a test runner isolate a crashing test in-process. The cost is that indexing and division then carry it in their row everywhere, which needs a design for keeping it out of the way — Koka's `exn` is the precedent. Tests do not wait on this: each already runs in a process of its own.
-
-## Launching a process
-
-Owner: [Algebraic Effects.md](Algebraic%20Effects.md)
-
-A program cannot start one. Its I/O is `print` and whole-file `readfile` and `writefile`; there is no `spawn` or `exec`, no environment and no command-line arguments, and `stdlib/` has nothing for them either. (`cx test` forks per test, but that is `cx` itself, in OCaml, not the program.)
-
-The likely shape is an effect rather than a builtin — `effect Process { fn spawn(cmd: string, args: Array<string>): ProcessHandle; … }` — so a function's row says it launches processes, and a test or a sandbox can handle it differently. The same argument covers file access, the environment and arguments, which are builtins today; deciding one decides the pattern for the rest.
+An index out of range, a division by zero or a `panic` ends the program; nothing can handle it. Making it an effect, `Panic` say, would let a program recover from one the way it recovers from any other, and would let a test runner isolate a crashing test in-process. The cost is that indexing and division then carry it in their row everywhere, which needs a design for keeping it out of the way — Koka's `exn` is the precedent. Tests do not wait on this: each already runs in a process of its own.
 
 ## Whether resumptions share locals
 
@@ -206,4 +182,4 @@ fn f(): int {
 }
 ```
 
-`cx build` accepts this, and so does the build `cx publish` runs before publishing; the mistake surfaces in the first consumer that calls `f`. The direction is to treat every top-level function of a library as a root when building it, the way `cx test` treats each `@test` function, so the public surface is checked where it is written. The alternative — reporting an undefined name early whenever no reachable `meta` block could generate it — needs the early check to know what every `meta` block might emit.
+`cx build` accepts this, and so does the build `cx publish` runs before publishing; the mistake surfaces in the first consumer that calls `f`. The direction is to treat every top-level function of a library as a root when building it, so the public surface is checked where it is written. The alternative — reporting an undefined name early whenever no reachable `meta` block could generate it — needs the early check to know what every `meta` block might emit.

@@ -1,0 +1,30 @@
+import "std/fs/Path";
+
+var config = Path.join("settings", "app.toml");
+print(config);
+print(Path.file_name(config));
+print(Path.extension(config));
+print(Path.stem(config));
+print(Path.parent(config));
+
+print(Path.join("/srv/", "www"));
+print(Path.join("a", "/etc"));
+print(Path.join("", "b"));
+
+print(Path.parent("app.toml"));
+print(Path.parent("/etc"));
+print(Path.parent("/"));
+print(Path.extension(".bashrc"));
+print(Path.extension("archive.tar.gz"));
+print(Path.stem("archive.tar.gz"));
+
+print(Path.components("/usr//local/bin/"));
+print(Path.components("C:\\Users\\ada"));
+print(Path.is_absolute("C:\\Users"));
+print(Path.is_absolute("docs/readme"));
+
+print(Path.normalize("a/./b/../c"));
+print(Path.normalize("../a/../../b"));
+print(Path.normalize("/../x"));
+print(Path.normalize("C:\\x\\..\\y"));
+print(Path.normalize("a/.."));

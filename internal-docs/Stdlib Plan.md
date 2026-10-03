@@ -86,7 +86,7 @@ Then the library:
 
 What a program asks of the OS: `os/Args`, `os/Env`, `os/Time`, `os/Process`, `random/`, and `fs/Path` with directory listing in `fs/`.
 
-Each is an effect the root handles, as `Fs` is, so a test replaces it — a fixed clock, fixed arguments, a seeded generator. That decides [Launching a process](TODO.md#launching-a-process) for all of them at once, and `readfile`, `writefile` and `clock` stop being builtins.
+Each is an effect the root handles, as `Fs` is, so a test replaces it — a fixed clock, fixed arguments, a seeded generator. That decides launching a process for all of them at once ([I/O](IO.md#everything-else-the-os-offers-is-an-effect-too)), and `readfile`, `writefile` and `clock` stop being builtins.
 
 A `meta` block runs under the same root as a program, so compile time can do anything run time can: read and write files, read the environment and the clock, launch a process. Whether a build is reproducible is the program's business, not the compiler's.
 
@@ -112,7 +112,9 @@ A `meta` block runs under the same root as a program, so compile time can do any
 
 `Display` and `Debug` come with milestone 1, and this milestone writes three more — `Encode`, `Decode` and `Cli`. `meta/Derive` is extracted from what they share rather than designed ahead of them, and `meta/Name` gathers `as_name` and what builds identifiers.
 
-It starts in `meta/Reflect`, since a deriver cannot see the type of a field and `Cli` has to: `verbose: bool` is a flag and `port: int` takes a value. A field gains `ty: TypeRef`, and a variant's `payload` becomes `Array<TypeRef>`, so `Option<int>` is no longer reported as nothing:
+It starts in the compiler. `Decode` and `Cli` build a record literal with a field per declared field, which the body of a `gen` cannot write, so code becomes data first: [Syntax Trees](Syntax%20Trees.md), with the tree in `std/compiler/Ast`.
+
+Then `meta/Reflect`, since a deriver cannot see the type of a field and `Cli` has to: `verbose: bool` is a flag and `port: int` takes a value. A field gains `ty: TypeRef`, and a variant's `payload` becomes `Array<TypeRef>`, so `Option<int>` is no longer reported as nothing:
 
 ```cronyx
 type TypeRef {
@@ -124,9 +126,9 @@ type TypeRef {
 
 A reference rather than a `TypeShape`, so a type that contains itself is not reflected forever; a deriver that needs to look inside one asks `typeof`.
 
-- `encoding/Codec`: `Encode` and `Decode`, their derivers, and the `Encoder`/`Decoder` interface. Field attributes rename and skip.
-- `encoding/Json`, implementing the interface.
-- `encoding/Toml` moves onto the interface and gains a writer; its tokenizer and parser stop being its public surface.
+- `encoding/Codec`: `Encode` and `Decode` and their derivers, over `Data`, the one tree every format reads into and writes from, and `Format`, what a format implements. A `Decoder` carries the path to where it is, which every failure names. Field attributes rename and skip.
+- `encoding/Json`, implementing `Format`.
+- `encoding/Toml` moves onto `Format` and gains a writer; its tokenizer and parser stop being its public surface.
 - `os/Cli`, over `os/Args`: a parser derived from a type, with help from its doc comments.
 
 **Done when**
@@ -154,24 +156,16 @@ This one starts in the compiler, with `moduleof` as [Modules.md](Modules.md) dec
 
 Then the library:
 
-- `test/Test`: discovery as a library. A test root reflects the modules under test and generates a call per `@test` it finds, and `cx test` supplies the root — every file of the package and `tests/` — when the package has none ([When a declaration query runs](TODO.md#when-a-declaration-query-runs)). `cx test` stops finding tests itself.
+- `test/Test`: discovery as a library. `@test` is only an attribute; the framework looks through `tests/`, recursively, reflects each file with `moduleof`, and generates a call per `@test` it finds ([Testing](Testing.md#discovery-is-a-library)). `cx test` stops finding tests itself, and a `@test` in `src/` is no longer looked for. A manifest key naming a different folder is left for later.
 - `test/Bench`, on `os/Time`.
 - `log/Logger`, an effect with severity levels, handled at the root to write to standard error.
 
 **Done when**
 
 - A `meta` block lists a module's functions with their docs and attributes, and one a `gen` in that module generated is among them.
-- `cx test` runs the same tests as before with discovery in `test/Test`, and a package's own test root replaces the default.
+- `cx test` runs the tests under `tests/` with discovery in `test/Test`, a generated one among them.
 - A test handles `Logger` and asserts on what was logged.
 - A benchmark reports through a handled `Time`, so its fixture's output is fixed.
-
-## 9. Hiding
-
-A module can declare a name its importers cannot reach, which is a language feature rather than a library one. Once it exists, the helpers leaking today — `Toml`'s tokenizer, `HashMap`'s probing, the regex parser — are hidden, and `algo/automata` gets the API pass it waits on: one of methods or free functions, `Option` rather than `no_state()`, and minimisation.
-
-**Done when**
-
-- `cx docs std` shows no name that exists only to implement another.
 
 ## What is not in the plan
 

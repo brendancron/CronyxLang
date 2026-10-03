@@ -1,0 +1,21 @@
+trait Show { fn show(self): string; }
+impl Show for int { fn show(self): string { return "#" + str(self); } }
+impl Show for string { fn show(self): string { return "'" + self + "'"; } }
+
+trait Labelled {
+    fn label(self): string;
+    fn describe(self): string;
+}
+
+type Pair<A, B> { tag: string, left: A, right: B }
+
+impl Labelled for Pair<A: Show, B: Show> {
+    fn label(self): string { return self.tag; }
+    fn describe(self): string { return self.left.show() + " " + self.right.show(); }
+}
+
+var all: List<Labelled> = [
+    Pair { tag: "numbers", left: 1, right: 2 },
+    Pair { tag: "mixed", left: 3, right: "x" }
+];
+for (p in all) { print(p.label() + ": " + p.describe()); }

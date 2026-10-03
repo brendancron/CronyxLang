@@ -1,0 +1,66 @@
+import { Decl } from "std/compiler/Ast";
+
+meta {
+    var decls: List<Decl> = [
+        code type Shape {
+            Circle(int),
+            Rect { w: int, h: int },
+            Dot
+        },
+        code type Point { x: int, y: int },
+        code effect Log { fn log(s: string): unit; },
+        code impl Point {
+            fn sum(self): int { return self.x + self.y; }
+        },
+        code fn area(s: Shape): int {
+            match s {
+                Shape.Circle(r) => { return 3 * r * r; }
+                Shape.Rect { w, h } => { return w * h; }
+                Shape.Dot => { return 0; }
+            }
+        },
+        code fn exercise(): int {
+            var total = 0;
+            var (a, b) = (2, 3);
+            total += a * b;
+            for (var i = 0; i < 5; i += 1) {
+                if (i == 1) { continue; } else if (i == 4) { break; }
+                total += i;
+            }
+            var n = 0;
+            while (n < 3) { n += 1; }
+            var xs: List<int> = [10, 20, 30];
+            xs[1] = 25;
+            xs[0] += 1;
+            for (x in xs) { total += x; }
+            var p = Point { x: 1, y: 2 };
+            p.x = 4;
+            p.y *= 3;
+            total += p.sum();
+            var squared = (v: int) => v * v;
+            total += squared(n);
+            var kind = match Shape.Rect { w: 2, h: 5 } {
+                Shape.Rect { w, h } => w + h,
+                _ => 0
+            };
+            total += kind + area(Shape.Circle(2)) + area(Shape.Dot);
+            var said: List<string> = [];
+            {
+                defer { said.push("deferred"); }
+                said.push("first");
+            }
+            run {
+                log("hello");
+            } handle Log {
+                fn log(s) { said.push(s); }
+            }
+            print(said);
+            print(!(total > 1000) && total != 0 || false);
+            print(-total % 7);
+            return total;
+        }
+    ];
+    for (d in decls) { gen d; }
+}
+
+print(exercise());

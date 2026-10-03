@@ -1,0 +1,45 @@
+import { read_text, write_file } from "std/fs/File";
+import { IoError, Reader, lines } from "std/io/Io";
+import { Result, attempt } from "std/core/Error";
+import { decode } from "std/text/Utf8";
+import { Throw } from "std/core/Error";
+import { async } from "std/async/Task";
+
+// "ok\nhé\n" with the é's second byte replaced by 0xff, so the é, which
+// begins at offset 4, is no longer a character.
+var bytes = "ok\nhé\n".bytes();
+bytes[5] = 255.to_byte();
+
+print(decode("hé".bytes()));
+print(decode(bytes));
+
+write_file("utf8_invalid.txt", bytes);
+var read = attempt { read_text("utf8_invalid.txt") };
+match read {
+    Result.Ok(text) => { print(text); }
+    Result.Err(e) => { print(e); }
+}
+
+type Given { data: Array<byte>, at: int }
+
+impl Reader for Given {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        if (self.at >= self.data.len()) { return Option.None; }
+        var chunk = self.data[self.at:self.data.len()];
+        self.at = self.data.len();
+        return Option.Some(chunk);
+    }
+}
+
+fn all_lines(from: Reader): <async, Throw<IoError>> List<string> {
+    var seen: List<string> = [];
+    for (line in lines(from)) { seen.push(line); }
+    return seen;
+}
+
+var given: Reader = Given { data: bytes, at: 0 };
+var pulled = attempt { all_lines(given) };
+match pulled {
+    Result.Ok(seen) => { print(seen); }
+    Result.Err(e) => { print(e); }
+}

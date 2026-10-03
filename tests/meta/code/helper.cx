@@ -1,4 +1,6 @@
-fn doubled(v: Code): Code { return code(v + v); }
+import { Expr } from "std/compiler/Ast";
+
+fn doubled(v: Expr): Expr { return code(v + v); }
 
 fn build() {
     var body = doubled(code(21));

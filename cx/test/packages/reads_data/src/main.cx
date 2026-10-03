@@ -1,7 +1,8 @@
 import "greet";
+import { read_text } from "std/fs/File";
 
 meta {
-    var banner = readfile("banner.txt");
+    var banner = read_text("src/banner.txt");
     gen fn shout_banner() {
         print(banner.trim());
     }

@@ -31,6 +31,11 @@ let methods
     , "to_int"
     , "The float truncated towards zero."
     , fun () -> [ Types.IFloat ], Types.IInt )
+  ; "byte", "to_int", "The byte as a number from 0 to 255.", (fun () -> [ Types.IByte ], Types.IInt)
+  ; ( "int"
+    , "to_byte"
+    , "The integer's lowest eight bits as a byte, so 256 is 0 and -1 is 255."
+    , fun () -> [ Types.IInt ], Types.IByte )
   ]
 
 (* No HM type describes these. A call is checked structurally; a bare reference
@@ -38,18 +43,18 @@ let methods
 let variadic : (string * (unit -> Types.infer_ty)) list =
   [     Ast.generated [ "meta"; "emit" ], (fun () -> Types.IUnit)
   ; Ast.generated [ "meta"; "value" ], (fun () -> Types.IUnit)
-      ; Ast.generated [ "meta"; "code" ], (fun () -> Types.icode)
+      ; Ast.generated [ "meta"; "code" ], (fun () -> Types.INamed (Core.syntax "Expr", []))
+  ; ( Ast.generated [ "meta"; "code_stmts" ]
+    , fun () -> Types.INamed (Core.list, [ Types.INamed (Core.syntax "Stmt", []) ]) )
+  ; Ast.generated [ "meta"; "code_decl" ], (fun () -> Types.INamed (Core.syntax "Decl", []))
   ]
 
-(* Which test a `cx test` process is for. Only that runner defines it. *)
-let selected_test = Ast.generated [ "test"; "selected" ]
+(* Which test a `cx test` process is for. The runner defines it per process;
+   anywhere else it is -1, which asks `std/test/Test` for the list instead. *)
+let selected_test = "__test_selected"
 
 let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
-  [ ( "clock"
-    , "Seconds of processor time used so far. For measuring a duration, not for \
-       telling the time."
-    , fun () -> [], Types.IFloat )
-  ; selected_test, "", (fun () -> [], Types.IInt)
+  [ selected_test, "", (fun () -> [], Types.IInt)
   ; ("__write_out", "", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "__file_open"
     , ""
@@ -68,7 +73,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () -> [ Types.IInt ], Types.ITuple [ Types.IInt; Types.iarray Types.IByte; Types.IStr ] )
   ; ( "__utf8"
     , ""
-    , fun () -> [ Types.iarray Types.IByte ], Types.ITuple [ Types.IBool; Types.IStr ] )
+    , fun () -> [ Types.iarray Types.IByte ], Types.ITuple [ Types.IInt; Types.IStr ] )
   ; ("__write_err", "", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "str"
     , "The value as `print` writes it: through its `Display` impl if it has one, \
@@ -81,6 +86,14 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
        quoted and a byte as its number."
     , fun () -> [ Types.fresh () ], Types.IStr )
   ; ("__written", "", fun () -> [ Types.fresh () ], Types.IStr)
+  ; ( Ast.generated [ "meta"; "moduleof" ]
+    , ""
+    , fun () -> [ Types.IStr; Types.IStr ], Types.ISum (Core.reflect "Module", []) )
+  ; ("__span_generated", "", fun () -> [], Types.ispan)
+  ; ( "compile_error"
+    , "Stops the build with the message, reported at the span: how a meta block \
+       says that what it was asked to generate from is wrong, where the mistake is."
+    , fun () -> [ Types.ispan; Types.IStr ], Types.fresh () )
   ; ("__fixed", "", fun () -> [ Types.IFloat; Types.IInt ], Types.IStr)
   ; "ord", "The character's Unicode code point.", (fun () -> [ Types.IChr ], Types.IInt)
   ; ( "chr"
@@ -99,13 +112,6 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
         let t = Types.fresh () in
         [ t; t ], Types.IBool )
   (* What a derived `Eq` reaches, through an impl so a type has to ask. *)
-  ; ( "readfile"
-    , "The contents of a file. A relative path is relative to the file that \
-       wrote the call, as an import is."
-    , fun () -> [ Types.IStr ], Types.IStr )
-  ; ( "writefile"
-    , "Writes the contents to a path, replacing whatever was there."
-    , fun () -> [ Types.IStr; Types.IStr ], Types.IUnit )
   ; ( "__structural_eq"
     , ""
     , fun () ->
@@ -126,17 +132,9 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
         let t = Types.fresh () in
         [ Types.iarray t; Types.IInt; t ], Types.iarray t )
   ]
+  @ System.functions
 
 (* ---- values ---- *)
-
-(* A relative path is relative to the file that wrote the call, the way an
-   import and an `embed` are. Where the program was started from is not
-   something the source can see. *)
-let beside (span : Ast.span) path =
-  let from = Source_map.Span.path span in
-  if Filename.is_relative path && not (String.equal from "")
-  then Filename.concat (Filename.dirname from) path
-  else path
 
 let ascii f c = if Uchar.is_char c then Uchar.of_char (f (Uchar.to_char c)) else c
 let upper = ascii Char.uppercase_ascii
@@ -179,17 +177,8 @@ let status_of message =
   in
   if mentions "No such file" then 1 else if mentions "Permission denied" then 2 else 3
 
-let bytes_of (v : Value.value) =
-  match v with
-  | Value.Array items ->
-    Some
-      (String.init (Array.length items) (fun i ->
-         match items.(i) with
-         | Value.Byte c -> c
-         | _ -> '\000'))
-  | _ -> None
-
-let byte_array text = Value.Array (Array.init (String.length text) (fun i -> Value.Byte text.[i]))
+let bytes_of = System.bytes_of
+let byte_array = System.byte_array
 
 let quoted ~mark text =
   let buf = Buffer.create (String.length text + 2) in
@@ -383,10 +372,21 @@ let values ~out ~globals =
               Value.Tuple [ Value.Int (status_of message); Value.Str (Utf8.decode message) ])
          | None -> Value.Tuple [ Value.Int 3; Value.Str (Utf8.decode "The file is closed.") ])
       | _ -> Value.fail span "__file_close takes a handle.")
+  (* The offset of the first byte that is not part of a character, or -1 and the
+     text. *)
   ; one "__utf8" (fun span d ->
       match bytes_of d with
-      | Some data when String.is_valid_utf_8 data -> Value.Tuple [ Value.Bool true; Value.Str (Utf8.decode data) ]
-      | Some _ -> Value.Tuple [ Value.Bool false; Value.Str [||] ]
+      | Some data ->
+        let rec first_bad at =
+          if at >= String.length data
+          then None
+          else (
+            let d = String.get_utf_8_uchar data at in
+            if Uchar.utf_decode_is_valid d then first_bad (at + Uchar.utf_decode_length d) else Some at)
+        in
+        (match first_bad 0 with
+         | None -> Value.Tuple [ Value.Int (-1); Value.Str (Utf8.decode data) ]
+         | Some at -> Value.Tuple [ Value.Int at; Value.Str [||] ])
       | None -> Value.fail span "__utf8 takes bytes.")
   ; one "__write_err" (fun span v ->
       match v with
@@ -400,6 +400,18 @@ let values ~out ~globals =
   ; one "str" (fun span v -> Value.Str (Utf8.decode (shown span `Display v)))
   ; one "debug" (fun span v -> Value.Str (Utf8.decode (shown span `Debug v)))
   ; one "__written" (fun span v -> Value.Str (Utf8.decode (form span v)))
+  ; native "__span_generated" (Some 0) (fun _ _ -> Value.Span Source_map.Span.nowhere)
+  ; native selected_test (Some 0) (fun _ _ -> Value.Int (-1))
+  ; two "compile_error" (fun span at message ->
+      match at, message with
+      | Value.Span at, Value.Str message ->
+        let at =
+          match Source_map.Span.view at with
+          | Source_map.Span.Nowhere_in_source -> span
+          | Source_map.Span.Located _ -> at
+        in
+        raise (Value.Runtime_error { Value.span = at; message = Utf8.encode message })
+      | _ -> Value.fail span "compile_error takes a span and a message.")
   ; two "__fixed" (fun span x digits ->
       match x, digits with
       | Value.Float x, Value.Int digits when digits >= 0 ->
@@ -440,30 +452,6 @@ let values ~out ~globals =
   ; two "same" (fun _ a b -> Value.Bool (Value.same a b))
   ; one "__upcast" (fun _ v -> v)
   ; two "__structural_eq" (fun _ a b -> Value.Bool (Value.values_equal a b))
-  ; one "readfile" (fun span v ->
-      match v with
-      | Value.Str path ->
-        let written = Utf8.encode path in
-        let resolved = beside span written in
-        Inputs.record resolved;
-        (match In_channel.with_open_bin resolved In_channel.input_all with
-         | contents -> Value.Str (Utf8.decode contents)
-         (* The path as written, the way `embed` reports one: what the reader
-            has in front of them is not where it resolved to. *)
-         | exception Sys_error _ -> Value.fail span "Cannot read '%s'." written)
-      | _ -> Value.fail span "readfile takes a path.")
-  ; two "writefile" (fun span p v ->
-      match p, v with
-      | Value.Str path, Value.Str contents ->
-        let written = Utf8.encode path in
-        (match
-           Out_channel.with_open_bin (beside span written) (fun channel ->
-             Out_channel.output_string channel (Utf8.encode contents))
-         with
-         | () -> Value.Unit
-         | exception Sys_error _ -> Value.fail span "Cannot write '%s'." written)
-      | _ -> Value.fail span "writefile takes a path and its contents.")
-  ; native "clock" (Some 0) (fun _ _ -> Value.Float (Sys.time ()))
   ; one (Ast.method_name "string" "as_name") (fun span v ->
       match v with
       | Value.Str s ->
@@ -503,6 +491,14 @@ let values ~out ~globals =
       match v with
       | Value.Int n -> Value.Float (float_of_int n)
       | _ -> Value.fail span "Cannot apply to_float to these arguments.")
+  ; one (Ast.method_name "byte" "to_int") (fun span v ->
+      match v with
+      | Value.Byte b -> Value.Int (Char.code b)
+      | _ -> Value.fail span "Cannot apply to_int to these arguments.")
+  ; one (Ast.method_name "int" "to_byte") (fun span v ->
+      match v with
+      | Value.Int n -> Value.Byte (Char.chr (n land 0xff))
+      | _ -> Value.fail span "Cannot apply to_byte to these arguments.")
   ; one (Ast.method_name "float" "to_int") (fun span v ->
       match v with
       | Value.Float x when Float.is_finite x && Float.abs x < 0x1p62 ->
@@ -517,6 +513,7 @@ let values ~out ~globals =
         Value.Array (Array.init (String.length bytes) (fun i -> Value.Byte bytes.[i]))
       | _ -> Value.fail span "Cannot apply bytes to these arguments.")
   ]
+  @ System.values ~native:(fun name arity apply -> native name (Some arity) apply)
 
 let env ~out =
   let env = Value.new_env None in

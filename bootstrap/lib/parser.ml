@@ -338,7 +338,37 @@ and comparison s : Ast.expr =
   binary_level
     s
     [ Token.Greater; Token.Greater_equal; Token.Less; Token.Less_equal ]
-    term
+    bit_or
+
+and bit_or s : Ast.expr = binary_level s [ Token.Pipe ] bit_xor
+and bit_xor s : Ast.expr = binary_level s [ Token.Caret ] bit_and
+and bit_and s : Ast.expr = binary_level s [ Token.Amp ] shift
+
+(* `<<` and `>>` are two tokens written touching, because `>>` is also the end
+   of `List<List<int>>`, and only the parser knows which it is reading. *)
+and shift s : Ast.expr =
+  let touching (a : Token.token) (b : Token.token) =
+    match Source_map.Span.view a.Token.span, Source_map.Span.view b.Token.span with
+    | Source_map.Span.Located a, Source_map.Span.Located b -> a.line = b.line && b.col = a.col + 1
+    | _ -> false
+  in
+  let doubled kind =
+    let a = peek s and b = peek_at s 1 in
+    a.Token.token_type = kind && b.Token.token_type = kind && touching a b
+  in
+  let rec loop left =
+    let op =
+      if doubled Token.Less then Some Ast.Shl else if doubled Token.Greater then Some Ast.Shr else None
+    in
+    match op with
+    | Some op ->
+      ignore (advance s);
+      ignore (advance s);
+      let right = term s in
+      loop (Ast.at left.Ast.span (`Binop (op, left, right)))
+    | None -> left
+  in
+  loop (term s)
 
 and term s : Ast.expr = binary_level s [ Token.Minus; Token.Plus ] factor
 and factor s : Ast.expr = binary_level s [ Token.Slash; Token.Star; Token.Percent ] unary
@@ -385,6 +415,10 @@ and call s : Ast.expr =
     | Token.Left_brace when starts_fields s ->
       ignore (advance s);
       loop (Ast.at callee.Ast.span (`New (type_path s callee, record_fields s)))
+    | Token.Left_brace when empty_fields s callee ->
+      ignore (advance s);
+      ignore (advance s);
+      loop (Ast.at callee.Ast.span (`New (type_path s callee, [])))
     | Token.Left_brace when not s.no_brace && callable callee ->
       loop (Ast.at callee.Ast.span (`Call (callee, trailing_lambda s [])))
     | Token.Left_bracket ->
@@ -453,6 +487,17 @@ and starts_fields s =
       | Token.Identifier _ -> true
       | _ -> false)
   && (peek_at s 2).Token.token_type = Token.Colon
+
+(* `Empty {}` has no `name:` to tell it from a call with an empty block, so a
+   capitalized name decides, as it does for every type a program declares. *)
+and empty_fields s (callee : Ast.expr) =
+  let capitalized name = String.length name > 0 && Char.uppercase_ascii name.[0] = name.[0] && name.[0] <> '_' in
+  check s Token.Left_brace
+  && (peek_at s 1).Token.token_type = Token.Right_brace
+  &&
+  match callee.Ast.it with
+  | `Var name | `Field ({ Ast.it = `Var _; _ }, name) -> capitalized name
+  | _ -> false
 
 and type_path s (callee : Ast.expr) =
   match callee.Ast.it with
@@ -710,10 +755,30 @@ and primary s : Ast.expr =
     Ast.at sp (`Typeof e)
   | Token.Code ->
     ignore (advance s);
-    ignore (consume s Token.Left_paren "Expected '(' after 'code'.");
-    let e = expression s in
-    ignore (consume s Token.Right_paren "Expected ')' after the captured expression.");
-    Ast.at sp (`Code e)
+    (match (peek s).Token.token_type with
+     | Token.Left_paren ->
+       ignore (advance s);
+       let e = expression s in
+       ignore (consume s Token.Right_paren "Expected ')' after the captured expression.");
+       Ast.at sp (`Code e)
+     | Token.Left_brace ->
+       ignore (advance s);
+       Ast.at sp (`Code_stmts (block s))
+     | _ ->
+       let at = peek s in
+       (match declaration s with
+        | Some ({ Ast.it =
+                    ( `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Effect_decl _
+                    | `Handler_decl _ | `Type_members _ | `Attributed _ | `Import _
+                    | `Global_import _ )
+                ; _
+                } as d) -> Ast.at sp (`Code_decl d)
+        | _ ->
+          raise
+            (error
+               s
+               at
+               "Expected '(' and an expression, '{' and statements, or a declaration after 'code'.")))
   | Token.Left_brace when not s.no_brace ->
     ignore (advance s);
     Ast.at sp (`Record_lit (record_fields s))

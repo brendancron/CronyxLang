@@ -1,0 +1,32 @@
+import "logged" as server;
+import { Logger, Level } from "std/log/Logger";
+
+fn logged_by(port: int): List<string> {
+    var lines: List<string> = [];
+    run {
+        server.serve(port);
+    } handle Logger {
+        fn record(level, message) { lines.push(level.label() + ": " + message); }
+    }
+    return lines;
+}
+
+@test
+fn logs_where_it_listens() {
+    var lines = logged_by(8080);
+    assert(lines.len() == 1, "one line for an ordinary port");
+    assert(lines[0] == "info: listening on 8080", "says where it listens");
+}
+
+@test
+fn warns_about_a_privileged_port() {
+    var lines = logged_by(80);
+    assert(lines.len() == 2, "a warning as well");
+    assert(lines[1] == "warn: port 80 needs privileges", "says why");
+}
+
+@test
+fn notices_a_wrong_expectation() {
+    var lines = logged_by(80);
+    assert(lines[1] == "error: port 80 needs privileges", "logged at warn, not error");
+}

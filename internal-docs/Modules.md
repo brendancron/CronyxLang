@@ -66,7 +66,7 @@ A file's declarations are its top-level ones, mirroring `TypeField`, with `kind`
 | `import { greet } from "helpers"` | `greet` resolved to `helpers`'s |
 | `moduleof(helpers)` | a `Module` record describing it, and a reference to it — so its top-level `meta` runs first, and the record includes what that generates |
 
-Zig makes a file a struct value. Cronyx does not, so the checker never meets a module in type position, and there is one reflection idea for everything: the thing itself cannot be held, only a description of it. What that gives up is handing a module to a function; a function with static parameters can be handed a module's *description* and generate declarations from what it declares, which is what a functor is used for. `moduleof` is not built yet ([TODO](TODO.md), "When a declaration query runs").
+Zig makes a file a struct value. Cronyx does not, so the checker never meets a module in type position, and there is one reflection idea for everything: the thing itself cannot be held, only a description of it. What that gives up is handing a module to a function; a function with static parameters can be handed a module's *description* and generate declarations from what it declares, which is what a functor is used for. `moduleof` answers for a file; the `Directory` variant waits on directory imports, and `packageof` is not built. `std/test/Test` is its first user ([Testing](Testing.md#discovery-is-a-library)).
 
 **3 · Visibility is deferred.** Every declaration is currently exported. `pub` with a private default was the plan and is held back pending a separate design; the loader does not depend on which way it goes, since visibility is a filter over a unit's exports and the export list already exists. What it costs to postpone is one pass over the prelude and the fixtures later, and it leaves `l.count = 99` breaking `l.len()` until then.
 
@@ -141,26 +141,19 @@ This works only because every name says which module it comes from. An unqualifi
 
 A file that is not there is a load error naming it, at the span of the call.
 
-## `readfile` and `writefile` resolve the same way
+## A `meta` block reads files as a program does
 
-Both take a path relative to the file that wrote the call, resolved through the
-span the builtin is handed — the same rule as `import` and `embed`, so where the
-compiler was started from is never something the source can see.
-
-`readfile` yields a `string` rather than the bytes `embed` gives, because it is
-reached while the program runs and a program that wanted bytes would decode
-them itself. A path that cannot be read is a runtime error naming the path *as
-written*, not as resolved: what the reader has in front of them is the former.
-
-**They work at compile time too.** A `meta` block calling `readfile` reads while
-compiling, and what it read can be baked into generated code — `embed` with a
-shape decided by the program rather than by the compiler.
+Through `Fs`, which the root handles at compile time as at run time, so a path
+is relative to the working directory rather than to the file — `cx` compiles
+from the package root ([I/O](IO.md#a-path-is-relative-to-the-working-directory)).
+What it read can be baked into generated code: `embed` with a shape decided by
+the program rather than by the compiler.
 
 ## Spans carry a file
 
 `Ast.span` was `{ line; col }`, and concatenating four units would have made `[3:5]` name nothing. It now carries the file, threaded through the *token* so that no `span_of_token` call site changed. `Ast.locate ~entry` prints a bare `[3:5]` while a span is in the unit being compiled and `[lib.cx 2:12]` once it is not, rendered relative to the entry's directory.
 
-`core` is a set of units like any other, mangled under their own paths. The compiler reaches what it names by those mangled names (`Core`), and `Loader` loads `Core.modules` with every program for that reason; a file sees only what `stdlib/prelude.cx` globally imports. A file's own declaration shadows a global import of the same name, and the prelude's binding stays reachable through `core`: `core.print`, `core.List<int>`.
+`core` is a set of units like any other, mangled under their own paths. The compiler reaches what it names by those mangled names (`Core`), and `Loader` loads `Core.modules` with every program for that reason; a file sees only what `stdlib/prelude.cx` globally imports. A file's own declaration or top-level `var` shadows a global import of the same name, and an operation a global import brings, and the prelude's binding stays reachable through `core`: `core.print`, `core.List<int>`, `core.write`.
 
 ## What this does not do
 

@@ -1,0 +1,13 @@
+import { Yield, iterator } from "std/iter/Yield";
+
+type Shelf<T> { items: List<T>, open: bool }
+
+impl Shelf<T> {
+    fn close(self) { self.open = false; }
+    fn values(self): Iter<T, <>> {
+        return iterator { for (item in self.items) { yield(item); } };
+    }
+}
+
+var shelf = Shelf { items: [1, 2], open: true };
+for (n in shelf.values()) { print(n); }

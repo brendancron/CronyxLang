@@ -52,21 +52,6 @@ let whole ?on_code ?on_types ~out program =
     (let* processed = metaprocess ?on_code ~out program in
      Compile.program ?on_types processed)
 
-(* A test run: what carries [attribute] is a root, and [wrap] finds the tests
-   on what the walk produced — generated ones included, under the names the
-   walk gave them — and says how each is run. *)
-let rooted ~attribute ~wrap ~out program =
-  let early = Precheck.program program in
-  merged
-    early
-    (let* processed =
-       match Metaprocess.program ~rooted_by:attribute ~out program with
-       | Ok processed -> Ok processed
-       | Error e -> Diagnostic.one Diagnostic.Meta e.Metaprocess.span e.Metaprocess.message
-     in
-     let* runs = wrap processed in
-     Compile.program (processed @ runs))
-
 (* Artifacts concatenated: every package's declarations, none metaprocessed. *)
 let linked = whole
 

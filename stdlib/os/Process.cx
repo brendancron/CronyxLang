@@ -1,0 +1,322 @@
+/**
+ * Running other programs.
+ *
+ * ```
+ * import { Command, Stdio, output, spawn } from "std/os/Process";
+ *
+ * var listing = output(Command.new("ls").arg("-l"));
+ * print(listing.exit_code);       // 0
+ * print(listing.stdout_text());
+ * ```
+ *
+ * `output` waits for the program and hands back everything it wrote. `spawn`
+ * hands back the running program instead, to write to and read from while it
+ * runs:
+ *
+ * ```
+ * var child = spawn(Command.new("sort").stdin(Stdio.Piped).stdout(Stdio.Piped));
+ * match child.stdin() { Option.Some(w) => { w.write("b\na\n".bytes()); } Option.None => { } }
+ * print(child.wait_with_output().stdout_text());   // a, then b
+ * ```
+ *
+ * Starting one is the `Process` effect, which the root answers by asking the
+ * system; a test hands out children of its own by handling it. The program is
+ * looked for on `PATH` unless its name has a slash in it.
+ */
+
+import { async } from "../async/Task";
+import { Throw, Result } from "../core/Error";
+import { Reader, Writer, IoError } from "../io/Io";
+import { decode } from "../text/Utf8";
+
+/**
+ * Ending the program. The root ends the process with the code, after the
+ * `defer`s between here and it have run; a test handles `Exit` to see the code
+ * instead.
+ */
+effect Exit {
+    /** Ends the program now: 0 for success, anything else for failure. */
+    final ctl exit(status: int);
+}
+
+/** Where one of a child's standard streams goes. */
+type Stdio {
+    /** The same place as this program's. */
+    Inherit,
+
+    /** A pipe this program writes to or reads from. */
+    Piped,
+
+    /** Nowhere: nothing is read, and what is written is dropped. */
+    Null
+}
+
+/** A program to run, and how. Built with `Command.new` and its methods, each of which hands back the command. */
+type Command {
+    program: string,
+    arguments: List<string>,
+    /** Variables set for the child, on top of this program's environment. */
+    environment: List<(string, string)>,
+    /** The directory it starts in, or empty for this program's. */
+    directory: string,
+    input: Stdio,
+    output: Stdio,
+    errors: Stdio
+}
+
+impl Command {
+    /** The program, with no arguments, inheriting all three streams. */
+    fn new(program: string): Command {
+        return Command {
+            program: program,
+            arguments: [],
+            environment: [],
+            directory: "",
+            input: Stdio.Inherit,
+            output: Stdio.Inherit,
+            errors: Stdio.Inherit
+        };
+    }
+
+    /** Adds an argument. */
+    fn arg(self, argument: string): Command {
+        self.arguments.push(argument);
+        return self;
+    }
+
+    /** Adds each argument. */
+    fn args(self, arguments: Array<string>): Command {
+        for (a in arguments) { self.arguments.push(a); }
+        return self;
+    }
+
+    /** Sets a variable for the child. */
+    fn env(self, name: string, value: string): Command {
+        self.environment.push((name, value));
+        return self;
+    }
+
+    /** Starts the child in the directory. */
+    fn dir(self, path: string): Command {
+        self.directory = path;
+        return self;
+    }
+
+    /** Where the child's standard input comes from. */
+    fn stdin(self, how: Stdio): Command {
+        self.input = how;
+        return self;
+    }
+
+    /** Where the child's standard output goes. */
+    fn stdout(self, how: Stdio): Command {
+        self.output = how;
+        return self;
+    }
+
+    /** Where the child's standard error goes. */
+    fn stderr(self, how: Stdio): Command {
+        self.errors = how;
+        return self;
+    }
+}
+
+/** What a finished child wrote, and how it ended. */
+type Output {
+    /** 0 for success, or 128 and the signal's number if a signal ended it. */
+    exit_code: int,
+    stdout: Array<byte>,
+    stderr: Array<byte>
+}
+
+impl Output {
+    /** Whether the exit code is 0. */
+    fn success(self): bool { return self.exit_code == 0; }
+
+    /** Standard output, as text. Throws if it is not UTF-8. */
+    fn stdout_text(self): <Throw<IoError>> string { return __text("standard output", self.stdout); }
+
+    /** Standard error, as text. Throws if it is not UTF-8. */
+    fn stderr_text(self): <Throw<IoError>> string { return __text("standard error", self.stderr); }
+}
+
+fn __text(what: string, bytes: Array<byte>): <Throw<IoError>> string {
+    match decode(bytes) {
+        Result.Ok(text) => { return text; }
+        Result.Err(e) => { throw(IoError.Other(what + ": " + e.message())); }
+    }
+    return "";
+}
+
+/** A program that was started. */
+trait Child {
+    /** Its standard input, if it was piped. */
+    fn stdin(self): Option<Writer>;
+
+    /** Its standard output, if it was piped. */
+    fn stdout(self): Option<Reader>;
+
+    /** Its standard error, if it was piped. */
+    fn stderr(self): Option<Reader>;
+
+    /** Closes its standard input, which is how it learns there is no more. */
+    fn close_stdin(self): <async, Throw<IoError>> unit;
+
+    /** Closes its standard input, waits for it to end, and hands back its exit code. */
+    fn wait(self): <async, Throw<IoError>> int;
+
+    /**
+     * Closes its standard input, reads what is left of its piped output and
+     * error, both at once so neither fills up while the other is read, and
+     * waits for it to end.
+     */
+    fn wait_with_output(self): <async, Throw<IoError>> Output;
+}
+
+/** Starting programs. */
+effect Process {
+    /**
+     * The started program, or why it could not start. A failure is a value
+     * here so it reaches the caller: `spawn` throws it where it was asked.
+     */
+    ctl start(command: Command): Result<Child, IoError>;
+}
+
+/** The program, started. */
+fn spawn(command: Command): <Process, Throw<IoError>> Child {
+    match start(command) {
+        Result.Ok(child) => { return child; }
+        Result.Err(e) => { return throw(e); }
+    }
+}
+
+/** Runs the program to its end, with its output and error captured and nothing on its input. */
+fn output(command: Command): <Process, async, Throw<IoError>> Output {
+    var captured = Command {
+        program: command.program,
+        arguments: command.arguments,
+        environment: command.environment,
+        directory: command.directory,
+        input: Stdio.Null,
+        output: Stdio.Piped,
+        errors: Stdio.Piped
+    };
+    return spawn(captured).wait_with_output();
+}
+
+/** Runs the program to its end and hands back its exit code. */
+fn status(command: Command): <Process, async, Throw<IoError>> int {
+    return spawn(command).wait();
+}
+
+// ---- programs the system runs, which the root hands out ----
+
+fn __failure(status: int, program: string, message: string): IoError {
+    if (status == 1) { return IoError.NotFound(program); }
+    if (status == 2) { return IoError.Denied(program); }
+    return IoError.Other(message);
+}
+
+fn __checked(program: string, outcome: (int, string)): <Throw<IoError>> unit {
+    var (status, message) = outcome;
+    if (status != 0) { throw(__failure(status, program, message)); }
+}
+
+type ChildInput { id: int, program: string }
+
+impl Writer for ChildInput {
+    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+        var outcome = suspend { it(__process_write(self.id, data)) };
+        __checked(self.program, outcome);
+    }
+}
+
+type ChildStream { id: int, which: int, program: string }
+
+impl Reader for ChildStream {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        var (status, data, message) = suspend { it(__process_read(self.id, self.which, max)) };
+        if (status != 0) { throw(__failure(status, self.program, message)); }
+        if (data.len() == 0) { return Option.None; }
+        return Option.Some(data);
+    }
+}
+
+type SystemChild {
+    id: int,
+    program: string,
+    input: Option<Writer>,
+    output: Option<Reader>,
+    errors: Option<Reader>
+}
+
+impl Child for SystemChild {
+    fn stdin(self): Option<Writer> { return self.input; }
+    fn stdout(self): Option<Reader> { return self.output; }
+    fn stderr(self): Option<Reader> { return self.errors; }
+
+    fn close_stdin(self): <async, Throw<IoError>> unit {
+        var outcome = suspend { it(__process_close_input(self.id)) };
+        __checked(self.program, outcome);
+    }
+
+    fn wait(self): <async, Throw<IoError>> int {
+        var (status, exit, message) = suspend { it(__process_wait(self.id)) };
+        if (status != 0) { throw(__failure(status, self.program, message)); }
+        return exit;
+    }
+
+    fn wait_with_output(self): <async, Throw<IoError>> Output {
+        var (status, exit, out, err, message) = suspend { it(__process_drain(self.id)) };
+        if (status != 0) { throw(__failure(status, self.program, message)); }
+        return Output { exit_code: exit, stdout: out, stderr: err };
+    }
+}
+
+fn __mode(how: Stdio): int {
+    match how {
+        Stdio.Inherit => { return 0; }
+        Stdio.Piped => { return 1; }
+        Stdio.Null => { return 2; }
+    }
+    return 0;
+}
+
+fn __piped(how: Stdio): bool { return __mode(how) == 1; }
+
+/** How the root answers `start`: by asking the system. */
+fn __start_on_system(command: Command): Result<Child, IoError> {
+    var (status, id, message) = __process_spawn(
+        command.program,
+        command.arguments.items[0:command.arguments.len()],
+        command.environment.items[0:command.environment.len()],
+        command.directory,
+        __mode(command.input),
+        __mode(command.output),
+        __mode(command.errors)
+    );
+    if (status != 0) { return Result.Err(__failure(status, command.program, message)); }
+    var input: Option<Writer> = Option.None;
+    if (__piped(command.input)) {
+        var w: Writer = ChildInput { id: id, program: command.program };
+        input = Option.Some(w);
+    }
+    var output: Option<Reader> = Option.None;
+    if (__piped(command.output)) {
+        var r: Reader = ChildStream { id: id, which: 1, program: command.program };
+        output = Option.Some(r);
+    }
+    var errors: Option<Reader> = Option.None;
+    if (__piped(command.errors)) {
+        var r: Reader = ChildStream { id: id, which: 2, program: command.program };
+        errors = Option.Some(r);
+    }
+    var child: Child = SystemChild {
+        id: id,
+        program: command.program,
+        input: input,
+        output: output,
+        errors: errors
+    };
+    return Result.Ok(child);
+}

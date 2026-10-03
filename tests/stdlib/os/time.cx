@@ -1,0 +1,43 @@
+import { Duration, Instant, Timestamp, Time, elapsed } from "std/os/Time";
+
+print(Duration.milliseconds(1500));
+print(Duration.nanoseconds(250));
+print(Duration.microseconds(12));
+print(Duration.seconds(-2));
+print(Duration.hours(1) - Duration.minutes(30));
+print(Duration.seconds(90) > Duration.minutes(1));
+print(Duration.milliseconds(2500).as_seconds());
+print(Duration.seconds(3).as_millis());
+
+print(Timestamp.from_unix_seconds(0));
+print(Timestamp.from_unix_seconds(951782400));
+print(Timestamp.from_unix_seconds(-1));
+print(Timestamp.from_unix_seconds(1790000000) + Duration.milliseconds(250));
+var d = Timestamp.from_unix_seconds(1790000000).utc();
+print([d.year, d.month, d.day, d.hour, d.minute, d.second]);
+
+fn timed(): <Time> string {
+    var start = instant();
+    var stamp = now();
+    return str(stamp) + " took " + str(elapsed(start));
+}
+
+// A clock that moves on 1.25ms each time it is read.
+var ticks = 0;
+run {
+    print(timed());
+    print(timed());
+} handle Time {
+    fn now() { return Timestamp.from_unix_seconds(1790000000); }
+    fn instant() {
+        ticks = ticks + 1;
+        return Instant { nanos: ticks * 1250000 };
+    }
+    fn wait_until(at) { }
+}
+
+// The system's clocks, which only have to agree with each other.
+var before = now();
+var start = instant();
+print(elapsed(start) >= Duration.nanoseconds(0));
+print(now() >= before);

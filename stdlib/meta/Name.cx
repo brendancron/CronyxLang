@@ -1,0 +1,46 @@
+/**
+ * Building identifiers.
+ *
+ * A `Name` is made from text with `.as_name()`, which rejects text no
+ * identifier could be, so a name a deriver writes is one the program could
+ * have written. These build the text.
+ *
+ * ```
+ * import { numbered, kebab_case } from "std/meta/Name";
+ *
+ * var bound = numbered("__p", 3);         // __p0, __p1, __p2
+ * print(kebab_case("max_connections"));   // max-connections
+ * ```
+ */
+
+/** `count` names, each the prefix and its index: for binding a variant's payload. */
+fn numbered(prefix: string, count: int): List<Name> {
+    var names: List<Name> = [];
+    for (var i = 0; i < count; i += 1) { names.push((prefix + str(i)).as_name()); }
+    return names;
+}
+
+/** The text with each `_` a `-`, and each capital after a lower-case letter lowered behind a `-`. */
+fn kebab_case(text: string): string { return __cased(text, "-"); }
+
+/** The text with each `-` a `_`, and each capital after a lower-case letter lowered behind a `_`. */
+fn snake_case(text: string): string { return __cased(text, "_"); }
+
+fn __cased(text: string, separator: string): string {
+    var out = "";
+    var previous_lower = false;
+    for (c in text.chars()) {
+        if (c == '_' || c == '-') {
+            out = out + separator;
+            previous_lower = false;
+        } else if (c >= 'A' && c <= 'Z') {
+            if (previous_lower) { out = out + separator; }
+            out = out + str(chr(ord(c) + 32));
+            previous_lower = false;
+        } else {
+            out = out + str(c);
+            previous_lower = c >= 'a' && c <= 'z';
+        }
+    }
+    return out;
+}

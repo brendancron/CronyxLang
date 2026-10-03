@@ -1,0 +1,5 @@
+{"items":[{"name":"a"},{"name":"b"}],"total":2}
+c 9
+Page { items: [1, 2, 3], total: 3 }
+{"Branch":[{"Leaf":1},{"Branch":[{"Leaf":2},{"Leaf":3}]}]}
+true

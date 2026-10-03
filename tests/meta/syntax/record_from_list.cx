@@ -1,0 +1,33 @@
+import { Expr, ExprKind, FieldInit } from "std/compiler/Ast";
+
+trait Defaulted {
+    fn defaulted(): Self;
+}
+
+fn derive(shape: TypeShape) for Defaulted {
+    match shape {
+        TypeShape.Product(t, _, fields) => {
+            var entries: List<FieldInit> = [];
+            for (f in fields) {
+                var label = str(f.name);
+                entries.push(FieldInit { name: f.name, value: code("<" + label + ">") });
+            }
+            var built = Expr.of(ExprKind.New(t, entries));
+            gen impl Defaulted for t {
+                fn defaulted(): t { return built; }
+            }
+        }
+        _ => {}
+    }
+}
+
+type Config { name: string, host: string, path: string }
+type Pair { left: string, right: string }
+
+derive Defaulted for Config;
+derive Defaulted for Pair;
+
+var c = Config.defaulted();
+print(c.name + " " + c.host + " " + c.path);
+var p = Pair.defaulted();
+print(p.left + " " + p.right);

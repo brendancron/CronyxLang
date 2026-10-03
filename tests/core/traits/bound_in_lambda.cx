@@ -1,0 +1,18 @@
+trait Show { fn show(self): string; }
+type A { n: int }
+impl Show for A { fn show(self): string { return "A" + str(self.n); } }
+impl Show for int { fn show(self): string { return "#" + str(self); } }
+
+fn later<T: Show>(x: T): () -> string {
+    return () => { return x.show(); };
+}
+
+fn twice<T: Show>(x: T): string {
+    var g = () => { return x.show() + x.show(); };
+    return g();
+}
+
+var shown = later(A { n: 1 });
+print(shown());
+print(later(7)());
+print(twice(A { n: 2 }));

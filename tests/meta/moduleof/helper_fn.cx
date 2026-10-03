@@ -1,0 +1,19 @@
+import "helpers";
+
+fn names(m: Module): string {
+    match m {
+        Module.File(_, declarations) => {
+            var out = "";
+            for (d in declarations) { out = out + str(d.name) + " "; }
+            return out;
+        }
+        Module.Directory(_, _) => { return ""; }
+    }
+    return "";
+}
+
+fn reflect_helpers(): Module { return moduleof(helpers); }
+
+meta {
+    print(names(reflect_helpers()));
+}

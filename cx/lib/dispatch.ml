@@ -53,7 +53,8 @@ let graph_floor root =
 (* Set across the exec, so a toolchain that is not the version it was installed
    as cannot bounce the job back and forth forever. Handing off happens once. *)
 let asks_for_help args =
-  List.exists (fun arg -> String.equal arg "-h" || String.equal arg "--help") args
+  let ours, _ = Driver.split_arguments args in
+  List.exists (fun arg -> String.equal arg "-h" || String.equal arg "--help") ours
 
 (* The commands that read the package's code, and so need the toolchain it was
    written for. The rest -- installing that toolchain above all -- runs here

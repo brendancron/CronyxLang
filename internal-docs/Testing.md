@@ -1,6 +1,6 @@
 # Testing
 
-`cx test` runs the `@test` functions in a package: those in `tests/`, and any written inline beside the code.
+`cx test` runs the `@test` functions under a package's `tests/`, recursively. `@test` does nothing by itself: it is what the standard test framework, `std/test/Test`, looks for.
 
 (This is a package's own `tests/`. The compiler's golden-file suite at the repo root is also called `tests/` and belongs to `dune test`; the two share a name and nothing else.)
 
@@ -21,16 +21,14 @@ so the boundary is the one the loader already enforces. An `import "../src/main.
 
 Each file in `tests/` is its own program, as a Rust integration test is its own crate: one that fails to compile is reported alongside the others rather than standing in front of them. The program a test file runs in holds the package's *declarations* — its top-level `meta` blocks and `derive`s among them — without its top-level statements — a test links the library, not the program, so `main.cx` does not re-run once per test file.
 
-An inline `@test` still works and still sees what the package does not export. That is the split Rust draws between `#[cfg(test)] mod tests` and `tests/`: inline for an invariant with no public surface, `tests/` for the contract a consumer depends on.
-
 Nothing in `tests/` reaches an artifact, because it was never part of the package. `cx publish` therefore ships none of it — a consumer could not build it in any case, since a package's test-only dependencies are not in their graph.
 
 ```cronyx
-fn add(a: int, b: int): int { return a + b; }
+import "tested" as pkg;
 
 @test
 fn adds() {
-    assert(add(1, 2) == 3, "1 + 2 is 3");
+    assert(pkg.add(1, 2) == 3, "1 + 2 is 3");
 }
 ```
 
@@ -69,19 +67,27 @@ run {
 
 so a failure abandons that test and the next one still runs.
 
-A crash that is not an effect — an index out of range, a division by zero — is what that does not cover: it ends the program, and with it the rest of the file's tests. So each test runs in a process of its own, as `cargo nextest` does: a file is compiled once, every test's wrapper is guarded by which test the process is for (a builtin under a name no program can write), and `cx` forks one child per test and reads what it printed back through a pipe. An index out of range ends that test and nothing else (`cx/test/packages/crashing_test`), and a child that ends before reporting is a failure. It is the strongest isolation there is and it asks nothing of the language. Runtime errors becoming an effect a handler can catch is wanted anyway, for programs generally, and would give an in-process runner the same guarantee; the two do not compete.
+A crash that is not an effect — an index out of range, a division by zero — is what that does not cover: it ends the program, and with it the rest of the file's tests. So each test runs in a process of its own, as `cargo nextest` does: a file is compiled once, the program asks `__test_selected()` which test the process is for, and `cx` forks one child per test and reads what it printed back through a pipe. An index out of range ends that test and nothing else (`cx/test/packages/crashing_test`), and a child that ends before reporting is a failure. It is the strongest isolation there is and it asks nothing of the language. Runtime errors becoming an effect a handler can catch is wanted anyway, for programs generally, and would give an in-process runner the same guarantee; the two do not compete.
 
 This is the part worth keeping in mind when comparing to other runners. `cargo test` catches a panic with `catch_unwind`, which is wrong under `panic=abort`; `go test` uses `runtime.Goexit`, which silently fails if a test fails from a goroutine it did not start; `cargo nextest` gives up on both and forks a process per test. Cronyx gets the same isolation from the effect system, statically — a test's row says it may fail.
 
-## Discovery is a walk, not reflection
+## Discovery is a library
 
-`Discover.carrying "test"` walks the program for `` `Attributed `` wrapping a `` `Fn ``, after metaprocessing — so a test a `meta` block generates is found under the name it was given (`cx/test/packages/generated_tests`). Nothing calls a test, so nothing would reach one; the walk is run with every `@test` function as a root instead, after every loaded module's top-level `meta` has run (`Metaprocess.program ~rooted_by`, `Pipeline.rooted`). A test file's run takes the tests declared in that file.
+`cx test` finds nothing itself. For each file under `tests/` it writes a small program under `target/test/` that imports the file and hands it to `std/test/Test`:
 
-That is the stand-in for a test root: a file that reflects the package with `moduleof`/`packageof` and generates a call per `@test`, which would make discovery a library ([TODO](TODO.md), "When a declaration query runs").
+```cronyx
+import { collect, run_tests } from "std/test/Test";
+import "../../tests/adding" as suite;
 
-It has to be a walk. Attributes belong to a *declaration*, and `typeof` takes a *value* — a function value's type is `(int, int) -> int`, which names no declaration to look an attribute up under. So reflection cannot reach a function's attributes however much is added to `TypeShape`, and the walk runs on surface syntax because `Desugar` is where the wrapper is unwound.
+meta { collect(moduleof(suite)); }
+run_tests(__test_names(), __test_run);
+```
 
-A test takes no parameters, which is checked rather than assumed: it is called by name and there is nowhere for an argument to come from.
+`moduleof(suite)` reflects the file ([Modules](Modules.md), decision 2): its top-level declarations with their attributes, written or generated. Asking is a reference to the file, so its top-level `meta` runs first and a test it generates is among them (`cx/test/packages/generated_tests`). `collect` keeps the functions carrying `@test` and generates `__test_names()` and `__test_run(index)`, one call per test. `run_tests` runs the one this process is for, or with none chosen lists them all, which is how `cx` learns how many processes to start.
+
+A test takes no parameters. `collect` checks rather than assumes, and reports one that does at its declaration with `compile_error`: it is called by name and there is nowhere for an argument to come from.
+
+An HTTP framework collecting `@route` functions is the same shape: a `meta` block reflects the modules it is given and generates what the attribute asks for.
 
 ## Output is captured by the host, not by the program
 
@@ -91,7 +97,7 @@ That is why making `print` an algebraic effect is *not* a prerequisite for any o
 
 ## Settled
 
-**The runner is synthesized, not written.** `cx test` appends one `run` block per test to the linked program and compiles the result. Those blocks are what the metaprocessing walk starts from, so a test is metaprocessed only if it runs, and the walk runs from the package root, as `cx run`'s does. There is no test harness written in Cronyx to keep in step with the tool, and nothing is generated on disk.
+**Tests live in `tests/`.** A `@test` written in `src/` is not looked for. A manifest key naming a different folder is the expected way to change that, and is not built.
 
 **`cx test` exits 1 when anything failed**, and prints `no tests` rather than succeeding silently on a package with none.
 

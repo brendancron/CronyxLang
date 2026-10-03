@@ -16,7 +16,7 @@ print(dog.type_name());
 
 fn derive(shape: TypeShape) for Named {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, _, fields) => {
             var label = str(t);
             gen impl Named for t {
                 fn type_name(self): string { return label; }

@@ -1,0 +1,13 @@
+Config takes:
+  name: string
+  port: int
+  tags: List<string>
+  limit: Option<int>
+  verbose: bool
+  retry: ?
+Box takes T:
+  value: T
+  count: int
+Box takes T:
+  value: string
+  count: int

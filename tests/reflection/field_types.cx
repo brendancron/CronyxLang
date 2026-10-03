@@ -1,0 +1,28 @@
+type Config {
+    name: string,
+    port: int,
+    tags: List<string>,
+    limit: Option<int>,
+    verbose: bool,
+    retry: (int) -> int
+}
+
+type Box<T> { value: T, count: int }
+
+fn show(shape: TypeShape) {
+    match shape {
+        TypeShape.Product(name, params, fields) => {
+            var written = "";
+            for (p in params) { written = written + " " + str(p); }
+            print(str(name) + " takes" + written + ":");
+            for (f in fields) { print("  " + str(f.name) + ": " + f.ty.text()); }
+        }
+        _ => {}
+    }
+}
+
+meta {
+    show(typeof(Config).shape);
+    show(typeof(Box).shape);
+    show(typeof(Box { value: "x", count: 2 }).shape);
+}

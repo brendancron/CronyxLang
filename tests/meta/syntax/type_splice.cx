@@ -1,0 +1,9 @@
+import { TypeExpr, TypeKind } from "std/compiler/Ast";
+
+meta {
+    var number = TypeExpr.of(TypeKind.Named("int".as_name()));
+    var pair = TypeExpr.of(TypeKind.Tuple([number, number]));
+    gen fn swap(p: pair): pair { return (p.1, p.0); }
+}
+
+print(swap((1, 2)));

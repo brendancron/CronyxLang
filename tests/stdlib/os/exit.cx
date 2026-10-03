@@ -1,0 +1,11 @@
+import { Exit } from "std/os/Process";
+
+fn finish() {
+    defer { print("cleaned up"); }
+    exit(3);
+    print("never");
+}
+
+print("before");
+finish();
+print("never either");

@@ -8,7 +8,8 @@ let usage =
   \  toolchain …     install <version> <binary>, or list\n\
   \  publish         upload the package here to a registry\n\
   \  version         print the toolchain version\n\
-  \  run [file.cx]   compile and execute a program, or the package here\n\
+  \  run [file.cx] [-- args…]\n\
+  \                  compile and execute a program, or the package here\n\
   \  test [filter]   run the package's @test functions\n\
   \  docs [std]      render the reference for the package here, or the library\n\n\
    options for `docs`:\n\
@@ -310,6 +311,8 @@ let () =
     no_arguments "version" args;
     print_endline ("cx " ^ Release.version)
   | "run" :: args ->
+    let args, theirs = Driver.split_arguments args in
+    System.arguments := theirs;
     (match parse_run args with
      (* No file named: the package here, through its artifacts. *)
      | None, dumps -> run_package ~mode:(mode_of ~dumps:true args) dumps

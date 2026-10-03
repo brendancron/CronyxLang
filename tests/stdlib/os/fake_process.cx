@@ -1,0 +1,33 @@
+import { Command, Child, Output, Process, output } from "std/os/Process";
+import { Reader, Writer, IoError } from "std/io/Io";
+import { Throw, Result } from "std/core/Error";
+import { async } from "std/async/Task";
+
+type Canned { text: string }
+
+impl Child for Canned {
+    fn stdin(self): Option<Writer> { return Option.None; }
+    fn stdout(self): Option<Reader> { return Option.None; }
+    fn stderr(self): Option<Reader> { return Option.None; }
+    fn close_stdin(self): <async, Throw<IoError>> unit { }
+    fn wait(self): <async, Throw<IoError>> int { return 0; }
+    fn wait_with_output(self): <async, Throw<IoError>> Output {
+        return Output { exit_code: 0, stdout: self.text.bytes(), stderr: [] };
+    }
+}
+
+fn branch(): <Process, async, Throw<IoError>> string {
+    return output(Command.new("git").args(["branch", "--show-current"])).stdout_text();
+}
+
+var asked: List<string> = [];
+run {
+    print(branch());
+} handle Process {
+    ctl start(command) {
+        asked.push(command.program + " " + str(command.arguments));
+        var child: Child = Canned { text: "main" };
+        resume Result.Ok(child);
+    }
+}
+print(asked);

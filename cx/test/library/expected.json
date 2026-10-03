@@ -13,6 +13,36 @@
           "doc": "What the compiler provides with no declaration behind it. These names are always in scope and are not imported.",
           "entries": [
             {
+              "id": "builtin#byte#to_int",
+              "package": "std",
+              "unit": "builtins",
+              "name": "byte.to_int",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The byte as a number from 0 to 255.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "byte",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "int",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
               "id": "builtin#char#to_lower",
               "package": "std",
               "unit": "builtins",
@@ -103,22 +133,41 @@
               "row": null
             },
             {
-              "id": "builtin#clock",
+              "id": "builtin#compile_error",
               "package": "std",
               "unit": "builtins",
-              "name": "clock",
+              "name": "compile_error",
               "kind": "fn",
               "line": null,
               "exported": true,
-              "doc": "Seconds of processor time used so far. For measuring a duration, not for telling the time.",
+              "doc": "Stops the build with the message, reported at the span: how a meta block says that what it was asked to generate from is wrong, where the mistake is.",
               "attrs": [],
               "static": [],
-              "params": [],
+              "params": [
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "Span",
+                    "ref": null,
+                    "param": false
+                  }
+                },
+                {
+                  "name": "",
+                  "type": {
+                    "kind": "name",
+                    "name": "string",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
               "ret": {
                 "kind": "name",
-                "name": "float",
+                "name": "T",
                 "ref": null,
-                "param": false
+                "param": true
               },
               "row": null
             },
@@ -177,6 +226,36 @@
               "ret": {
                 "kind": "name",
                 "name": "int",
+                "ref": null,
+                "param": false
+              },
+              "row": null
+            },
+            {
+              "id": "builtin#int#to_byte",
+              "package": "std",
+              "unit": "builtins",
+              "name": "int.to_byte",
+              "kind": "fn",
+              "line": null,
+              "exported": true,
+              "doc": "The integer's lowest eight bits as a byte, so 256 is 0 and -1 is 255.",
+              "attrs": [],
+              "static": [],
+              "params": [
+                {
+                  "name": "self",
+                  "type": {
+                    "kind": "name",
+                    "name": "int",
+                    "ref": null,
+                    "param": false
+                  }
+                }
+              ],
+              "ret": {
+                "kind": "name",
+                "name": "byte",
                 "ref": null,
                 "param": false
               },
@@ -267,36 +346,6 @@
               "ret": {
                 "kind": "name",
                 "name": "unit",
-                "ref": null,
-                "param": false
-              },
-              "row": null
-            },
-            {
-              "id": "builtin#readfile",
-              "package": "std",
-              "unit": "builtins",
-              "name": "readfile",
-              "kind": "fn",
-              "line": null,
-              "exported": true,
-              "doc": "The contents of a file. A relative path is relative to the file that wrote the call, as an import is.",
-              "attrs": [],
-              "static": [],
-              "params": [
-                {
-                  "name": "",
-                  "type": {
-                    "kind": "name",
-                    "name": "string",
-                    "ref": null,
-                    "param": false
-                  }
-                }
-              ],
-              "ret": {
-                "kind": "name",
-                "name": "string",
                 "ref": null,
                 "param": false
               },
@@ -494,45 +543,6 @@
               "ret": {
                 "kind": "name",
                 "name": "string",
-                "ref": null,
-                "param": false
-              },
-              "row": null
-            },
-            {
-              "id": "builtin#writefile",
-              "package": "std",
-              "unit": "builtins",
-              "name": "writefile",
-              "kind": "fn",
-              "line": null,
-              "exported": true,
-              "doc": "Writes the contents to a path, replacing whatever was there.",
-              "attrs": [],
-              "static": [],
-              "params": [
-                {
-                  "name": "",
-                  "type": {
-                    "kind": "name",
-                    "name": "string",
-                    "ref": null,
-                    "param": false
-                  }
-                },
-                {
-                  "name": "",
-                  "type": {
-                    "kind": "name",
-                    "name": "string",
-                    "ref": null,
-                    "param": false
-                  }
-                }
-              ],
-              "ret": {
-                "kind": "name",
-                "name": "unit",
                 "ref": null,
                 "param": false
               },

@@ -1,0 +1,507 @@
+/**
+ * Values to and from a data format, through one tree every format shares.
+ *
+ * ```
+ * import { Encode, Decode } from "std/encoding/Codec";
+ * import { to_json, from_json } from "std/encoding/Json";
+ *
+ * type Server { host: string, port: int }
+ * derive Encode, Decode for Server;
+ *
+ * print(to_json(Server { host: "localhost", port: 8080 }));
+ * // {"host":"localhost","port":8080}
+ * var back: Server = from_json("{\"host\": \"a\", \"port\": 1}");
+ * ```
+ *
+ * `Encode` turns a value into `Data`, and a format writes `Data` as text;
+ * `Decode` builds a value back from `Data` a format read. A format implements
+ * `Format`, and a type implements the two traits once for every format there is.
+ *
+ * A field is written under its own name, or under `@rename("…")`'s, and one
+ * marked `@skip` is left out; decoding a type with a skipped field fills it as
+ * a missing one, which an `Option` field takes as `None`. A variant with no
+ * payload is written as its name, and one with a payload as a map from its name
+ * to it. A decode that fails says where, by the path to the value:
+ * `server.port: expected an int, found a string`.
+ *
+ * Every decoder in `encoding/` throws a `DecodeError`, from a byte format's bad
+ * character to a structured one's missing field.
+ */
+
+import { Failure, Throw } from "../core/Error";
+import { join } from "../collections/List";
+import {
+    Expr, ExprKind, Stmt, StmtKind, FieldInit, MatchArm, Pattern, Bindings, NamedBinding, Args
+} from "../compiler/Ast";
+import { key_of, skipped, with_params, applied } from "../meta/Derive";
+import { numbered } from "../meta/Name";
+
+/** Why input does not decode. */
+type DecodeError {
+    /** The input ended where more was needed. The offset is its length. */
+    Truncated(int),
+
+    /** The character at this offset means nothing where it stands. */
+    Unexpected(int, char),
+
+    /** The value at the path is not what the type needs: the path, what it needs, and what was there. */
+    Mismatch(string, string, string),
+
+    /** Nothing is at the path, and the type needs something there. */
+    Missing(string),
+
+    /** The key at the path is given a value twice. */
+    Duplicate(string)
+}
+
+impl Failure for DecodeError {
+    fn message(self): string {
+        match self {
+            DecodeError.Truncated(at) => { return "the input ends at offset " + str(at) + " where more was needed"; }
+            DecodeError.Unexpected(at, c) => {
+                return debug(c) + " at offset " + str(at) + " is not valid here";
+            }
+            DecodeError.Mismatch(path, expected, found) => {
+                return __where(path) + "expected " + expected + ", found " + found;
+            }
+            DecodeError.Missing(path) => { return __where(path) + "missing"; }
+            DecodeError.Duplicate(path) => { return __where(path) + "set twice"; }
+        }
+    }
+}
+
+fn __where(path: string): string {
+    if (path == "") { return ""; }
+    return path + ": ";
+}
+
+/** A value as a format sees it, before it is text. */
+type Data {
+    Null,
+    Bool(bool),
+    Int(int),
+    Float(float),
+    Str(string),
+    /** Values in order. */
+    Seq(List<Data>),
+    /** Named values, in the order they were written. */
+    Map(List<Entry>)
+}
+
+/** One named value of a `Data.Map`. */
+type Entry {
+    key: string,
+    value: Data
+}
+
+impl Data {
+    /** What kind of value it is, for a message: `an int`, `a map`. */
+    fn kind(self): string {
+        match self {
+            Data.Null => { return "null"; }
+            Data.Bool(_) => { return "a bool"; }
+            Data.Int(_) => { return "an int"; }
+            Data.Float(_) => { return "a float"; }
+            Data.Str(_) => { return "a string"; }
+            Data.Seq(_) => { return "a list"; }
+            Data.Map(_) => { return "a map"; }
+        }
+        return "";
+    }
+
+    /** The value under the key, if this is a map holding one. */
+    fn get(self, key: string): Option<Data> {
+        match self {
+            Data.Map(entries) => {
+                for (e in entries) {
+                    if (e.key == key) { return Option.Some(e.value); }
+                }
+            }
+            _ => {}
+        }
+        return Option.None;
+    }
+}
+
+/** Writes a value as `Data`. */
+trait Encode {
+    fn encode(self): Data;
+}
+
+/** Builds a value from `Data`, throwing where it does not fit. */
+trait Decode {
+    fn decode(input: Decoder): <Throw<DecodeError>> Self;
+}
+
+/** A text format: what writes `Data` and reads it back. */
+trait Format {
+    fn write(self, data: Data): string;
+    fn read(self, text: string): <Throw<DecodeError>> Data;
+}
+
+/** The value written in the format. */
+fn encode_as<F: Format, T: Encode>(format: F, value: T): string {
+    return format.write(value.encode());
+}
+
+/** A value read from text in the format. */
+fn decode_as<T: Decode, F: Format>(format: F, text: string): <Throw<DecodeError>> T {
+    return T.decode(Decoder.of(format.read(text)));
+}
+
+/** A value built from `Data`. */
+fn decode_data<T: Decode>(data: Data): <Throw<DecodeError>> T {
+    return T.decode(Decoder.of(data));
+}
+
+/**
+ * A place in the data being decoded: the value there, if there is one, and the
+ * path to it, which every failure names.
+ */
+type Decoder {
+    data: Data,
+    present: bool,
+    path: string
+}
+
+impl Decoder {
+    /** At the top of the data. */
+    fn of(data: Data): Decoder { return Decoder { data: data, present: true, path: "" }; }
+
+    /** Whether anything is here. A missing map key is not. */
+    fn is_present(self): bool { return self.present; }
+
+    /** Whether nothing is here, or null is. */
+    fn is_empty(self): bool {
+        if (!self.present) { return true; }
+        match self.data {
+            Data.Null => { return true; }
+            _ => {}
+        }
+        return false;
+    }
+
+    /** The value under the key, decoded. */
+    fn field<T: Decode>(self, key: string): <Throw<DecodeError>> T {
+        return T.decode(self.at(key));
+    }
+
+    /** What decoding finds when the key is missing, whether or not it is there. */
+    fn absent<T: Decode>(self, key: string): <Throw<DecodeError>> T {
+        return T.decode(Decoder { data: Data.Null, present: false, path: self.__key_path(key) });
+    }
+
+    /** The value here, decoded. */
+    fn decoded<T: Decode>(self): <Throw<DecodeError>> T { return T.decode(self); }
+
+    /** The value at the index of the list here, decoded. */
+    fn item<T: Decode>(self, index: int): <Throw<DecodeError>> T {
+        var items = self.items();
+        if (index >= items.len()) {
+            return throw(DecodeError.Missing(self.path + "[" + str(index) + "]"));
+        }
+        return T.decode(items[index]);
+    }
+
+    /** The place under the key. Missing is not a failure until something needs a value there. */
+    fn at(self, key: string): <Throw<DecodeError>> Decoder {
+        var path = self.__key_path(key);
+        if (!self.present) { return throw(DecodeError.Missing(self.path)); }
+        match self.data {
+            Data.Map(entries) => {
+                for (e in entries) {
+                    if (e.key == key) { return Decoder { data: e.value, present: true, path: path }; }
+                }
+                return Decoder { data: Data.Null, present: false, path: path };
+            }
+            _ => {}
+        }
+        return throw(self.mismatch("a map"));
+    }
+
+    /** Each place in the list here. */
+    fn items(self): <Throw<DecodeError>> List<Decoder> {
+        match self.__value() {
+            Data.Seq(values) => {
+                var out: List<Decoder> = [];
+                var i = 0;
+                for (v in values) {
+                    out.push(Decoder { data: v, present: true, path: self.path + "[" + str(i) + "]" });
+                    i += 1;
+                }
+                return out;
+            }
+            _ => {}
+        }
+        return throw(self.mismatch("a list"));
+    }
+
+    /** Each key and the place under it, in order. */
+    fn entries(self): <Throw<DecodeError>> List<(string, Decoder)> {
+        match self.__value() {
+            Data.Map(entries) => {
+                var out: List<(string, Decoder)> = [];
+                for (e in entries) {
+                    out.push((e.key, Decoder { data: e.value, present: true, path: self.__key_path(e.key) }));
+                }
+                return out;
+            }
+            _ => {}
+        }
+        return throw(self.mismatch("a map"));
+    }
+
+    /**
+     * The variant written here, and the place holding its payload: a name
+     * alone, or a map from the name to the payload.
+     */
+    fn variant(self): <Throw<DecodeError>> (string, Decoder) {
+        match self.__value() {
+            Data.Str(name) => {
+                return (name, Decoder { data: Data.Null, present: false, path: self.__key_path(name) });
+            }
+            Data.Map(entries) => {
+                if (entries.len() == 1) {
+                    var e = entries[0];
+                    return (e.key, Decoder { data: e.value, present: true, path: self.__key_path(e.key) });
+                }
+            }
+            _ => {}
+        }
+        return throw(self.mismatch("a variant"));
+    }
+
+    fn int(self): <Throw<DecodeError>> int {
+        match self.__value() {
+            Data.Int(n) => { return n; }
+            _ => {}
+        }
+        return throw(self.mismatch("an int"));
+    }
+
+    fn float(self): <Throw<DecodeError>> float {
+        match self.__value() {
+            Data.Float(f) => { return f; }
+            Data.Int(n) => { return n.to_float(); }
+            _ => {}
+        }
+        return throw(self.mismatch("a float"));
+    }
+
+    fn string(self): <Throw<DecodeError>> string {
+        match self.__value() {
+            Data.Str(s) => { return s; }
+            _ => {}
+        }
+        return throw(self.mismatch("a string"));
+    }
+
+    fn bool(self): <Throw<DecodeError>> bool {
+        match self.__value() {
+            Data.Bool(b) => { return b; }
+            _ => {}
+        }
+        return throw(self.mismatch("a bool"));
+    }
+
+    /** The failure for finding something other than what was needed here. */
+    fn mismatch(self, expected: string): DecodeError {
+        return DecodeError.Mismatch(self.path, expected, self.data.kind());
+    }
+
+    /** The failure for a variant the type does not have. */
+    fn unknown_variant(self, name: string): DecodeError {
+        return DecodeError.Mismatch(self.path, "a variant of this type", "'" + name + "'");
+    }
+
+    fn __value(self): <Throw<DecodeError>> Data {
+        if (!self.present) { return throw(DecodeError.Missing(self.path)); }
+        return self.data;
+    }
+
+    fn __key_path(self, key: string): string {
+        if (self.path == "") { return key; }
+        return self.path + "." + key;
+    }
+}
+
+impl Encode for int { fn encode(self): Data { return Data.Int(self); } }
+impl Encode for float { fn encode(self): Data { return Data.Float(self); } }
+impl Encode for string { fn encode(self): Data { return Data.Str(self); } }
+impl Encode for bool { fn encode(self): Data { return Data.Bool(self); } }
+impl Encode for Data { fn encode(self): Data { return self; } }
+
+impl Encode for Option<T: Encode> {
+    fn encode(self): Data {
+        match self {
+            Option.Some(v) => { return v.encode(); }
+            Option.None => { return Data.Null; }
+        }
+        return Data.Null;
+    }
+}
+
+impl Encode for List<T: Encode> {
+    fn encode(self): Data {
+        var out: List<Data> = [];
+        for (v in self) { out.push(v.encode()); }
+        return Data.Seq(out);
+    }
+}
+
+impl Decode for int { fn decode(input: Decoder): <Throw<DecodeError>> int { return input.int(); } }
+impl Decode for float { fn decode(input: Decoder): <Throw<DecodeError>> float { return input.float(); } }
+impl Decode for string { fn decode(input: Decoder): <Throw<DecodeError>> string { return input.string(); } }
+impl Decode for bool { fn decode(input: Decoder): <Throw<DecodeError>> bool { return input.bool(); } }
+
+impl Decode for Data {
+    fn decode(input: Decoder): <Throw<DecodeError>> Data {
+        if (!input.is_present()) { return Data.Null; }
+        return input.data;
+    }
+}
+
+impl Decode for Option<T: Decode> {
+    fn decode(input: Decoder): <Throw<DecodeError>> Option<T> {
+        if (input.is_empty()) { return Option.None; }
+        return Option.Some(T.decode(input));
+    }
+}
+
+impl Decode for List<T: Decode> {
+    fn decode(input: Decoder): <Throw<DecodeError>> List<T> {
+        var out: List<T> = [];
+        for (item in input.items()) { out.push(T.decode(item)); }
+        return out;
+    }
+}
+
+fn derive(shape: TypeShape) for Encode {
+    match shape {
+        TypeShape.Product(t, params, fields) => {
+            var self_type = applied(t, params);
+            var entries: List<Expr> = [];
+            for (f in fields) {
+                if (!skipped(f.attrs)) {
+                    var field = f.name;
+                    var key = key_of(f.name, f.attrs);
+                    entries.push(code(Entry { key: key, value: self.field.encode() }));
+                }
+            }
+            var all = Expr.of(ExprKind.Collection(entries));
+            var written = code(Data.Map(all));
+            var made = with_params(code impl Encode for t {
+                fn encode(self): Data { return written; }
+            }, params, true);
+            gen made;
+        }
+        TypeShape.Sum(t, params, variants) => {
+            var self_type = applied(t, params);
+            var arms: List<MatchArm> = [];
+            for (v in variants) {
+                var label = key_of(v.name, v.attrs);
+                var bound = numbered("__p", v.arity);
+                var values: List<Expr> = [];
+                for (b in bound) {
+                    var each = Expr.of(ExprKind.Var(b));
+                    values.push(code(each.encode()));
+                }
+                var bindings = Bindings.None;
+                var payload = code(Data.Null);
+                if (v.fields.len() > 0) {
+                    var named: List<NamedBinding> = [];
+                    var entries: List<Expr> = [];
+                    for (var i = 0; i < v.fields.len(); i += 1) {
+                        named.push(NamedBinding { field: v.fields[i], bound: bound[i] });
+                        var key = str(v.fields[i]);
+                        var value = values[i];
+                        entries.push(code(Entry { key: key, value: value }));
+                    }
+                    bindings = Bindings.Named(named);
+                    var all = Expr.of(ExprKind.Collection(entries));
+                    payload = code(Data.Map(all));
+                } else if (v.arity == 1) {
+                    bindings = Bindings.Positional(bound);
+                    payload = values[0];
+                } else if (v.arity > 1) {
+                    bindings = Bindings.Positional(bound);
+                    var all = Expr.of(ExprKind.Collection(values));
+                    payload = code(Data.Seq(all));
+                }
+                var body = code { return Data.Map([Entry { key: label, value: payload }]); };
+                if (v.arity == 0) { body = code { return Data.Str(label); }; }
+                arms.push(MatchArm { pattern: Pattern.Variant(t, v.name, bindings), body: body });
+            }
+            var matched = Stmt.of(StmtKind.Match(code(self), arms));
+            var made = with_params(code impl Encode for t {
+                fn encode(self): Data {
+                    matched;
+                    return Data.Null;
+                }
+            }, params, true);
+            gen made;
+        }
+        _ => {}
+    }
+}
+
+fn derive(shape: TypeShape) for Decode {
+    match shape {
+        TypeShape.Product(t, params, fields) => {
+            var self_type = applied(t, params);
+            var built = Expr.of(ExprKind.New(t, field_decoders(fields)));
+            var made = with_params(code impl Decode for t {
+                fn decode(input: Decoder): <Throw<DecodeError>> self_type { return built; }
+            }, params, true);
+            gen made;
+        }
+        TypeShape.Sum(t, params, variants) => {
+            var self_type = applied(t, params);
+            var body: List<Stmt> = code { var (__variant, __payload) = input.variant(); };
+            for (v in variants) {
+                var label = key_of(v.name, v.attrs);
+                var args = Args.None;
+                if (v.fields.len() > 0) {
+                    var inits: List<FieldInit> = [];
+                    for (name in v.fields) {
+                        var key = str(name);
+                        inits.push(FieldInit { name: name, value: code(__payload.field(key)) });
+                    }
+                    args = Args.Named(inits);
+                } else if (v.arity == 1) {
+                    args = Args.Positional([code(__payload.decoded())]);
+                } else if (v.arity > 1) {
+                    var items: List<Expr> = [];
+                    for (var i = 0; i < v.arity; i += 1) { items.push(code(__payload.item(i))); }
+                    args = Args.Positional(items);
+                }
+                var made = Expr.of(ExprKind.NewVariant(t, v.name, args));
+                for (s in code { if (__variant == label) { return made; } }) { body.push(s); }
+            }
+            for (s in code { return throw(input.unknown_variant(__variant)); }) { body.push(s); }
+            var made = with_params(code impl Decode for t {
+                fn decode(input: Decoder): <Throw<DecodeError>> self_type { body; }
+            }, params, true);
+            gen made;
+        }
+        _ => {}
+    }
+}
+
+/**
+ * One initializer per field, each decoded from the field's key in a `Decoder`
+ * named `input` -- a skipped one as if it were missing. A deriver building a
+ * record the way `Decode` does, as `Cli` does, uses these.
+ */
+fn field_decoders(fields: Array<TypeField>): List<FieldInit> {
+    var inits: List<FieldInit> = [];
+    for (f in fields) {
+        var key = key_of(f.name, f.attrs);
+        if (skipped(f.attrs)) {
+            inits.push(FieldInit { name: f.name, value: code(input.absent(key)) });
+        } else {
+            inits.push(FieldInit { name: f.name, value: code(input.field(key)) });
+        }
+    }
+    return inits;
+}

@@ -1,0 +1,6 @@
+ok   logs_where_it_listens
+ok   warns_about_a_privileged_port
+FAIL notices_a_wrong_expectation
+  logged at warn, not error
+
+2/3 passed

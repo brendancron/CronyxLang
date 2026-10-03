@@ -17,7 +17,7 @@ type value =
   | Object of value * (string * value) list
   | Fn of fn
   (* Never outlives metaprocessing. *)
-  | Code of Ast.expr
+  | Span of Ast.span
   (* Apart from a string, so only what reflection handed out can be spliced
      into a name position. *)
   | Name of string
@@ -39,6 +39,11 @@ type error =
   }
 
 exception Runtime_error of error
+
+(* The program asked to end with this exit code. Raised rather than exiting, so
+   whoever runs the program -- a command, or the test suite -- decides what
+   ending means. *)
+exception Exited of int
 
 let fail span fmt =
   Printf.ksprintf (fun message -> raise (Runtime_error { span; message })) fmt
@@ -65,7 +70,7 @@ let type_name = function
   | Unit -> "unit"
   | Array _ -> "array"
   | Fn _ -> "fn"
-  | Code _ -> "code"
+  | Span _ -> "span"
   | Name _ -> "name"
   | Object _ -> "object"
 
@@ -92,7 +97,15 @@ let rec string_of_value = function
   | Unit -> "unit"
   | Fn f -> Printf.sprintf "<fn %s>" f.name
   | Object (data, _) -> string_of_value data
-  | Code e -> Printf.sprintf "<code %s>" (Printer.string_of_expr e)
+  | Span s ->
+    (match Source_map.Span.view s with
+     | Source_map.Span.Nowhere_in_source -> "<generated>"
+     | Source_map.Span.Located l ->
+       Printf.sprintf
+         "%s:%d:%d"
+         (Source_map.File.path l.Source_map.Span.file)
+         l.Source_map.Span.line
+         l.Source_map.Span.col)
   (* A name from another module carries that module's prefix, which the program
      never wrote; it is shown as written. *)
   | Name n ->
@@ -136,6 +149,8 @@ let rec equal_with seen a b =
     | Chr x, Chr y -> Uchar.equal x y
     | Bool x, Bool y -> x = y
     | Unit, Unit -> true
+    | Name x, Name y -> String.equal x y
+    | Span x, Span y -> x == y
     | _ -> false)
 
 let values_equal a b = equal_with [] a b
@@ -147,7 +162,7 @@ let rec same a b =
   | Array x, Array y -> x == y
   | Record (_, x), Record (_, y) -> x == y
   | Fn x, Fn y -> x == y
-  | Code x, Code y -> x == y
+  | Span x, Span y -> x == y
   | Name x, Name y -> String.equal x y
   | Tuple x, Tuple y -> List.length x = List.length y && List.for_all2 same x y
   | Variant (_, n, a), Variant (_, m, b) ->

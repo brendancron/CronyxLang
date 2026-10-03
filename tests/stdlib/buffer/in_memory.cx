@@ -1,0 +1,45 @@
+import { Reader, Writer, IoError, lines } from "std/io/Io";
+import { Buffer, ByteOrder, buffer, buffer_of } from "std/io/Buffer";
+import { Throw } from "std/core/Error";
+import { async } from "std/async/Task";
+
+// A parser that reads from any Reader: the sum of one number a line.
+fn total(from: Reader): <async, Throw<IoError>> int {
+    var sum = 0;
+    for (line in lines(from)) {
+        match line.to_int() {
+            Option.Some(n) => { sum = sum + n; }
+            Option.None => {}
+        }
+    }
+    return sum;
+}
+
+// A report that writes to any Writer.
+fn report(to: Writer, name: string, value: int): <async, Throw<IoError>> unit {
+    to.write((name + " = " + str(value) + "\n").bytes());
+}
+
+var input: Reader = buffer_of("3\n4\nfive\n5\n".bytes());
+var sum = total(input);
+
+var captured = buffer();
+var out: Writer = captured;
+report(out, "sum", sum);
+report(out, "count", 3);
+print(captured.bytes().len());
+print(total(buffer_of("1\n2\n".bytes())));
+
+var echoed: Reader = captured;
+for (line in lines(echoed)) { print("[" + line + "]"); }
+
+var b = buffer();
+b.write_int(0x0102, 2, ByteOrder.Big);
+b.write_int(258, 2, ByteOrder.Little);
+b.write_int(-1, 1, ByteOrder.Big);
+print(b.bytes());
+print(b.read_int(2, ByteOrder.Big));
+print(b.read_int(2, ByteOrder.Little));
+print(b.read_byte());
+print(b.read_int(1, ByteOrder.Big));
+print(b.len());

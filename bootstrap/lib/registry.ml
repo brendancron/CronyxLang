@@ -129,12 +129,15 @@ let entry_with_targets t owner method_ targets =
 (* A bound names the entry outright, so a call it dispatched asks no table which
    impl it reaches. *)
 let dispatched (d : Types.ty Ast.dispatch) owner method_ =
-  let written t = Option.value (Types.type_name t) ~default:"_" in
-  Ast.dispatched_method_name
-    owner
-    d.Ast.dp_trait
-    (List.map written d.Ast.dp_targets)
-    method_
+  match d.Ast.dp_instance with
+  | Some copy -> copy
+  | None ->
+    let written t = Option.value (Types.type_name t) ~default:"_" in
+    Ast.dispatched_method_name
+      owner
+      d.Ast.dp_trait
+      (List.map written d.Ast.dp_targets)
+      method_
 
 (* A call left ambiguous is rejected before here, so the head is the one entry
    a receiver's method has. *)
@@ -184,7 +187,8 @@ let result_of entry operand =
 
 let unresolved_result (op : Ast.binop) operand =
   match op with
-  | Ast.Add | Ast.Sub | Ast.Mul | Ast.Div | Ast.Mod -> operand
+  | Ast.Add | Ast.Sub | Ast.Mul | Ast.Div | Ast.Mod | Ast.Bit_and | Ast.Bit_or | Ast.Bit_xor
+  | Ast.Shl | Ast.Shr -> operand
   | Ast.Less | Ast.Less_equal | Ast.Greater | Ast.Greater_equal | Ast.Equal
   | Ast.Not_equal -> Types.IBool
 
@@ -216,4 +220,18 @@ let builtins () =
     [ Ast.Equal; Ast.Not_equal ];
   register_unary t Ast.Neg Types.Int (prim Types.Int);
   register_unary t Ast.Neg Types.Float (prim Types.Float);
+  (* A byte shifts by an int, as an int does: the amount is a count, not an
+     octet. *)
+  List.iter
+    (fun op ->
+      register t op Types.Int Types.Int (prim Types.Int);
+      register t op Types.Byte Types.Byte (prim Types.Byte))
+    [ Ast.Bit_and; Ast.Bit_or; Ast.Bit_xor ];
+  List.iter
+    (fun op ->
+      register t op Types.Int Types.Int (prim Types.Int);
+      register t op Types.Byte Types.Int (prim Types.Byte))
+    [ Ast.Shl; Ast.Shr ];
+  register_unary t Ast.Bit_not Types.Int (prim Types.Int);
+  register_unary t Ast.Bit_not Types.Byte (prim Types.Byte);
   t

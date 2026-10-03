@@ -1,0 +1,163 @@
+/**
+ * SHA-256.
+ *
+ * ```
+ * import { sha256, Sha256 } from "std/crypto/Sha256";
+ * import { encode } from "std/encoding/Hex";
+ *
+ * print(encode(sha256("abc".bytes())));
+ * // ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+ *
+ * var hash = Sha256.new();
+ * hash.update("ab".bytes());
+ * hash.update("c".bytes());
+ * print(hash.hex());   // the same
+ * ```
+ *
+ * A `Sha256` is a `Writer`, so a stream can be hashed as it is read rather
+ * than held whole. Asking for the digest finishes it: anything written after
+ * is a mistake, and panics.
+ */
+
+import { Writer, IoError } from "../io/Io";
+import { Throw } from "../core/Error";
+import { async } from "../async/Task";
+import { encode } from "../encoding/Hex";
+
+/** The digest of the bytes. */
+fn sha256(data: Array<byte>): Array<byte> {
+    var hash = Sha256.new();
+    hash.update(data);
+    return hash.digest();
+}
+
+/** A digest being computed, one block of 64 bytes at a time. */
+type Sha256 {
+    state: Array<int>,
+    // Bytes written since the last full block.
+    pending: List<byte>,
+    // Every byte written, for the length the padding ends with.
+    length: int,
+    finished: bool
+}
+
+impl Sha256 {
+    /** Nothing written yet. */
+    fn new(): Sha256 {
+        var state = __initial();
+        return Sha256 { state: state, pending: [], length: 0, finished: false };
+    }
+
+    /** Takes in more of the message. Panics once the digest has been asked for. */
+    fn update(self, data: Array<byte>) {
+        if (self.finished) { panic("a Sha256 was written to after its digest was taken"); }
+        for (b in data) {
+            self.pending.push(b);
+            if (self.pending.len() == 64) {
+                __block(self.state, self.pending);
+                self.pending = [];
+            }
+        }
+        self.length += data.len();
+    }
+
+    /** The 32-byte digest of everything written. */
+    fn digest(self): Array<byte> {
+        if (!self.finished) {
+            var bits = self.length * 8;
+            self.update([(128).to_byte()]);
+            while (self.pending.len() != 56) { self.update([(0).to_byte()]); }
+            var tail: List<byte> = [];
+            for (var shift = 56; shift >= 0; shift -= 8) { tail.push((bits >> shift).to_byte()); }
+            self.update(tail.items[0:8]);
+            self.finished = true;
+        }
+        var out = Array(32, (0).to_byte());
+        for (var i = 0; i < 8; i += 1) {
+            for (var j = 0; j < 4; j += 1) {
+                out[i * 4 + j] = (self.state[i] >> (24 - j * 8)).to_byte();
+            }
+        }
+        return out;
+    }
+
+    /** The digest as lower-case hex digits. */
+    fn hex(self): string { return encode(self.digest()); }
+}
+
+impl Writer for Sha256 {
+    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit { self.update(data); }
+}
+
+// Every word is kept to 32 bits: an int has 63, so a sum of two words still
+// fits before it is masked, and a product is never needed.
+fn __word(n: int): int { return n & 4294967295; }
+
+fn __rotate(x: int, n: int): int { return __word((x >> n) | (x << (32 - n))); }
+
+fn __block(state: Array<int>, block: List<byte>) {
+    var rounds = __rounds();
+    var w = Array(64, 0);
+    for (var i = 0; i < 16; i += 1) {
+        w[i] = (block[i * 4].to_int() << 24) | (block[i * 4 + 1].to_int() << 16)
+            | (block[i * 4 + 2].to_int() << 8) | block[i * 4 + 3].to_int();
+    }
+    for (var i = 16; i < 64; i += 1) {
+        var s0 = __rotate(w[i - 15], 7) ^ __rotate(w[i - 15], 18) ^ (w[i - 15] >> 3);
+        var s1 = __rotate(w[i - 2], 17) ^ __rotate(w[i - 2], 19) ^ (w[i - 2] >> 10);
+        w[i] = __word(w[i - 16] + s0 + w[i - 7] + s1);
+    }
+    var a = state[0];
+    var b = state[1];
+    var c = state[2];
+    var d = state[3];
+    var e = state[4];
+    var f = state[5];
+    var g = state[6];
+    var h = state[7];
+    for (var i = 0; i < 64; i += 1) {
+        var s1 = __rotate(e, 6) ^ __rotate(e, 11) ^ __rotate(e, 25);
+        var choose = (e & f) ^ (__word(~e) & g);
+        var t1 = __word(h + s1 + choose + rounds[i] + w[i]);
+        var s0 = __rotate(a, 2) ^ __rotate(a, 13) ^ __rotate(a, 22);
+        var majority = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = __word(s0 + majority);
+        h = g;
+        g = f;
+        f = e;
+        e = __word(d + t1);
+        d = c;
+        c = b;
+        b = a;
+        a = __word(t1 + t2);
+    }
+    state[0] = __word(state[0] + a);
+    state[1] = __word(state[1] + b);
+    state[2] = __word(state[2] + c);
+    state[3] = __word(state[3] + d);
+    state[4] = __word(state[4] + e);
+    state[5] = __word(state[5] + f);
+    state[6] = __word(state[6] + g);
+    state[7] = __word(state[7] + h);
+}
+
+// The fractional parts of the square roots of the first eight primes.
+fn __initial(): Array<int> {
+    return [
+        1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225
+    ];
+}
+
+// The fractional parts of the cube roots of the first sixty-four primes.
+fn __rounds(): Array<int> {
+    return [
+        1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221,
+        3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580,
+        3835390401, 4022224774, 264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986,
+        2554220882, 2821834349, 2952996808, 3210313671, 3336571891, 3584528711, 113926993, 338241895,
+        666307205, 773529912, 1294757372, 1396182291, 1695183700, 1986661051, 2177026350, 2456956037,
+        2730485921, 2820302411, 3259730800, 3345764771, 3516065817, 3600352804, 4094571909, 275423344,
+        430227734, 506948616, 659060556, 883997877, 958139571, 1322822218, 1537002063, 1747873779,
+        1955562222, 2024104815, 2227730452, 2361852424, 2428436474, 2756734187, 3204031479, 3329325298
+    ];
+}

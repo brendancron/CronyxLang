@@ -24,6 +24,7 @@ let cases =
   ; "tests/core/modules/global_import/main"
   ; "tests/core/modules/shadowing/own_print"
   ; "tests/core/modules/shadowing/own_type"
+  ; "tests/core/modules/shadowing/own_var"
   ; "tests/core/modules/qualified/main"
   ; "tests/core/modules/same_dir/main"
   ; "tests/core/modules/selective/main"
@@ -32,6 +33,10 @@ let cases =
   ; "tests/core/modules/types/main"
   ; "tests/core/modules/transitive_type/main"
   ; "tests/stdlib/math/math"
+  ; "tests/stdlib/math/bigint"
+  ; "tests/stdlib/crypto/sha256"
+  ; "tests/stdlib/test/bench"
+  ; "tests/stdlib/log/logger"
   ; "tests/stdlib/throw/attempt"
   ; "tests/stdlib/throw/rethrow"
   ; "tests/stdlib/throw/failure"
@@ -40,8 +45,24 @@ let cases =
   ; "tests/stdlib/async/failure"
   ; "tests/stdlib/async/both"
   ; "tests/stdlib/async/top_level_scope"
+  ; "tests/stdlib/async/channel"
+  ; "tests/stdlib/async/select"
+  ; "tests/stdlib/async/sleep"
+  ; "tests/stdlib/async/fake_clock"
+  ; "tests/stdlib/async/timeout"
   ; "tests/stdlib/io/files"
   ; "tests/stdlib/io/fake_fs"
+  ; "tests/stdlib/fs/paths"
+  ; "tests/stdlib/fs/directories"
+  ; "tests/stdlib/os/args"
+  ; "tests/stdlib/os/env"
+  ; "tests/stdlib/os/time"
+  ; "tests/stdlib/os/process"
+  ; "tests/stdlib/os/fake_process"
+  ; "tests/stdlib/os/cli"
+  ; "tests/stdlib/os/exit"
+  ; "tests/stdlib/os/meta_environment"
+  ; "tests/stdlib/random/seeded"
   ; "tests/stdlib/io/fake_stdin"
   ; "tests/stdlib/io/blank_line"
   ; "tests/stdlib/io/using"
@@ -66,8 +87,11 @@ let cases =
   ; "tests/core/functions/forward_calls_stay_pure"
   ; "tests/core/functions/shadowed_generic"
   ; "tests/core/functions/generic_captures"
+  ; "tests/core/functions/lambda_param_imported_type"
   ; "tests/core/functions/evaluation_order"
   ; "tests/types/inference/annotations"
+  ; "tests/types/inference/local_named_like_method"
+  ; "tests/types/inference/method_lambda_param"
   ; "tests/types/inference/numeric_defaulting"
   ; "tests/types/inference/polymorphism"
   ; "tests/types/inference/float_math"
@@ -96,6 +120,7 @@ let cases =
   ; "tests/effects/flip/flip"
   ; "tests/effects/recover/recover"
   ; "tests/effects/handler/handler"
+  ; "tests/effects/handler/arm_reaches_outer"
   ; "tests/effects/named_import/main"
   ; "tests/effects/qualified_op/main"
   ; "tests/effects/handled_in_import/main"
@@ -158,6 +183,7 @@ let cases =
   ; "tests/reflection/shape_recursive"
   ; "tests/reflection/shape_sum"
   ; "tests/reflection/shape_sum_payload"
+  ; "tests/reflection/field_types"
   ; "tests/reflection/shape_scalar"
   ; "tests/core/math/modulus"
   ; "tests/stdlib/list/list"
@@ -178,21 +204,18 @@ let cases =
   ; "tests/core/ufcs/with_lambda"
   ; "tests/core/ufcs/imported/main"
   ; "tests/stdlib/fallible/fallible"
-  ; "tests/stdlib/toml/toml/toml"
   ; "tests/core/strings/string_slice"
   ; "tests/core/slices/overload"
   ; "tests/core/embed/embed"
   ; "tests/core/defer/defer_return"
   ; "tests/core/defer/defer_scope"
+  ; "tests/core/defer/defer_in_run"
   ; "tests/core/defer/defer_handles_failure"
   ; "tests/core/defer/defer_suspends_on_unwind"
   ; "tests/core/defer/defer_effect"
   ; "tests/core/resolution/symbol_res"
   ; "tests/core/resolution/hoisting"
   ; "tests/core/builtins/print_value"
-  ; "tests/core/builtins/readfile"
-  ; "tests/core/builtins/writefile"
-  ; "tests/core/builtins/readfile_meta"
   ; "tests/core/variadic/basics"
   ; "tests/core/variadic/generic"
   ; "tests/core/variadic/packs/basics"
@@ -300,6 +323,15 @@ let cases =
   ; "tests/stdlib/algo/sort"
   ; "tests/stdlib/algo/stable"
   ; "tests/stdlib/algo/search"
+  ; "tests/stdlib/utf8/invalid"
+  ; "tests/stdlib/buffer/in_memory"
+  ; "tests/stdlib/encoding/hex_base64"
+  ; "tests/stdlib/encoding/codec"
+  ; "tests/stdlib/encoding/json"
+  ; "tests/stdlib/encoding/toml"
+  ; "tests/stdlib/encoding/round_trip"
+  ; "tests/stdlib/encoding/generic"
+  ; "tests/core/syntax/radix_literals"
   ; "tests/stdlib/stringbuilder/stringbuilder"
   ; "tests/core/traits/written_target"
   ; "tests/core/traits/bound_target"
@@ -371,6 +403,7 @@ let cases =
   ; "tests/meta/06_modules/comptime_across/main"
   ; "tests/meta/06_modules/comptime_two_importers/main"
   ; "tests/meta/06_modules/unreached_fn/main"
+  ; "tests/meta/06_modules/unreached_generic/main"
   ; "tests/meta/06_modules/unused_import/main"
   ; "tests/meta/07_precheck/alias_generated"
   ; "tests/meta/07_precheck/depends_on_meta"
@@ -379,6 +412,15 @@ let cases =
   ; "tests/meta/code/fold"
   ; "tests/meta/code/derive_eq"
   ; "tests/meta/code/helper"
+  ; "tests/meta/syntax/inspect"
+  ; "tests/meta/syntax/by_hand"
+  ; "tests/meta/syntax/record_from_list"
+  ; "tests/meta/syntax/statements"
+  ; "tests/meta/syntax/type_splice"
+  ; "tests/meta/syntax/round_trip"
+  ; "tests/meta/syntax/printer"
+  ; "tests/meta/moduleof/main"
+  ; "tests/meta/moduleof/helper_fn"
   ; "tests/meta/derive/two_traits"
   ; "tests/meta/attributes/fields"
   ; "tests/meta/attributes/variants"
@@ -410,10 +452,12 @@ let cases =
   ; "tests/operators/operator_mul"
   ; "tests/operators/operator_eq"
   ; "tests/operators/operator_chain"
+  ; "tests/operators/bitwise"
   ; "tests/operators/operator_in_fn"
   ; "tests/operators/compound_assign"
   ; "tests/operators/traits/vec2_add"
   ; "tests/operators/traits/asymmetric"
+  ; "tests/operators/traits/bitwise"
   ; "tests/operators/traits/equality"
   ; "tests/operators/traits/indexing"
   ; "tests/operators/traits/generic_bound"
@@ -430,8 +474,14 @@ let cases =
   ; "tests/core/traits/associated_builtin"
   ; "tests/core/traits/associated_type"
   ; "tests/core/traits/supertrait"
+  ; "tests/core/traits/bounded_impl"
+  ; "tests/core/traits/bound_in_lambda"
+  ; "tests/core/traits/bounded_generic_in_lambda"
+  ; "tests/core/traits/dyn/bounded_impl"
+  ; "tests/core/records/empty_literal"
   ; "tests/core/traits/builtin_receiver/main"
   ; "tests/effects/methods/methods"
+  ; "tests/effects/methods/suspending_receiver"
   ; "tests/core/static_params/type_params/main"
   ; "tests/core/static_params/type_reuse/main"
   ; "tests/core/static_params/parameterized_types/main"
@@ -554,6 +604,12 @@ let error_cases =
   ; "tests/reflection/errors/no_such_name"
   ; "tests/meta/code/errors/outside_meta"
   ; "tests/meta/code/errors/not_a_name"
+  ; "tests/meta/syntax/errors/wrong_kind"
+  ; "tests/meta/moduleof/errors/not_a_module"
+  ; "tests/meta/moduleof/errors/outside_meta"
+  ; "tests/effects/handler/errors/arm_without_outer"
+  ; "tests/core/records/errors/unimported_effect_in_field"
+  ; "tests/core/records/errors/unknown_field_type"
   ; "tests/reflection/errors/not_a_value"
   ; "tests/types/errors/mixed_numeric"
   ; "tests/types/inference/errors/unspecializable_recursion"
@@ -618,6 +674,7 @@ let error_cases =
   ; "tests/core/traits/errors/ambiguous_receiver"
   ; "tests/stdlib/format/errors/effectful_display"
   ; "tests/core/traits/errors/generic_impl_no_operator"
+  ; "tests/core/traits/errors/bounded_impl_unmet"
   ; "tests/core/traits/errors/impl_signature_mismatch"
   ; "tests/core/traits/errors/impl_method_arity"
   ; "tests/core/traits/errors/impl_trait_arg_arity"
@@ -653,10 +710,10 @@ let error_cases =
 (* Accepted, then failing while running. Separate from [error_cases], which
    never reach the interpreter. *)
 let runtime_cases =
-  [ "tests/core/builtins/readfile_missing"
-  ; "tests/core/collections/index_out_of_range"
+  [ "tests/core/collections/index_out_of_range"
   ; "tests/core/slices/negative_index"
   ; "tests/core/builtins/chr_invalid"
+  ; "tests/operators/negative_shift"
   ; "tests/stdlib/array/filled_arity"
   ; "tests/core/builtins/panic"
   ; "tests/stdlib/async/deadlock"
@@ -702,7 +759,7 @@ let interpret path =
   | Error (e :: _) -> Error (described path e)
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out) converted with
-     | Ok () -> Ok (Buffer.contents buf)
+     | Ok _ -> Ok (Buffer.contents buf)
      | Error e -> Error (described path e))
 
 (* Why a fixture does not run yet. *)
@@ -860,9 +917,13 @@ let run_round_trip root name =
          Printf.printf "FAIL %s (round trip)\n  printing it twice differs\n" name;
          false))
 
+(* What follows `--` on the command line, for the fixtures that read it. *)
+let arguments_for = [ "tests/stdlib/os/args", [ "one"; "two three" ] ]
+
 let run_case root name =
   let path ext = Filename.concat root (name ^ ext) in
   let expected = read_file (path ".txt") in
+  System.arguments := Option.value (List.assoc_opt name arguments_for) ~default:[];
   match interpret (path ".cx") with
   | Error message ->
     Printf.printf "FAIL %s\n  %s\n" name message;
@@ -1073,7 +1134,7 @@ let run_prompt_flushed () =
     match Pipeline.compile ~roots:(Driver.roots_for path) ~out:print_string path with
     | Ok converted ->
       (match Pipeline.run (Builtins.env ~out:print_string) converted with
-       | Ok () -> Ok ()
+       | Ok _ -> Ok ()
        | Error e -> Error (described path e))
     | Error [] -> Error "the program does not compile"
     | Error (e :: _) -> Error (described path e)

@@ -1,0 +1,350 @@
+/**
+ * JSON.
+ *
+ * ```
+ * import { Encode, Decode } from "std/encoding/Codec";
+ * import { to_json, from_json } from "std/encoding/Json";
+ *
+ * type Point { x: int, y: int }
+ * derive Encode, Decode for Point;
+ *
+ * print(to_json(Point { x: 1, y: 2 }));     // {"x":1,"y":2}
+ * var p: Point = from_json("{\"x\": 3, \"y\": 4}");
+ * ```
+ *
+ * A number with a fraction or an exponent reads as a float and any other as an
+ * int. A float with no finite value is written as `null`, since JSON has none.
+ */
+
+import { Throw } from "../core/Error";
+import { join } from "../collections/List";
+import { repeat } from "../text/String";
+import { Data, Entry, Encode, Decode, DecodeError, Format, Decoder } from "Codec";
+
+/** JSON as a `Format`: written on one line, or indented when `pretty`. */
+type Json {
+    pretty: bool
+}
+
+impl Format for Json {
+    fn write(self, data: Data): string {
+        if (self.pretty) { return __pretty(data, 0); }
+        return __compact(data);
+    }
+
+    fn read(self, text: string): <Throw<DecodeError>> Data { return parse_json(text); }
+}
+
+/** The value as JSON on one line. */
+fn to_json<T: Encode>(value: T): string { return __compact(value.encode()); }
+
+/** The value as JSON, indented two spaces a level. */
+fn to_json_pretty<T: Encode>(value: T): string { return __pretty(value.encode(), 0); }
+
+/** A value read from JSON. */
+fn from_json<T: Decode>(text: string): <Throw<DecodeError>> T {
+    return T.decode(Decoder.of(parse_json(text)));
+}
+
+/** The data as JSON on one line. */
+fn write_json(data: Data): string { return __compact(data); }
+
+/** The data JSON text holds. Throws where the text is not JSON. */
+fn parse_json(text: string): <Throw<DecodeError>> Data {
+    var reader = __Reader { chars: text.chars(), at: 0 };
+    reader.space();
+    var value = reader.value();
+    reader.space();
+    if (reader.at < reader.chars.len()) { return throw(reader.unexpected()); }
+    return value;
+}
+
+fn __compact(data: Data): string {
+    match data {
+        Data.Seq(items) => {
+            var parts: List<string> = [];
+            for (item in items) { parts.push(__compact(item)); }
+            return "[" + join(parts, ",") + "]";
+        }
+        Data.Map(entries) => {
+            var parts: List<string> = [];
+            for (e in entries) { parts.push(__quoted(e.key) + ":" + __compact(e.value)); }
+            return "{" + join(parts, ",") + "}";
+        }
+        _ => { return __scalar(data); }
+    }
+    return "";
+}
+
+fn __pretty(data: Data, depth: int): string {
+    var inner = repeat("  ", depth + 1);
+    var outer = repeat("  ", depth);
+    match data {
+        Data.Seq(items) => {
+            if (items.len() == 0) { return "[]"; }
+            var parts: List<string> = [];
+            for (item in items) { parts.push(inner + __pretty(item, depth + 1)); }
+            return "[\n" + join(parts, ",\n") + "\n" + outer + "]";
+        }
+        Data.Map(entries) => {
+            if (entries.len() == 0) { return "{}"; }
+            var parts: List<string> = [];
+            for (e in entries) { parts.push(inner + __quoted(e.key) + ": " + __pretty(e.value, depth + 1)); }
+            return "{\n" + join(parts, ",\n") + "\n" + outer + "}";
+        }
+        _ => { return __scalar(data); }
+    }
+    return "";
+}
+
+fn __scalar(data: Data): string {
+    match data {
+        Data.Null => { return "null"; }
+        Data.Bool(b) => { return str(b); }
+        Data.Int(n) => { return str(n); }
+        Data.Float(f) => {
+            var text = str(f);
+            if (text.contains("inf") || text.contains("nan")) { return "null"; }
+            return text;
+        }
+        Data.Str(s) => { return __quoted(s); }
+        _ => {}
+    }
+    return "";
+}
+
+fn __quoted(text: string): string {
+    var out = "\"";
+    for (c in text.chars()) {
+        var point = ord(c);
+        if (c == '"') { out = out + "\\\""; }
+        else if (c == '\\') { out = out + "\\\\"; }
+        else if (c == '\n') { out = out + "\\n"; }
+        else if (c == '\r') { out = out + "\\r"; }
+        else if (c == '\t') { out = out + "\\t"; }
+        else if (point < 32) { out = out + "\\u" + __hex4(point); }
+        else { out = out + str(c); }
+    }
+    return out + "\"";
+}
+
+fn __hex4(point: int): string {
+    var digits = "0123456789abcdef";
+    var out = "";
+    var rest = point;
+    for (var i = 0; i < 4; i += 1) {
+        out = str(digits[rest % 16]) + out;
+        rest = rest / 16;
+    }
+    return out;
+}
+
+type __Reader {
+    chars: Array<char>,
+    at: int
+}
+
+impl __Reader {
+    fn space(self) {
+        while (self.at < self.chars.len()) {
+            var c = self.chars[self.at];
+            if (c == ' ' || c == '\n' || c == '\r' || c == '\t') { self.at += 1; } else { return; }
+        }
+    }
+
+    fn unexpected(self): DecodeError {
+        if (self.at >= self.chars.len()) { return DecodeError.Truncated(self.chars.len()); }
+        return DecodeError.Unexpected(self.at, self.chars[self.at]);
+    }
+
+    fn peek(self): <Throw<DecodeError>> char {
+        if (self.at >= self.chars.len()) { return throw(self.unexpected()); }
+        return self.chars[self.at];
+    }
+
+    fn expect(self, c: char): <Throw<DecodeError>> unit {
+        if (self.peek() != c) { throw(self.unexpected()); }
+        self.at += 1;
+    }
+
+    fn word(self, w: string, value: Data): <Throw<DecodeError>> Data {
+        for (c in w.chars()) { self.expect(c); }
+        return value;
+    }
+
+    fn value(self): <Throw<DecodeError>> Data {
+        var c = self.peek();
+        if (c == '{') { return self.object(); }
+        if (c == '[') { return self.array(); }
+        if (c == '"') { return Data.Str(self.string()); }
+        if (c == 't') { return self.word("true", Data.Bool(true)); }
+        if (c == 'f') { return self.word("false", Data.Bool(false)); }
+        if (c == 'n') { return self.word("null", Data.Null); }
+        if (c == '-' || (c >= '0' && c <= '9')) { return self.number(); }
+        return throw(self.unexpected());
+    }
+
+    fn object(self): <Throw<DecodeError>> Data {
+        self.expect('{');
+        var entries: List<Entry> = [];
+        self.space();
+        if (self.peek() == '}') {
+            self.at += 1;
+            return Data.Map(entries);
+        }
+        while (true) {
+            self.space();
+            var key = self.string();
+            self.space();
+            self.expect(':');
+            self.space();
+            entries.push(Entry { key: key, value: self.value() });
+            self.space();
+            if (self.peek() == ',') { self.at += 1; } else {
+                self.expect('}');
+                return Data.Map(entries);
+            }
+        }
+        return Data.Map(entries);
+    }
+
+    fn array(self): <Throw<DecodeError>> Data {
+        self.expect('[');
+        var items: List<Data> = [];
+        self.space();
+        if (self.peek() == ']') {
+            self.at += 1;
+            return Data.Seq(items);
+        }
+        while (true) {
+            self.space();
+            items.push(self.value());
+            self.space();
+            if (self.peek() == ',') { self.at += 1; } else {
+                self.expect(']');
+                return Data.Seq(items);
+            }
+        }
+        return Data.Seq(items);
+    }
+
+    fn string(self): <Throw<DecodeError>> string {
+        self.expect('"');
+        var out = "";
+        while (true) {
+            var c = self.peek();
+            self.at += 1;
+            if (c == '"') { return out; }
+            if (c == '\\') {
+                var e = self.peek();
+                self.at += 1;
+                if (e == 'n') { out = out + "\n"; }
+                else if (e == 't') { out = out + "\t"; }
+                else if (e == 'r') { out = out + "\r"; }
+                else if (e == 'b') { out = out + str(chr(8)); }
+                else if (e == 'f') { out = out + str(chr(12)); }
+                else if (e == '"' || e == '\\' || e == '/') { out = out + str(e); }
+                else if (e == 'u') {
+                    var point = self.hex4();
+                    // A surrogate pair names one character in two escapes.
+                    if (point >= 55296 && point <= 56319) {
+                        self.expect('\\');
+                        self.expect('u');
+                        var low = self.hex4();
+                        point = 65536 + (point - 55296) * 1024 + (low - 56320);
+                    }
+                    out = out + str(chr(point));
+                } else {
+                    self.at -= 1;
+                    return throw(self.unexpected());
+                }
+            } else if (ord(c) < 32) {
+                self.at -= 1;
+                return throw(self.unexpected());
+            } else {
+                out = out + str(c);
+            }
+        }
+        return out;
+    }
+
+    fn hex4(self): <Throw<DecodeError>> int {
+        var point = 0;
+        for (var i = 0; i < 4; i += 1) {
+            var c = self.peek();
+            var digit = -1;
+            if (c >= '0' && c <= '9') { digit = ord(c) - ord('0'); }
+            else if (c >= 'a' && c <= 'f') { digit = ord(c) - ord('a') + 10; }
+            else if (c >= 'A' && c <= 'F') { digit = ord(c) - ord('A') + 10; }
+            if (digit < 0) { return throw(self.unexpected()); }
+            point = point * 16 + digit;
+            self.at += 1;
+        }
+        return point;
+    }
+
+    fn digits(self): string {
+        var out = "";
+        while (self.at < self.chars.len() && self.chars[self.at] >= '0' && self.chars[self.at] <= '9') {
+            out = out + str(self.chars[self.at]);
+            self.at += 1;
+        }
+        return out;
+    }
+
+    fn number(self): <Throw<DecodeError>> Data {
+        var text = "";
+        if (self.peek() == '-') {
+            text = "-";
+            self.at += 1;
+        }
+        var whole = self.digits();
+        if (whole == "") { return throw(self.unexpected()); }
+        text = text + whole;
+        var floating = false;
+        if (self.at < self.chars.len() && self.chars[self.at] == '.') {
+            self.at += 1;
+            var fraction = self.digits();
+            if (fraction == "") { return throw(self.unexpected()); }
+            text = text + "." + fraction;
+            floating = true;
+        }
+        var exponent = 0;
+        if (self.at < self.chars.len() && (self.chars[self.at] == 'e' || self.chars[self.at] == 'E')) {
+            self.at += 1;
+            var negative = false;
+            if (self.at < self.chars.len() && (self.chars[self.at] == '+' || self.chars[self.at] == '-')) {
+                negative = self.chars[self.at] == '-';
+                self.at += 1;
+            }
+            var written = self.digits();
+            if (written == "") { return throw(self.unexpected()); }
+            match written.to_int() {
+                Option.Some(n) => { exponent = n; }
+                Option.None => {}
+            }
+            if (negative) { exponent = -exponent; }
+            floating = true;
+        }
+        if (!floating) {
+            match text.to_int() {
+                Option.Some(n) => { return Data.Int(n); }
+                Option.None => {}
+            }
+        }
+        var value = 0.0;
+        match text.to_float() {
+            Option.Some(f) => { value = f; }
+            Option.None => {}
+        }
+        while (exponent > 0) {
+            value = value * 10.0;
+            exponent -= 1;
+        }
+        while (exponent < 0) {
+            value = value / 10.0;
+            exponent += 1;
+        }
+        return Data.Float(value);
+    }
+}

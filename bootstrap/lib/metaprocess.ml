@@ -59,6 +59,13 @@ let derived_eq span target : Ast.stmt =
 let emitter = Ast.generated [ "meta"; "emit" ]
 let capturer = Ast.generated [ "meta"; "value" ]
 let quoter = Ast.generated [ "meta"; "code" ]
+let quoter_stmts = Ast.generated [ "meta"; "code_stmts" ]
+let quoter_decl = Ast.generated [ "meta"; "code_decl" ]
+let reflector = Ast.generated [ "meta"; "moduleof" ]
+
+let syntax span read =
+  try read () with
+  | Syntax.Malformed message -> fail span "%s" message
 
 (* A value written back as the syntax that denotes it. A function and an object
    have no such syntax, so they are [None]. *)
@@ -73,8 +80,11 @@ let rec literal_of span (v : Value.value) : Ast.expr option =
       items
       (Some [])
   in
+  match Syntax.kind_of v with
+  | Some Syntax.Expr_node -> Some (syntax span (fun () -> Syntax.to_expr ~fallback:span v))
+  | Some kind -> fail span "This is %s, which cannot stand where an expression does." (Syntax.describe kind)
+  | None ->
   match v with
-  | Value.Code e -> Some e
   | Value.Int n -> Some (at (`Int n))
   | Value.Float n -> Some (at (`Float n))
   | Value.Str s -> Some (at (`Str s))
@@ -144,7 +154,11 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
       match t.Ast.it with
       | Ast.Ty_variadic t -> Ast.Ty_variadic (type_expr t)
       | Ast.Ty_spread t -> Ast.Ty_spread (type_expr t)
-      | Ast.Ty_name n -> Ast.Ty_name (named n)
+      | Ast.Ty_name n ->
+        (match Hashtbl.find_opt bound n with
+         | Some v when Syntax.kind_of v = Some Syntax.Type_node ->
+           (syntax t.Ast.span (fun () -> Syntax.to_type ~fallback:t.Ast.span v)).Ast.it
+         | _ -> Ast.Ty_name (named n))
       | Ast.Ty_assoc (owner, member) -> Ast.Ty_assoc (type_expr owner, member)
       | Ast.Ty_bind (bound, t) -> Ast.Ty_bind (bound, type_expr t)
       | Ast.Ty_app (n, args) -> Ast.Ty_app (named n, List.map type_expr args)
@@ -208,7 +222,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
         | `Method_call (receiver, name, as_function, args) ->
           `Method_call (expr receiver, named name, named as_function, List.map expr args)
         (* Lowered when the code holding it runs, not now. *)
-        | `Code _ as c -> c
+        | (`Code _ | `Code_stmts _ | `Code_decl _) as c -> c
         | `Field (receiver, label) -> `Field (expr receiver, named label)
         | `Field_assign (receiver, label, v) ->
           `Field_assign (expr receiver, named label, expr v)
@@ -261,13 +275,33 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
     match body with
     | [] -> []
     | s :: rest ->
-      let walked = stmt shadowed s in
+      let walked = statements shadowed s in
       let shadowed =
         match s.Ast.it with
         | `Var_decl (name, _, _) -> Shadowed.add name shadowed
         | _ -> shadowed
       in
-      walked :: sequence shadowed rest
+      walked @ sequence shadowed rest
+  (* A bare meta name standing as a statement is spliced by what it holds: a
+     statement, a declaration, or a list of statements, which may be empty. *)
+  and statements shadowed (s : Ast.stmt) : Ast.stmt list =
+    match spliced shadowed s with
+    | Some stmts -> stmts
+    | None -> [ stmt shadowed s ]
+  and spliced shadowed (s : Ast.stmt) : Ast.stmt list option =
+    let sp = s.Ast.span in
+    match s.Ast.it with
+    | `Expr { Ast.it = `Var name; _ } when not (Shadowed.mem name shadowed) ->
+      (match Hashtbl.find_opt bound name with
+       | Some (Value.Record (Some t, _) as v) when String.equal t Core.list ->
+         Some (syntax sp (fun () -> Syntax.to_stmts ~fallback:sp v))
+       | Some v ->
+         (match Syntax.kind_of v with
+          | Some Syntax.Stmt_node -> Some [ syntax sp (fun () -> Syntax.to_stmt ~fallback:sp v) ]
+          | Some Syntax.Decl_node -> Some [ syntax sp (fun () -> Syntax.to_decl ~fallback:sp v) ]
+          | _ -> None)
+       | None -> None)
+    | _ -> None
   and stmt shadowed (s : Ast.stmt) : Ast.stmt =
     let expr = expr shadowed in
     let it : Ast.stmt_kind =
@@ -280,6 +314,11 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
           , signature sg
           , sequence (hidden shadowed (param_names params)) body )
       | `Block body -> `Block (sequence shadowed body)
+      | `Expr ({ Ast.it = `Var _; _ } as e) ->
+        (match spliced shadowed s with
+         | Some [ one ] -> one.Ast.it
+         | Some many -> `Block many
+         | None -> `Expr (expr e))
       | `For_in (names, over, inner) ->
         `For_in
           (names, expr over, stmt (List.fold_left (Fun.flip Shadowed.add) shadowed names) inner)
@@ -375,10 +414,19 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
     in
     { s with Ast.it }
   and expr_in shadowed e = expr shadowed e in
-  expr Shadowed.empty, stmt Shadowed.empty
+  expr Shadowed.empty, stmt Shadowed.empty, sequence Shadowed.empty
 
-let substitute bound (root : Ast.stmt) : Ast.stmt = snd (substitution bound) root
-let substitute_expr bound (e : Ast.expr) : Ast.expr = fst (substitution bound) e
+let substitute bound (root : Ast.stmt) : Ast.stmt =
+  let _, stmt, _ = substitution bound in
+  stmt root
+
+let substitute_expr bound (e : Ast.expr) : Ast.expr =
+  let expr, _, _ = substitution bound in
+  expr e
+
+let substitute_all bound (body : Ast.stmt list) : Ast.stmt list =
+  let _, _, sequence = substitution bound in
+  sequence body
 
 (* A lowered `gen` or `code` carries its meta-bound names beside its index. *)
 let bindings_of args =
@@ -405,13 +453,14 @@ let emit_into { table; current; _ } span args =
   match args with
   | Value.Int index :: rest ->
     (match Hashtbl.find_opt table index with
-     | Some captured -> !current := substitute (bindings_of rest) captured :: !(!current)
+     | Some captured ->
+       !current := List.rev_append (substitute_all (bindings_of rest) [ captured ]) !(!current)
      | None -> Value.fail span "Nothing was captured here.")
   | _ -> Value.fail span "Nothing was captured here."
 
 (* Run against an environment holding the three entries a lowered `gen` or
    `code` calls. *)
-let run ~out ~codes ~emit ~capture (program : Ast.program) =
+let run ~out ~codes ~emit ~capture ~reflect (program : Ast.program) =
   match Compile.program program with
   | Error [] -> fail Source_map.Span.nowhere "The meta block does not check."
   | Error (e :: _) -> fail e.Diagnostic.span "%s" e.Diagnostic.message
@@ -423,18 +472,40 @@ let run ~out ~codes ~emit ~capture (program : Ast.program) =
        | [ v ] -> capture v
        | _ -> ());
       Value.Unit);
-    native quoter None (fun span args ->
-      match args with
-      | Value.Int index :: rest ->
-        (match Hashtbl.find_opt codes index with
-         | Some captured -> Value.Code (substitute_expr (bindings_of rest) captured)
-         | None -> Value.fail span "Nothing was captured here.")
-      | _ -> Value.fail span "Nothing was captured here.");
+    let quote name convert =
+      native name None (fun span args ->
+        match args with
+        | Value.Int index :: rest ->
+          (match Hashtbl.find_opt codes index with
+           | Some captured ->
+             (try convert (bindings_of rest) captured with
+              | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message })
+              | Syntax.Malformed message -> Value.fail span "%s" message)
+           | None -> Value.fail span "Nothing was captured here.")
+        | _ -> Value.fail span "Nothing was captured here.")
+    in
+    quote quoter (fun bound captured -> Syntax.expr (substitute_expr bound captured));
+    quote quoter_stmts (fun bound captured ->
+      match captured.Ast.it with
+      | `Code_stmts body -> Syntax.list Syntax.stmt (substitute_all bound body)
+      | _ -> Value.fail captured.Ast.span "Nothing was captured here.");
+    quote quoter_decl (fun bound captured ->
+      match captured.Ast.it with
+      | `Code_decl d -> Syntax.decl (substitute bound d)
+      | _ -> Value.fail captured.Ast.span "Nothing was captured here.");
     native emitter None (fun span args ->
       emit span args;
       Value.Unit);
+    native reflector (Some 2) (fun span args ->
+      match args with
+      | [ Value.Str prefix; Value.Str shown ] ->
+        (try reflect (Utf8.encode prefix) (Utf8.encode shown) with
+         | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message }))
+      | _ -> Value.fail span "moduleof takes a module.");
     (match Compile.run env converted with
-     | Ok () -> ()
+     | Ok 0 -> ()
+     | Ok code ->
+       fail Source_map.Span.nowhere "A meta block ended the program with exit code %d." code
      | Error e -> fail e.Diagnostic.span "%s" e.Diagnostic.message)
 
 
@@ -506,7 +577,7 @@ let promote ~meta ~visible ~refs (s : Ast.stmt) : Ast.stmt * (string * Ast.expr)
           , sequence
               (List.fold_left (fun acc (p : Ast.param) -> Shadowed.add p.Ast.name acc) shadowed params)
               body )
-      | `Code _ as c -> c
+      | (`Code _ | `Code_stmts _ | `Code_decl _) as c -> c
       | #Ast.lit as l -> l
       | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.expr_kind)
       | #Ast.ops as o -> (Ast.map_ops expr o :> Ast.expr_kind)
@@ -626,6 +697,13 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
       let index = Hashtbl.length codes in
       Hashtbl.replace codes index inner;
       { e with Ast.it = (call sp index scope quoter).Ast.it }
+    | `Call ({ Ast.it = `Var "__moduleof"; _ } as callee, args) ->
+      { e with Ast.it = `Call ({ callee with Ast.it = `Var reflector }, List.map (expr scope) args) }
+    | `Code_stmts _ | `Code_decl _ ->
+      let index = Hashtbl.length codes in
+      Hashtbl.replace codes index e;
+      let callee = match e.Ast.it with `Code_stmts _ -> quoter_stmts | _ -> quoter_decl in
+      { e with Ast.it = (call sp index scope callee).Ast.it }
     | `Match_expr (scrutinee, cases) ->
       let arm (p, (b : (Ast.expr, Ast.stmt) Ast.valued_block)) =
         let inner = Ast.pattern_names p @ scope in
@@ -636,7 +714,7 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
       let expr = expr scope in
       let it : Ast.expr_kind =
         match it with
-        | `Code _ as c -> c
+        | (`Code _ | `Code_stmts _ | `Code_decl _) as c -> c
         | `Lambda (params, sg, body) -> `Lambda (params, sg, block scope body)
         | #Ast.lit as l -> l
         | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.expr_kind)
@@ -684,6 +762,7 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
        | _ -> same (`Expr call))
     | `Var_decl (name, ty, init) ->
       { s with Ast.it = `Var_decl (name, ty, Option.map (expr scope) init) }, name :: scope
+    | `Var_tuple (names, init) -> { s with Ast.it = `Var_tuple (names, expr scope init) }, names @ scope
     | `Block body -> same (`Block (block scope body))
     | `While (cond, body) -> same (`While (expr scope cond, fst (stmt scope body)))
     | `If (cond, t, e) ->
@@ -796,7 +875,7 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
     let receiver = ex receiver in
     let args = many args in
     h.method_call scope { e with Ast.it = `Method_call (receiver, name, as_function, args) }
-  | `Code _ -> h.code scope e
+  | `Code _ | `Code_stmts _ | `Code_decl _ -> h.code scope e
   | `Lambda (params, sg, body) ->
     { e with Ast.it = `Lambda (params, sg, tblock h (with_params scope params) body) }
   | `Run_expr (body, handlers, clause) ->
@@ -867,7 +946,8 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
         (h.generic_new scope { e with Ast.it = `New_generic (name, static_args, fields) }).Ast.it
       | `Collection_lit items -> `Collection_lit (many items)
       | `Typeof a -> `Typeof (ex a)
-      | `Var _ | `Static_call _ | `Method_call _ | `Code _ | `Lambda _ | `Run_expr _
+      | `Var _ | `Static_call _ | `Method_call _ | `Code _ | `Code_stmts _ | `Code_decl _
+      | `Lambda _ | `Run_expr _
       | `Match_expr _ -> it
     in
     { e with Ast.it }
@@ -1051,7 +1131,7 @@ let rec contains_code (body : Ast.stmt list) =
   let found = ref false in
   let rec expr (e : Ast.expr) =
     match e.Ast.it with
-    | `Code _ -> found := true
+    | `Code _ | `Code_stmts _ | `Code_decl _ -> found := true
     | `Lambda (_, _, b) -> if contains_code b then found := true
     | `Var _ | #Ast.lit -> ()
     | `Static_call (callee, static_args, args) ->
@@ -1175,6 +1255,9 @@ type world =
        argument list when first built, like a comptime function. *)
     comptime_types : (string, comptime_type) Hashtbl.t
   ; type_copies : (string, unit) Hashtbl.t
+  ; (* Every named top-level declaration, written or generated, newest first:
+       what `moduleof` lists. *)
+    mutable declared : Ast.stmt list
   }
 
 and comptime_type =
@@ -1382,6 +1465,7 @@ let rec key_of w (e : Ast.expr) : string option =
   | `Bool b -> Some (string_of_bool b)
   | `Bytes b -> Some ("bytes:" ^ Digest.to_hex (Digest.string b))
   | `Unop (Ast.Neg, inner) -> Option.map (fun key -> "-" ^ key) (key_of w inner)
+  | `Unop (Ast.Bit_not, inner) -> Option.map (fun key -> "~" ^ key) (key_of w inner)
   | `Tuple items -> Option.map (fun k -> "(" ^ k ^ ")") (all items)
   | `Collection_lit items -> Option.map (fun k -> "[" ^ k ^ "]") (all items)
   | `Record_lit fs -> fields fs
@@ -1501,6 +1585,7 @@ let rec fold w (e : Ast.expr) : Ast.expr =
      | Ast.Neg, `Int n -> at (`Int (-n))
      | Ast.Neg, `Float n -> at (`Float (-.n))
      | Ast.Not, `Bool b -> at (`Bool (not b))
+     | Ast.Bit_not, `Int n -> at (`Int (lnot n))
      | _ -> e)
   | `And (a, b) | `Or (a, b) ->
     (match (fold w a).Ast.it, (fold w b).Ast.it, e.Ast.it with
@@ -1532,6 +1617,9 @@ let rec fold w (e : Ast.expr) : Ast.expr =
       | Ast.Mul, `Int x, `Int y -> at (`Int (x * y))
       | Ast.Div, `Int x, `Int y when y <> 0 -> at (`Int (x / y))
       | Ast.Mod, `Int x, `Int y when y <> 0 -> at (`Int (x mod y))
+      | Ast.Bit_and, `Int x, `Int y -> at (`Int (x land y))
+      | Ast.Bit_or, `Int x, `Int y -> at (`Int (x lor y))
+      | Ast.Bit_xor, `Int x, `Int y -> at (`Int (x lxor y))
       | Ast.Add, `Float x, `Float y -> at (`Float (x +. y))
       | Ast.Sub, `Float x, `Float y -> at (`Float (x -. y))
       | Ast.Mul, `Float x, `Float y -> at (`Float (x *. y))
@@ -1686,6 +1774,7 @@ let rec declared_of (s : Ast.stmt) =
 
 (* Set once [register] exists; the walk and registration call each other. *)
 let register_hook : (world -> Ast.stmt -> unit) ref = ref (fun _ _ -> ())
+let module_hook : (world -> string -> string -> Value.value) ref = ref (fun _ _ _ -> Value.Unit)
 
 let starts_with ~prefix name =
   let n = String.length prefix in
@@ -2181,6 +2270,7 @@ and run_meta w ~statics ~runtime ~outer body =
        ~codes:w.context.codes
        ~emit:(emit_into w.context)
        ~capture:(fun _ -> ())
+       ~reflect:(fun prefix shown -> !module_hook w prefix shown)
        program
    with
    | Failed e ->
@@ -2403,7 +2493,8 @@ and meta_program w deps =
           !refs;
         out := with_body e.walked body :: !out)
   in
-  S.iter add (Hashtbl.fold (fun name _ acc -> if Ast.is_root name then S.add name acc else acc) w.entries deps);
+  let from = S.union deps (S.of_list Resolve.synthesized) in
+  S.iter add (Hashtbl.fold (fun name _ acc -> if Ast.is_root name then S.add name acc else acc) w.entries from);
   let standing =
     List.filter_map
       (fun st ->
@@ -2435,6 +2526,111 @@ let rec method_names (s : Ast.stmt) =
     List.map (fun (m : (Ast.stmt, unit) Ast.method_def) -> m.Ast.md_name) impl.Ast.ib_methods
   | `Attributed (_, inner) -> method_names inner
   | _ -> []
+
+let rec declaration_kind (s : Ast.stmt) =
+  match s.Ast.it with
+  | `Fn _ -> Some "Function"
+  | `Type_decl _ | `Type_members _ -> Some "Type"
+  | `Trait_decl _ -> Some "Trait"
+  | `Effect_decl _ -> Some "Effect"
+  | `Handler_decl _ -> Some "Handler"
+  | `Attributed (_, inner) -> declaration_kind inner
+  | _ -> None
+
+let note_declared w (s : Ast.stmt) =
+  if Option.is_some (declaration_kind s) then w.declared <- s :: w.declared
+
+(* What `moduleof` answers: the module's top-level meta run first, so what it
+   generates is listed with what was written. *)
+let module_record w prefix shown =
+  (* Any name under the prefix wakes the module, and no identifier holds a `?`. *)
+  wake w (prefix ^ "?");
+  let owned name =
+    String.length name > String.length prefix
+    && starts_with ~prefix name
+    && not (String.contains (String.sub name (String.length prefix) (String.length name - String.length prefix)) '#')
+  in
+  let rec name_of (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Fn (n, _, _, _) | `Type_decl (n, _, _) | `Trait_decl (n, _, _) | `Effect_decl (n, _, _)
+    | `Handler_decl (n, _) -> Some n
+    | `Type_members (decl, _) -> name_of decl
+    | `Attributed (_, inner) -> name_of inner
+    | _ -> None
+  in
+  let rec attrs_of (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Attributed (list, inner) -> list @ attrs_of inner
+    | _ -> []
+  in
+  let attr_arg (a : Ast.attr_arg) =
+    let label, v =
+      match a with
+      | Ast.A_str t -> "Str", Value.Str (Utf8.decode t)
+      | Ast.A_int n -> "Int", Value.Int n
+      | Ast.A_float f -> "Float", Value.Float f
+      | Ast.A_bool b -> "Bool", Value.Bool b
+    in
+    Value.Variant (Some Core.attr_arg, label, [ "0", v ])
+  in
+  (* Where the declaration itself starts, past any attribute above it. *)
+  let rec unwrapped (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Attributed (_, inner) -> unwrapped inner
+    | _ -> s
+  in
+  let declaration (s : Ast.stmt) name kind =
+    let attrs = attrs_of s in
+    let doc, written = List.partition (fun (a : Ast.attr) -> String.equal a.Ast.a_name Ast.doc_attr) attrs in
+    let doc =
+      match doc with
+      | { Ast.a_args = [ Ast.A_str text ]; _ } :: _ -> text
+      | _ -> ""
+    in
+    Value.Record
+      ( Some (Core.reflect "Declaration")
+      , [ "name", ref (Value.Name name)
+        ; "kind", ref (Value.Variant (Some (Core.reflect "DeclarationKind"), kind, []))
+        ; "doc", ref (Value.Str (Utf8.decode doc))
+        ; ( "params"
+          , ref
+              (Value.Array
+                 (Array.of_list
+                    (match fn_parts s with
+                     | Some (_, params, _, _) -> List.map (fun (p : Ast.param) -> Value.Name p.Ast.name) params
+                     | None -> []))) )
+        ; "span", ref (Value.Span (unwrapped s).Ast.span)
+        ; ( "attrs"
+          , ref
+              (Value.Array
+                 (Array.of_list
+                    (List.map
+                       (fun (a : Ast.attr) ->
+                         Value.Record
+                           ( Some Core.attr
+                           , [ "name", ref (Value.Name a.Ast.a_name)
+                             ; "args", ref (Value.Array (Array.of_list (List.map attr_arg a.Ast.a_args)))
+                             ] ))
+                       written))) )
+        ] )
+  in
+  let seen = Hashtbl.create 16 in
+  let listed =
+    List.filter_map
+      (fun s ->
+        match name_of s, declaration_kind s with
+        | Some name, Some kind when owned name && not (Hashtbl.mem seen name) ->
+          Hashtbl.replace seen name ();
+          Some (declaration s name kind)
+        | _ -> None)
+      (List.rev w.declared)
+  in
+  Value.Variant
+    ( Some (Core.reflect "Module")
+    , "File"
+    , [ "0", Value.Name shown; "1", Value.Array (Array.of_list listed) ] )
+
+let () = module_hook := module_record
 
 let rec is_type_level (s : Ast.stmt) =
   match s.Ast.it with
@@ -2577,6 +2773,7 @@ let note_meta_methods w (s : Ast.stmt) =
 
 (* A declaration a meta block generated, from the point it was generated. *)
 let register w (s : Ast.stmt) =
+  note_declared w s;
   note_type w s;
   note_meta_methods w s;
   List.iter
@@ -2614,6 +2811,7 @@ let register w (s : Ast.stmt) =
 let () = register_hook := register
 
 let collect w (s : Ast.stmt) =
+  note_declared w s;
   note_type w s;
   note_meta_methods w s;
   (match deferred_prefix s with
@@ -2766,17 +2964,7 @@ let lift_comptime (p : Ast.program) =
   in
   List.rev !lifted @ top
 
-let rec carries attribute (s : Ast.stmt) =
-  match s.Ast.it with
-  | `Attributed (attrs, inner) ->
-    List.exists (fun (a : Ast.attr) -> String.equal a.Ast.a_name attribute) attrs
-    || carries attribute inner
-  | _ -> false
-
-(* [rooted_by] makes every function carrying that attribute a root, written or
-   generated, once every module's top-level meta has run: nothing calls a test,
-   so nothing else would reach one. *)
-let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
+let program ~out (p : Ast.program) : (Ast.program, error) result =
   let context =
     { out
     ; table = Hashtbl.create 16
@@ -2805,6 +2993,7 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
     ; meta_methods = Hashtbl.create 8
     ; comptime_types = Hashtbl.create 8
     ; type_copies = Hashtbl.create 8
+    ; declared = []
     }
   in
   try
@@ -2865,19 +3054,6 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
                scope := inner;
                slot (fun _ -> out))))
       p;
-    Option.iter
-      (fun attribute ->
-        List.iter
-          (fun prefix -> wake w (prefix ^ "_"))
-          (Hashtbl.fold (fun prefix _ acc -> prefix :: acc) w.units []);
-        let marked =
-          Hashtbl.fold
-            (fun name (e : entry) acc -> if carries attribute e.written then name :: acc else acc)
-            w.entries
-            []
-        in
-        List.iter (fun name -> ignore (reach w ~deps:roots name)) (List.sort compare marked))
-      rooted_by;
     (* Only what the running program reaches is emitted; what nothing reaches
        was checked by [Precheck], so an error there is still reported. *)
     let reachable = Hashtbl.create 64 in
@@ -2898,13 +3074,13 @@ let program ?rooted_by ~out (p : Ast.program) : (Ast.program, error) result =
       | Some _ when Hashtbl.mem emitted name -> []
       | Some e ->
         Hashtbl.add emitted name ();
-        if takes_static_params e
+        if not (Hashtbl.mem reachable name)
+        then []
+        else if takes_static_params e
         then if instantiated w e then [] else [ e.written ]
         else if e.gens || performs_gen w name
         then []
-        else if Hashtbl.mem reachable name
-        then [ e.walked ]
-        else []
+        else [ e.walked ]
     in
     let generated =
       List.concat_map

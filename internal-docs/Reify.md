@@ -10,17 +10,17 @@ Inside a `meta` block a value is dynamic; written into what a `gen` emits, it is
 
 ```cronyx
 trait Reifiable {
-    fn reify(self): Code;
+    fn reify(self): Expr;
 }
 ```
 
-A type that can become syntax implements `reify`, and it returns the `Code` that rebuilds it. The compiler supplies it for the primitives, tuples and arrays, as it does the operator traits; `Code` reifies to itself and `Name` to the identifier. A program's own types get it by deriving it, as they get `Eq`:
+A type that can become syntax implements `reify`, and it returns the `Expr` that rebuilds it. The compiler supplies it for the primitives, tuples and arrays, as it does the operator traits; an `Expr` reifies to itself and `Name` to the identifier. A program's own types get it by deriving it, as they get `Eq`:
 
 ```cronyx
 derive Reifiable for Point;
 // generates, roughly:
 impl Reifiable for Point {
-    fn reify(self): Code {
+    fn reify(self): Expr {
         var x = self.x.reify();
         var y = self.y.reify();
         return code(Point { x: x, y: y });
@@ -30,13 +30,13 @@ impl Reifiable for Point {
 
 **Why a trait rather than a structural walk.** Only the type knows what its value means as syntax. A `List` is a backing array and a count, and written out structurally it comes back as `List { … }` over those — the right type, but carrying the spare capacity behind `count` and bypassing whatever its constructor would have kept true. `reify` lets `List` write itself as the literal that builds it, and `Point` keep `Point { … }`.
 
-**Why it returns `Code`.** It is what a `gen` splices, and what `code(…)` already builds: a `Code` held in a meta variable splices into `code(…)`, so an impl assembles its syntax the way any other meta code does. Template Haskell's `Lift` (`lift :: t -> Q Exp`, with `deriving Lift`), Scala 3's `ToExpr` and Rust's `quote::ToTokens` are the same shape.
+**Why it returns `Expr`.** It is what a `gen` splices, and what `code(…)` already builds: an `Expr` held in a meta variable splices into `code(…)`, so an impl assembles its syntax the way any other meta code does. Template Haskell's `Lift` (`lift :: t -> Q Exp`, with `deriving Lift`), Scala 3's `ToExpr` and Rust's `quote::ToTokens` are the same shape.
 
 **Why it is derived explicitly.** A type says it can become syntax the way it says it can be compared, so a plain record is not reifiable until it asks to be.
 
 **What it settles.** A value that cannot cross is a type error in the meta program — a `gen` reading `f` asks for `Reifiable` of its type — rather than something found while the block runs. A trait object can be written out when its trait extends `Reifiable`, since its table then carries `reify`, which answers [Meta Scope and Instantiation](Meta%20Scope%20and%20Instantiation.md)'s open question.
 
-**What it needs.** A collection's `reify` has a variable number of parts, and `code(…)` has no form for "a list literal of these `Code`s", so it needs a splice form or a prelude helper. And it is built with the rework of `Code` itself ([TODO](TODO.md), "`Gen` as an effect"), since both change what `Code` is.
+**What it needs.** A collection's `reify` has a variable number of parts, which the syntax tree now gives it: `Expr.of(ExprKind.Collection(parts))` ([Syntax Trees](Syntax%20Trees.md)).
 
 ## What is built: a structural walk
 
@@ -50,7 +50,7 @@ impl Reifiable for Point {
 | named product | `Name { … }` | every field is |
 | sum | `Name.Variant`, `Name.Variant(…)` or `Name.Variant { … }` | every payload value is |
 | array | an array literal | every element is |
-| `Code` | the syntax it holds | always |
+| `Expr` | the syntax it holds | always |
 | `Name` | the identifier | always |
 | function | — | never |
 | trait object | — | never |

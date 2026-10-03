@@ -73,7 +73,7 @@ Two consequences of stopping there, both worth knowing before they are discovere
 
 Content-addressed, keyed on an input hash covering: the compiler version, every source file, the manifest, the feature set, the profile, every path an `embed` read, and each dependency's artifact hash.
 
-`embed` resolves in `loader.ml` and `readfile` runs in `builtins.ml`; both record what they read in `Inputs` rather than at the call sites, so that a third way to read a file cannot forget to. Only what is read while the artifact is built lands in it, and that is `embed`'s: the artifact is not metaprocessed, so a `meta` block's `readfile` runs when the linked program is walked and reads the file again on every run.
+`embed` resolves in `loader.ml` and records what it reads in `Inputs` rather than at the call site, so that a second way to read a file at build time cannot forget to. Only what is read while the artifact is built lands in it, and that is `embed`'s: the artifact is not metaprocessed, so a `meta` block that reads a file through `Fs` does so when the linked program is walked, and reads it again on every run.
 
 An artifact carries every path it read and what that path hashed to, so freshness is a question about content rather than about a clock: touching a file changes nothing, editing one rebuilds the package that read it and everything above it. The paths are recorded rather than derived from the manifest, since nothing in the manifest names what a program embeds.
 

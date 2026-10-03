@@ -22,6 +22,7 @@
  */
 
 import { Throw } from "../core/Error";
+import { Duration, Instant, Time } from "../os/Time";
 import { Promise, promise, resolve, await } from "Promise";
 
 /** Waiting, and the one queue waiting tasks are woken through. */
@@ -35,6 +36,12 @@ effect async {
 
     /** The function that puts a wake-up in the scheduler's queue. */
     fn waker(): (() -> unit) -> unit;
+
+    /**
+     * Calls `wake` once `delay` has passed, and hands back what cancels that.
+     * A timer that is cancelled, or has fired, is not waited for.
+     */
+    fn after(delay: Duration, wake: () -> unit): () -> unit;
 }
 
 /** Lets every other task that is ready run before this one carries on. */
@@ -95,6 +102,7 @@ fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E>
                 }));
             }
             fn waker() { return waker(); }
+            fn after(delay, wake) { return after(delay, wake); }
         }
     }
 
@@ -124,15 +132,23 @@ fn both<A, B, X, E>(
     return (await(left), await(right));
 }
 
+type __Timer {
+    due: Instant,
+    wake: () -> unit,
+    cancelled: bool
+}
+
 /**
  * Runs `main` and every task it starts, and returns once they have all
- * finished.
+ * finished. When every task is asleep, it waits for the first timer through
+ * `Time`.
  *
  * Panics if every task is waiting and none is left to wake one, and with the
  * failure's value if one reaches here unhandled.
  */
-fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <E> unit {
+fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
     var ready: List<() -> unit> = [];
+    var timers: List<__Timer> = [];
     var finished = false;
     run {
         run {
@@ -146,14 +162,56 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <E> unit {
             register(__once((k) => { ready.push(k); }, (value) => { resume value; }));
         }
         fn waker() { return (k) => { ready.push(k); }; }
+        fn after(delay, wake) {
+            var timer = __Timer { due: instant() + delay, wake: wake, cancelled: false };
+            timers.push(timer);
+            return () => { timer.cancelled = true; };
+        }
     }
     // Scopes hold the list `waker` handed out, so it is read with a cursor
     // rather than replaced by its tail.
     var at = 0;
-    while (at < ready.len()) {
-        var next = ready[at];
-        at += 1;
-        next();
+    var waiting = true;
+    while (waiting) {
+        while (at < ready.len()) {
+            var next = ready[at];
+            at += 1;
+            next();
+        }
+        match __first_due(timers) {
+            Option.None => { waiting = false; }
+            Option.Some(timer) => {
+                timer.cancelled = true;
+                timers = __pending(timers);
+                if (instant() < timer.due) { wait_until(timer.due); }
+                timer.wake();
+            }
+        }
     }
     if (!finished) { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
+}
+
+// The earliest, and of two due together the one set first, so tasks asleep
+// for the same time wake in the order they went to sleep.
+fn __first_due(timers: List<__Timer>): Option<__Timer> {
+    var first: Option<__Timer> = Option.None;
+    for (timer in timers) {
+        if (!timer.cancelled) {
+            match first {
+                Option.None => { first = Option.Some(timer); }
+                Option.Some(best) => {
+                    if (timer.due < best.due) { first = Option.Some(timer); }
+                }
+            }
+        }
+    }
+    return first;
+}
+
+fn __pending(timers: List<__Timer>): List<__Timer> {
+    var left: List<__Timer> = [];
+    for (timer in timers) {
+        if (!timer.cancelled) { left.push(timer); }
+    }
+    return left;
 }

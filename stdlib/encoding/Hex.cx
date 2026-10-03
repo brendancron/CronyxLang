@@ -1,0 +1,48 @@
+/**
+ * Bytes as hexadecimal digits, two to a byte.
+ *
+ * ```
+ * import { encode, decode } from "std/encoding/Hex";
+ *
+ * print(encode("hi".bytes()));   // 6869
+ * print(decode("6869"));         // [104, 105]
+ * ```
+ */
+
+import { Throw } from "../core/Error";
+import { DecodeError } from "Codec";
+import { buffer } from "../io/Buffer";
+
+/** Two lower-case digits for each byte. */
+fn encode(bytes: Array<byte>): string {
+    var digits = "0123456789abcdef";
+    var out = "";
+    for (b in bytes) {
+        var n = b.to_int();
+        out = out + str(digits[n >> 4]) + str(digits[n & 15]);
+    }
+    return out;
+}
+
+/** The bytes two digits each spell. Either case is read. */
+fn decode(text: string): <Throw<DecodeError>> Array<byte> {
+    if (text.len() % 2 != 0) { throw(DecodeError.Truncated(text.len())); }
+    var out = buffer();
+    var i = 0;
+    while (i < text.len()) {
+        var high = __digit(text, i);
+        var low = __digit(text, i + 1);
+        out.write_bytes([((high << 4) | low).to_byte()]);
+        i = i + 2;
+    }
+    return out.bytes();
+}
+
+fn __digit(text: string, at: int): <Throw<DecodeError>> int {
+    var c = text[at];
+    var n = ord(c);
+    if (c >= '0' && c <= '9') { return n - ord('0'); }
+    if (c >= 'a' && c <= 'f') { return n - ord('a') + 10; }
+    if (c >= 'A' && c <= 'F') { return n - ord('A') + 10; }
+    return throw(DecodeError.Unexpected(at, c));
+}

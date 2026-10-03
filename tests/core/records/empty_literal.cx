@@ -1,0 +1,11 @@
+type Empty { }
+type Marker;
+type R { a: int }
+
+fn f(e: Empty): R { return R { a: 1 }; }
+
+var e = Empty {};
+print(f(e).a);
+print(f(Empty {}).a);
+var m = Marker;
+print(typeof(e).name + " " + typeof(m).name);

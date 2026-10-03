@@ -1,0 +1,18 @@
+trait Make { fn make(n: int): Self; }
+type A { n: int }
+impl Make for A { fn make(n: int): A { return A { n: n * 10 }; } }
+impl Make for string { fn make(n: int): string { return "s" + str(n); } }
+
+fn build<T: Make>(n: int): T { return T.make(n); }
+
+fn maker<T: Make>(): (int) -> T {
+    return (n: int) => {
+        var made: T = build(n);
+        return made;
+    };
+}
+
+var a: (int) -> A = maker();
+print(a(4).n);
+var s: (int) -> string = maker();
+print(s(5));

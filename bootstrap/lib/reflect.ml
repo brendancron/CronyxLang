@@ -2,8 +2,9 @@
    interpreter never sees the node. Each answer is folded here into the data it
    names, leaving ordinary Cronyx.
 
-   Answers are one level deep: a field reports its name, not its type, so a type
-   that mentions itself describes itself in finite space. *)
+   Answers are one level deep: a field reports a reference to its type, not the
+   type's own shape, so a type that mentions itself describes itself in finite
+   space. *)
 
 type error =
   { span : Ast.span
@@ -74,7 +75,69 @@ let attrs_at span (list : Ast.attr list) =
   in
   array_at span attr_ty (List.map one list)
 
+let type_ref_ty = Types.Sum (Core.type_ref, [])
+
+let type_ref_at span variant payload = node span type_ref_ty (`Variant (variant, payload))
+
+let named_ref span name args =
+  type_ref_at span "Named" [ "0", name_at span name; "1", array_at span type_ref_ty args ]
+
+let param_ref span id =
+  let name = Option.value (Hashtbl.find_opt Types.param_names id) ~default:"T" in
+  type_ref_at span "Param" [ "0", name_at span name ]
+
+let rec ref_of_ty span (ty : Types.ty) =
+  let scalar name = named_ref span name [] in
+  match ty with
+  | Types.Int -> scalar "int"
+  | Types.Float -> scalar "float"
+  | Types.Str -> scalar "string"
+  | Types.Byte -> scalar "byte"
+  | Types.Chr -> scalar "char"
+  | Types.Bool -> scalar "bool"
+  | Types.Unit -> scalar "unit"
+  | Types.Named (name, args) | Types.Sum (name, args) ->
+    named_ref span name (List.map (ref_of_ty span) args)
+  | Types.Generic id -> param_ref span id
+  | _ -> type_ref_at span "Other" []
+
+let rec ref_of_infer span (ty : Types.infer_ty) =
+  let scalar name = named_ref span name [] in
+  match Types.repr ty with
+  | Types.IInt -> scalar "int"
+  | Types.IFloat -> scalar "float"
+  | Types.IStr -> scalar "string"
+  | Types.IByte -> scalar "byte"
+  | Types.IChr -> scalar "char"
+  | Types.IBool -> scalar "bool"
+  | Types.IUnit -> scalar "unit"
+  | Types.INamed (name, args) | Types.ISum (name, args) ->
+    named_ref span name (List.map (ref_of_infer span) args)
+  | Types.IVar { contents = Types.Unbound (id, _) } -> param_ref span id
+  | _ -> type_ref_at span "Other" []
+
+(* The checker keeps fields sorted; a deriver writes them out in the order the
+   type declared them, which is the order its attributes were recorded in. *)
+let declared_order name fields =
+  match Hashtbl.find_opt Typecheck.ctx_attrs name with
+  | None -> fields
+  | Some members ->
+    let position label =
+      let rec find i = function
+        | [] -> max_int
+        | (l, _) :: rest -> if String.equal l label then i else find (i + 1) rest
+      in
+      find 0 members
+    in
+    List.stable_sort (fun (a, _) (b, _) -> compare (position a) (position b)) fields
+
 let shape_ty = Types.Sum (Types.shape_name, [])
+
+let params_at span name =
+  array_at
+    span
+    Types.name
+    (List.map (name_at span) (Option.value (Hashtbl.find_opt Typecheck.ctx_type_param_names name) ~default:[]))
 
 let shape_at span variant payload =
   node span shape_ty (`Variant (variant, payload))
@@ -87,8 +150,8 @@ let shape_of span (ty : Types.ty) =
   | Types.Int | Types.Float | Types.Str | Types.Byte | Types.Chr | Types.Bool
   | Types.Unit -> one "Scalar"
   | Types.Named (name, args) when not (String.equal name Types.array_name) ->
-    let fields = Types.named_fields name args in
-    let each (label, _) =
+    let fields = declared_order name (Types.named_fields name args) in
+    let each (label, ty) =
       let carried = Typecheck.attrs_of name label in
       record_at
         span
@@ -96,12 +159,16 @@ let shape_of span (ty : Types.ty) =
         [ "attrs", attrs_at span (written carried)
         ; "doc", string_at span (doc_of carried)
         ; "name", name_at span label
+        ; "ty", ref_of_ty span ty
         ]
     in
     shape_at
       span
       "Product"
-      [ "0", name_at span name; "1", array_at span field_ty (List.map each fields) ]
+      [ "0", name_at span name
+      ; "1", params_at span name
+      ; "2", array_at span field_ty (List.map each fields)
+      ]
   | Types.Sum (name, _) ->
     let variants =
       match Hashtbl.find_opt Typecheck.ctx_types name with
@@ -111,17 +178,6 @@ let shape_of span (ty : Types.ty) =
     let each (label, (declared : Typecheck.variant_decl)) =
       let carried_types = Ast.payload_fields declared.Typecheck.vd_payload |> List.map snd in
       let arity = List.length carried_types in
-      (* A `Name` is an identifier, so `List<int>` has none to give. *)
-      let plain (t : Types.infer_ty) =
-        match Types.repr t with
-        | Types.INamed (name, []) | Types.ISum (name, []) -> Some name
-        | Types.INamed _ | Types.ISum _ -> None
-        | t -> Types.infer_type_name t
-      in
-      let payload =
-        let names = List.filter_map plain carried_types in
-        if List.length names = arity then names else []
-      in
       let carried = Typecheck.attrs_of name label in
       record_at
         span
@@ -129,14 +185,24 @@ let shape_of span (ty : Types.ty) =
         [ "arity", node span Types.Int (`Int arity)
         ; "attrs", attrs_at span (written carried)
         ; "doc", string_at span (doc_of carried)
+        ; ( "fields"
+          , array_at
+              span
+              Types.name
+              (match declared.Typecheck.vd_payload with
+               | Ast.P_fields named -> List.map (fun (label, _) -> name_at span label) named
+               | Ast.P_none | Ast.P_tuple _ -> []) )
         ; "name", name_at span label
-        ; "payload", array_at span Types.name (List.map (name_at span) payload)
+        ; "payload", array_at span type_ref_ty (List.map (ref_of_infer span) carried_types)
         ]
     in
     shape_at
       span
       "Sum"
-      [ "0", name_at span name; "1", array_at span variant_ty (List.map each variants) ]
+      [ "0", name_at span name
+      ; "1", params_at span name
+      ; "2", array_at span variant_ty (List.map each variants)
+      ]
   | _ -> one "Other"
 
 let rec expr (e : Ast.resolved_expr) : Ast.reflected_expr =

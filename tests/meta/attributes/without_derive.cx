@@ -7,7 +7,7 @@ type Person {
 }
 
 match typeof(Person).shape {
-    TypeShape.Product(t, fields) => {
+    TypeShape.Product(t, _, fields) => {
         for (f in fields) {
             for (a in f.attrs) {
                 for (arg in a.args) {

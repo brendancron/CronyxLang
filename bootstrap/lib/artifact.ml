@@ -4,8 +4,8 @@
    There is no schema. The lockfile pins an exact compiler and every package in
    a build is compiled by that one binary, so an artifact is never read by a
    compiler other than the one that wrote it -- which is what lets this be
-   `Marshal` of the compiler's own types, tagged with the version that wrote
-   it. A compiler whose types have changed rejects what it finds and the
+   `Marshal` of the compiler's own types, behind a header naming the build that
+   wrote it. A compiler whose header differs rejects what it finds and the
    package is built again. *)
 
 type unit_interface =
@@ -34,8 +34,7 @@ type input =
   }
 
 type t =
-  { compiler : string
-  ; package : string
+  { package : string
   ; units : unit_interface list
   ; program : Ast.program
   ; inputs : input list
@@ -43,6 +42,19 @@ type t =
   }
 
 let digest_of path = try Some (Digest.to_hex (Digest.file path)) with _ -> None
+
+(* The version alone does not name a compiler: a build of the tree between two
+   releases reports the last one while its types have moved on. The binary's own
+   digest does. One that cannot be read names nothing it could match, so its
+   artifacts are always rebuilt rather than trusted. *)
+let compiler =
+  lazy
+    (Release.version
+     ^ "+"
+     ^
+     match digest_of Sys.executable_name with
+     | Some digest -> digest
+     | None -> "unread-" ^ string_of_float (Unix.gettimeofday ()))
 
 (* One string over everything the build depended on. The compiler version is in
    it because an artifact is only readable by the compiler that wrote it, and
@@ -67,7 +79,9 @@ let save path (artifact : t) =
   let out = Out_channel.open_bin path in
   Fun.protect
     ~finally:(fun () -> Out_channel.close out)
-    (fun () -> Marshal.to_channel out artifact [])
+    (fun () ->
+      Out_channel.output_string out (Lazy.force compiler ^ "\n");
+      Marshal.to_channel out artifact [])
 
 type failure =
   | Missing
@@ -78,17 +92,19 @@ let load path : (t, failure) result =
   if not (Sys.file_exists path)
   then Error Missing
   else (
-    match
+    try
       let inp = In_channel.open_bin path in
       Fun.protect
         ~finally:(fun () -> In_channel.close inp)
-        (fun () -> (Marshal.from_channel inp : t))
+        (fun () ->
+          match In_channel.input_line inp with
+          | None -> Error Unreadable
+          | Some writer when not (String.equal writer (Lazy.force compiler)) -> Error (Stale writer)
+          (* Only now: [Marshal] does not fail on a value of another shape, it
+             returns one, and the crash comes from whatever reads it next. *)
+          | Some _ -> Ok (Marshal.from_channel inp : t))
     with
-    | artifact ->
-      if String.equal artifact.compiler Release.version
-      then Ok artifact
-      else Error (Stale artifact.compiler)
-    | exception _ -> Error Unreadable)
+    | _ -> Error Unreadable)
 
 let interface (artifact : t) namespace =
   List.find_opt (fun u -> String.equal u.namespace namespace) artifact.units

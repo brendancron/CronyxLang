@@ -67,6 +67,15 @@ let dump_front ~entry dumps file =
 
 (* A file run on its own is its own package: the directory holding it, plus the
    standard library. *)
+(* Everything after the first `--` is the program's, flags included. *)
+let split_arguments args =
+  let rec go before = function
+    | [] -> List.rev before, []
+    | "--" :: rest -> List.rev before, rest
+    | arg :: rest -> go (arg :: before) rest
+  in
+  go [] args
+
 let roots_for entry =
   { Loader.package = Filename.dirname entry; std = Toolchain.stdlib (); deps = [] }
 
@@ -89,7 +98,8 @@ let execute_linked ?(dumps = no_dumps) ~entry program =
   | Error errors -> die_at ~entry errors
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out:print_string) converted with
-     | Ok () -> ()
+     | Ok 0 -> ()
+     | Ok code -> exit code
      | Error e -> die_at ~entry [ e ])
 
 let execute ?(dumps = no_dumps) ?roots entry =
@@ -111,5 +121,6 @@ let execute ?(dumps = no_dumps) ?roots entry =
   | Error errors -> die_at ~entry errors
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out:print_string) converted with
-     | Ok () -> ()
+     | Ok 0 -> ()
+     | Ok code -> exit code
      | Error e -> die_at ~entry [ e ])

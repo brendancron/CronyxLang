@@ -1,0 +1,29 @@
+import { expr_source, decl_source, source } from "std/compiler/Printer";
+
+meta {
+    print(expr_source(code(a + b * 2)));
+    print(expr_source(code(Point { x: 1, y: f(2, "two") })));
+    print(expr_source(code(xs.map((v) => v * 2))));
+    print(source(code {
+        var total = 0;
+        for (x in xs) {
+            if (x > 0) { total += x; } else { continue; }
+        }
+        return total;
+    }));
+    print(decl_source(code type Shape {
+        /** A round one. */
+        Circle(int),
+        @wide Rect { w: int, h: int },
+        Dot
+    }));
+    print(decl_source(code impl Show for Shape {
+        fn show(self): string {
+            match self {
+                Shape.Circle(r) => { return "circle"; }
+                _ => { return "other"; }
+            }
+        }
+    }));
+    print(decl_source(code effect Log { fn log(s: string): unit; ctl ask<T>(): T; }));
+}

@@ -1,0 +1,16 @@
+{"name":"api","listen-port":8080,"replicas":[1,2,3],"level":{"Custom":{"name":"burst","weight":1.5}},"fallback":{"High":7},"owner":null,"healthy":true}
+JSON round trip: true
+name = "api"
+listen-port = 8080
+replicas = [1, 2, 3]
+healthy = true
+
+[level.Custom]
+name = "burst"
+weight = 1.5
+
+[fallback]
+High = 7
+
+TOML round trip: true
+replicas[1]: expected an int, found a string

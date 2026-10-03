@@ -1,0 +1,24 @@
+/** Adds two numbers. */
+@fast
+fn add(a: int, b: int): int { return a + b; }
+
+/**
+ * Says hello.
+ * To whoever is asked.
+ */
+@route("/hello")
+fn greet(name: string): string { return "hello " + name; }
+
+/** A point on the plane. */
+type Point { x: int, y: int }
+
+trait Shape { fn area(self): int; }
+
+effect Log { fn log(s: string): unit; }
+
+fn __helper(): int { return 1; }
+
+meta {
+    var made = "triple".as_name();
+    gen @generated fn made(n: int): int { return n * 3; }
+}

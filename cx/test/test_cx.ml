@@ -45,7 +45,7 @@ let bad_packages =
 
 (* Run through `cx test` rather than `cx run`: the expectation is the report,
    not what the program prints. *)
-let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "crashing_test" ]
+let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "crashing_test"; "logged" ]
 
 (* Paired with an `expected.json` of the documentation index, which is compared
    twice: once built cold and once over the artifacts the first build left, so
@@ -314,7 +314,7 @@ let interpret roots entry =
   | Error errors -> Error errors
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out) converted with
-     | Ok () -> Ok (Buffer.contents buf)
+     | Ok _ -> Ok (Buffer.contents buf)
      | Error e -> Error [ e ])
 
 let rec remove path =
@@ -352,7 +352,7 @@ let built root =
      | Error errors -> Error errors
      | Ok converted ->
        (match Pipeline.run (Builtins.env ~out) converted with
-        | Ok () -> Ok (Buffer.contents buf)
+        | Ok _ -> Ok (Buffer.contents buf)
         | Error e -> Error [ e ]))
 
 (* Built from nothing, then built again over the artifacts the first run left.
@@ -838,17 +838,25 @@ let cache_meta_read dir =
   write data original;
   ok
 
-(* An artifact is only readable by the compiler that wrote it, so one that names
-   another compiler is not a cache hit but a rebuild. *)
+(* An artifact is only readable by the compiler that wrote it, so one another
+   build wrote is not a cache hit but a rebuild -- including one that reports
+   the same version, as a build of the tree between releases does. *)
+let rewrite_header path header =
+  let contents = read_file path in
+  let body = String.index contents '\n' + 1 in
+  write path (header ^ "\n" ^ String.sub contents body (String.length contents - body))
+
 let cache_compiler_version dir =
   let root = Filename.concat dir "two_packages/app" in
   clean dir;
   let ok = expect_compiled "cache/version cold" root [ "greet"; "app" ] in
   let path = Cx.Build.artifact_path root "app" in
-  (match Artifact.load path with
-   | Ok artifact -> Artifact.save path { artifact with Artifact.compiler = "0.0.0-elsewhere" }
-   | Error _ -> ());
-  ok && expect_compiled "cache/version changed" root [ "app" ]
+  rewrite_header path "0.0.0-elsewhere";
+  let ok = ok && expect_compiled "cache/version changed" root [ "app" ] in
+  rewrite_header path (Release.version ^ "+another-build");
+  let ok = ok && expect_compiled "cache/version same, another build" root [ "app" ] in
+  write path "not an artifact";
+  ok && expect_compiled "cache/version unreadable" root [ "app" ]
 
 (* The dispatch preamble is frozen grammar: every `cx` there will ever be has to
    read the version out of a manifest written for a compiler it has never heard

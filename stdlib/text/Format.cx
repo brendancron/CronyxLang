@@ -26,6 +26,8 @@
  * another value, so it may not perform an effect.
  */
 
+import { with_params } from "../meta/Derive";
+
 /** A value as a person reads it. */
 trait Display {
     /** The value, written for a person. */
@@ -40,23 +42,26 @@ trait Debug {
 
 fn derive(shape: TypeShape) for Display {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, params, fields) => {
             var label = str(t);
             if (fields.len() == 0) {
-                gen impl Display for t {
+                var made = with_params(code impl Display for t {
                     fn fmt(self): string { return label; }
-                }
+                }, params, false);
+                gen made;
             } else {
-                gen impl Display for t {
+                var made = with_params(code impl Display for t {
                     fn fmt(self): string { return label + " " + __written(self); }
-                }
+                }, params, false);
+                gen made;
             }
         }
-        TypeShape.Sum(t, variants) => {
+        TypeShape.Sum(t, params, variants) => {
             var label = str(t);
-            gen impl Display for t {
+            var made = with_params(code impl Display for t {
                 fn fmt(self): string { return label + "." + __written(self); }
-            }
+            }, params, false);
+            gen made;
         }
         _ => {}
     }
@@ -64,23 +69,26 @@ fn derive(shape: TypeShape) for Display {
 
 fn derive(shape: TypeShape) for Debug {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, params, fields) => {
             var label = str(t);
             if (fields.len() == 0) {
-                gen impl Debug for t {
+                var made = with_params(code impl Debug for t {
                     fn debug(self): string { return label; }
-                }
+                }, params, false);
+                gen made;
             } else {
-                gen impl Debug for t {
+                var made = with_params(code impl Debug for t {
                     fn debug(self): string { return label + " " + __written(self); }
-                }
+                }, params, false);
+                gen made;
             }
         }
-        TypeShape.Sum(t, variants) => {
+        TypeShape.Sum(t, params, variants) => {
             var label = str(t);
-            gen impl Debug for t {
+            var made = with_params(code impl Debug for t {
                 fn debug(self): string { return label + "." + __written(self); }
-            }
+            }, params, false);
+            gen made;
         }
         _ => {}
     }

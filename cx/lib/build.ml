@@ -231,7 +231,7 @@ let rec compile ~out ~built ~compiled ~located root
           String.equal
             artifact.Artifact.fingerprint
             (Artifact.fingerprint_of
-               ~compiler:Release.version
+               ~compiler:(Lazy.force Artifact.compiler)
                ~profile
                ~inputs:artifact.Artifact.inputs
                ~dependencies:dependency_prints)
@@ -260,14 +260,13 @@ let rec compile ~out ~built ~compiled ~located root
            ((Filename.concat root Manifest.file_name :: sources root) @ Inputs.taken ())
        in
        let artifact =
-         { Artifact.compiler = Release.version
-         ; package = manifest.Manifest.name
+         { Artifact.package = manifest.Manifest.name
          ; units
          ; program
          ; inputs
          ; fingerprint =
              Artifact.fingerprint_of
-               ~compiler:Release.version
+               ~compiler:(Lazy.force Artifact.compiler)
                ~profile
                ~inputs
                ~dependencies:dependency_prints

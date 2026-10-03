@@ -1,0 +1,8 @@
+number 1
+word a
+number 2
+numbers closed
+word b
+words closed
+sent to out
+took from into

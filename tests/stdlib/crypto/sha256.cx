@@ -1,0 +1,35 @@
+import { sha256, Sha256 } from "std/crypto/Sha256";
+import { encode } from "std/encoding/Hex";
+import { Writer } from "std/io/Io";
+
+// The NIST vectors: empty, one block, and two that pad into a second block.
+print(encode(sha256("".bytes())));
+print(encode(sha256("abc".bytes())));
+print(encode(sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".bytes())));
+print(encode(sha256("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu".bytes())));
+
+// One message, streamed in pieces that straddle the block boundary.
+var message = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+var pieces = Sha256.new();
+var at = 0;
+var size = 1;
+while (at < message.len()) {
+    var end = at + size;
+    if (end > message.len()) { end = message.len(); }
+    pieces.update(message[at:end].bytes());
+    at = end;
+    size += 7;
+}
+print(pieces.hex());
+
+// 1000 bytes through the Writer, so a stream can be hashed as it is read.
+var hash = Sha256.new();
+var target: Writer = hash;
+var chunk = Array(100, (97).to_byte());
+for (var i = 0; i < 10; i += 1) { target.write(chunk); }
+print(hash.hex());
+
+// Exactly 55, 56 and 64 bytes: the lengths where the padding changes shape.
+print(encode(sha256(Array(55, (120).to_byte()))));
+print(encode(sha256(Array(56, (120).to_byte()))));
+print(encode(sha256(Array(64, (120).to_byte()))));

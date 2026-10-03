@@ -4,7 +4,7 @@ type Point { x: int, y: int, z: int }
 
 fn derive_eq(shape: TypeShape) {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, _, fields) => {
             var check = code(true);
             for (f in fields) {
                 var field = f.name;
@@ -14,7 +14,7 @@ fn derive_eq(shape: TypeShape) {
                 fn eq(self, other: t): bool { return check; }
             }
         }
-        TypeShape.Sum(t, variants) => {}
+        TypeShape.Sum(t, _, variants) => {}
         TypeShape.Scalar => {}
         TypeShape.Other => {}
     }

@@ -12,18 +12,30 @@
 import { async, block_on } from "std/async/Task";
 import { Throw } from "std/core/Error";
 import { Stream, __stdin_of_process } from "std/io/Console";
-import { Fs, __open_on_disk } from "std/fs/File";
+import {
+    Fs, Dirs, __open_on_disk, __read_dir_on_disk, __stat_on_disk, __create_dir_on_disk, __remove_on_disk,
+    __rename_on_disk
+} from "std/fs/File";
+import { Args } from "std/os/Args";
+import { Env, __env_var_of_process } from "std/os/Env";
+import { Time, Timestamp, Instant } from "std/os/Time";
+import { Random } from "std/random/Random";
+import { Process, Exit, __start_on_system } from "std/os/Process";
+import { Logger, __written_line } from "std/log/Logger";
 
 global import { Assertion, assert } from "std/core/Assert";
 global import { Iter } from "std/core/Iter";
 global import { List } from "std/collections/List";
 global import { Map } from "std/collections/Map";
 global import {
-    Add, Sub, Mul, Div, Rem, Eq, Ordering, PartialOrd, Neg, Index, IndexSet, FromArray
+    Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr, BitNot, Eq, Ordering, PartialOrd, Neg,
+    Index, IndexSet, FromArray
 } from "std/core/Ops";
 global import { Option } from "std/core/Option";
 global import { Range } from "std/core/Range";
-global import { AttrArg, Attr, TypeField, TypeVariant, TypeShape } from "std/meta/Reflect";
+global import {
+    AttrArg, Attr, TypeRef, TypeField, TypeVariant, TypeShape, Module, Declaration, DeclarationKind
+} from "std/meta/Reflect";
 global import { Set } from "std/collections/Set";
 global import { Display, Debug } from "std/text/Format";
 global import { Console, Stdin, read_line } from "std/io/Console";
@@ -31,10 +43,14 @@ global import { print, printerr } from "std/io/Print";
 
 /**
  * Runs one top-level statement and hands back its value: under the terminal
- * and its input, with files on disk, and under `block_on`, so a statement may wait, and a
- * failure nothing catches stops the program with its value.
+ * and its input, with files on disk and programs the system runs, the
+ * process's arguments and environment, the system's clocks and its entropy,
+ * and under `block_on`, so a statement may wait, and a failure nothing catches
+ * stops the program with its value.
  */
-fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, Stdin, Fs, E> T): <E> T {
+fn __root<T, X, E>(
+    main: () -> <async, Throw<X>, Console, Stdin, Fs, Dirs, Process, Exit, Logger, Args, Env, Time, Random, E> T
+): <E> T {
     var out: Option<T> = Option.None;
     run {
         block_on {
@@ -42,8 +58,33 @@ fn __root<T, X, E>(main: () -> <async, Throw<X>, Console, Stdin, Fs, E> T): <E> 
                 out = Option.Some(main());
             } handle Fs {
                 ctl open(path, mode) { resume __open_on_disk(path, mode); }
+            } handle Process {
+                ctl start(command) { resume __start_on_system(command); }
             }
         };
+    } handle Dirs {
+        fn read_dir(path) { return __read_dir_on_disk(path); }
+        fn stat(path) { return __stat_on_disk(path); }
+        fn create_dir(path) { return __create_dir_on_disk(path); }
+        fn remove(path) { return __remove_on_disk(path); }
+        fn rename(from, to) { return __rename_on_disk(from, to); }
+    } handle Logger {
+        fn record(level, message) { __write_err(__written_line(level, message)); }
+    } handle Exit {
+        final ctl exit(status) { __exit(status); }
+    } handle Args {
+        fn args() { return __args(); }
+    } handle Env {
+        fn env_var(name) { return __env_var_of_process(name); }
+        fn set_env_var(name, value) { __env_set(name, value); }
+        fn remove_env_var(name) { __env_remove(name); }
+        fn env_vars() { return __env_all(); }
+    } handle Time {
+        fn now() { return Timestamp { nanos: __time_wall() }; }
+        fn instant() { return Instant { nanos: __time_instant() }; }
+        fn wait_until(at) { __time_wait_until(at.nanos); }
+    } handle Random {
+        fn random_bits() { return __random_bits(); }
     } handle Stdin {
         fn stdin() { return __stdin_of_process(); }
     } handle Console {

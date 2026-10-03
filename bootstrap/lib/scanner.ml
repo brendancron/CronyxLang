@@ -278,7 +278,28 @@ let string_literal s =
   | Ok text -> add_token s (Token.String text)
   | Error message -> error s message
 
+let is_hex_digit c = is_digit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+
+(* `0xff` and `0b1010`. The digit after the prefix is required, so `0x` alone
+   is `0` followed by a name. *)
+let radix_number s digit =
+  ignore (advance s);
+  while digit (peek s) do
+    ignore (advance s)
+  done;
+  let text = lexeme s in
+  match int_of_string_opt text with
+  | Some n -> add_token s (Token.Int n)
+  | None -> error s (Printf.sprintf "Integer literal '%s' is out of range." text)
+
 let number s =
+  let first = String.get (lexeme s) 0 in
+  let binary c = c = '0' || c = '1' in
+  if first = '0' && (peek s = 'x' || peek s = 'X') && is_hex_digit (peek_next s)
+  then radix_number s is_hex_digit
+  else if first = '0' && (peek s = 'b' || peek s = 'B') && binary (peek_next s)
+  then radix_number s binary
+  else (
   while is_digit (peek s) do
     ignore (advance s)
   done;
@@ -297,7 +318,7 @@ let number s =
   else (
     match int_of_string_opt text with
     | Some n -> add_token s (Token.Int n)
-    | None -> error s (Printf.sprintf "Integer literal '%s' is out of range." text))
+    | None -> error s (Printf.sprintf "Integer literal '%s' is out of range." text)))
 
 let identifier s =
   while is_alphanumeric (peek s) do
@@ -364,9 +385,10 @@ let scan_token s =
     else add_token s (if matches s '=' then Token.Slash_equal else Token.Slash)
   | '%' -> add_token s (if matches s '=' then Token.Percent_equal else Token.Percent)
   | '@' -> add_token s Token.At
-  (* A single `&` or `|` is not an operator at all. *)
-  | '&' when matches s '&' -> add_token s Token.Amp_amp
-  | '|' when matches s '|' -> add_token s Token.Pipe_pipe
+  | '&' -> add_token s (if matches s '&' then Token.Amp_amp else Token.Amp)
+  | '|' -> add_token s (if matches s '|' then Token.Pipe_pipe else Token.Pipe)
+  | '^' -> add_token s Token.Caret
+  | '~' -> add_token s Token.Tilde
   | ' ' | '\r' | '\t' | '\n' -> ()
   | '"' -> string_literal s
   | '\'' -> char_literal s

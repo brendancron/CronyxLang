@@ -1,0 +1,18 @@
+effect Ask { ctl ask(): int; }
+
+trait Getter { fn get(self): <Ask> int; }
+
+type Box { n: int }
+
+impl Getter for Box {
+    fn get(self): <Ask> int { return self.n + ask(); }
+}
+
+fn make(): <Ask> Getter {
+    var g: Getter = Box { n: ask() };
+    return g;
+}
+
+fn total(): <Ask> int { return make().get(); }
+
+run { print(total()); } handle Ask { ctl ask() { resume 7; } }

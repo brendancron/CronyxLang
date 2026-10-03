@@ -1,1 +1,1 @@
-[src/main.cx 2:1] 'needs_a_value' is a test, so it takes no parameters.
+[bad_test/tests/needs_a_value.cx 2:1] 'needs_a_value' is a test, so it takes no parameters.

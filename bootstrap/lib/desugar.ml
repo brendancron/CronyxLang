@@ -167,6 +167,9 @@ let rec expr (e : expr) : desugared_expr =
   let sp = e.span in
   let it : desugared_expr_kind =
     match e.it with
+    (* The walk renames one a meta block holds before this pass sees it. *)
+    | `Call ({ it = `Var "__moduleof"; _ }, _) ->
+      raise (Error { span = sp; message = "'moduleof' is only allowed inside a meta block." })
     (* Nothing after this pass knows a call was written any other way. *)
     | `Call (({ it = `Var name; _ } as callee), args)
       when Hashtbl.mem variadic name && List.length args >= fst (Hashtbl.find variadic name) ->
@@ -209,7 +212,7 @@ let rec expr (e : expr) : desugared_expr =
     | #match_expr as m -> (map_match_expr expr stmt m :> desugared_expr_kind)
     | #reflect as r -> (map_reflect expr r :> desugared_expr_kind)
     (* One arriving here stood where no meta program would have run it. *)
-    | `Code _ ->
+    | `Code _ | `Code_stmts _ | `Code_decl _ ->
       raise
         (Error
            { span = sp; message = "'code' is only allowed inside a meta block." })

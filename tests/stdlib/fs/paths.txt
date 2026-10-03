@@ -1,0 +1,23 @@
+settings/app.toml
+Some("app.toml")
+Some("toml")
+Some("app")
+Some("settings")
+/srv/www
+/etc
+b
+Some(".")
+Some("/")
+None
+None
+Some("gz")
+Some("archive.tar")
+["usr", "local", "bin"]
+["Users", "ada"]
+true
+false
+a/c
+../../b
+/x
+C:/y
+.

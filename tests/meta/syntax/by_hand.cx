@@ -1,0 +1,11 @@
+import { Expr, ExprKind, BinOp } from "std/compiler/Ast";
+
+meta {
+    var total = Expr.of(ExprKind.Int(0));
+    for (n in [1, 2, 3, 4]) {
+        total = Expr.of(ExprKind.Binary(BinOp.Add, total, Expr.of(ExprKind.Int(n * n))));
+    }
+    gen fn sum_of_squares(): int { return total; }
+}
+
+print(sum_of_squares());

@@ -370,6 +370,7 @@ let renamed (unit_ : unit_) ~entry name =
 let rec bound_by (s : Ast.stmt) =
   match s.Ast.it with
   | `Var_decl (name, _, _) | `Fn (name, _, _, _) -> [ name ]
+  | `Var_tuple (names, _) -> names
   | `Block body -> List.concat_map bound_by body
   | _ -> []
 
@@ -451,11 +452,12 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
     let go = expr locals in
     let it : Ast.expr_kind =
       match e.Ast.it with
-      | `Lambda (params, signature, body) ->
+      | `Lambda (params, sg, body) ->
         let inner =
           List.fold_left (fun acc (p : Ast.param) -> S.add p.Ast.name acc) locals params
         in
-        `Lambda (params, signature, List.map (stmt inner) body)
+        let inner = List.fold_left (fun acc s -> S.union acc (S.of_list (bound_by s))) inner body in
+        `Lambda (List.map param params, signature sg, List.map (stmt inner) body)
       (* Read here, where the source file it was written in is known. *)
       | `Call ({ Ast.it = `Var "embed"; _ }, [ { Ast.it = `Str path; _ } ]) ->
         let path = Utf8.encode path in
@@ -469,6 +471,10 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
          | contents -> `Bytes contents
          | exception Sys_error _ -> fail e.Ast.span "Cannot embed '%s'." path)
       | `Code inner -> `Code (go inner)
+      | `Code_stmts body ->
+        let inner = List.fold_left (fun acc s -> S.union acc (S.of_list (bound_by s))) locals body in
+        `Code_stmts (List.map (stmt inner) body)
+      | `Code_decl decl -> `Code_decl (stmt locals decl)
       (* What the file declares or imports by name first: an operation of an
          effect every package imports must not take a name from the file's own
          `fn write`. *)
@@ -490,6 +496,20 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
            (match Hashtbl.find_opt ops name with
             | Some operation -> `Var operation
             | None -> `Var (resolve_local name)))
+      (* `moduleof(helpers)` names a module, which only the loader can tell: it
+         becomes the prefix the module's declarations carry, and the name it
+         was imported under. *)
+      | `Call ({ Ast.it = `Var "moduleof"; _ }, [ { Ast.it = `Var m; span = at; _ } ])
+        when not (S.mem "moduleof" locals) ->
+        if S.mem m locals || not (Hashtbl.mem aliases m)
+        then fail at "'%s' is not an imported module, so it cannot be reflected." m;
+        let probe = "moduleof" in
+        let qualified = (Hashtbl.find aliases m) probe in
+        let prefix = String.sub qualified 0 (String.length qualified - String.length probe) in
+        if String.equal prefix "" then fail at "'%s' names no module of its own to reflect." m;
+        `Call
+          ( { e with Ast.it = `Var "__moduleof" }
+          , [ { e with Ast.it = `Str (Utf8.decode prefix) }; { e with Ast.it = `Str (Utf8.decode m) } ] )
       (* A method call unless `math` names a module and nothing took the name. *)
       | `Method_call ({ Ast.it = `Var receiver; _ }, name, _, args)
         when (not (S.mem receiver locals)) && Hashtbl.mem aliases receiver ->
@@ -607,7 +627,7 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
         `Impl_decl
           ( Option.map (fun (t, args) -> resolve_type t, List.map type_expr args) trait
           , resolve_type type_name
-          , params
+          , List.map (fun (p : Ast.type_param) -> { p with Ast.tp_ty = Option.map type_expr p.Ast.tp_ty }) params
           , { Ast.ib_assoc =
                 List.map
                   (fun (a : Ast.assoc_def) -> { a with Ast.as_ty = type_expr a.Ast.as_ty })
@@ -716,7 +736,16 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
           locals
           (Ast.payload_fields payload) )
   in
-  List.map (stmt S.empty) program
+  (* A top-level `var` binds for the whole file, as a declaration does, so a
+     name the prelude brings -- `Console`'s `write` -- does not take it. *)
+  let rec top_level_vars (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Var_decl (name, _, _) -> [ name ]
+    | `Var_tuple (names, _) -> names
+    | `Attributed (_, inner) -> top_level_vars inner
+    | _ -> []
+  in
+  List.map (stmt (S.of_list (List.concat_map top_level_vars program))) program
 
 (* The declarations, and what each unit of this package exports so that a
    consumer can bind the names without reading the source again. *)
@@ -844,14 +873,6 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                  if not (List.mem name target_exports)
                  then fail span "Module '%s' does not export '%s'." target name;
                  let bound = renamed target_unit ~entry:is_entry name in
-                 if global && from_prelude from then Hashtbl.replace core name bound;
-                 if not global then Hashtbl.replace locally name ();
-                 if not (shadowed name) then begin
-                 (match Hashtbl.find_opt direct name with
-                  | Some earlier when not (String.equal earlier bound) ->
-                    fail span "'%s' is already imported." name
-                  | _ -> ());
-                 Hashtbl.replace direct name bound;
                  (* An artifact records its operations but not whose they are. *)
                  let brought =
                    match target_unit.program with
@@ -861,6 +882,19 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                      |> List.filter (fun (declaring, _) -> String.equal declaring name)
                      |> List.concat_map snd
                  in
+                 if global && from_prelude from
+                 then (
+                   Hashtbl.replace core name bound;
+                   List.iter
+                     (fun op -> Hashtbl.replace core op (renamed target_unit ~entry:is_entry op))
+                     brought);
+                 if not global then Hashtbl.replace locally name ();
+                 if not (shadowed name) then begin
+                 (match Hashtbl.find_opt direct name with
+                  | Some earlier when not (String.equal earlier bound) ->
+                    fail span "'%s' is already imported." name
+                  | _ -> ());
+                 Hashtbl.replace direct name bound;
                  List.iter
                    (fun op -> Hashtbl.replace reachable op (renamed target_unit ~entry:is_entry op))
                    brought

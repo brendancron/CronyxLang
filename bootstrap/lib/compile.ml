@@ -104,7 +104,8 @@ let program ?(on_types = fun _ -> ()) (source : Ast.program)
   in
   Ok converted
 
-let run env (converted : Ast.cps_stmt list) : (unit, Diagnostic.error) result =
+(* The exit code the program ended with: 0 unless it asked for another. *)
+let run env (converted : Ast.cps_stmt list) : (int, Diagnostic.error) result =
   match Interp.run env converted with
-  | Ok () -> Ok ()
+  | Ok code -> Ok code
   | Error e -> Error (Diagnostic.at Diagnostic.Runtime e.Value.span e.Value.message)

@@ -26,6 +26,7 @@ This is separate from `docs/`, which is the Docusaurus site published for langua
 | [Metaprocessing.md](Metaprocessing.md)                       | `meta` and `gen`, the walk that runs them, and compilation calling itself |
 | [Meta Scope and Instantiation.md](Meta%20Scope%20and%20Instantiation.md) | What a meta scope receives and what `gen` sends back, and when an instantiation is made |
 | [Reify.md](Reify.md)                                         | Turning a compile-time value back into syntax                         |
+| [Syntax Trees.md](Syntax%20Trees.md)                         | Cronyx syntax as library data, and the compiler in `std/compiler/` |
 | [Attributes.md](Attributes.md)                               | `@name(…)` on a field or a variant, and why it cannot reach runtime   |
 | [Testing.md](Testing.md)                                     | `cx test`, and why a failed assertion is an effect                    |
 | [Attributes and Test Frameworks.md](Attributes%20and%20Test%20Frameworks.md) | Attributes as values, and a test runner written in Cronyx rather than in the compiler |

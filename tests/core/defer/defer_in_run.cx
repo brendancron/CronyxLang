@@ -1,0 +1,44 @@
+effect Log { fn log(s: string): unit; }
+effect Stop { final ctl stop(): unit; }
+effect Ask { ctl ask(): int; }
+
+run {
+    defer { print("finished: cleanup"); }
+    log("finished");
+} handle Log { fn log(s) { print(s); } }
+
+run {
+    defer { print("stopped: cleanup"); }
+    stop();
+    print("never");
+} handle Stop { final ctl stop() { print("stopped"); } }
+
+run {
+    defer { print("discontinued: cleanup"); }
+    var n = ask();
+    print("never " + str(n));
+} handle Ask { ctl ask() { discontinue; print("discontinued"); } }
+
+run {
+    defer { print("outer: cleanup"); }
+    if (true) {
+        defer { print("nested: cleanup"); }
+        var n = ask();
+        print("never " + str(n));
+    }
+    print("never either");
+} handle Ask { ctl ask() { discontinue; print("nested: discontinued"); } }
+
+run {
+    defer { print("resumed: cleanup"); }
+    print("resumed with " + str(ask()));
+} handle Ask { ctl ask() { resume 5; print("resumed: arm's rest"); } }
+
+fn inside(): int {
+    run {
+        defer { print("in a function: cleanup"); }
+        log("in a function");
+    } handle Log { fn log(s) { print(s); } }
+    return 1;
+}
+print(inside());

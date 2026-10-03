@@ -1,0 +1,11 @@
+3
+false
+out
+err
+hello
+inside.txt
+got abc
+200000
+done
+4
+caught NotFound("cronyx-no-such-program")

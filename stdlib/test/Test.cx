@@ -1,0 +1,99 @@
+/**
+ * Finding `@test` functions and running them: the half of `cx test` written
+ * in Cronyx.
+ *
+ * ```
+ * import { collect, run_tests } from "std/test/Test";
+ * import "adding" as suite;
+ *
+ * meta { collect(moduleof(suite)); }
+ * run_tests(__test_names(), __test_run);
+ * ```
+ *
+ * `cx test` writes a program like that for each file under `tests/`, and runs
+ * each test it lists in a process of its own. `@test` does nothing by itself:
+ * it is what `collect` looks for, so a test a meta block generates is found
+ * the same as one written by hand.
+ *
+ * What `run_tests` prints is how it talks to `cx`: each line it owns starts
+ * with the ASCII record separator, which a test has no reason to print.
+ */
+
+import { Expr, ExprKind, Stmt } from "../compiler/Ast";
+import { has_attr } from "../meta/Derive";
+import { Assertion } from "../core/Assert";
+
+/** The functions in the module carrying `@test`, in source order. */
+fn tests_in(m: Module): List<Declaration> {
+    var found: List<Declaration> = [];
+    match m {
+        Module.File(_, declarations) => {
+            for (d in declarations) {
+                match d.kind {
+                    DeclarationKind.Function => {
+                        if (has_attr(d.attrs, "test")) { found.push(d); }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Module.Directory(_, modules) => {
+            for (inner in modules) {
+                for (d in tests_in(inner)) { found.push(d); }
+            }
+        }
+    }
+    return found;
+}
+
+/**
+ * Generates `__test_names()`, each test's name in order, and
+ * `__test_run(index)`, which calls the test at that index. A test is called
+ * with no arguments, and the call is written where the test was, so one that
+ * takes some is reported there.
+ */
+fn collect(m: Module) {
+    var tests = tests_in(m);
+    var names: List<Expr> = [];
+    var chain: List<Stmt> = [];
+    for (var i = 0; i < tests.len(); i += 1) {
+        var d = tests[i];
+        if (d.params.len() > 0) {
+            compile_error(d.span, "'" + str(d.name) + "' is a test, so it takes no parameters.");
+        }
+        var label = str(d.name);
+        names.push(code(label));
+        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span };
+        var call = Expr { kind: ExprKind.Call(callee, []), span: d.span };
+        var index = i;
+        for (s in code { if (selected == index) { call; } }) { chain.push(s); }
+    }
+    var all = Expr.of(ExprKind.Collection(names));
+    gen fn __test_names(): List<string> { return all; }
+    gen fn __test_run(selected: int) { chain; }
+}
+
+/**
+ * Runs the test `cx test` chose for this process, reporting how it went, or
+ * lists every test's name when none was chosen.
+ */
+fn run_tests<E>(names: List<string>, body: (int) -> <Assertion, E> unit): <E> unit {
+    var mark = str(chr(30));
+    var selected = __test_selected();
+    if (selected < 0) {
+        for (name in names) { print(mark + "?" + name); }
+        return;
+    }
+    if (selected >= names.len()) { return; }
+    var name = names[selected];
+    print(mark + ">" + name);
+    run {
+        body(selected);
+        print(mark + "+" + name);
+    } handle Assertion {
+        final ctl failed(msg) {
+            print(mark + "-" + name);
+            print(mark + "!" + msg);
+        }
+    }
+}

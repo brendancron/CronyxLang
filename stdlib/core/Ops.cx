@@ -64,6 +64,52 @@ trait Rem<Rhs> {
     fn rem(self, rhs: Rhs): Output;
 }
 
+/** `self & rhs`. */
+trait BitAnd<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** The bits set in both. */
+    fn bit_and(self, rhs: Rhs): Output;
+}
+
+/** `self | rhs`. */
+trait BitOr<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** The bits set in either. */
+    fn bit_or(self, rhs: Rhs): Output;
+}
+
+/** `self ^ rhs`. */
+trait BitXor<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** The bits set in exactly one. */
+    fn bit_xor(self, rhs: Rhs): Output;
+}
+
+/**
+ * `self << rhs`. On an `int`, the bits shifted out of the top are lost, and a
+ * shift by more than its width is 0; a negative amount stops the program.
+ */
+trait Shl<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** Shifted toward the top. */
+    fn shl(self, rhs: Rhs): Output;
+}
+
+/**
+ * `self >> rhs`. On an `int` the sign is copied into the top, so `-8 >> 1` is
+ * `-4`; on a `byte` the top fills with zeros.
+ */
+trait Shr<Rhs> {
+    /** What the operator answers with, which need not be either operand. */
+    type Output;
+    /** Shifted toward the bottom. */
+    fn shr(self, rhs: Rhs): Output;
+}
+
 // Both operands are the same type and the answer is always a bool, so this one
 // takes no argument and binds nothing. `!=` is the negation of `eq` rather than
 // an entry of its own.
@@ -130,6 +176,14 @@ trait Neg {
     type Output;
     /** The negation. */
     fn neg(self): Output;
+}
+
+/** `~self`. */
+trait BitNot {
+    /** What the operator answers with. */
+    type Output;
+    /** Every bit flipped. */
+    fn bit_not(self): Output;
 }
 
 /**

@@ -1,0 +1,41 @@
+import { Random, random_int, random_float, random_bool, choose, shuffle, seeded } from "std/random/Random";
+
+fn roll(): <Random> int { return random_int(1, 7); }
+
+fn rolls(): <Random> List<int> {
+    var out: List<int> = [];
+    for (var i = 0; i < 8; i += 1) { out.push(roll()); }
+    return out;
+}
+
+var first = seeded(42) { rolls() };
+var again = seeded(42) { rolls() };
+var other = seeded(7) { rolls() };
+print(first);
+print(first == again);
+print(first == other);
+
+seeded(1) {
+    var deck: List<string> = ["a", "b", "c", "d", "e"];
+    shuffle(deck);
+    print(deck);
+    print(choose(["x", "y", "z"]));
+    print(random_float() < 1.0);
+    print(random_bool());
+};
+
+// Every draw in range, whatever the generator.
+var in_range = true;
+for (var i = 0; i < 1000; i += 1) {
+    var n = random_int(-3, 4);
+    if (n < -3 || n >= 4) { in_range = false; }
+}
+print(in_range);
+
+// A generator that always answers the same.
+run {
+    print(roll());
+    print(choose([10, 20, 30]));
+} handle Random {
+    fn random_bits() { return 4; }
+}

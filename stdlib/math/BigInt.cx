@@ -1,0 +1,358 @@
+/**
+ * Integers of any size.
+ *
+ * ```
+ * import { BigInt } from "std/math/BigInt";
+ *
+ * var n = BigInt.of(1);
+ * for (var i = 1; i <= 30; i += 1) { n = n * i; }
+ * print(n);                                          // 265252859812191058636308480000000
+ * print(BigInt.parse("-12345678901234567890") / 7);  // -1763668414462081127
+ * ```
+ *
+ * Every operator an `int` has, but the bitwise ones, takes a `BigInt` or an
+ * `int` on its right. Division truncates toward zero and a remainder takes the
+ * sign of the dividend, as on an `int`, so the two agree wherever an `int`
+ * does not overflow. Dividing by zero panics, as it does on an `int`.
+ */
+
+import { join } from "../collections/List";
+
+/** An integer with as many digits as it needs. */
+type BigInt {
+    negative: bool,
+    // Base `__base` digits, least significant first, with no zero at the top:
+    // zero is no digits at all, and never negative.
+    digits: List<int>
+}
+
+impl BigInt {
+    /** The integer `n`. */
+    fn of(n: int): BigInt {
+        var digits: List<int> = [];
+        var rest = n;
+        // Divided while still negative: the most negative int has no positive twin.
+        while (rest != 0) {
+            var d = rest % __base();
+            if (d < 0) { d = -d; }
+            digits.push(d);
+            rest = rest / __base();
+        }
+        return BigInt { negative: n < 0, digits: digits };
+    }
+
+    /** The integer the decimal text spells, with an optional `-` or `+`, or `None`. */
+    fn parse(text: string): Option<BigInt> {
+        var body = text;
+        var negative = false;
+        if (body.starts_with("-")) {
+            negative = true;
+            body = body[1:body.len()];
+        } else if (body.starts_with("+")) {
+            body = body[1:body.len()];
+        }
+        if (body.len() == 0) { return Option.None; }
+        for (c in body.chars()) {
+            if (c < '0' || c > '9') { return Option.None; }
+        }
+        var digits: List<int> = [];
+        var end = body.len();
+        while (end > 0) {
+            var start = end - 7;
+            if (start < 0) { start = 0; }
+            match body[start:end].to_int() {
+                Option.Some(d) => { digits.push(d); }
+                Option.None => { return Option.None; }
+            }
+            end = start;
+        }
+        return Option.Some(__made(negative, digits));
+    }
+
+    /** The value as an `int`, or `None` if it does not fit in one. */
+    fn to_int(self): Option<int> {
+        if (__compare_magnitude(self.digits, __largest().digits) > 0 && !(self.negative && __equal(self, __smallest()))) {
+            return Option.None;
+        }
+        // Built negative, for the same reason `of` divides while negative.
+        var total = 0;
+        var i = self.digits.len() - 1;
+        while (i >= 0) {
+            total = total * __base() - self.digits[i];
+            i -= 1;
+        }
+        if (self.negative) { return Option.Some(total); }
+        return Option.Some(-total);
+    }
+
+    /** Whether it is zero. */
+    fn is_zero(self): bool { return self.digits.len() == 0; }
+
+    /** -1, 0 or 1, as the integer is negative, zero or positive. */
+    fn sign(self): int {
+        if (self.is_zero()) { return 0; }
+        if (self.negative) { return -1; }
+        return 1;
+    }
+
+    /** The integer without its sign. */
+    fn abs(self): BigInt { return BigInt { negative: false, digits: self.digits }; }
+
+    /** The integer to the power `exponent`, which must not be negative. */
+    fn pow(self, exponent: int): BigInt {
+        if (exponent < 0) { panic("pow takes an exponent of 0 or more, not " + str(exponent) + "."); }
+        var result = BigInt.of(1);
+        var square = self;
+        var e = exponent;
+        while (e > 0) {
+            if (e % 2 == 1) { result = __multiply(result, square); }
+            square = __multiply(square, square);
+            e = e / 2;
+        }
+        return result;
+    }
+}
+
+impl Add<BigInt> for BigInt {
+    type Output = BigInt;
+    fn add(self, rhs: BigInt): BigInt { return __add(self, rhs); }
+}
+
+impl Add<int> for BigInt {
+    type Output = BigInt;
+    fn add(self, rhs: int): BigInt { return __add(self, BigInt.of(rhs)); }
+}
+
+impl Sub<BigInt> for BigInt {
+    type Output = BigInt;
+    fn sub(self, rhs: BigInt): BigInt { return __add(self, __negated(rhs)); }
+}
+
+impl Sub<int> for BigInt {
+    type Output = BigInt;
+    fn sub(self, rhs: int): BigInt { return __add(self, __negated(BigInt.of(rhs))); }
+}
+
+impl Mul<BigInt> for BigInt {
+    type Output = BigInt;
+    fn mul(self, rhs: BigInt): BigInt { return __multiply(self, rhs); }
+}
+
+impl Mul<int> for BigInt {
+    type Output = BigInt;
+    fn mul(self, rhs: int): BigInt { return __multiply(self, BigInt.of(rhs)); }
+}
+
+impl Div<BigInt> for BigInt {
+    type Output = BigInt;
+    fn div(self, rhs: BigInt): BigInt { return __divide(self, rhs).0; }
+}
+
+impl Div<int> for BigInt {
+    type Output = BigInt;
+    fn div(self, rhs: int): BigInt { return __divide(self, BigInt.of(rhs)).0; }
+}
+
+impl Rem<BigInt> for BigInt {
+    type Output = BigInt;
+    fn rem(self, rhs: BigInt): BigInt { return __divide(self, rhs).1; }
+}
+
+impl Rem<int> for BigInt {
+    type Output = BigInt;
+    fn rem(self, rhs: int): BigInt { return __divide(self, BigInt.of(rhs)).1; }
+}
+
+impl Neg for BigInt {
+    type Output = BigInt;
+    fn neg(self): BigInt { return __negated(self); }
+}
+
+impl Eq for BigInt {
+    fn eq(self, rhs: BigInt): bool { return __equal(self, rhs); }
+}
+
+impl PartialOrd for BigInt {
+    fn partial_cmp(self, rhs: BigInt): Option<Ordering> {
+        var c = __compare(self, rhs);
+        if (c < 0) { return Option.Some(Ordering.Less); }
+        if (c > 0) { return Option.Some(Ordering.Greater); }
+        return Option.Some(Ordering.Equal);
+    }
+}
+
+impl Display for BigInt {
+    fn fmt(self): string {
+        if (self.is_zero()) { return "0"; }
+        var parts: List<string> = [];
+        var i = self.digits.len() - 1;
+        parts.push(str(self.digits[i]));
+        i -= 1;
+        while (i >= 0) {
+            var chunk = str(self.digits[i]);
+            while (chunk.len() < 7) { chunk = "0" + chunk; }
+            parts.push(chunk);
+            i -= 1;
+        }
+        var sign = "";
+        if (self.negative) { sign = "-"; }
+        return sign + join(parts, "");
+    }
+}
+
+impl Debug for BigInt {
+    fn debug(self): string { return self.fmt(); }
+}
+
+fn __base(): int { return 10000000; }
+
+fn __largest(): BigInt { return BigInt.of(4611686018427387903); }
+fn __smallest(): BigInt { return BigInt.of(-4611686018427387903 - 1); }
+
+// The value with the zeros at the top dropped, and no sign on zero.
+fn __made(negative: bool, digits: List<int>): BigInt {
+    var top = digits.len();
+    while (top > 0 && digits[top - 1] == 0) { top -= 1; }
+    var kept: List<int> = [];
+    for (var i = 0; i < top; i += 1) { kept.push(digits[i]); }
+    return BigInt { negative: negative && top > 0, digits: kept };
+}
+
+fn __negated(n: BigInt): BigInt { return __made(!n.negative, n.digits); }
+
+fn __equal(a: BigInt, b: BigInt): bool {
+    return a.negative == b.negative && __compare_magnitude(a.digits, b.digits) == 0;
+}
+
+fn __compare(a: BigInt, b: BigInt): int {
+    if (a.negative != b.negative) {
+        if (a.negative) { return -1; }
+        return 1;
+    }
+    var c = __compare_magnitude(a.digits, b.digits);
+    if (a.negative) { return -c; }
+    return c;
+}
+
+fn __compare_magnitude(a: List<int>, b: List<int>): int {
+    if (a.len() != b.len()) {
+        if (a.len() < b.len()) { return -1; }
+        return 1;
+    }
+    var i = a.len() - 1;
+    while (i >= 0) {
+        if (a[i] != b[i]) {
+            if (a[i] < b[i]) { return -1; }
+            return 1;
+        }
+        i -= 1;
+    }
+    return 0;
+}
+
+fn __add(a: BigInt, b: BigInt): BigInt {
+    if (a.negative == b.negative) { return __made(a.negative, __add_magnitude(a.digits, b.digits)); }
+    // Opposite signs: the larger magnitude keeps its sign.
+    var c = __compare_magnitude(a.digits, b.digits);
+    if (c == 0) { return BigInt.of(0); }
+    if (c > 0) { return __made(a.negative, __sub_magnitude(a.digits, b.digits)); }
+    return __made(b.negative, __sub_magnitude(b.digits, a.digits));
+}
+
+fn __add_magnitude(a: List<int>, b: List<int>): List<int> {
+    var out: List<int> = [];
+    var carry = 0;
+    var i = 0;
+    while (i < a.len() || i < b.len() || carry > 0) {
+        var sum = carry;
+        if (i < a.len()) { sum += a[i]; }
+        if (i < b.len()) { sum += b[i]; }
+        out.push(sum % __base());
+        carry = sum / __base();
+        i += 1;
+    }
+    return out;
+}
+
+// `a` is at least `b`.
+fn __sub_magnitude(a: List<int>, b: List<int>): List<int> {
+    var out: List<int> = [];
+    var borrow = 0;
+    for (var i = 0; i < a.len(); i += 1) {
+        var d = a[i] - borrow;
+        if (i < b.len()) { d -= b[i]; }
+        if (d < 0) {
+            d += __base();
+            borrow = 1;
+        } else {
+            borrow = 0;
+        }
+        out.push(d);
+    }
+    return out;
+}
+
+fn __multiply(a: BigInt, b: BigInt): BigInt {
+    if (a.is_zero() || b.is_zero()) { return BigInt.of(0); }
+    var out = Array(a.digits.len() + b.digits.len() + 1, 0);
+    for (var i = 0; i < a.digits.len(); i += 1) {
+        var carry = 0;
+        var j = 0;
+        // A digit times a digit is under 10^14, so the running sum stays far
+        // below an int's 63 bits.
+        while (j < b.digits.len() || carry > 0) {
+            var sum = out[i + j] + carry;
+            if (j < b.digits.len()) { sum += a.digits[i] * b.digits[j]; }
+            out[i + j] = sum % __base();
+            carry = sum / __base();
+            j += 1;
+        }
+    }
+    var digits: List<int> = [];
+    for (d in out) { digits.push(d); }
+    return __made(a.negative != b.negative, digits);
+}
+
+fn __times_small(digits: List<int>, factor: int): List<int> {
+    var out: List<int> = [];
+    var carry = 0;
+    for (d in digits) {
+        var product = d * factor + carry;
+        out.push(product % __base());
+        carry = product / __base();
+    }
+    while (carry > 0) {
+        out.push(carry % __base());
+        carry = carry / __base();
+    }
+    return __made(false, out).digits;
+}
+
+// Schoolbook long division, one base digit of the quotient at a time, each
+// found by binary search: the divisor times a candidate is compared with what
+// is left. Truncates toward zero; the remainder has the dividend's sign.
+fn __divide(a: BigInt, b: BigInt): (BigInt, BigInt) {
+    if (b.is_zero()) { panic("Division by zero."); }
+    if (__compare_magnitude(a.digits, b.digits) < 0) { return (BigInt.of(0), a); }
+    var quotient = Array(a.digits.len(), 0);
+    var remainder: List<int> = [];
+    var i = a.digits.len() - 1;
+    while (i >= 0) {
+        // remainder = remainder * base + a.digits[i]
+        var shifted: List<int> = [a.digits[i]];
+        for (d in remainder) { shifted.push(d); }
+        remainder = __made(false, shifted).digits;
+        var low = 0;
+        var high = __base() - 1;
+        while (low < high) {
+            var middle = (low + high + 1) / 2;
+            if (__compare_magnitude(__times_small(b.digits, middle), remainder) <= 0) { low = middle; } else { high = middle - 1; }
+        }
+        quotient[i] = low;
+        if (low > 0) { remainder = __made(false, __sub_magnitude(remainder, __times_small(b.digits, low))).digits; }
+        i -= 1;
+    }
+    var q: List<int> = [];
+    for (d in quotient) { q.push(d); }
+    return (__made(a.negative != b.negative, q), __made(a.negative, remainder));
+}

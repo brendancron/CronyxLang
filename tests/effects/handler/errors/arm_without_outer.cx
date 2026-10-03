@@ -1,0 +1,2 @@
+effect Log { fn log(s: string): unit; }
+run { log("x"); } handle Log { fn log(s) { log("again " + s); } }

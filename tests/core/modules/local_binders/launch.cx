@@ -1,0 +1,3 @@
+effect Launch {
+    fn start(): int;
+}

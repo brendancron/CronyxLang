@@ -1,4 +1,5 @@
 import "std/math/Math";
+import { Duration } from "std/os/Time";
 
 print(Math.min(3, 7));
 print(Math.min(7, 3));
@@ -7,3 +8,7 @@ print(Math.max(7, 3));
 print(Math.abs(5));
 print(Math.abs(0 - 5));
 print(Math.abs(0));
+print(Math.min(2.5, 1.5));
+print(Math.abs(-0.25));
+print(Math.max("apple", "pear"));
+print(Math.max(Duration.seconds(2), Duration.milliseconds(2500)));

@@ -1,0 +1,90 @@
+import { BigInt } from "std/math/BigInt";
+
+var factorial = BigInt.of(1);
+for (var i = 1; i <= 30; i += 1) { factorial = factorial * i; }
+print(factorial);
+print(BigInt.of(2).pow(100));
+print(-BigInt.of(3).pow(41));
+
+var parsed = BigInt.parse("-000123456789012345678901234567890");
+print(parsed);
+print(BigInt.parse("+42"));
+print(BigInt.parse("-0"));
+print(BigInt.parse("12a"));
+print(BigInt.parse(""));
+
+fn must(parsed: Option<BigInt>): BigInt {
+    match parsed {
+        Option.Some(n) => { return n; }
+        Option.None => { panic("did not parse"); }
+    }
+    return BigInt.of(0);
+}
+
+var big = must(BigInt.parse("98765432109876543210987654321"));
+var divisor = must(BigInt.parse("-1234567890123"));
+var q = big / divisor;
+var r = big % divisor;
+print(q);
+print(r);
+print(q * divisor + r == big);
+
+var smallest = BigInt.of(-4611686018427387903 - 1);
+print(smallest);
+print(smallest.to_int());
+print((smallest - 1).to_int());
+print(BigInt.of(4611686018427387903).to_int());
+print((BigInt.of(4611686018427387903) + 1).to_int());
+
+// Agreement with int wherever int does not overflow, over pairs from a fixed
+// sequence, so the run is the same every time.
+var seed = 12345;
+fn next(): int {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed;
+}
+fn sample(bound: int): int {
+    var n = next() % bound;
+    if (next() % 2 == 0) { return -n; }
+    return n;
+}
+
+var checks = 0;
+var mismatches = 0;
+fn agree(label: string, expected: int, actual: BigInt) {
+    checks += 1;
+    if (actual != BigInt.of(expected)) {
+        mismatches += 1;
+        print("mismatch in " + label + ": " + str(expected) + " vs " + str(actual));
+    }
+}
+
+var bounds = [10, 1000, 10000000, 1000000000];
+for (bound in bounds) {
+    for (var k = 0; k < 60; k += 1) {
+        var a = sample(bound);
+        var b = sample(bound);
+        var x = BigInt.of(a);
+        var y = BigInt.of(b);
+        agree("+", a + b, x + y);
+        agree("-", a - b, x - y);
+        agree("*", a * b, x * y);
+        agree("* int", a * b, x * b);
+        if (b != 0) {
+            agree("/", a / b, x / y);
+            agree("%", a % b, x % y);
+            agree("/ int", a / b, x / b);
+        }
+        checks += 1;
+        if ((a < b) != (x < y) || (a == b) != (x == y) || (a >= b) != (x >= y)) {
+            mismatches += 1;
+            print("comparison disagrees for " + str(a) + " and " + str(b));
+        }
+        checks += 1;
+        if (x.to_int() != Option.Some(a)) {
+            mismatches += 1;
+            print("to_int disagrees for " + str(a));
+        }
+    }
+}
+print(str(checks) + " checks, " + str(mismatches) + " mismatches");

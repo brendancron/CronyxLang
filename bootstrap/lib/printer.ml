@@ -5,6 +5,7 @@ let string_of_binop = Ast.string_of_binop
 let string_of_unop : Ast.unop -> string = function
   | Ast.Neg -> "-"
   | Ast.Not -> "!"
+  | Ast.Bit_not -> "~"
 
 let rec string_of_row entries =
   match entries with
@@ -115,6 +116,8 @@ let rec string_of_expr (e : Ast.expr) : string =
   | `Or (a, b) -> Printf.sprintf "(or %s %s)" (string_of_expr a) (string_of_expr b)
   | `Typeof e -> Printf.sprintf "(typeof %s)" (string_of_expr e)
   | `Code e -> Printf.sprintf "(code %s)" (string_of_expr e)
+  | `Code_stmts _ -> "(code { ... })"
+  | `Code_decl _ -> "(code decl)"
   | `Lambda (params, _, _) ->
     Printf.sprintf "(fn (%s) ...)" (String.concat " " (List.map string_of_param params))
   | `Match_expr (scrutinee, _) -> Printf.sprintf "(match %s ...)" (string_of_expr scrutinee)

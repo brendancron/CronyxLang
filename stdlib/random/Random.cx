@@ -1,0 +1,97 @@
+/**
+ * Random numbers.
+ *
+ * ```
+ * import { random_int, random_float, shuffle, seeded } from "std/random/Random";
+ *
+ * print(random_int(1, 7));       // a die roll
+ * var deck: List<int> = [1, 2, 3, 4];
+ * shuffle(deck);
+ *
+ * seeded(42) {
+ *     print(random_int(0, 100));   // the same on every run
+ * };
+ * ```
+ *
+ * The root answers `Random` from the operating system's entropy source, which
+ * is fit for keys and tokens. `seeded` answers it from a generator that a seed
+ * fixes, which is not, and is what a test or a reproducible simulation wants.
+ */
+
+/** A source of random bits. */
+effect Random {
+    /** A number whose 62 bits are each random: from 0 to the largest `int`. */
+    fn random_bits(): int;
+}
+
+/** A number from `low` up to but not including `high`, each as likely as any other. */
+fn random_int(low: int, high: int): <Random> int {
+    if (high <= low) { panic("random_int: " + str(low) + " is not below " + str(high)); }
+    var span = high - low;
+    // The bits run to a power of two; the remainder past the last whole
+    // multiple of `span` is redrawn, or low results would come up more often.
+    var largest = 0x3FFFFFFFFFFFFFFF;
+    var limit = largest - (largest % span);
+    var drawn = random_bits();
+    while (drawn >= limit) { drawn = random_bits(); }
+    return low + drawn % span;
+}
+
+/** A number from 0 up to but not including 1. */
+fn random_float(): <Random> float {
+    return (random_bits() >> 9).to_float() / 9007199254740992.0;
+}
+
+/** True or false, as a fair coin. */
+fn random_bool(): <Random> bool {
+    return (random_bits() & 1) == 1;
+}
+
+/** One of the items, or `None` if there are none. */
+fn choose<T>(items: Array<T>): <Random> Option<T> {
+    if (items.len() == 0) { return Option.None; }
+    return Option.Some(items[random_int(0, items.len())]);
+}
+
+/** Puts the list in a random order, every order as likely as any other. */
+fn shuffle<T>(items: List<T>): <Random> unit {
+    var i = items.len() - 1;
+    while (i > 0) {
+        var j = random_int(0, i + 1);
+        var held = items[i];
+        items[i] = items[j];
+        items[j] = held;
+        i = i - 1;
+    }
+}
+
+/** Runs the body with `Random` answered by a generator the seed fixes. */
+fn seeded<T, E>(seed: int, body: () -> <Random, E> T): <E> T {
+    var state = seed;
+    var out: Option<T> = Option.None;
+    run {
+        out = Option.Some(body());
+    } handle Random {
+        fn random_bits() {
+            state = state + 0x1E3779B97F4A7C15;
+            return __mix(state) & 0x3FFFFFFFFFFFFFFF;
+        }
+    }
+    match out {
+        Option.Some(value) => { return value; }
+        Option.None => { panic("seeded: the body finished without a value"); }
+    }
+}
+
+// SplitMix64's finalizer, at the 63 bits an `int` has. `>>` keeps the sign, so
+// each shift is masked to bring zeros in from the top.
+fn __mix(x: int): int {
+    var z = x;
+    z = (z ^ __shift(z, 30)) * 0x3F58476D1CE4E5B9;
+    z = (z ^ __shift(z, 27)) * 0x14D049BB133111EB;
+    return z ^ __shift(z, 31);
+}
+
+fn __shift(x: int, by: int): int {
+    return (x >> by) & ((1 << (63 - by)) - 1);
+}

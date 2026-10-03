@@ -1,0 +1,16 @@
+import { Args } from "std/os/Args";
+
+fn greet(): <Args> string {
+    var names = args();
+    if (names.len() == 0) { return "hello, nobody"; }
+    return "hello, " + names[0];
+}
+
+print(args());
+print(greet());
+
+run {
+    print(greet());
+} handle Args {
+    fn args() { return ["ada", "--verbose"]; }
+}
