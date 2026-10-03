@@ -39,7 +39,12 @@ let rec record (s : Ast.typed_stmt) =
         Hashtbl.replace declared_types entry m.Ast.md_ann;
         List.iter record m.Ast.md_body)
       impl.Ast.ib_methods
-  | `Block body | `Fn (_, _, _, body) -> List.iter record body
+  (* A copy [Type_mono] made of a generic impl method is a function, and a
+     trait object's slot may name one. *)
+  | `Fn (name, _, _, body) ->
+    Hashtbl.replace declared_types name s.Ast.ann;
+    List.iter record body
+  | `Block body -> List.iter record body
   | `If (_, then_branch, else_branch) ->
     record then_branch;
     Option.iter record else_branch
@@ -213,15 +218,20 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
       in
       let slot (name, dispatch) : string * Ast.resolved_expr =
         let entry = Registry.dispatched dispatch owner name in
-        ( name
-        , { Ast.it = `Var entry
-          ; span
-          ; ann =
-              (match Hashtbl.find_opt declared_types entry with
-               | Some ty -> ty
-               | None ->
-                 fail span "'%s' has no '%s' to put in a '%s'." owner name trait)
-          } )
+        let declared =
+          match Hashtbl.find_opt declared_types entry with
+          | Some ty -> ty
+          | None -> fail span "'%s' has no '%s' to put in a '%s'." owner name trait
+        in
+        (* A generic impl's method that nothing needed copied is the slot at the
+           value's own type, as a call to it is annotated at the call's. *)
+        let at =
+          match declared with
+          | Types.Fn (receiver :: _, _, _) ->
+            Types.subst_generic (Types.match_generic receiver data.Ast.ann []) declared
+          | _ -> declared
+        in
+        name, { Ast.it = `Var entry; span; ann = at }
       in
       `Object (data, List.map slot slots)
     (* A vtable dispatches on the value it holds, so the impl is not chosen

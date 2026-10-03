@@ -12,7 +12,7 @@ trait Describe {
 
 fn derive(shape: TypeShape) for Describe {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, _, fields) => {
             var tname = str(t);
             var text = code(tname);
             for (f in fields) {

@@ -76,7 +76,8 @@ let run_one path index name =
     (Value.Fn { Value.name = Builtins.selected_test; arity = Some 0; apply = (fun _ _ -> Value.Int index) });
   let failed message = out (Printf.sprintf "%s-%s\n%s!%s\n" marker name marker message) in
   (match Pipeline.run env converted with
-   | Ok () -> ()
+   | Ok 0 -> ()
+   | Ok code -> failed (Printf.sprintf "The test ended the program with exit code %d." code)
    | Error e -> failed e.Diagnostic.message
    | exception e -> failed (Printexc.to_string e));
   flush stdout;

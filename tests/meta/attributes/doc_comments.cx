@@ -22,7 +22,7 @@ type Shade {
 meta {
     print("Point: " + typeof(Point).doc);
     match typeof(Point).shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, _, fields) => {
             for (f in fields) {
                 print(str(f.name) + ": [" + f.doc + "]");
             }
@@ -34,7 +34,7 @@ meta {
         print("attr: " + str(a.name));
     }
     match typeof(Shade).shape {
-        TypeShape.Sum(t, variants) => {
+        TypeShape.Sum(t, _, variants) => {
             for (v in variants) {
                 print(str(v.name) + ": [" + v.doc + "]");
             }

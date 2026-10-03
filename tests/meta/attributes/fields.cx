@@ -14,7 +14,7 @@ trait Show {
 
 fn derive(shape: TypeShape) for Show {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, _, fields) => {
             var tname = str(t);
             var text = code(tname);
             for (f in fields) {

@@ -20,7 +20,7 @@ import { Args } from "std/os/Args";
 import { Env, __env_var_of_process } from "std/os/Env";
 import { Time, Timestamp, Instant } from "std/os/Time";
 import { Random } from "std/random/Random";
-import { Process, __start_on_system } from "std/os/Process";
+import { Process, Exit, __start_on_system } from "std/os/Process";
 
 global import { Assertion, assert } from "std/core/Assert";
 global import { Iter } from "std/core/Iter";
@@ -32,7 +32,7 @@ global import {
 } from "std/core/Ops";
 global import { Option } from "std/core/Option";
 global import { Range } from "std/core/Range";
-global import { AttrArg, Attr, TypeField, TypeVariant, TypeShape } from "std/meta/Reflect";
+global import { AttrArg, Attr, TypeRef, TypeField, TypeVariant, TypeShape } from "std/meta/Reflect";
 global import { Set } from "std/collections/Set";
 global import { Display, Debug } from "std/text/Format";
 global import { Console, Stdin, read_line } from "std/io/Console";
@@ -46,7 +46,7 @@ global import { print, printerr } from "std/io/Print";
  * stops the program with its value.
  */
 fn __root<T, X, E>(
-    main: () -> <async, Throw<X>, Console, Stdin, Fs, Dirs, Process, Args, Env, Time, Random, E> T
+    main: () -> <async, Throw<X>, Console, Stdin, Fs, Dirs, Process, Exit, Args, Env, Time, Random, E> T
 ): <E> T {
     var out: Option<T> = Option.None;
     run {
@@ -65,6 +65,8 @@ fn __root<T, X, E>(
         fn create_dir(path) { return __create_dir_on_disk(path); }
         fn remove(path) { return __remove_on_disk(path); }
         fn rename(from, to) { return __rename_on_disk(from, to); }
+    } handle Exit {
+        final ctl exit(status) { __exit(status); }
     } handle Args {
         fn args() { return __args(); }
     } handle Env {

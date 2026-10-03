@@ -202,6 +202,10 @@ That is what makes an imported function reachable through a dot: `import { map }
 
 **A trait may take type parameters, and a bound carries what it named them at.** `T: TryFrom<S>` is a `Types.Bound` holding the trait and its arguments, and a type satisfies it when an impl exists *at arguments that unify* — not merely when the trait's name appears. Every parameter is in scope while any bound is read, which is what lets `S` appear in `T`'s and `T` appear in its own. A bound may also say what the impl bound an associated name to — `Add<T, Output = T>` — checked alongside the arguments.
 
+**An impl's parameter may be bounded**, as a function's is: `impl Encode for List<T: Encode>` holds for a `List` of anything that is `Encode`, and a method of it calls `T`'s through the bound. Such a method lives on as its copies, as a generic function does; its own body names a bound nothing can select on, so `Type_mono` drops it from the impl once the copies exist. A method without such a call stays, since an operator reaches it by its own name.
+
+**A copy is owed wherever a generic is used at a concrete type**, which is more places than calls. A lambda inside a generic function counts as its body, so `() => x.show()` makes the function copied as `x.show()` written directly would. Putting a value into a trait object counts as calling each of the trait's methods at the value's type, and the slot holds that copy (`dp_instance`). And a generic named inside a handler arm at the operation's own type -- `suspend<T>`'s `T` -- has no type to be copied at, so it stays as written, and so does whatever it names in turn.
+
 **A method without `self` is an associated function**, reached through the type rather than through a value of it — `T.from(source)` where `T` is a parameter, or `Counter.zero()` where it is a declared type. What stands under the receiver only has to carry the type; the receiver is dropped when the call is built, which `Type_mono` and `Resolve` learn from the registry.
 
 Dispatch stays static: `Type_mono` copies the caller per concrete argument, so the call becomes a direct one to that type's entry.

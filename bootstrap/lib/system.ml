@@ -241,6 +241,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   ; "__time_wall", "", (fun () -> [], IInt)
   ; "__time_instant", "", (fun () -> [], IInt)
   ; "__time_wait_until", "", (fun () -> [ IInt ], IUnit)
+  ; "__exit", "", (fun () -> [ IInt ], IUnit)
   ; "__random_bits", "", (fun () -> [], IInt)
   ; "__fs_list", "", (fun () -> [ IStr ], ITuple [ IInt; iarray IStr; IStr ])
   ; "__fs_metadata", "", (fun () -> [ IStr ], ITuple [ IInt; IInt; IInt; IStr ])
@@ -288,6 +289,10 @@ let values ~native =
         (Array.of_list (List.map (fun (k, v) -> Value.Tuple [ str k; str v ]) (variables ()))))
   ; native "__time_wall" 0 (fun _ _ -> Value.Int (nanos (Unix.gettimeofday ())))
   ; native "__time_instant" 0 (fun _ _ -> Value.Int (instant ()))
+  ; native "__exit" 1 (fun span args ->
+      match args with
+      | [ Value.Int code ] -> raise (Value.Exited code)
+      | _ -> Value.fail span "__exit takes an exit code.")
   ; native "__time_wait_until" 1 (fun span args ->
       match args with
       | [ Value.Int deadline ] ->

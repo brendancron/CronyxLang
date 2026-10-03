@@ -423,11 +423,12 @@ and exec env (s : Ast.cps_stmt) : unit =
     in
     first cases
 
-let run env (program : Ast.cps_stmt list) : (unit, error) result =
+let run env (program : Ast.cps_stmt list) : (int, error) result =
   try
     run_block env program;
-    Ok ()
+    Ok 0
   with
+  | Exited code -> Ok code
   | Runtime_error e -> Error e
   | Return_value (_, span) -> Error { span; message = "'return' outside of a function." }
   (* The scope it named is gone: a continuation re-entered it without putting it

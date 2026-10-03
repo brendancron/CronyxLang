@@ -1,0 +1,57 @@
+import { Encode, Decode, Data, Entry, DecodeError, decode_data } from "std/encoding/Codec";
+import { Result, attempt } from "std/core/Error";
+
+type Shape {
+    Circle(int),
+    Rect { w: int, h: int },
+    Line(int, int),
+    Dot
+}
+
+type Server {
+    host: string,
+    @rename("port_number") port: int,
+    tags: List<string>,
+    limit: Option<int>,
+    @skip cache: Option<string>,
+    shapes: List<Shape>
+}
+
+derive Encode, Decode for Shape;
+derive Encode, Decode for Server;
+
+var s = Server {
+    host: "localhost",
+    port: 8080,
+    tags: ["a", "b"],
+    limit: Option.None,
+    cache: Option.Some("dropped"),
+    shapes: [Shape.Circle(2), Shape.Rect { w: 3, h: 4 }, Shape.Line(1, 5), Shape.Dot]
+};
+var data = s.encode();
+print(data);
+
+var back: Server = decode_data(data);
+print(back.host + " " + str(back.port) + " " + str(back.tags) + " " + str(back.limit) + " " + str(back.cache));
+print(back.shapes);
+
+var bad = Data.Map([
+    Entry { key: "host", value: Data.Str("h") },
+    Entry { key: "port_number", value: Data.Str("eighty") }
+]);
+var failed: Result<Server, DecodeError> = attempt { decode_data(bad) };
+match failed {
+    Result.Ok(_) => { print("decoded"); }
+    Result.Err(e) => { print(e.message()); }
+}
+var nested = Data.Map([
+    Entry { key: "host", value: Data.Str("h") },
+    Entry { key: "port_number", value: Data.Int(1) },
+    Entry { key: "tags", value: Data.Seq([]) },
+    Entry { key: "shapes", value: Data.Seq([Data.Map([Entry { key: "Rect", value: Data.Map([Entry { key: "w", value: Data.Int(1) }]) }])]) }
+]);
+var missing: Result<Server, DecodeError> = attempt { decode_data(nested) };
+match missing {
+    Result.Ok(_) => { print("decoded"); }
+    Result.Err(e) => { print(e.message()); }
+}

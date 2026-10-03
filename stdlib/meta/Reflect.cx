@@ -6,7 +6,7 @@
  *
  * meta {
  *     match typeof(Point).shape {
- *         TypeShape.Product(name, fields) => {
+ *         TypeShape.Product(name, _, fields) => {
  *             for (f in fields) { print(str(f.name)); }
  *         }
  *         _ => {}
@@ -44,10 +44,49 @@ type Attr {
     args: Array<AttrArg>
 }
 
-/** A field of a product type. */
+/**
+ * A type as a field or a payload names it. One level deep: its arguments are
+ * references too, so a type that contains itself is not reflected forever, and
+ * a deriver that needs to look inside one asks `typeof`.
+ */
+type TypeRef {
+    /** A declared or a primitive type, with its arguments: `int`, `List<string>`. */
+    Named(Name, Array<TypeRef>),
+
+    /** One of the reflected type's own parameters. */
+    Param(Name),
+
+    /** A function, a tuple, a record with no declared type. */
+    Other,
+}
+
+impl TypeRef {
+    /** The type as a program writes it: `Option<int>`, `T`, `?` for one with no name. */
+    fn text(self): string {
+        match self {
+            TypeRef.Named(name, args) => {
+                if (args.len() == 0) { return str(name); }
+                var out = str(name) + "<";
+                for (var i = 0; i < args.len(); i += 1) {
+                    if (i > 0) { out = out + ", "; }
+                    out = out + args[i].text();
+                }
+                return out + ">";
+            }
+            TypeRef.Param(name) => { return str(name); }
+            TypeRef.Other => { return "?"; }
+        }
+        return "?";
+    }
+}
+
+/** A field of a product type, in the order the type declares them. */
 type TypeField {
     /** The field's name. */
     name: Name,
+
+    /** Its type. */
+    ty: TypeRef,
 
     /** Its doc comment, empty where there is none. */
     doc: string,
@@ -64,12 +103,11 @@ type TypeVariant {
     /** How many values it carries. */
     arity: int,
 
-    /**
-     * The type of each value it carries, when every one is a plain type name --
-     * `IoError`, `int` -- and empty otherwise, so a deriver that needs them checks
-     * the length against `arity`.
-     */
-    payload: Array<Name>,
+    /** The type of each value it carries, in order. */
+    payload: Array<TypeRef>,
+
+    /** The name of each, when it carries named fields -- `Rect { w, h }` -- and empty when they are positional. */
+    fields: Array<Name>,
 
     /** Its doc comment, empty where there is none. */
     doc: string,
@@ -83,11 +121,11 @@ type TypeShape {
     /** A primitive: nothing to take apart. */
     Scalar,
 
-    /** Fields, all present at once. */
-    Product(Name, Array<TypeField>),
+    /** The type's name, its parameters, and its fields, all present at once. */
+    Product(Name, Array<Name>, Array<TypeField>),
 
-    /** Variants, one at a time. */
-    Sum(Name, Array<TypeVariant>),
+    /** The type's name, its parameters, and its variants, one at a time. */
+    Sum(Name, Array<Name>, Array<TypeVariant>),
 
     /** Something with no shape to report -- a function, a tuple. */
     Other,

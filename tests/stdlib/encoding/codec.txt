@@ -1,0 +1,5 @@
+Map([{ key: "host", value: Str("localhost") }, { key: "port_number", value: Int(8080) }, { key: "tags", value: Seq([Str("a"), Str("b")]) }, { key: "limit", value: Null }, { key: "shapes", value: Seq([Map([{ key: "Circle", value: Int(2) }]), Map([{ key: "Rect", value: Map([{ key: "w", value: Int(3) }, { key: "h", value: Int(4) }]) }]), Map([{ key: "Line", value: Seq([Int(1), Int(5)]) }]), Str("Dot")]) }])
+localhost 8080 ["a", "b"] None None
+[Circle(2), Rect(3, 4), Line(1, 5), Dot]
+port_number: expected an int, found a string
+shapes[0].Rect.h: missing

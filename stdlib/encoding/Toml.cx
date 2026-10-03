@@ -1,389 +1,638 @@
 /**
- * Reading TOML.
+ * TOML.
  *
- * Enough of the format for a manifest: tables, arrays, inline tables, strings,
- * integers and booleans. `cx` reads `cronyx.toml` with a reader of its own, so
- * this is the one a program written in Cronyx uses.
+ * ```
+ * import { Encode, Decode } from "std/encoding/Codec";
+ * import { to_toml, from_toml } from "std/encoding/Toml";
  *
- * The tokenizer and the parser are both here, and most of what this module
- * declares is theirs; a reader wants `parse` and the `Toml*` types.
+ * type Package { name: string, version: string }
+ * type Manifest { package: Package, features: List<string> }
+ * derive Encode, Decode for Package;
+ * derive Encode, Decode for Manifest;
+ *
+ * var m: Manifest = from_toml("features = [\"a\"]\n[package]\nname = \"demo\"\nversion = \"0.1.0\"\n");
+ * print(to_toml(m));
+ * ```
+ *
+ * Tables, arrays of tables, inline tables, dotted and quoted keys, arrays,
+ * basic and literal strings (multi-line too), integers, floats and booleans.
+ * Dates and times are not read. TOML has no null, so a null is left out when
+ * written, which is how a missing `Option` reads back.
  */
 
+import { Throw } from "../core/Error";
+import { join } from "../collections/List";
+import { Data, Entry, Encode, Decode, DecodeError, Format, Decoder } from "Codec";
 
-// Enough TOML for a configuration file: [sections], string, bool and int
-// values, and one level of inline table. No arrays, no multi-line strings,
-// no dotted keys.
+/** TOML as a `Format`. */
+type Toml;
 
-type Token {
-    LBracket,
-    RBracket,
-    LBrace,
-    RBrace,
-    Equals,
-    Comma,
-    Newline,
-    Ident(string),
-    Str(string),
-    Bool(bool),
-    Int(int),
-    Eof
+impl Format for Toml {
+    fn write(self, data: Data): string { return write_toml(data); }
+    fn read(self, text: string): <Throw<DecodeError>> Data { return parse_toml(text); }
 }
 
-type TomlPrimitive {
-    PString(string),
-    PInt(int),
-    PBool(bool)
+/** The value as a TOML document. Panics unless it encodes as a map, since a document is a table. */
+fn to_toml<T: Encode>(value: T): string { return write_toml(value.encode()); }
+
+/** A value read from a TOML document. */
+fn from_toml<T: Decode>(text: string): <Throw<DecodeError>> T {
+    return T.decode(Decoder.of(parse_toml(text)));
 }
 
-type TomlInlineEntry {
-    key: string,
-    val: TomlPrimitive
-}
-
-type TomlValue {
-    Primitive(TomlPrimitive),
-    Table(List<TomlInlineEntry>)
-}
-
-type TomlEntry {
-    key: string,
-    val: TomlValue
-}
-
-type TomlSection {
-    name: string,
-    entries: List<TomlEntry>
-}
-
-type TomlDoc {
-    sections: List<TomlSection>
-}
-
-// ── Tokenizer ────────────────────────────────────────────────────────────────
-
-fn is_ident_start(c: char): bool {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
-}
-
-fn is_ident_char(c: char): bool {
-    return is_ident_start(c) || (c >= '0' && c <= '9') || c == '-';
-}
-
-fn is_digit(c: char): bool { return c >= '0' && c <= '9'; }
-
-fn tokenize(input: string): List<Token> {
-    var chars = input.chars();
-    var n = chars.len();
-    var tokens: List<Token> = [];
-    var at = 0;
-
-    while (at < n) {
-        var c = chars[at];
-
-        if (c == ' ' || c == '\t' || c == '\r') {
-            at = at + 1;
-        } else if (c == '\n') {
-            tokens.push(Token.Newline);
-            at = at + 1;
-        } else if (c == '#') {
-            while (at < n && chars[at] != '\n') { at = at + 1; }
-        } else if (c == '[') { tokens.push(Token.LBracket); at = at + 1; }
-        else if (c == ']') { tokens.push(Token.RBracket); at = at + 1; }
-        else if (c == '{') { tokens.push(Token.LBrace); at = at + 1; }
-        else if (c == '}') { tokens.push(Token.RBrace); at = at + 1; }
-        else if (c == '=') { tokens.push(Token.Equals); at = at + 1; }
-        else if (c == ',') { tokens.push(Token.Comma); at = at + 1; }
-        else if (c == '"') {
-            at = at + 1;
-            var text = "";
-            var closed = false;
-            while (at < n && !closed) {
-                var sc = chars[at];
-                if (sc == '"') {
-                    at = at + 1;
-                    closed = true;
-                } else if (sc == '\\' && at + 1 < n) {
-                    text = text + str(unescape(chars[at + 1]));
-                    at = at + 2;
-                } else {
-                    text = text + str(sc);
-                    at = at + 1;
-                }
-            }
-            tokens.push(Token.Str(text));
-        } else if (is_ident_start(c)) {
-            var word = "";
-            while (at < n && is_ident_char(chars[at])) {
-                word = word + str(chars[at]);
-                at = at + 1;
-            }
-            if (word == "true") { tokens.push(Token.Bool(true)); }
-            else if (word == "false") { tokens.push(Token.Bool(false)); }
-            else { tokens.push(Token.Ident(word)); }
-        } else if (is_digit(c)) {
-            var num = 0;
-            while (at < n && is_digit(chars[at])) {
-                num = num * 10 + (ord(chars[at]) - ord('0'));
-                at = at + 1;
-            }
-            tokens.push(Token.Int(num));
-        } else {
-            at = at + 1;
+/** The data as a TOML document. Panics unless it is a map. */
+fn write_toml(data: Data): string {
+    match data {
+        Data.Map(entries) => {
+            var out: List<string> = [];
+            __write_table(out, "", entries);
+            return join(out, "");
         }
-    }
-
-    tokens.push(Token.Eof);
-    return tokens;
-}
-
-fn unescape(c: char): char {
-    if (c == 'n') { return '\n'; }
-    if (c == 't') { return '\t'; }
-    if (c == 'r') { return '\r'; }
-    return c;
-}
-
-// ── Parser ───────────────────────────────────────────────────────────────────
-
-// The cursor is a one-element list so that each level advances the same one.
-fn at(tokens: List<Token>, pos: List<int>): Token { return tokens[pos[0]]; }
-fn advance(pos: List<int>) { pos[0] = pos[0] + 1; }
-
-fn is_newline(t: Token): bool {
-    match t {
-        Token.Newline => { return true; }
-        _ => { return false; }
-    }
-}
-
-fn skip_newlines(tokens: List<Token>, pos: List<int>) {
-    while (is_newline(at(tokens, pos))) { advance(pos); }
-}
-
-fn parse_primitive(tokens: List<Token>, pos: List<int>): TomlPrimitive {
-    var t = at(tokens, pos);
-    advance(pos);
-    match t {
-        Token.Str(text) => { return TomlPrimitive.PString(text); }
-        Token.Int(n) => { return TomlPrimitive.PInt(n); }
-        Token.Bool(b) => { return TomlPrimitive.PBool(b); }
-        _ => { return TomlPrimitive.PString(""); }
-    }
-}
-
-fn parse_value(tokens: List<Token>, pos: List<int>): TomlValue {
-    var opens = false;
-    match at(tokens, pos) {
-        Token.LBrace => { opens = true; }
         _ => {}
     }
+    panic("A TOML document is a table, so only a map can be written as one, not " + data.kind() + ".");
+    return "";
+}
 
-    if (opens) {
-        advance(pos);
-        var entries: List<TomlInlineEntry> = [];
-        var going = true;
-        while (going) {
-            match at(tokens, pos) {
-                Token.RBrace => { advance(pos); going = false; }
-                Token.Eof => { going = false; }
-                Token.Ident(key) => {
-                    advance(pos);
-                    advance(pos);
-                    entries.push(
-                        TomlInlineEntry { key: key, val: parse_primitive(tokens, pos) });
+/** The data a TOML document holds, as a map. Throws where the text is not TOML. */
+fn parse_toml(text: string): <Throw<DecodeError>> Data {
+    var reader = __Reader { chars: text.chars(), at: 0 };
+    var root: List<Entry> = [];
+    var current = root;
+    while (true) {
+        reader.blank_lines();
+        if (reader.done()) { return Data.Map(root); }
+        if (reader.peek() == '[') {
+            reader.at += 1;
+            var many = false;
+            if (reader.peek() == '[') {
+                reader.at += 1;
+                many = true;
+            }
+            reader.inline_space();
+            var path = reader.key();
+            reader.inline_space();
+            reader.expect(']');
+            if (many) { reader.expect(']'); }
+            reader.line_end();
+            if (many) {
+                var parent = __table_at(reader, root, path[0:path.len() - 1]);
+                var last = path[path.len() - 1];
+                var made: List<Entry> = [];
+                match __find(parent, last) {
+                    Option.Some(e) => {
+                        match e.value {
+                            Data.Seq(items) => { items.push(Data.Map(made)); }
+                            _ => { return throw(reader.unexpected()); }
+                        }
+                    }
+                    Option.None => { parent.push(Entry { key: last, value: Data.Seq([Data.Map(made)]) }); }
                 }
-                _ => { advance(pos); }
+                current = made;
+            } else {
+                current = __table_at(reader, root, path);
+            }
+        } else {
+            var path = reader.key();
+            reader.inline_space();
+            reader.expect('=');
+            reader.inline_space();
+            var value = reader.value();
+            reader.line_end();
+            var into = __table_at(reader, current, path[0:path.len() - 1]);
+            var last = path[path.len() - 1];
+            match __find(into, last) {
+                Option.Some(_) => { return throw(DecodeError.Duplicate(__dotted(path))); }
+                Option.None => { into.push(Entry { key: last, value: value }); }
             }
         }
-        return TomlValue.Table(entries);
     }
-
-    return TomlValue.Primitive(parse_primitive(tokens, pos));
+    return Data.Map(root);
 }
 
-fn parse(input: string): TomlDoc {
-    var tokens = tokenize(input);
-    var pos: List<int> = [0];
-    var sections: List<TomlSection> = [];
-    var name = "";
-    var entries: List<TomlEntry> = [];
-
-    skip_newlines(tokens, pos);
-
-    var going = true;
-    while (going) {
-        match at(tokens, pos) {
-            Token.Eof => { going = false; }
-            // A new section closes the one before it, so the entries gathered
-            // so far are what it holds.
-            Token.LBracket => {
-                sections.push(TomlSection { name: name, entries: entries });
-                advance(pos);
-                name = section_name(at(tokens, pos));
-                advance(pos);
-                advance(pos);
-                entries = [];
-                skip_newlines(tokens, pos);
-            }
-            Token.Ident(key) => {
-                advance(pos);
-                advance(pos);
-                entries.push(TomlEntry { key: key, val: parse_value(tokens, pos) });
-                skip_newlines(tokens, pos);
-            }
-            _ => { advance(pos); }
-        }
+fn __dotted(path: Array<string>): string {
+    var out = "";
+    for (key in path) {
+        if (out != "") { out = out + "."; }
+        out = out + key;
     }
-
-    sections.push(TomlSection { name: name, entries: entries });
-    return TomlDoc { sections: sections };
+    return out;
 }
 
-fn section_name(t: Token): string {
-    match t {
-        Token.Ident(name) => { return name; }
-        Token.Str(text) => { return text; }
-        _ => { return ""; }
-    }
-}
-
-// ── Public API ───────────────────────────────────────────────────────────────
-
-// The section before the first header has no name, and is not one.
-fn section_names(doc: TomlDoc): List<string> {
-    var names: List<string> = [];
-    for (section in doc.sections) {
-        if (section.name != "") { names.push(section.name); }
-    }
-    return names;
-}
-
-fn get_section(doc: TomlDoc, name: string): Option<TomlSection> {
-    for (section in doc.sections) {
-        if (section.name == name) { return Option.Some(section); }
+fn __find(entries: List<Entry>, key: string): Option<Entry> {
+    for (e in entries) {
+        if (e.key == key) { return Option.Some(e); }
     }
     return Option.None;
 }
 
-fn section_entry_keys(section: TomlSection): List<string> {
-    var keys: List<string> = [];
-    for (entry in section.entries) { keys.push(entry.key); }
-    return keys;
-}
-
-fn get_entry(section: TomlSection, key: string): Option<TomlEntry> {
-    for (entry in section.entries) {
-        if (entry.key == key) { return Option.Some(entry); }
+// The table a dotted path names, made where it is missing. A path through an
+// array of tables goes into its last table, as a `[a.b]` after `[[a]]` does.
+fn __table_at(reader: __Reader, from: List<Entry>, path: Array<string>): <Throw<DecodeError>> List<Entry> {
+    var here = from;
+    for (key in path) {
+        var next: List<Entry> = [];
+        match __find(here, key) {
+            Option.Some(e) => {
+                match e.value {
+                    Data.Map(entries) => { next = entries; }
+                    Data.Seq(items) => {
+                        if (items.len() == 0) { return throw(reader.unexpected()); }
+                        match items[items.len() - 1] {
+                            Data.Map(entries) => { next = entries; }
+                            _ => { return throw(reader.unexpected()); }
+                        }
+                    }
+                    _ => { return throw(reader.unexpected()); }
+                }
+            }
+            Option.None => { here.push(Entry { key: key, value: Data.Map(next) }); }
+        }
+        here = next;
     }
-    return Option.None;
+    return here;
 }
 
-fn get_inline(entries: List<TomlInlineEntry>, key: string): Option<TomlPrimitive> {
-    for (entry in entries) {
-        if (entry.key == key) { return Option.Some(entry.val); }
+fn __write_table(out: List<string>, path: string, entries: List<Entry>) {
+    for (e in entries) {
+        if (!__is_table(e.value) && !__is_tables(e.value)) {
+            match e.value {
+                Data.Null => {}
+                _ => { out.push(__key(e.key) + " = " + __inline(e.value) + "\n"); }
+            }
+        }
     }
-    return Option.None;
-}
-
-// A value is a primitive of some kind, or a table. Asking which is what the
-// caller does before reaching for the value itself.
-fn is_string(val: TomlValue): bool {
-    match val {
-        TomlValue.Primitive(p) => { return prim_is_string(p); }
-        _ => { return false; }
-    }
-}
-
-fn is_int(val: TomlValue): bool {
-    match val {
-        TomlValue.Primitive(p) => { return prim_is_int(p); }
-        _ => { return false; }
-    }
-}
-
-fn is_bool(val: TomlValue): bool {
-    match val {
-        TomlValue.Primitive(p) => { return prim_is_bool(p); }
-        _ => { return false; }
-    }
-}
-
-fn is_table(val: TomlValue): bool {
-    match val {
-        TomlValue.Table(entries) => { return true; }
-        _ => { return false; }
-    }
-}
-
-fn as_string(val: TomlValue): string {
-    match val {
-        TomlValue.Primitive(p) => { return prim_as_string(p); }
-        _ => { return ""; }
-    }
-}
-
-fn as_int_val(val: TomlValue): int {
-    match val {
-        TomlValue.Primitive(p) => { return prim_as_int(p); }
-        _ => { return 0; }
-    }
-}
-
-fn as_bool(val: TomlValue): bool {
-    match val {
-        TomlValue.Primitive(p) => { return prim_as_bool(p); }
-        _ => { return false; }
-    }
-}
-
-fn as_table(val: TomlValue): List<TomlInlineEntry> {
-    match val {
-        TomlValue.Table(entries) => { return entries; }
-        _ => {
-            var none: List<TomlInlineEntry> = [];
-            return none;
+    for (e in entries) {
+        var inner = __joined(path, e.key);
+        match e.value {
+            Data.Map(sub) => {
+                if (__has_values(sub) || sub.len() == 0) { out.push("\n[" + inner + "]\n"); }
+                __write_table(out, inner, sub);
+            }
+            Data.Seq(items) => {
+                if (__is_tables(e.value)) {
+                    for (item in items) {
+                        match item {
+                            Data.Map(sub) => {
+                                out.push("\n[[" + inner + "]]\n");
+                                __write_table(out, inner, sub);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
 
-fn prim_is_string(p: TomlPrimitive): bool {
-    match p {
-        TomlPrimitive.PString(s) => { return true; }
-        _ => { return false; }
+// A table holding only tables is reached through their headers alone.
+fn __has_values(entries: List<Entry>): bool {
+    for (e in entries) {
+        match e.value {
+            Data.Null => {}
+            Data.Map(_) => {}
+            _ => { if (!__is_tables(e.value)) { return true; } }
+        }
     }
+    return false;
 }
 
-fn prim_is_int(p: TomlPrimitive): bool {
-    match p {
-        TomlPrimitive.PInt(n) => { return true; }
-        _ => { return false; }
+fn __is_table(data: Data): bool {
+    match data {
+        Data.Map(_) => { return true; }
+        _ => {}
     }
+    return false;
 }
 
-fn prim_is_bool(p: TomlPrimitive): bool {
-    match p {
-        TomlPrimitive.PBool(b) => { return true; }
-        _ => { return false; }
+fn __is_tables(data: Data): bool {
+    match data {
+        Data.Seq(items) => {
+            if (items.len() == 0) { return false; }
+            for (item in items) { if (!__is_table(item)) { return false; } }
+            return true;
+        }
+        _ => {}
     }
+    return false;
 }
 
-fn prim_as_string(p: TomlPrimitive): string {
-    match p {
-        TomlPrimitive.PString(s) => { return s; }
-        _ => { return ""; }
-    }
+fn __joined(path: string, key: string): string {
+    if (path == "") { return __key(key); }
+    return path + "." + __key(key);
 }
 
-fn prim_as_int(p: TomlPrimitive): int {
-    match p {
-        TomlPrimitive.PInt(n) => { return n; }
-        _ => { return 0; }
+fn __key(key: string): string {
+    if (key == "") { return "\"\""; }
+    for (c in key.chars()) {
+        if (!__bare(c)) { return __quoted(key); }
     }
+    return key;
 }
 
-fn prim_as_bool(p: TomlPrimitive): bool {
-    match p {
-        TomlPrimitive.PBool(b) => { return b; }
-        _ => { return false; }
+fn __bare(c: char): bool {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+}
+
+fn __inline(data: Data): string {
+    match data {
+        Data.Null => { return "\"\""; }
+        Data.Bool(b) => { return str(b); }
+        Data.Int(n) => { return str(n); }
+        Data.Float(f) => {
+            var text = str(f);
+            if (text.contains("e") || text.contains(".") || text.contains("n")) { return text; }
+            return text + ".0";
+        }
+        Data.Str(s) => { return __quoted(s); }
+        Data.Seq(items) => {
+            var parts: List<string> = [];
+            for (item in items) {
+                match item {
+                    Data.Null => {}
+                    _ => { parts.push(__inline(item)); }
+                }
+            }
+            return "[" + join(parts, ", ") + "]";
+        }
+        Data.Map(entries) => {
+            var parts: List<string> = [];
+            for (e in entries) {
+                match e.value {
+                    Data.Null => {}
+                    _ => { parts.push(__key(e.key) + " = " + __inline(e.value)); }
+                }
+            }
+            if (parts.len() == 0) { return "{}"; }
+            return "{ " + join(parts, ", ") + " }";
+        }
+    }
+    return "";
+}
+
+fn __quoted(text: string): string {
+    var out = "\"";
+    for (c in text.chars()) {
+        if (c == '"') { out = out + "\\\""; }
+        else if (c == '\\') { out = out + "\\\\"; }
+        else if (c == '\n') { out = out + "\\n"; }
+        else if (c == '\r') { out = out + "\\r"; }
+        else if (c == '\t') { out = out + "\\t"; }
+        else { out = out + str(c); }
+    }
+    return out + "\"";
+}
+
+type __Reader {
+    chars: Array<char>,
+    at: int
+}
+
+impl __Reader {
+    fn done(self): bool { return self.at >= self.chars.len(); }
+
+    fn unexpected(self): DecodeError {
+        if (self.done()) { return DecodeError.Truncated(self.chars.len()); }
+        return DecodeError.Unexpected(self.at, self.chars[self.at]);
+    }
+
+    fn peek(self): <Throw<DecodeError>> char {
+        if (self.done()) { return throw(self.unexpected()); }
+        return self.chars[self.at];
+    }
+
+    fn expect(self, c: char): <Throw<DecodeError>> unit {
+        if (self.peek() != c) { throw(self.unexpected()); }
+        self.at += 1;
+    }
+
+    fn starts(self, text: string): bool {
+        var cs = text.chars();
+        if (self.at + cs.len() > self.chars.len()) { return false; }
+        for (var i = 0; i < cs.len(); i += 1) {
+            if (self.chars[self.at + i] != cs[i]) { return false; }
+        }
+        return true;
+    }
+
+    fn inline_space(self) {
+        while (!self.done() && (self.chars[self.at] == ' ' || self.chars[self.at] == '\t')) { self.at += 1; }
+    }
+
+    fn comment(self) {
+        if (!self.done() && self.chars[self.at] == '#') {
+            while (!self.done() && self.chars[self.at] != '\n') { self.at += 1; }
+        }
+    }
+
+    // Spaces, comments and newlines, as between statements or array items.
+    fn blank_lines(self) {
+        while (true) {
+            self.inline_space();
+            self.comment();
+            if (self.done()) { return; }
+            var c = self.chars[self.at];
+            if (c == '\n' || c == '\r') { self.at += 1; } else { return; }
+        }
+    }
+
+    fn line_end(self): <Throw<DecodeError>> unit {
+        self.inline_space();
+        self.comment();
+        if (self.done()) { return; }
+        if (self.chars[self.at] == '\r') { self.at += 1; }
+        self.expect('\n');
+    }
+
+    fn key(self): <Throw<DecodeError>> Array<string> {
+        var parts: List<string> = [];
+        while (true) {
+            self.inline_space();
+            var c = self.peek();
+            if (c == '"') { parts.push(self.basic()); }
+            else if (c == '\'') { parts.push(self.literal()); }
+            else {
+                var bare = "";
+                while (!self.done() && __bare(self.chars[self.at])) {
+                    bare = bare + str(self.chars[self.at]);
+                    self.at += 1;
+                }
+                if (bare == "") { return throw(self.unexpected()); }
+                parts.push(bare);
+            }
+            self.inline_space();
+            if (!self.done() && self.chars[self.at] == '.') { self.at += 1; } else {
+                return parts.items[0:parts.len()];
+            }
+        }
+        return parts.items[0:parts.len()];
+    }
+
+    fn value(self): <Throw<DecodeError>> Data {
+        var c = self.peek();
+        if (c == '"') {
+            if (self.starts("\"\"\"")) { return Data.Str(self.multiline_basic()); }
+            return Data.Str(self.basic());
+        }
+        if (c == '\'') {
+            if (self.starts("'''")) { return Data.Str(self.multiline_literal()); }
+            return Data.Str(self.literal());
+        }
+        if (c == '[') { return self.array(); }
+        if (c == '{') { return self.table(); }
+        if (self.starts("true")) {
+            self.at += 4;
+            return Data.Bool(true);
+        }
+        if (self.starts("false")) {
+            self.at += 5;
+            return Data.Bool(false);
+        }
+        return self.number();
+    }
+
+    fn array(self): <Throw<DecodeError>> Data {
+        self.expect('[');
+        var items: List<Data> = [];
+        while (true) {
+            self.blank_lines();
+            if (self.peek() == ']') {
+                self.at += 1;
+                return Data.Seq(items);
+            }
+            items.push(self.value());
+            self.blank_lines();
+            if (self.peek() == ',') { self.at += 1; } else {
+                self.expect(']');
+                return Data.Seq(items);
+            }
+        }
+        return Data.Seq(items);
+    }
+
+    fn table(self): <Throw<DecodeError>> Data {
+        self.expect('{');
+        var entries: List<Entry> = [];
+        self.inline_space();
+        if (self.peek() == '}') {
+            self.at += 1;
+            return Data.Map(entries);
+        }
+        while (true) {
+            self.inline_space();
+            var path = self.key();
+            self.inline_space();
+            self.expect('=');
+            self.inline_space();
+            var value = self.value();
+            var into = __table_at(self, entries, path[0:path.len() - 1]);
+            match __find(into, path[path.len() - 1]) {
+                Option.Some(_) => { return throw(DecodeError.Duplicate(__dotted(path))); }
+                Option.None => { into.push(Entry { key: path[path.len() - 1], value: value }); }
+            }
+            self.inline_space();
+            if (self.peek() == ',') { self.at += 1; } else {
+                self.expect('}');
+                return Data.Map(entries);
+            }
+        }
+        return Data.Map(entries);
+    }
+
+    fn escape(self): <Throw<DecodeError>> string {
+        var e = self.peek();
+        self.at += 1;
+        if (e == 'n') { return "\n"; }
+        if (e == 't') { return "\t"; }
+        if (e == 'r') { return "\r"; }
+        if (e == 'b') { return str(chr(8)); }
+        if (e == 'f') { return str(chr(12)); }
+        if (e == '"' || e == '\\') { return str(e); }
+        if (e == 'u') { return str(chr(self.hex(4))); }
+        if (e == 'U') { return str(chr(self.hex(8))); }
+        self.at -= 1;
+        return throw(self.unexpected());
+    }
+
+    fn hex(self, count: int): <Throw<DecodeError>> int {
+        var point = 0;
+        for (var i = 0; i < count; i += 1) {
+            var c = self.peek();
+            var digit = -1;
+            if (c >= '0' && c <= '9') { digit = ord(c) - ord('0'); }
+            else if (c >= 'a' && c <= 'f') { digit = ord(c) - ord('a') + 10; }
+            else if (c >= 'A' && c <= 'F') { digit = ord(c) - ord('A') + 10; }
+            if (digit < 0) { return throw(self.unexpected()); }
+            point = point * 16 + digit;
+            self.at += 1;
+        }
+        return point;
+    }
+
+    fn basic(self): <Throw<DecodeError>> string {
+        self.expect('"');
+        var out = "";
+        while (true) {
+            var c = self.peek();
+            if (c == '\n') { return throw(self.unexpected()); }
+            self.at += 1;
+            if (c == '"') { return out; }
+            if (c == '\\') { out = out + self.escape(); } else { out = out + str(c); }
+        }
+        return out;
+    }
+
+    fn literal(self): <Throw<DecodeError>> string {
+        self.expect('\'');
+        var out = "";
+        while (true) {
+            var c = self.peek();
+            if (c == '\n') { return throw(self.unexpected()); }
+            self.at += 1;
+            if (c == '\'') { return out; }
+            out = out + str(c);
+        }
+        return out;
+    }
+
+    // A newline straight after the opening quotes is not part of the string.
+    fn skip_first_newline(self) {
+        if (self.starts("\r\n")) { self.at += 2; }
+        else if (self.starts("\n")) { self.at += 1; }
+    }
+
+    fn multiline_basic(self): <Throw<DecodeError>> string {
+        self.at += 3;
+        self.skip_first_newline();
+        var out = "";
+        while (true) {
+            if (self.starts("\"\"\"")) {
+                self.at += 3;
+                return out;
+            }
+            var c = self.peek();
+            self.at += 1;
+            if (c == '\\') {
+                // A backslash ending a line joins it to the next, without the whitespace between.
+                var n = self.peek();
+                if (n == '\n' || n == '\r' || n == ' ' || n == '\t') {
+                    while (!self.done() && (self.chars[self.at] == ' ' || self.chars[self.at] == '\t' || self.chars[self.at] == '\n' || self.chars[self.at] == '\r')) {
+                        self.at += 1;
+                    }
+                } else {
+                    out = out + self.escape();
+                }
+            } else {
+                out = out + str(c);
+            }
+        }
+        return out;
+    }
+
+    fn multiline_literal(self): <Throw<DecodeError>> string {
+        self.at += 3;
+        self.skip_first_newline();
+        var out = "";
+        while (true) {
+            if (self.starts("'''")) {
+                self.at += 3;
+                return out;
+            }
+            out = out + str(self.peek());
+            self.at += 1;
+        }
+        return out;
+    }
+
+    fn number(self): <Throw<DecodeError>> Data {
+        var start = self.at;
+        var text = "";
+        while (!self.done()) {
+            var c = self.chars[self.at];
+            if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '+' || c == '-' || c == '.' || c == '_') {
+                if (c != '_') { text = text + str(c); }
+                self.at += 1;
+            } else {
+                break;
+            }
+        }
+        if (text == "") { return throw(self.unexpected()); }
+        if (text == "inf" || text == "+inf") { return Data.Float(1.0 / 0.0); }
+        if (text == "-inf") { return Data.Float(-1.0 / 0.0); }
+        var sign = 1;
+        var digits = text;
+        if (digits.starts_with("+")) { digits = digits[1:digits.len()]; }
+        else if (digits.starts_with("-")) {
+            sign = -1;
+            digits = digits[1:digits.len()];
+        }
+        var base = 10;
+        if (digits.starts_with("0x")) { base = 16; }
+        else if (digits.starts_with("0o")) { base = 8; }
+        else if (digits.starts_with("0b")) { base = 2; }
+        if (base != 10) {
+            var n = 0;
+            for (c in digits[2:digits.len()].chars()) {
+                var d = -1;
+                if (c >= '0' && c <= '9') { d = ord(c) - ord('0'); }
+                else if (c >= 'a' && c <= 'f') { d = ord(c) - ord('a') + 10; }
+                else if (c >= 'A' && c <= 'F') { d = ord(c) - ord('A') + 10; }
+                if (d < 0 || d >= base) {
+                    self.at = start;
+                    return throw(self.unexpected());
+                }
+                n = n * base + d;
+            }
+            return Data.Int(sign * n);
+        }
+        var exponent = 0;
+        var mantissa = digits;
+        var floating = digits.contains(".");
+        var e = digits.index_of("e");
+        if (e < 0) { e = digits.index_of("E"); }
+        if (e >= 0) {
+            floating = true;
+            mantissa = digits[0:e];
+            var written = digits[e + 1:digits.len()];
+            var negative = written.starts_with("-");
+            if (written.starts_with("-") || written.starts_with("+")) { written = written[1:written.len()]; }
+            match written.to_int() {
+                Option.Some(n) => { exponent = n; }
+                Option.None => {
+                    self.at = start;
+                    return throw(self.unexpected());
+                }
+            }
+            if (negative) { exponent = -exponent; }
+        }
+        if (!floating) {
+            match mantissa.to_int() {
+                Option.Some(n) => { return Data.Int(sign * n); }
+                Option.None => {
+                    self.at = start;
+                    return throw(self.unexpected());
+                }
+            }
+        }
+        var value = 0.0;
+        match mantissa.to_float() {
+            Option.Some(f) => { value = f; }
+            Option.None => {
+                self.at = start;
+                return throw(self.unexpected());
+            }
+        }
+        while (exponent > 0) {
+            value = value * 10.0;
+            exponent -= 1;
+        }
+        while (exponent < 0) {
+            value = value / 10.0;
+            exponent += 1;
+        }
+        if (sign < 0) { value = -value; }
+        return Data.Float(value);
     }
 }

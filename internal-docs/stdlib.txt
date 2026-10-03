@@ -35,11 +35,11 @@ std/
 │   ├── Search             # Binary search, lower and upper bound, partition point
 │   └── graph/             # Graphs and the algorithms over them
 ├── encoding/              # Serialization and data format parsers
-│   ├── Codec              # Encode and Decode traits and their derives; the Encoder/Decoder interface formats implement
+│   ├── Codec              # Encode and Decode and their derivers; Data, which every format reads and writes; Format
 │   ├── Base64             # Standard and URL-safe alphabets, with and without padding
 │   ├── Hex                # Bytes to hex digits and back
-│   ├── Json               # JSON parser, serializer, and value AST
-│   └── Toml               # TOML configuration reader and writer
+│   ├── Json               # JSON to and from Data
+│   └── Toml               # TOML to and from Data
 ├── ops/                   # Common traits and conversions
 │   ├── Hash               # Hashing interface for collections
 │   ├── To                 # Infallible type conversion trait

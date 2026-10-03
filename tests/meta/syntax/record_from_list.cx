@@ -6,7 +6,7 @@ trait Defaulted {
 
 fn derive(shape: TypeShape) for Defaulted {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, _, fields) => {
             var entries: List<FieldInit> = [];
             for (f in fields) {
                 var label = str(f.name);

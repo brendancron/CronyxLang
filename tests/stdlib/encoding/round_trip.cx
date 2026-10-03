@@ -1,0 +1,50 @@
+import { Encode, Decode, DecodeError, Format, encode_as, decode_as } from "std/encoding/Codec";
+import { Json } from "std/encoding/Json";
+import { Toml } from "std/encoding/Toml";
+import { Result, attempt } from "std/core/Error";
+
+type Level { Low, High(int), Custom { name: string, weight: float } }
+
+type Service {
+    name: string,
+    @rename("listen-port") port: int,
+    replicas: List<int>,
+    level: Level,
+    fallback: Option<Level>,
+    owner: Option<string>,
+    healthy: bool
+}
+
+derive Encode, Decode for Level;
+derive Encode, Decode for Service;
+
+var original = Service {
+    name: "api",
+    port: 8080,
+    replicas: [1, 2, 3],
+    level: Level.Custom { name: "burst", weight: 1.5 },
+    fallback: Option.Some(Level.High(7)),
+    owner: Option.None,
+    healthy: true
+};
+
+fn same(a: Service, b: Service): bool { return to_text(a) == to_text(b); }
+fn to_text(s: Service): string { return encode_as(Json { pretty: false }, s); }
+
+fn through<F: Format>(format: F, label: string) {
+    var text = encode_as(format, original);
+    print(text);
+    var back: Service = decode_as(format, text);
+    print(label + " round trip: " + str(same(original, back)));
+}
+
+through(Json { pretty: false }, "JSON");
+through(Toml, "TOML");
+
+var broken: Result<Service, DecodeError> = attempt {
+    decode_as(Toml, "name = \"api\"\nlisten-port = 1\nreplicas = [1, \"two\"]\n")
+};
+match broken {
+    Result.Ok(_) => { print("decoded"); }
+    Result.Err(e) => { print(e.message()); }
+}

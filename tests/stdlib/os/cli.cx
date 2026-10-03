@@ -1,0 +1,51 @@
+import { Cli, from_args } from "std/os/Cli";
+import { Args } from "std/os/Args";
+import { Exit } from "std/os/Process";
+import { Stream } from "std/io/Console";
+
+type Options {
+    /** The address to listen on. */
+    host: string,
+    /** The port to listen on, 8080 if not given. */
+    port: Option<int>,
+    /** Print every request. */
+    verbose: bool,
+    /**
+     * A header to add to every response.
+     * Give it more than once for several.
+     */
+    header: List<string>,
+    /** How many connections at once. */
+    max_connections: int,
+    @skip cache: Option<string>
+}
+derive Cli for Options;
+
+fn launch(arguments: Array<string>) {
+    print("$ serve " + str(arguments));
+    var written: List<string> = [];
+    run {
+        var o: Options = from_args();
+        print(o.host + " " + str(o.port) + " " + str(o.verbose) + " " + str(o.header) + " " + str(o.max_connections) + " " + str(o.cache));
+    } handle Args {
+        fn args() { return arguments; }
+    } handle Exit {
+        final ctl exit(status) { written.push("[exit " + str(status) + "]\n"); }
+    } handle Console {
+        fn write(to, text) {
+            match to {
+                Stream.Out => { written.push(text); }
+                Stream.Err => { written.push("[stderr] " + text); }
+            }
+        }
+    }
+    for (text in written) { write(Stream.Out, text); }
+}
+
+launch(["--host", "0.0.0.0", "--port=80", "--verbose", "--header", "x-a", "--header=x-b", "--max-connections", "5"]);
+launch(["--max-connections", "1", "--host", "h"]);
+launch(["--help"]);
+launch(["--host", "h"]);
+launch(["--host", "h", "--max-connections", "lots"]);
+launch(["--host", "h", "--colour"]);
+launch(["--host", "h", "extra"]);

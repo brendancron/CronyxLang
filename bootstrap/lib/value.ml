@@ -40,6 +40,11 @@ type error =
 
 exception Runtime_error of error
 
+(* The program asked to end with this exit code. Raised rather than exiting, so
+   whoever runs the program -- a command, or the test suite -- decides what
+   ending means. *)
+exception Exited of int
+
 let fail span fmt =
   Printf.ksprintf (fun message -> raise (Runtime_error { span; message })) fmt
 

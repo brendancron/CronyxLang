@@ -613,7 +613,7 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
         `Impl_decl
           ( Option.map (fun (t, args) -> resolve_type t, List.map type_expr args) trait
           , resolve_type type_name
-          , params
+          , List.map (fun (p : Ast.type_param) -> { p with Ast.tp_ty = Option.map type_expr p.Ast.tp_ty }) params
           , { Ast.ib_assoc =
                 List.map
                   (fun (a : Ast.assoc_def) -> { a with Ast.as_ty = type_expr a.Ast.as_ty })

@@ -496,7 +496,9 @@ let run ~out ~codes ~emit ~capture (program : Ast.program) =
       emit span args;
       Value.Unit);
     (match Compile.run env converted with
-     | Ok () -> ()
+     | Ok 0 -> ()
+     | Ok code ->
+       fail Source_map.Span.nowhere "A meta block ended the program with exit code %d." code
      | Error e -> fail e.Diagnostic.span "%s" e.Diagnostic.message)
 
 
@@ -751,6 +753,7 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
        | _ -> same (`Expr call))
     | `Var_decl (name, ty, init) ->
       { s with Ast.it = `Var_decl (name, ty, Option.map (expr scope) init) }, name :: scope
+    | `Var_tuple (names, init) -> { s with Ast.it = `Var_tuple (names, expr scope init) }, names @ scope
     | `Block body -> same (`Block (block scope body))
     | `While (cond, body) -> same (`While (expr scope cond, fst (stmt scope body)))
     | `If (cond, t, e) ->

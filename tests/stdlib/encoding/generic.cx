@@ -1,0 +1,25 @@
+import { Encode, Decode } from "std/encoding/Codec";
+import { to_json, from_json } from "std/encoding/Json";
+
+type Item { name: string }
+type Page<T> { items: List<T>, total: int }
+type Tree<T> { Leaf(T), Branch(List<Tree<T>>) }
+
+derive Encode, Decode for Item;
+derive Encode, Decode for Page;
+derive Encode, Decode for Tree;
+derive Display for Page;
+
+var page = Page { items: [Item { name: "a" }, Item { name: "b" }], total: 2 };
+print(to_json(page));
+var back: Page<Item> = from_json("{\"items\": [{\"name\": \"c\"}], \"total\": 9}");
+print(back.items[0].name + " " + str(back.total));
+
+var numbers: Page<int> = from_json("{\"items\": [1, 2, 3], \"total\": 3}");
+print(numbers);
+
+var tree = Tree.Branch([Tree.Leaf(1), Tree.Branch([Tree.Leaf(2), Tree.Leaf(3)])]);
+var text = to_json(tree);
+print(text);
+var again: Tree<int> = from_json(text);
+print(to_json(again) == text);

@@ -2,7 +2,7 @@ type Node { v: int, next: Array<Node> }
 
 fn describe(shape: TypeShape): string {
     match shape {
-        TypeShape.Product(name, fields) => {
+        TypeShape.Product(name, _, fields) => {
             var out = "product:";
             for (field in fields) { out = out + " " + str(field.name); }
             return out;

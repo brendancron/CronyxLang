@@ -330,6 +330,10 @@ type 'e method_call = [ `Method_call of 'e * string * string * 'e list ]
 type 'ty dispatch =
   { dp_trait : string
   ; dp_targets : 'ty list
+  (* The copy a trait object's slot holds, when the impl is generic and
+     [Type_mono] made one for the value's type: the generic method itself has
+     nothing to dispatch its own bounds on. *)
+  ; dp_instance : string option
   }
 
 (* A receiver whose type is still a variable. Which impl answers is settled when
@@ -853,7 +857,7 @@ let map_coercion (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) coercions)
       , trait
       , List.map
           (fun (name, d) ->
-            name, { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets })
+            name, { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets; dp_instance = d.dp_instance })
           slots )
 
 let map_bound_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) bound_calls)
@@ -864,7 +868,7 @@ let map_bound_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) bound_calls)
     `Bound_call
       ( f receiver
       , name
-      , { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets }
+      , { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets; dp_instance = d.dp_instance }
       , List.map f args )
 
 let map_dyn_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) dyn_calls)

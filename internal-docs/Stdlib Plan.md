@@ -126,9 +126,9 @@ type TypeRef {
 
 A reference rather than a `TypeShape`, so a type that contains itself is not reflected forever; a deriver that needs to look inside one asks `typeof`.
 
-- `encoding/Codec`: `Encode` and `Decode`, their derivers, and the `Encoder`/`Decoder` interface. Field attributes rename and skip.
-- `encoding/Json`, implementing the interface.
-- `encoding/Toml` moves onto the interface and gains a writer; its tokenizer and parser stop being its public surface.
+- `encoding/Codec`: `Encode` and `Decode` and their derivers, over `Data`, the one tree every format reads into and writes from, and `Format`, what a format implements. A `Decoder` carries the path to where it is, which every failure names. Field attributes rename and skip.
+- `encoding/Json`, implementing `Format`.
+- `encoding/Toml` moves onto `Format` and gains a writer; its tokenizer and parser stop being its public surface.
 - `os/Cli`, over `os/Args`: a parser derived from a type, with help from its doc comments.
 
 **Done when**

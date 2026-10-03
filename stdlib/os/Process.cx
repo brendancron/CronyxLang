@@ -29,6 +29,16 @@ import { Throw, Result } from "../core/Error";
 import { Reader, Writer, IoError } from "../io/Io";
 import { decode } from "../text/Utf8";
 
+/**
+ * Ending the program. The root ends the process with the code, after the
+ * `defer`s between here and it have run; a test handles `Exit` to see the code
+ * instead.
+ */
+effect Exit {
+    /** Ends the program now: 0 for success, anything else for failure. */
+    final ctl exit(status: int);
+}
+
 /** Where one of a child's standard streams goes. */
 type Stdio {
     /** The same place as this program's. */

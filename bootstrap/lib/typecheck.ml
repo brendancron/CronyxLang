@@ -166,6 +166,12 @@ let ctx_types : (string, decl) Hashtbl.t = Hashtbl.create 16
    reader, and it asks by type name and member label. *)
 let ctx_attrs : (string, (string * Ast.attr list) list) Hashtbl.t = Hashtbl.create 8
 
+(* The first member of the type being declared whose type did not read. *)
+let unreadable_member : error option ref = ref None
+
+(* What a type declared its parameters as, for reflection to name them. *)
+let ctx_type_param_names : (string, string list) Hashtbl.t = Hashtbl.create 8
+
 let attrs_of name label =
   match Hashtbl.find_opt ctx_attrs name with
   | None -> []
@@ -314,6 +320,7 @@ let scoped_declarations f =
   in
   let types = snapshot ctx_types
   and attrs = snapshot ctx_attrs
+  and param_names = snapshot ctx_type_param_names
   and traits = snapshot ctx_traits
   and trait_spans = snapshot ctx_trait_spans
   and type_spans = snapshot ctx_type_spans
@@ -330,6 +337,7 @@ let scoped_declarations f =
     ~finally:(fun () ->
       restore ctx_types types;
       restore ctx_attrs attrs;
+      restore ctx_type_param_names param_names;
       restore ctx_traits traits;
       restore ctx_trait_spans trait_spans;
       restore ctx_type_spans type_spans;
@@ -353,6 +361,7 @@ let reset_effects () =
   Hashtbl.reset ctx_standing_rows;
   Hashtbl.reset ctx_row_standing;
   Hashtbl.reset ctx_attrs;
+  Hashtbl.reset ctx_type_param_names;
   Hashtbl.reset ctx_effect_params;
   Hashtbl.reset ctx_traits;
   Hashtbl.reset ctx_trait_spans;
@@ -900,6 +909,10 @@ and row_of_labels ~span entries =
           | [] -> List.init declared (fun _ -> Types.fresh ())
           | written when List.length written = declared ->
             List.map infer_ty_of_annotation written
+          (* Nothing declared it, which says more than a count of arguments. *)
+          | written when not (Hashtbl.mem ctx_effect_params label) ->
+            !current.unknown (fun () -> fail span "Unknown effect '%s'." label) ignore;
+            List.map (fun _ -> Types.fresh ()) written
           | written ->
             fail
               span
@@ -924,7 +937,7 @@ let rec declaring_trait trait (args : Types.infer_ty list) name
   | None -> None
   | Some (params, body) ->
     if List.exists (fun (m : Ast.method_sig) -> String.equal m.Ast.ms_name name) body.Ast.tb_methods
-    then Some { Ast.dp_trait = trait; dp_targets = args }
+    then Some { Ast.dp_trait = trait; dp_targets = args; dp_instance = None }
     else (
       let scope =
         if List.length params = List.length args then List.combine params args else []
@@ -996,7 +1009,7 @@ let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
           ( name
           , Option.value
               (declaring_trait trait trait_args name)
-              ~default:{ Ast.dp_trait = trait; dp_targets = trait_args } ))
+              ~default:{ Ast.dp_trait = trait; dp_targets = trait_args; dp_instance = None } ))
         declared
     in
     Ast.annotated span expected (`Coerce (e, trait, slots))
@@ -2185,7 +2198,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
                  , name
                  , Option.value
                      dispatch
-                     ~default:{ Ast.dp_trait = declaring; dp_targets = bound_args }
+                     ~default:{ Ast.dp_trait = declaring; dp_targets = bound_args; dp_instance = None }
                  , args )))))
      | Owner owner ->
        if Hashtbl.mem ctx_associated (owner, name) && named_receiver = None
@@ -2356,8 +2369,24 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
   (* The declared type when no value answers, so `typeof(Dog)` works. *)
   | `Typeof { Ast.it = `Var name; span = inner; _ } when lookup env name = None ->
     let ty =
-      try infer_ty_of_annotation { Ast.it = Ast.Ty_name name; span = inner; ann = () } with
-      | Located _ -> fail inner "Nothing named '%s' is a value or a type." name
+      match Hashtbl.find_opt ctx_type_param_names name with
+      (* A generic type asked about as itself: at its own parameters. *)
+      | Some (_ :: _ as names) ->
+        let args =
+          List.map
+            (fun n ->
+              let var = Types.fresh () in
+              Types.declare_param var;
+              Types.name_param n var;
+              var)
+            names
+        in
+        (match Hashtbl.find_opt ctx_types name with
+         | Some (Sum _) -> Types.ISum (name, args)
+         | _ -> Types.INamed (name, args))
+      | _ ->
+        (try infer_ty_of_annotation { Ast.it = Ast.Ty_name name; span = inner; ann = () } with
+         | Located _ -> fail inner "Nothing named '%s' is a value or a type." name)
     in
     node Types.ireflected (`Typeof { Ast.it = `Int 0; span = inner; ann = ty })
   | `Typeof e -> node Types.ireflected (`Typeof (infer_expr env ctx e))
@@ -2445,9 +2474,13 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
            if not (List.mem_assoc l fields)
            then fail span "Field '%s' is missing." l)
          expected;
+       (* A field the type does not declare was reported above, or set aside
+          while a meta block could still declare it. *)
        List.iter
          (fun (l, (v : checked_expr)) ->
-           unify_at v.Ast.span (List.assoc l expected) v.Ast.ann)
+           match List.assoc_opt l expected with
+           | Some ty -> unify_at v.Ast.span ty v.Ast.ann
+           | None -> ())
          fields;
        node (Types.INamed (name, args)) (`New (name, fields)))
   | `New_variant (ty, variant, payload) ->
@@ -3163,6 +3196,10 @@ and declare_type_names (body : Ast.desugared_stmt list) =
         if Hashtbl.mem ctx_type_spans name || Hashtbl.mem ctx_types name
         then fail s.Ast.span "Type '%s' is already declared." name;
         Hashtbl.replace ctx_type_spans name s.Ast.span;
+        Hashtbl.replace
+          ctx_type_param_names
+          name
+          (List.map (fun (p : Ast.type_param) -> p.Ast.tp_name) params);
         let vars =
           List.map
             (fun (p : Ast.type_param) ->
@@ -3190,9 +3227,19 @@ and declare_type_names (body : Ast.desugared_stmt list) =
 (* The variables are the ones [declare_type_names] registered, so a use read
    before this ran agrees with the declaration. A duplicate it rejected is not
    the registered one and is skipped, or it would overwrite the original. *)
+(* A member whose type does not read is reported once, and stands as a variable
+   meanwhile: dropping the whole type instead would report every later use of
+   its other members as missing. *)
+and member_type annotation =
+  try infer_ty_of_annotation annotation with
+  | Located e ->
+    if Option.is_none !unreadable_member then unreadable_member := Some e;
+    Types.fresh ()
+
 and declare_type_bodies (body : Ast.desugared_stmt list) =
   List.iter
     (fun (s : Ast.desugared_stmt) ->
+      unreadable_member := None;
       match s.Ast.it with
       | `Type_decl (name, params, body)
         when (match Hashtbl.find_opt ctx_type_spans name with
@@ -3210,7 +3257,7 @@ and declare_type_bodies (body : Ast.desugared_stmt list) =
                 ( vars
                 , List.fold_right
                     (fun (f : Ast.field) rest ->
-                      Types.FCons (f.Ast.f_name, infer_ty_of_annotation f.Ast.f_ty, rest))
+                      Types.FCons (f.Ast.f_name, member_type f.Ast.f_ty, rest))
                     fields
                     Types.FEmpty )
             | Ast.T_variants variants ->
@@ -3255,7 +3302,8 @@ and declare_type_bodies (body : Ast.desugared_stmt list) =
            | Ast.T_fields fields ->
              List.map (fun (f : Ast.field) -> f.Ast.f_name, f.Ast.f_attrs) fields
            | Ast.T_variants variants ->
-             List.map (fun (v : Ast.variant) -> v.Ast.v_name, v.Ast.v_attrs) variants)
+             List.map (fun (v : Ast.variant) -> v.Ast.v_name, v.Ast.v_attrs) variants);
+        Option.iter (fun e -> raise (Located e)) !unreadable_member
       | _ -> ())
     body
 
@@ -3264,7 +3312,7 @@ and declare_type_bodies (body : Ast.desugared_stmt list) =
 and variant_of span owner vars (v : Ast.variant) =
   let own = List.map (fun name -> name, Types.fresh ()) v.Ast.v_params in
   with_type_params own (fun () ->
-    let payload = Ast.map_payload infer_ty_of_annotation v.Ast.v_payload in
+    let payload = Ast.map_payload member_type v.Ast.v_payload in
     let result =
       match v.Ast.v_result with
       | None -> vars
@@ -3319,6 +3367,21 @@ and hoist env (body : Ast.desugared_stmt list) =
               p.Ast.tp_name, var)
             params
         in
+        (* `impl Encode for List<T: Encode>`: a parameter annotated with a trait
+           is bounded by it, as a function's is. *)
+        with_type_params impl_params (fun () ->
+          List.iter2
+            (fun (p : Ast.type_param) (_, var) ->
+              match p.Ast.tp_ty with
+              | Some { Ast.it = Ast.Ty_name trait; _ } when Hashtbl.mem ctx_traits trait ->
+                Types.constrain var (Types.Bound [ { Types.bd_trait = trait; bd_args = []; bd_bindings = [] } ])
+              | Some { Ast.it = Ast.Ty_app (trait, args); _ } when Hashtbl.mem ctx_traits trait ->
+                Types.constrain
+                  var
+                  (Types.Bound [ { Types.bd_trait = trait; bd_args = type_arguments trait args; bd_bindings = [] } ])
+              | _ -> ())
+            params
+            impl_params);
         List.iter
           (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
             match m.Ast.md_params with

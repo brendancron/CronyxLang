@@ -1,0 +1,108 @@
+/**
+ * What derivers share: reading a member's attributes, and the key a field is
+ * written under.
+ *
+ * ```
+ * import { has_attr, key_of } from "std/meta/Derive";
+ *
+ * for (f in fields) {
+ *     if (!has_attr(f.attrs, "skip")) { print(key_of(f.name, f.attrs)); }
+ * }
+ * ```
+ *
+ * `@rename("…")` and `@skip` mean the same to every deriver here, so a type
+ * that renames a field for JSON renames it on the command line too.
+ *
+ * A generic type's impl has to say its parameters. A deriver quotes the impl
+ * and hands it to `with_params`, and writes the type as `applied` gives it
+ * wherever the type itself is named:
+ *
+ * ```
+ * TypeShape.Product(t, params, fields) => {
+ *     var self_type = applied(t, params);
+ *     var made = with_params(code impl Encode for t { … }, params, true);
+ *     gen made;   // impl Encode for Page<T: Encode> { … }
+ * }
+ * ```
+ */
+
+import { Decl, DeclKind, TypeExpr, TypeKind, TypeParam } from "../compiler/Ast";
+
+/** The attribute with this name, if the member carries one. */
+fn attr(attrs: Array<Attr>, name: string): Option<Attr> {
+    for (a in attrs) {
+        if (str(a.name) == name) { return Option.Some(a); }
+    }
+    return Option.None;
+}
+
+/** Whether the member carries an attribute with this name. */
+fn has_attr(attrs: Array<Attr>, name: string): bool {
+    match attr(attrs, name) {
+        Option.Some(_) => { return true; }
+        Option.None => {}
+    }
+    return false;
+}
+
+/** The string an attribute with this name was given, as `@rename("full_name")` is. */
+fn attr_string(attrs: Array<Attr>, name: string): Option<string> {
+    match attr(attrs, name) {
+        Option.Some(a) => {
+            if (a.args.len() == 1) {
+                match a.args[0] {
+                    AttrArg.Str(text) => { return Option.Some(text); }
+                    _ => {}
+                }
+            }
+        }
+        Option.None => {}
+    }
+    return Option.None;
+}
+
+/** The key a member is written under: its `@rename`, or its own name. */
+fn key_of(name: Name, attrs: Array<Attr>): string {
+    match attr_string(attrs, "rename") {
+        Option.Some(renamed) => { return renamed; }
+        Option.None => {}
+    }
+    return str(name);
+}
+
+/** Whether a deriver leaves the member out, as `@skip` asks. */
+fn skipped(attrs: Array<Attr>): bool { return has_attr(attrs, "skip"); }
+
+/**
+ * The impl with the type's parameters on it, each bounded by the impl's own
+ * trait when `bounded` -- `T: Encode` for an `Encode` impl, which is what a
+ * field of type `T` needs. A type with no parameters leaves it as it was.
+ */
+fn with_params(decl: Decl, params: Array<Name>, bounded: bool): Decl {
+    match decl.kind {
+        DeclKind.Impl(i) => {
+            var list: List<TypeParam> = [];
+            for (p in params) {
+                var bound: Option<TypeExpr> = Option.None;
+                if (bounded) {
+                    match i.implements {
+                        Option.Some(t) => { bound = Option.Some(TypeExpr.of(TypeKind.Named(t.name))); }
+                        Option.None => {}
+                    }
+                }
+                list.push(TypeParam { name: p, pack: false, ty: bound });
+            }
+            i.params = list;
+        }
+        _ => {}
+    }
+    return decl;
+}
+
+/** The type as written at its own parameters: `Page<T>`, or `Page` for one with none. */
+fn applied(t: Name, params: Array<Name>): TypeExpr {
+    if (params.len() == 0) { return TypeExpr.of(TypeKind.Named(t)); }
+    var args: List<TypeExpr> = [];
+    for (p in params) { args.push(TypeExpr.of(TypeKind.Named(p))); }
+    return TypeExpr.of(TypeKind.Applied(t, args));
+}

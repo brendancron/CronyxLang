@@ -3,12 +3,12 @@ type Point { x: int, y: int }
 fn describe(shape: TypeShape): string {
     match shape {
         TypeShape.Scalar => { return "scalar"; }
-        TypeShape.Product(name, fields) => {
+        TypeShape.Product(name, _, fields) => {
             var out = "product:";
             for (field in fields) { out = out + " " + str(field.name); }
             return out;
         }
-        TypeShape.Sum(name, variants) => { return "sum"; }
+        TypeShape.Sum(name, _, variants) => { return "sum"; }
         TypeShape.Other => { return "other"; }
     }
 }

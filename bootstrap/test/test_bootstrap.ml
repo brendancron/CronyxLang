@@ -55,6 +55,8 @@ let cases =
   ; "tests/stdlib/os/time"
   ; "tests/stdlib/os/process"
   ; "tests/stdlib/os/fake_process"
+  ; "tests/stdlib/os/cli"
+  ; "tests/stdlib/os/exit"
   ; "tests/stdlib/os/meta_environment"
   ; "tests/stdlib/random/seeded"
   ; "tests/stdlib/io/fake_stdin"
@@ -177,6 +179,7 @@ let cases =
   ; "tests/reflection/shape_recursive"
   ; "tests/reflection/shape_sum"
   ; "tests/reflection/shape_sum_payload"
+  ; "tests/reflection/field_types"
   ; "tests/reflection/shape_scalar"
   ; "tests/core/math/modulus"
   ; "tests/stdlib/list/list"
@@ -197,7 +200,6 @@ let cases =
   ; "tests/core/ufcs/with_lambda"
   ; "tests/core/ufcs/imported/main"
   ; "tests/stdlib/fallible/fallible"
-  ; "tests/stdlib/toml/toml/toml"
   ; "tests/core/strings/string_slice"
   ; "tests/core/slices/overload"
   ; "tests/core/embed/embed"
@@ -320,6 +322,11 @@ let cases =
   ; "tests/stdlib/utf8/invalid"
   ; "tests/stdlib/buffer/in_memory"
   ; "tests/stdlib/encoding/hex_base64"
+  ; "tests/stdlib/encoding/codec"
+  ; "tests/stdlib/encoding/json"
+  ; "tests/stdlib/encoding/toml"
+  ; "tests/stdlib/encoding/round_trip"
+  ; "tests/stdlib/encoding/generic"
   ; "tests/core/syntax/radix_literals"
   ; "tests/stdlib/stringbuilder/stringbuilder"
   ; "tests/core/traits/written_target"
@@ -461,6 +468,11 @@ let cases =
   ; "tests/core/traits/associated_builtin"
   ; "tests/core/traits/associated_type"
   ; "tests/core/traits/supertrait"
+  ; "tests/core/traits/bounded_impl"
+  ; "tests/core/traits/bound_in_lambda"
+  ; "tests/core/traits/bounded_generic_in_lambda"
+  ; "tests/core/traits/dyn/bounded_impl"
+  ; "tests/core/records/empty_literal"
   ; "tests/core/traits/builtin_receiver/main"
   ; "tests/effects/methods/methods"
   ; "tests/effects/methods/suspending_receiver"
@@ -588,6 +600,8 @@ let error_cases =
   ; "tests/meta/code/errors/not_a_name"
   ; "tests/meta/syntax/errors/wrong_kind"
   ; "tests/effects/handler/errors/arm_without_outer"
+  ; "tests/core/records/errors/unimported_effect_in_field"
+  ; "tests/core/records/errors/unknown_field_type"
   ; "tests/reflection/errors/not_a_value"
   ; "tests/types/errors/mixed_numeric"
   ; "tests/types/inference/errors/unspecializable_recursion"
@@ -652,6 +666,7 @@ let error_cases =
   ; "tests/core/traits/errors/ambiguous_receiver"
   ; "tests/stdlib/format/errors/effectful_display"
   ; "tests/core/traits/errors/generic_impl_no_operator"
+  ; "tests/core/traits/errors/bounded_impl_unmet"
   ; "tests/core/traits/errors/impl_signature_mismatch"
   ; "tests/core/traits/errors/impl_method_arity"
   ; "tests/core/traits/errors/impl_trait_arg_arity"
@@ -736,7 +751,7 @@ let interpret path =
   | Error (e :: _) -> Error (described path e)
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out) converted with
-     | Ok () -> Ok (Buffer.contents buf)
+     | Ok _ -> Ok (Buffer.contents buf)
      | Error e -> Error (described path e))
 
 (* Why a fixture does not run yet. *)
@@ -1111,7 +1126,7 @@ let run_prompt_flushed () =
     match Pipeline.compile ~roots:(Driver.roots_for path) ~out:print_string path with
     | Ok converted ->
       (match Pipeline.run (Builtins.env ~out:print_string) converted with
-       | Ok () -> Ok ()
+       | Ok _ -> Ok ()
        | Error e -> Error (described path e))
     | Error [] -> Error "the program does not compile"
     | Error (e :: _) -> Error (described path e)

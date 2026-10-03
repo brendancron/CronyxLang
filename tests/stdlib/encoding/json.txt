@@ -1,0 +1,20 @@
+{"x":1,"y":2.5,"label":"a \"quoted\"\nline","tags":["t"],"note":null}
+{
+  "x": 1,
+  "y": 2.5,
+  "label": "a \"quoted\"\nline",
+  "tags": [
+    "t"
+  ],
+  "note": null
+}
+-7
+100.0
+café 😀
+Some("n")
+[1,2.0,true,false,null,{"a":[]},"\t"]
+the input ends at offset 5 where more was needed
+'1' at offset 5 is not valid here
+'x' at offset 4 is not valid here
+the input ends at offset 1 where more was needed
+y: expected a float, found a string

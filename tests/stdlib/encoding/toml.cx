@@ -1,0 +1,63 @@
+import { Encode, Decode, DecodeError, Data } from "std/encoding/Codec";
+import { to_toml, from_toml, parse_toml, write_toml } from "std/encoding/Toml";
+import { write_json } from "std/encoding/Json";
+import { Result, attempt } from "std/core/Error";
+
+var doc = "# A manifest
+title = \"demo\"   # trailing comment
+version = 3
+ratio = 0.5
+big = 1_000_000
+mask = 0xff
+enabled = true
+tags = [\"a\", 'b', \"\"\"c\"\"\"]
+point = { x = 1, y = 2 }
+site.\"home page\" = \"https://example.com\"
+
+[server]
+host = \"localhost\"
+ports = [
+    8080,   # first
+    8081,
+]
+
+[server.limits]
+connections = 10
+
+[[plugin]]
+name = \"one\"
+
+[[plugin]]
+name = \"two\"
+note = '''
+raw \\ text'''
+";
+
+var data = parse_toml(doc);
+print(write_json(data));
+print(write_toml(data));
+
+type Limits { connections: int }
+type Server { host: string, ports: List<int>, limits: Limits }
+type Plugin { name: string, note: Option<string> }
+type Manifest { title: string, version: int, server: Server, plugin: List<Plugin> }
+derive Encode, Decode for Limits;
+derive Encode, Decode for Server;
+derive Encode, Decode for Plugin;
+derive Encode, Decode for Manifest;
+
+var m: Manifest = from_toml(doc);
+print(m.title + " " + str(m.version) + " " + m.server.host + " " + str(m.server.ports) + " " + str(m.server.limits.connections));
+print(m.plugin[1].note);
+print(to_toml(m));
+
+fn report(text: string) {
+    var outcome: Result<Data, DecodeError> = attempt { parse_toml(text) };
+    match outcome {
+        Result.Ok(d) => { print(write_json(d)); }
+        Result.Err(e) => { print(e.message()); }
+    }
+}
+report("a = ");
+report("a = 1\na = 2\n");
+report("a = 1 b = 2\n");

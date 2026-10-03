@@ -10,7 +10,7 @@ trait Tagged {
 
 fn derive(shape: TypeShape) for Tagged {
     match shape {
-        TypeShape.Sum(t, variants) => {
+        TypeShape.Sum(t, _, variants) => {
             var tname = str(t);
             var text = code(tname);
             for (v in variants) {

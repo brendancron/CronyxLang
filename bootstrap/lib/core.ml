@@ -55,5 +55,6 @@ let field = reflect "TypeField"
 let variant = reflect "TypeVariant"
 let attr = reflect "Attr"
 let attr_arg = reflect "AttrArg"
+let type_ref = reflect "TypeRef"
 
 let syntax = name "compiler/Ast"

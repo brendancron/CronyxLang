@@ -83,19 +83,25 @@ fn rethrow<X: To<Y>, Y, T, E>(f: () -> <Throw<X>, E> T): <Throw<Y>, E> T {
 
 /**
  * Derived for a sum of error types: every variant carrying exactly one value,
- * of a plain named type, gets a `To` from that type into the sum.
+ * of a named type with no arguments, gets a `To` from that type into the sum.
  */
 trait Wraps { }
 
 fn derive(shape: TypeShape) for Wraps {
     match shape {
-        TypeShape.Sum(t, variants) => {
+        TypeShape.Sum(t, _, variants) => {
             for (v in variants) {
-                if (v.arity == 1 && v.payload.len() == 1) {
-                    var carried = v.payload[0];
-                    var variant = v.name;
-                    gen impl To<t> for carried {
-                        fn to(self): t { return t.variant(self); }
+                if (v.arity == 1) {
+                    match v.payload[0] {
+                        TypeRef.Named(carried, args) => {
+                            if (args.len() == 0) {
+                                var variant = v.name;
+                                gen impl To<t> for carried {
+                                    fn to(self): t { return t.variant(self); }
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }

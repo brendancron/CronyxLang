@@ -1,2 +1,2 @@
 true false
-Dog 3 rex
+Dog rex 3

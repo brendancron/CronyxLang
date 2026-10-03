@@ -98,7 +98,8 @@ let execute_linked ?(dumps = no_dumps) ~entry program =
   | Error errors -> die_at ~entry errors
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out:print_string) converted with
-     | Ok () -> ()
+     | Ok 0 -> ()
+     | Ok code -> exit code
      | Error e -> die_at ~entry [ e ])
 
 let execute ?(dumps = no_dumps) ?roots entry =
@@ -120,5 +121,6 @@ let execute ?(dumps = no_dumps) ?roots entry =
   | Error errors -> die_at ~entry errors
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out:print_string) converted with
-     | Ok () -> ()
+     | Ok 0 -> ()
+     | Ok code -> exit code
      | Error e -> die_at ~entry [ e ])

@@ -1,2 +1,2 @@
 Node
-product: next v
+product: v next

@@ -1,0 +1,13 @@
+trait Describe { fn describe(self): string; }
+
+impl Describe for int { fn describe(self): string { return str(self); } }
+
+impl Describe for List<T: Describe> {
+    fn describe(self): string {
+        var out = "";
+        for (x in self) { out = out + x.describe(); }
+        return out;
+    }
+}
+
+print([true].describe());

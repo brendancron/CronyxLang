@@ -314,7 +314,7 @@ let interpret roots entry =
   | Error errors -> Error errors
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out) converted with
-     | Ok () -> Ok (Buffer.contents buf)
+     | Ok _ -> Ok (Buffer.contents buf)
      | Error e -> Error [ e ])
 
 let rec remove path =
@@ -352,7 +352,7 @@ let built root =
      | Error errors -> Error errors
      | Ok converted ->
        (match Pipeline.run (Builtins.env ~out) converted with
-        | Ok () -> Ok (Buffer.contents buf)
+        | Ok _ -> Ok (Buffer.contents buf)
         | Error e -> Error [ e ]))
 
 (* Built from nothing, then built again over the artifacts the first run left.

@@ -7,7 +7,7 @@
  *
  * fn derive(shape: TypeShape) for Decode {
  *     match shape {
- *         TypeShape.Product(t, fields) => {
+ *         TypeShape.Product(t, _, fields) => {
  *             var entries: List<FieldInit> = [];
  *             for (f in fields) {
  *                 var key = str(f.name);

@@ -414,7 +414,7 @@ trait Hash {
 
 fn derive(shape: TypeShape) for Hash {
     match shape {
-        TypeShape.Product(t, fields) => {
+        TypeShape.Product(t, _, fields) => {
             gen impl Hash for t {
                 fn hash(self): int { … built with `code`, above … }
             }
@@ -426,7 +426,7 @@ fn derive(shape: TypeShape) for Hash {
 
 **`derive A, B for X;` is a meta block** calling one deriver per trait with `typeof(X).shape` (`derive/two_traits`). It is reached like any other top-level `meta`, and what it generates lands at the `derive` — including an impl a helper the deriver calls generated (`03_derive/gen_in_helper`). The trait and the type may be qualified: `derive named.Named for animals.Cat;`.
 
-**It takes a `TypeShape`, not a `Type`.** A `Type` cannot be passed anywhere — it answers a question where it stands — so the name of the type comes out of the shape with the fields. `Type.name` stays a string, because `typeof(f).name` is `(int) -> int`, which no identifier could be; a name that can be spliced exists exactly where a declaration does, so `Product` and `Sum` carry a `Name` and the other shapes do not.
+**It takes a `TypeShape`, not a `Type`.** A `Type` cannot be passed anywhere — it answers a question where it stands — so the name of the type comes out of the shape with the fields. `Type.name` stays a string, because `typeof(f).name` is `(int) -> int`, which no identifier could be; a name that can be spliced exists exactly where a declaration does, so `Product` and `Sum` carry a `Name` and the other shapes do not. They carry the type's parameters too, so a deriver can write `impl Encode for Page<T: Encode>`; `meta/Derive`'s `with_params` puts them on a quoted impl.
 
 **The name written is not the name registered.** Every deriver is called `derive`, which would collide; `for Hash` registers it under a hidden name per trait that no program can write. A second deriver for one trait is *Trait 'Eq' already has a deriver.* (`derive/errors/two_derivers`), and a `derive` naming a trait without one is *Trait 'Show' has no deriver.* (`derive/errors/no_deriver`). `Eq` is derived by the compiler unless the program writes its own deriver for it.
 

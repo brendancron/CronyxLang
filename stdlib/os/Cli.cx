@@ -1,0 +1,300 @@
+/**
+ * A program's options, read from its arguments into a type.
+ *
+ * ```
+ * import { Cli, from_args } from "std/os/Cli";
+ *
+ * type Options { host: string, port: Option<int>, verbose: bool }
+ * derive Cli for Options;
+ *
+ * var options: Options = from_args();
+ * ```
+ *
+ * Each field is an option named after it, `max_connections` as
+ * `--max-connections`, or after its `@rename`. A `bool` is a switch; an `int`,
+ * a `float` or a `string` takes a value, as `--port 80` or `--port=80`, and is
+ * required unless it is an `Option`; a `List` takes one each time it is given.
+ * `--help` prints each option with the doc comment written above its field.
+ */
+
+import { Throw, Result, attempt, Failure } from "../core/Error";
+import { Args } from "Args";
+import { Exit } from "Process";
+import { Data, Entry, Decoder, DecodeError, Decode, field_decoders } from "../encoding/Codec";
+import { Expr, ExprKind } from "../compiler/Ast";
+import { join } from "../collections/List";
+import { repeat } from "../text/String";
+import { key_of, skipped, with_params, applied } from "../meta/Derive";
+import { kebab_case } from "../meta/Name";
+
+/** Why the arguments do not describe a value. */
+type CliError {
+    /** `--help` or `-h` was given. */
+    Help,
+
+    /** The arguments are wrong, and this says how. */
+    Bad(string)
+}
+
+impl Failure for CliError {
+    fn message(self): string {
+        match self {
+            CliError.Help => { return "help was asked for"; }
+            CliError.Bad(why) => { return why; }
+        }
+    }
+}
+
+/** One option, as a field of the type describes it. */
+type CliOption {
+    /** As it is written after `--`. */
+    flag: string,
+    /** The field's key, which the value is decoded from. */
+    key: string,
+    /** The field's doc comment. */
+    doc: string,
+    kind: CliKind,
+    required: bool
+}
+
+/** What an option takes. */
+type CliKind {
+    /** Nothing: given is true, absent false. */
+    Switch,
+    /** One value of the named type: `int`, `float` or `string`. */
+    Value(string),
+    /** A value of the named type each time it is given. */
+    Many(string)
+}
+
+/** A type whose value a program's arguments describe. Derived. */
+trait Cli {
+    /** One per field, in the order the type declares them. */
+    fn options(): List<CliOption>;
+
+    /** The value, from the arguments as data. */
+    fn build(input: Decoder): <Throw<DecodeError>> Self;
+}
+
+/** The value the arguments describe. Throws `Help` for `--help`, and `Bad` saying what is wrong. */
+fn parse_args<T: Cli>(arguments: Array<string>): <Throw<CliError>> T {
+    var data = __read(T.options(), arguments);
+    var built: Result<T, DecodeError> = attempt { T.build(Decoder.of(data)) };
+    match built {
+        Result.Ok(value) => { return value; }
+        Result.Err(e) => { return throw(CliError.Bad(e.message())); }
+    }
+}
+
+/** Each option, with what it takes and its doc comment: `usage(Options.options())`. */
+fn usage(options: List<CliOption>): string { return __usage(options); }
+
+/**
+ * The value the program's arguments describe. For `--help`, prints the usage
+ * and ends the program with 0; for a bad argument, writes what is wrong and the
+ * usage to standard error and ends it with 2.
+ */
+fn from_args<T: Cli>(): <Args, Console, Exit> T {
+    var outcome: Result<T, CliError> = attempt { parse_args(args()) };
+    match outcome {
+        Result.Ok(value) => { return value; }
+        Result.Err(e) => {
+            match e {
+                CliError.Help => {
+                    print(__usage(T.options()));
+                    return exit(0);
+                }
+                CliError.Bad(why) => {
+                    printerr("error: " + why + "\n\n" + __usage(T.options()));
+                    return exit(2);
+                }
+            }
+        }
+    }
+}
+
+fn derive(shape: TypeShape) for Cli {
+    match shape {
+        TypeShape.Product(t, params, fields) => {
+            var self_type = applied(t, params);
+            var options: List<Expr> = [];
+            for (f in fields) {
+                if (!skipped(f.attrs)) {
+                    var key = key_of(f.name, f.attrs);
+                    var flag = kebab_case(key);
+                    var doc = f.doc;
+                    var (kind, required) = __kind(f.ty, str(f.name));
+                    options.push(code(CliOption { flag: flag, key: key, doc: doc, kind: kind, required: required }));
+                }
+            }
+            var all = Expr.of(ExprKind.Collection(options));
+            var built = Expr.of(ExprKind.New(t, field_decoders(fields)));
+            var made = with_params(code impl Cli for t {
+                fn options(): List<CliOption> { return all; }
+                fn build(input: Decoder): <Throw<DecodeError>> self_type { return built; }
+            }, params, false);
+            gen made;
+        }
+        _ => {}
+    }
+}
+
+fn __kind(ty: TypeRef, field: string): (Expr, bool) {
+    match ty {
+        TypeRef.Named(name, args) => {
+            var written = str(name);
+            if (args.len() == 0) {
+                if (written == "bool") { return (code(CliKind.Switch), false); }
+                if (__scalar(written)) { return (code(CliKind.Value(written)), true); }
+            } else if (args.len() == 1) {
+                match args[0] {
+                    TypeRef.Named(inner, nested) => {
+                        var element = str(inner);
+                        if (nested.len() == 0 && __scalar(element)) {
+                            if (written == "Option") { return (code(CliKind.Value(element)), false); }
+                            if (written == "List") { return (code(CliKind.Many(element)), false); }
+                        }
+                        if (nested.len() == 0 && element == "bool" && written == "Option") {
+                            return (code(CliKind.Switch), false);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    panic("'" + field + "' is a " + ty.text() + ", which an option cannot take: it takes a bool, an int, a float or a string, an Option of one or a List of one.");
+    return (code(CliKind.Switch), false);
+}
+
+fn __scalar(name: string): bool { return name == "int" || name == "float" || name == "string"; }
+
+fn __value(option: CliOption, kind: string, text: string): <Throw<CliError>> Data {
+    if (kind == "string") { return Data.Str(text); }
+    if (kind == "int") {
+        match text.to_int() {
+            Option.Some(n) => { return Data.Int(n); }
+            Option.None => {}
+        }
+        return throw(CliError.Bad("--" + option.flag + " takes an int, not '" + text + "'"));
+    }
+    match text.to_float() {
+        Option.Some(f) => { return Data.Float(f); }
+        Option.None => {}
+    }
+    return throw(CliError.Bad("--" + option.flag + " takes a float, not '" + text + "'"));
+}
+
+fn __read(options: List<CliOption>, arguments: Array<string>): <Throw<CliError>> Data {
+    var given: List<Data> = [];
+    var seen: List<bool> = [];
+    for (o in options) {
+        given.push(Data.Null);
+        seen.push(false);
+    }
+    var at = 0;
+    while (at < arguments.len()) {
+        var arg = arguments[at];
+        at += 1;
+        if (arg == "--help" || arg == "-h") { return throw(CliError.Help); }
+        if (!arg.starts_with("--")) { return throw(CliError.Bad("unexpected argument '" + arg + "'")); }
+        var flag = arg[2:arg.len()];
+        var inline: Option<string> = Option.None;
+        var equals = flag.index_of("=");
+        if (equals >= 0) {
+            inline = Option.Some(flag[equals + 1:flag.len()]);
+            flag = flag[0:equals];
+        }
+        var found = -1;
+        for (var i = 0; i < options.len(); i += 1) {
+            if (options[i].flag == flag) { found = i; }
+        }
+        if (found < 0) { return throw(CliError.Bad("there is no option --" + flag)); }
+        var option = options[found];
+        match option.kind {
+            CliKind.Switch => {
+                match inline {
+                    Option.Some(_) => { return throw(CliError.Bad("--" + flag + " takes no value")); }
+                    Option.None => {}
+                }
+                given[found] = Data.Bool(true);
+            }
+            CliKind.Value(kind) => {
+                if (seen[found]) { return throw(CliError.Bad("--" + flag + " is given twice")); }
+                var (text, next) = __text(option, inline, arguments, at);
+                at = next;
+                given[found] = __value(option, kind, text);
+            }
+            CliKind.Many(kind) => {
+                var (text, next) = __text(option, inline, arguments, at);
+                at = next;
+                var value = __value(option, kind, text);
+                match given[found] {
+                    Data.Seq(items) => { items.push(value); }
+                    _ => { given[found] = Data.Seq([value]); }
+                }
+            }
+        }
+        seen[found] = true;
+    }
+    var entries: List<Entry> = [];
+    for (var i = 0; i < options.len(); i += 1) {
+        var option = options[i];
+        if (seen[i]) {
+            entries.push(Entry { key: option.key, value: given[i] });
+        } else {
+            match option.kind {
+                CliKind.Switch => { entries.push(Entry { key: option.key, value: Data.Bool(false) }); }
+                CliKind.Many(_) => { entries.push(Entry { key: option.key, value: Data.Seq([]) }); }
+                CliKind.Value(_) => {
+                    if (option.required) { return throw(CliError.Bad("--" + option.flag + " is required")); }
+                }
+            }
+        }
+    }
+    return Data.Map(entries);
+}
+
+// The value written after `=`, or else the next argument, and where reading carries on.
+fn __text(option: CliOption, inline: Option<string>, arguments: Array<string>, at: int): <Throw<CliError>> (string, int) {
+    match inline {
+        Option.Some(text) => { return (text, at); }
+        Option.None => {}
+    }
+    if (at >= arguments.len()) { return throw(CliError.Bad("--" + option.flag + " needs a value")); }
+    return (arguments[at], at + 1);
+}
+
+fn __usage(options: List<CliOption>): string {
+    var heads: List<string> = [];
+    for (o in options) {
+        var head = "--" + o.flag;
+        match o.kind {
+            CliKind.Switch => {}
+            CliKind.Value(kind) => { head = head + " <" + kind + ">"; }
+            CliKind.Many(kind) => { head = head + " <" + kind + ">..."; }
+        }
+        heads.push(head);
+    }
+    heads.push("-h, --help");
+    var width = 0;
+    for (h in heads) { if (h.len() > width) { width = h.len(); } }
+    var lines: List<string> = ["Options:"];
+    for (var i = 0; i < options.len(); i += 1) {
+        var o = options[i];
+        var text = o.doc.replace("\n", "\n" + repeat(" ", width + 4));
+        if (o.required) {
+            if (text == "") { text = "Required."; } else { text = text + " Required."; }
+        }
+        lines.push(__without_trailing_space("  " + heads[i] + repeat(" ", width - heads[i].len()) + "  " + text));
+    }
+    lines.push("  " + heads[heads.len() - 1] + repeat(" ", width - heads[heads.len() - 1].len()) + "  Show this help.");
+    return join(lines, "\n");
+}
+
+fn __without_trailing_space(text: string): string {
+    var end = text.len();
+    while (end > 0 && text[end - 1] == ' ') { end -= 1; }
+    return text[0:end];
+}

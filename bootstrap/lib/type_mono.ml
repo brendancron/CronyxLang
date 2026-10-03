@@ -7,6 +7,10 @@ type state =
   ; (* So an instance asking for another instance of its own generic is recognized. *)
     origin : (string, string) Hashtbl.t
   ; mutable emitted : Ast.typed_stmt list
+  (* Generics an arm names at its operation's own type, which no copy can
+     settle and which therefore stay as written. *)
+  ; referenced : (string, unit) Hashtbl.t
+  ; mutable in_arm : int
   ; mutable changed : bool
   ; mutable rewriting : string option
   ; mutable recursive : string option
@@ -55,12 +59,16 @@ let rec type_directed_expr self (e : Ast.typed_expr) =
     type_directed_expr a || type_directed_expr b
   | `Index_assign (a, b, c) ->
     type_directed_expr a || type_directed_expr b || type_directed_expr c
-    | `Lambda _ -> false
+  (* Copying the holder is what settles a call inside it, lambdas included. *)
+  | `Lambda (_, _, body) -> List.exists (type_directed self) body
   (* A generic argument selects the callee's copy, so its holder is copied. *)
   | `Call ({ Ast.it = `Var called; _ }, args) when String.equal called self ->
     List.exists type_directed_expr args
+  (* A generic result selects the callee's copy too: `input.field("items")`
+     reads a `T` its arguments never mention. *)
   | `Call (callee, args) ->
     List.exists operand args
+    || Types.has_generic e.Ast.ann
     || type_directed_expr callee
     || List.exists type_directed_expr args
   | `Tuple items -> List.exists type_directed_expr items
@@ -111,6 +119,65 @@ and type_directed self (s : Ast.typed_stmt) =
         List.exists type_directed m.Ast.md_body)
       impl.Ast.ib_methods
   | _ -> false
+
+(* Every expression in the body, nested functions and arms included. *)
+let iter_exprs (visit : Ast.typed_expr -> unit) (body : Ast.typed_stmt list) =
+  let rec expr (e : Ast.typed_expr) : Ast.typed_expr =
+    visit e;
+    let (_ : Ast.typed_expr_kind) =
+      match e.Ast.it with
+      | `Lambda (ps, sg, b) -> `Lambda (ps, sg, List.map stmt b)
+      | #Ast.lit as l -> l
+      | #Ast.arrays as a -> (Ast.map_arrays expr a :> Ast.typed_expr_kind)
+      | #Ast.strings as x -> (Ast.map_strings expr x :> Ast.typed_expr_kind)
+      | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.typed_expr_kind)
+      | #Ast.ops as o -> (Ast.map_ops expr o :> Ast.typed_expr_kind)
+      | #Ast.logic as l -> (Ast.map_logic expr l :> Ast.typed_expr_kind)
+      | #Ast.compound as c -> (Ast.map_compound expr c :> Ast.typed_expr_kind)
+      | #Ast.indexing as i -> (Ast.map_indexing expr i :> Ast.typed_expr_kind)
+      | #Ast.tuple as t -> (Ast.map_tuple expr t :> Ast.typed_expr_kind)
+      | #Ast.spread as x -> (Ast.map_spread expr x :> Ast.typed_expr_kind)
+      | #Ast.record as r -> (Ast.map_record expr r :> Ast.typed_expr_kind)
+      | #Ast.nominal as n -> (Ast.map_nominal expr n :> Ast.typed_expr_kind)
+      | #Ast.collection as c -> (Ast.map_collection expr c :> Ast.typed_expr_kind)
+      | #Ast.bound_calls as b -> (Ast.map_bound_call expr Fun.id b :> Ast.typed_expr_kind)
+      | #Ast.coercions as c -> (Ast.map_coercion expr Fun.id c :> Ast.typed_expr_kind)
+      | #Ast.dyn_calls as d -> (Ast.map_dyn_call expr Fun.id d :> Ast.typed_expr_kind)
+      | #Ast.reflect as r -> (Ast.map_reflect expr r :> Ast.typed_expr_kind)
+      | #Ast.run_expr as r -> (Ast.map_run_expr expr stmt (Ast.map_handler stmt) r :> Ast.typed_expr_kind)
+      | #Ast.match_expr as m -> (Ast.map_match_expr expr stmt m :> Ast.typed_expr_kind)
+    in
+    e
+  and stmt (s : Ast.typed_stmt) : Ast.typed_stmt =
+    let (_ : Ast.typed_stmt_kind) =
+      match s.Ast.it with
+      | #Ast.stmts as st -> (Ast.map_stmts expr stmt st :> Ast.typed_stmt_kind)
+      | #Ast.effects as ef -> (Ast.map_effects expr stmt (Ast.map_handler stmt) ef :> Ast.typed_stmt_kind)
+      | #Ast.type_defs as t -> t
+      | #Ast.method_defs as m -> (Ast.map_method_defs stmt Fun.id m :> Ast.typed_stmt_kind)
+      | #Ast.matching as m -> (Ast.map_matching expr stmt m :> Ast.typed_stmt_kind)
+    in
+    s
+  in
+  List.iter (fun s -> ignore (stmt s)) body
+
+(* A call on a receiver whose type is still a parameter: only an instance can say
+   which impl answers it. *)
+let has_open_bound_call (body : Ast.typed_stmt list) =
+  let found = ref false in
+  iter_exprs
+    (fun e ->
+      match e.Ast.it with
+      | `Bound_call (receiver, _, _, _) when Types.type_name receiver.Ast.ann = None -> found := true
+      | _ -> ())
+    body;
+  !found
+
+(* The type variables a body mentions. *)
+let variables_in (body : Ast.typed_stmt list) =
+  let ids = ref [] in
+  iter_exprs (fun e -> ids := fst (Types.variables e.Ast.ann) @ !ids) body;
+  !ids
 
 let rec subst_expr ?(rows = []) mapping (e : Ast.typed_expr) : Ast.typed_expr =
   let subst_expr mapping e = subst_expr ~rows mapping e in
@@ -204,22 +271,22 @@ let copy_for state name (at : Types.ty) =
            mapping
            { declaration with Ast.it = `Fn (copy, params, signature, body) }
        in
-       state.emitted <- specialized :: state.emitted;
+       state.emitted <- { specialized with Ast.ann = at } :: state.emitted;
        state.changed <- true
      | _ -> ());
     copy
 
 (* From the generic, not the call site: CPS reads it off the callee. *)
-let method_call_type state name (receiver : Ast.typed_expr) args result =
+(* An associated function's receiver is only the type it was reached through,
+   so it is no parameter of the function. *)
+let method_call_type ?(associated = false) state name (receiver : Ast.typed_expr) args result =
   let row =
     match Hashtbl.find_opt state.generic name with
     | Some { Ast.ann = Types.Fn (_, _, row); _ } -> row
     | _ -> Types.closed_row []
   in
-  Types.Fn
-    ( receiver.Ast.ann :: List.map (fun (a : Ast.typed_expr) -> a.Ast.ann) args
-    , result
-    , row )
+  let params = List.map (fun (a : Ast.typed_expr) -> a.Ast.ann) args in
+  Types.Fn ((if associated then params else receiver.Ast.ann :: params), result, row)
 
 (* What a body reads or assigns, first use first, and every name it binds.
    Shadowing is not tracked -- a name bound anywhere inside counts as bound
@@ -350,17 +417,18 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
       in
       (match owned with
        | Some mangled when Hashtbl.mem state.generic mangled ->
-         let at = method_call_type state mangled receiver args e.Ast.ann in
+         let associated =
+           match Types.type_name receiver.Ast.ann with
+           | Some owner -> Registry.is_associated state.registry owner name
+           | None -> false
+         in
+         let at = method_call_type ~associated state mangled receiver args e.Ast.ann in
          let at = Types.subst_generic (settled state at) at in
          if Types.has_generic at
          then `Bound_call (receiver, name, dispatch, args)
          else (
            let copy = copy_for state mangled at in
-           let passed =
-             match Types.type_name receiver.Ast.ann with
-             | Some owner when Registry.is_associated state.registry owner name -> args
-             | _ -> receiver :: args
-           in
+           let passed = if associated then args else receiver :: args in
            `Call ({ receiver with Ast.it = `Var copy; ann = at }, passed))
        | _ -> `Bound_call (receiver, name, dispatch, args))
     | `Call (callee, args) ->
@@ -385,7 +453,9 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
       let mapping = settled state e.Ast.ann in
       let at = Types.subst_generic mapping e.Ast.ann in
       if Types.has_generic at
-      then `Var name
+      then (
+        if state.in_arm > 0 then Hashtbl.replace state.referenced name ();
+        `Var name)
       else (
         ann := at;
         `Var (copy_for state name at))
@@ -403,19 +473,33 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
     | #Ast.nominal as n -> (Ast.map_nominal (rewrite state) n :> Ast.typed_expr_kind)
     | #Ast.collection as c ->
       (Ast.map_collection (rewrite state) c :> Ast.typed_expr_kind)
-    | #Ast.coercions as c ->
-      (Ast.map_coercion (rewrite state) (fun t -> t) c :> Ast.typed_expr_kind)
+    (* A trait object reaches each method through its table rather than a
+       call, so the value's type owes a copy of each generic one as a call
+       would, and the slot names it. *)
+    | `Coerce (inner, trait, slots) ->
+      let inner = rewrite state inner in
+      let slot (name, (d : Types.ty Ast.dispatch)) =
+        match Types.type_name inner.Ast.ann with
+        | Some owner when not (Types.has_generic inner.Ast.ann) ->
+          let mangled = Registry.dispatched d owner name in
+          (match Hashtbl.find_opt state.generic mangled with
+           | Some { Ast.ann = Types.Fn (self :: _, _, _) as generic; _ } ->
+             let mapping = Types.match_generic self inner.Ast.ann [] in
+             let at = Types.subst_generic mapping generic in
+             if Types.has_generic at
+             then name, d
+             else name, { d with Ast.dp_instance = Some (copy_for state mangled at) }
+           | _ -> name, d)
+        | _ -> name, d
+      in
+      `Coerce (inner, trait, List.map slot slots)
     | #Ast.dyn_calls as d ->
       (Ast.map_dyn_call (rewrite state) (fun t -> t) d :> Ast.typed_expr_kind)
     (* Answered from the annotation and never evaluated, so what it names is
        the generic itself, not an instance of it. *)
     | #Ast.reflect as r -> (r :> Ast.typed_expr_kind)
     | #Ast.run_expr as r ->
-      (Ast.map_run_expr
-         (rewrite state)
-         (rewrite_stmt state)
-         (Ast.map_handler (rewrite_stmt state))
-         r
+      (Ast.map_run_expr (rewrite state) (rewrite_stmt state) (rewrite_handler state) r
        :> Ast.typed_expr_kind)
     | #Ast.match_expr as m ->
       (Ast.map_match_expr (rewrite state) (rewrite_stmt state) m :> Ast.typed_expr_kind)
@@ -435,16 +519,23 @@ and rewrite_stmt state (s : Ast.typed_stmt) : Ast.typed_stmt =
           binding state m.Ast.md_params m.Ast.md_body (fun () ->
             { m with Ast.md_body = List.map (rewrite_stmt state) m.Ast.md_body }))
       in
-      `Impl_decl
-        (trait, type_name, params, { impl with Ast.ib_methods = List.map method_ impl.Ast.ib_methods })
+      (* A method whose body calls through a bound on its own parameter lives on
+         as its copies alone, as a generic function does: nothing can say which
+         impl the original's call reaches. One without such a call stays, since
+         an operator reaches it by its own name. *)
+      let kept =
+        List.filter
+          (fun (m : (Ast.typed_stmt, Types.ty) Ast.method_def) ->
+            not
+              (Hashtbl.mem state.generic (Ast.impl_method_name trait type_name m.Ast.md_name)
+               && has_open_bound_call m.Ast.md_body))
+          impl.Ast.ib_methods
+      in
+      `Impl_decl (trait, type_name, params, { impl with Ast.ib_methods = List.map method_ kept })
     | #Ast.stmts as st ->
       (Ast.map_stmts (rewrite state) (rewrite_stmt state) st :> Ast.typed_stmt_kind)
     | #Ast.effects as e ->
-      (Ast.map_effects
-         (rewrite state)
-         (rewrite_stmt state)
-         (Ast.map_handler (rewrite_stmt state))
-         e
+      (Ast.map_effects (rewrite state) (rewrite_stmt state) (rewrite_handler state) e
        :> Ast.typed_stmt_kind)
     | #Ast.type_defs as t -> t
     | #Ast.method_defs as m ->
@@ -453,6 +544,25 @@ and rewrite_stmt state (s : Ast.typed_stmt) : Ast.typed_stmt =
       (Ast.map_matching (rewrite state) (rewrite_stmt state) m :> Ast.typed_stmt_kind)
   in
   { s with Ast.it }
+
+(* An operation's own type parameters -- `suspend<T>`'s `T` -- belong to no
+   declaration, only to the arm, and settling them as if nothing owned them
+   would copy a call in the arm at `unit`. *)
+and rewrite_handler state (h : Ast.typed_stmt Ast.handler) =
+  { h with
+    Ast.arms =
+      List.map
+        (fun (a : Ast.typed_stmt Ast.arm) ->
+          let saved = state.owned in
+          state.owned <- variables_in a.Ast.arm_body @ saved;
+          state.in_arm <- state.in_arm + 1;
+          Fun.protect
+            ~finally:(fun () ->
+              state.owned <- saved;
+              state.in_arm <- state.in_arm - 1)
+            (fun () -> { a with Ast.arm_body = List.map (rewrite_stmt state) a.Ast.arm_body }))
+        h.Ast.arms
+  }
 
 type error =
   { span : Ast.span
@@ -568,6 +678,8 @@ let program ~registry (p : Ast.typed_stmt list) : Ast.typed_stmt list =
     ; copies = Hashtbl.create 8
     ; origin = Hashtbl.create 8
     ; emitted = []
+    ; referenced = Hashtbl.create 8
+    ; in_arm = 0
     ; changed = false
     ; rewriting = None
     ; recursive = None
@@ -618,4 +730,34 @@ let program ~registry (p : Ast.typed_stmt list) : Ast.typed_stmt list =
       state.rewriting <- None;
       if state.changed then drain (depth + 1) (done_ @ acc) else done_ @ acc
     in
-    drain 0 [] @ rewritten)
+    (* A generic an arm names at its operation's own type stays as written.
+       Keeping it can make what it names stay too, so this runs until nothing
+       new is named. *)
+    let rec keep_referenced kept acc =
+      let newly =
+        List.filter
+          (fun (s : Ast.typed_stmt) ->
+            match s.Ast.it with
+            | `Fn (name, _, _, _) ->
+              is_monomorphized state s
+              && Hashtbl.mem state.referenced name
+              && not (List.mem name kept)
+            | _ -> false)
+          p
+      in
+      match newly with
+      | [] -> acc
+      | newly ->
+        let names = List.filter_map (fun (s : Ast.typed_stmt) -> match s.Ast.it with `Fn (n, _, _, _) -> Some n | _ -> None) newly in
+        (* A kept generic runs as written, so what it names unsettled stays too. *)
+        state.in_arm <- state.in_arm + 1;
+        let rewritten =
+          Fun.protect
+            ~finally:(fun () -> state.in_arm <- state.in_arm - 1)
+            (fun () -> List.map (rewrite_stmt state) newly)
+        in
+        let copies = drain 0 [] in
+        keep_referenced (names @ kept) (acc @ copies @ rewritten)
+    in
+    let copies = drain 0 [] in
+    copies @ rewritten @ keep_referenced [] [])

@@ -12,7 +12,7 @@ fn named(t: Name, label: string) {
 
 fn derive(shape: TypeShape) for Named {
     match shape {
-        TypeShape.Product(t, fields) => { named(t, str(t)); }
+        TypeShape.Product(t, _, fields) => { named(t, str(t)); }
         _ => {}
     }
 }

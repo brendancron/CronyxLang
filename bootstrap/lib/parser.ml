@@ -415,6 +415,10 @@ and call s : Ast.expr =
     | Token.Left_brace when starts_fields s ->
       ignore (advance s);
       loop (Ast.at callee.Ast.span (`New (type_path s callee, record_fields s)))
+    | Token.Left_brace when empty_fields s callee ->
+      ignore (advance s);
+      ignore (advance s);
+      loop (Ast.at callee.Ast.span (`New (type_path s callee, [])))
     | Token.Left_brace when not s.no_brace && callable callee ->
       loop (Ast.at callee.Ast.span (`Call (callee, trailing_lambda s [])))
     | Token.Left_bracket ->
@@ -483,6 +487,17 @@ and starts_fields s =
       | Token.Identifier _ -> true
       | _ -> false)
   && (peek_at s 2).Token.token_type = Token.Colon
+
+(* `Empty {}` has no `name:` to tell it from a call with an empty block, so a
+   capitalized name decides, as it does for every type a program declares. *)
+and empty_fields s (callee : Ast.expr) =
+  let capitalized name = String.length name > 0 && Char.uppercase_ascii name.[0] = name.[0] && name.[0] <> '_' in
+  check s Token.Left_brace
+  && (peek_at s 1).Token.token_type = Token.Right_brace
+  &&
+  match callee.Ast.it with
+  | `Var name | `Field ({ Ast.it = `Var _; _ }, name) -> capitalized name
+  | _ -> false
 
 and type_path s (callee : Ast.expr) =
   match callee.Ast.it with
