@@ -1068,8 +1068,7 @@ let of_stdlib () =
             ~versions:(fun _ -> Some Release.version)
             ~extra:(fun package ->
               if String.equal package library_name then [ natives_json () ] else [])
-            [ { Artifact.compiler = Release.version
-              ; package = library_name
+            [ { Artifact.package = library_name
               ; units
               ; program
               ; inputs = []
