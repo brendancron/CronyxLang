@@ -33,6 +33,8 @@ let cases =
   ; "tests/core/modules/types/main"
   ; "tests/core/modules/transitive_type/main"
   ; "tests/stdlib/math/math"
+  ; "tests/stdlib/math/bigint"
+  ; "tests/stdlib/crypto/sha256"
   ; "tests/stdlib/throw/attempt"
   ; "tests/stdlib/throw/rethrow"
   ; "tests/stdlib/throw/failure"
