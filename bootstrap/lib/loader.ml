@@ -452,12 +452,12 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
     let go = expr locals in
     let it : Ast.expr_kind =
       match e.Ast.it with
-      | `Lambda (params, signature, body) ->
+      | `Lambda (params, sg, body) ->
         let inner =
           List.fold_left (fun acc (p : Ast.param) -> S.add p.Ast.name acc) locals params
         in
         let inner = List.fold_left (fun acc s -> S.union acc (S.of_list (bound_by s))) inner body in
-        `Lambda (params, signature, List.map (stmt inner) body)
+        `Lambda (List.map param params, signature sg, List.map (stmt inner) body)
       (* Read here, where the source file it was written in is known. *)
       | `Call ({ Ast.it = `Var "embed"; _ }, [ { Ast.it = `Str path; _ } ]) ->
         let path = Utf8.encode path in

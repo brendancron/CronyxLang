@@ -76,6 +76,7 @@ let cases =
   ; "tests/core/functions/forward_calls_stay_pure"
   ; "tests/core/functions/shadowed_generic"
   ; "tests/core/functions/generic_captures"
+  ; "tests/core/functions/lambda_param_imported_type"
   ; "tests/core/functions/evaluation_order"
   ; "tests/types/inference/annotations"
   ; "tests/types/inference/local_named_like_method"
