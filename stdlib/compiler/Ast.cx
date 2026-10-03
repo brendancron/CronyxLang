@@ -1,0 +1,447 @@
+/**
+ * Cronyx syntax as data: what `code(…)` hands back, what a deriver builds,
+ * and what `gen` emits.
+ *
+ * ```
+ * import { Expr, ExprKind, FieldInit } from "std/compiler/Ast";
+ *
+ * fn derive(shape: TypeShape) for Decode {
+ *     match shape {
+ *         TypeShape.Product(t, fields) => {
+ *             var entries: List<FieldInit> = [];
+ *             for (f in fields) {
+ *                 var key = str(f.name);
+ *                 entries.push(FieldInit { name: f.name, value: code(d.field(key)) });
+ *             }
+ *             var body = Expr.of(ExprKind.New(t, entries));
+ *             gen impl Decode for t {
+ *                 fn decode(d: Decoder): t { return body; }
+ *             }
+ *         }
+ *         _ => {}
+ *     }
+ * }
+ * ```
+ *
+ * The tree is the syntax as written, every form of it, and changes only when
+ * the language's syntax does. A quote's nodes carry the span they were written
+ * at; a node made with `of` is marked as generated, and takes the location of
+ * the `gen` that emits it.
+ */
+
+import { AttrArg } from "../meta/Reflect";
+
+/** An expression. */
+type Expr {
+    kind: ExprKind,
+    span: Span
+}
+
+impl Expr {
+    /** The expression, marked as generated. */
+    fn of(kind: ExprKind): Expr { return Expr { kind: kind, span: __span_generated() }; }
+}
+
+/** A statement. A declaration inside a block is one too, as `Declare`. */
+type Stmt {
+    kind: StmtKind,
+    span: Span
+}
+
+impl Stmt {
+    /** The statement, marked as generated. */
+    fn of(kind: StmtKind): Stmt { return Stmt { kind: kind, span: __span_generated() }; }
+}
+
+/** A declaration, with the attributes written above it. */
+type Decl {
+    kind: DeclKind,
+    attrs: List<Attribute>,
+    span: Span
+}
+
+impl Decl {
+    /** The declaration, with no attributes, marked as generated. */
+    fn of(kind: DeclKind): Decl { return Decl { kind: kind, attrs: [], span: __span_generated() }; }
+}
+
+/** A type as written. */
+type TypeExpr {
+    kind: TypeKind,
+    span: Span
+}
+
+impl TypeExpr {
+    /** The type, marked as generated. */
+    fn of(kind: TypeKind): TypeExpr { return TypeExpr { kind: kind, span: __span_generated() }; }
+}
+
+type UnOp { Neg, Not, BitNot }
+
+type BinOp {
+    Add, Sub, Mul, Div, Mod,
+    BitAnd, BitOr, BitXor, Shl, Shr,
+    Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual
+}
+
+type ExprKind {
+    Unit,
+    Int(int),
+    Float(float),
+    Str(string),
+    Char(char),
+    Bool(bool),
+    /** A name reflection handed out, standing as a value. */
+    NameLit(Name),
+    /** What `embed` read, as it was on disk. */
+    Bytes(Array<byte>),
+
+    Var(Name),
+    Assign(Name, Expr),
+    Unary(UnOp, Expr),
+    Binary(BinOp, Expr, Expr),
+    And(Expr, Expr),
+    Or(Expr, Expr),
+    Call(Expr, List<Expr>),
+    MethodCall(Expr, Name, List<Expr>),
+    /** `f<int, 3>(x)`. */
+    StaticCall(Expr, List<StaticArg>, List<Expr>),
+
+    /** `x += e`. */
+    Compound(BinOp, Name, Expr),
+    CompoundIndex(BinOp, Expr, Expr, Expr),
+    CompoundField(BinOp, Expr, Name, Expr),
+
+    Index(Expr, Expr),
+    IndexAssign(Expr, Expr, Expr),
+    Tuple(List<Expr>),
+    TupleGet(Expr, int),
+    /** `...args`, in an argument list. */
+    Spread(Expr),
+
+    /** `{ a: 1 }`, a record of no declared type. */
+    Record(List<FieldInit>),
+    Field(Expr, Name),
+    FieldAssign(Expr, Name, Expr),
+    /** `Point { x: 1, y: 2 }`. */
+    New(Name, List<FieldInit>),
+    /** `Box<int>(x)`. */
+    NewCall(Name, List<TypeExpr>, List<Expr>),
+    /** `new Box<int> { … }`. */
+    NewGeneric(Name, List<StaticArg>, List<FieldInit>),
+    /** `Option.Some(x)`. */
+    NewVariant(Name, Name, Args),
+    /** `[a, b]`. */
+    Collection(List<Expr>),
+
+    Lambda(List<Param>, Signature, List<Stmt>),
+    Run(ValuedBlock, List<HandlerClause>, Option<ReturnClause>),
+    Match(Expr, List<ValuedArm>),
+
+    Typeof(Expr),
+    QuoteExpr(Expr),
+    QuoteStmts(List<Stmt>),
+    QuoteDecl(Decl)
+}
+
+/** `name: value`, in a record or a constructor. */
+type FieldInit {
+    name: Name,
+    value: Expr
+}
+
+/** A variant's payload, as a constructor is given it. */
+type Args {
+    None,
+    Positional(List<Expr>),
+    Named(List<FieldInit>)
+}
+
+/** One of `<…>`: a bare name parses as a type, whichever it names. */
+type StaticArg {
+    Type(TypeExpr),
+    Value(Expr)
+}
+
+/** Statements, and the value they finish with if the braces hold one expression. */
+type ValuedBlock {
+    stmts: List<Stmt>,
+    value: Option<Expr>
+}
+
+/** `return(r) => { … }` after a `run`'s handlers. */
+type ReturnClause {
+    param: Name,
+    body: ValuedBlock
+}
+
+/** An arm of a `match` used as a value. */
+type ValuedArm {
+    pattern: Pattern,
+    body: ValuedBlock
+}
+
+/** An arm of a `match` statement. */
+type MatchArm {
+    pattern: Pattern,
+    body: List<Stmt>
+}
+
+type Pattern {
+    /** `Option.Some(x)`: the type, the variant, and what it binds. */
+    Variant(Name, Name, Bindings),
+    Wild
+}
+
+/** What a variant pattern binds. */
+type Bindings {
+    None,
+    Positional(List<Name>),
+    Named(List<NamedBinding>)
+}
+
+/** `field: name` in a pattern. */
+type NamedBinding {
+    field: Name,
+    bound: Name
+}
+
+type StmtKind {
+    Expression(Expr),
+    Let(Name, Option<TypeExpr>, Option<Expr>),
+    /** `var (a, b) = pair;`. */
+    LetTuple(List<Name>, Expr),
+    Block(List<Stmt>),
+    If(Expr, Stmt, Option<Stmt>),
+    While(Expr, Stmt),
+    For(Option<Stmt>, Option<Expr>, Option<Expr>, Stmt),
+    ForIn(List<Name>, Expr, Stmt),
+    Return(Option<Expr>),
+    Break,
+    Continue,
+    Defer(Stmt),
+    Match(Expr, List<MatchArm>),
+    Run(List<Stmt>, List<HandlerClause>),
+    Resume(Option<Expr>),
+    Discontinue,
+    Meta(List<Stmt>),
+    Gen(Stmt),
+    /** `derive Eq, Debug for Point;`. */
+    Derive(List<Name>, Name),
+    Declare(Decl)
+}
+
+type DeclKind {
+    Fn(FnDecl),
+    Type(TypeDecl),
+    /** A type with members after its fields: the declaration, then its functions and meta blocks. */
+    TypeWithMembers(TypeDecl, List<Stmt>),
+    Trait(TraitDecl),
+    Impl(ImplDecl),
+    Effect(EffectDecl),
+    /** `handler name : Effect { … }`. */
+    Handler(Name, Handler),
+    Import(Import),
+    GlobalImport(Import)
+}
+
+type FnDecl {
+    name: Name,
+    params: List<Param>,
+    signature: Signature,
+    body: List<Stmt>
+}
+
+type TypeDecl {
+    name: Name,
+    params: List<TypeParam>,
+    body: TypeBody
+}
+
+type TypeBody {
+    Fields(List<FieldDecl>),
+    Variants(List<VariantDecl>)
+}
+
+type FieldDecl {
+    name: Name,
+    ty: TypeExpr,
+    attrs: List<Attribute>
+}
+
+type VariantDecl {
+    name: Name,
+    /** The variant's own type parameters. */
+    params: List<Name>,
+    payload: Payload,
+    /** What makes the type a GADT: the type this variant builds. */
+    result: Option<TypeExpr>,
+    attrs: List<Attribute>
+}
+
+/** What a variant carries, as declared. */
+type Payload {
+    None,
+    Positional(List<TypeExpr>),
+    Named(List<FieldType>)
+}
+
+type TraitDecl {
+    name: Name,
+    params: List<Name>,
+    /** Bounds on `Self`. */
+    supers: List<Applied>,
+    assoc: List<AssocDecl>,
+    methods: List<MethodSig>
+}
+
+type ImplDecl {
+    /** `None` for an impl of the type's own methods. */
+    implements: Option<Applied>,
+    target: Name,
+    params: List<TypeParam>,
+    assoc: List<AssocDef>,
+    methods: List<MethodDef>
+}
+
+type EffectDecl {
+    name: Name,
+    params: List<Name>,
+    ops: List<OpDecl>
+}
+
+type MethodSig {
+    name: Name,
+    params: List<Param>,
+    signature: Signature,
+    attrs: List<Attribute>
+}
+
+type MethodDef {
+    name: Name,
+    params: List<Param>,
+    signature: Signature,
+    body: List<Stmt>,
+    attrs: List<Attribute>
+}
+
+/** `type Item;` in a trait. */
+type AssocDecl {
+    name: Name,
+    attrs: List<Attribute>
+}
+
+/** `type Item = int;` in an impl. */
+type AssocDef {
+    name: Name,
+    ty: TypeExpr,
+    attrs: List<Attribute>
+}
+
+type OpKind { Fn, Ctl, Final }
+
+type OpDecl {
+    name: Name,
+    kind: OpKind,
+    /** The operation's own, on top of its effect's. */
+    type_params: List<Name>,
+    params: List<Param>,
+    ret: Option<TypeExpr>,
+    attrs: List<Attribute>
+}
+
+type Handler {
+    handles: Name,
+    arms: List<Arm>
+}
+
+type Arm {
+    name: Name,
+    kind: OpKind,
+    params: List<Name>,
+    body: List<Stmt>
+}
+
+type HandlerClause {
+    Inline(Handler),
+    /** A handler declared elsewhere, by name. */
+    Named(Name)
+}
+
+type Import {
+    /** `import "geom";`. */
+    Qualified(string),
+    /** `import "geom" as g;`. */
+    Aliased(string, Name),
+    /** `import { Point, origin } from "geom";`. */
+    Selective(List<Name>, string),
+    /** `import "geom/…";` with a star: everything the module declares. */
+    Wildcard(string)
+}
+
+type Param {
+    name: Name,
+    ty: Option<TypeExpr>,
+    /** A trailing lambda's parameter nobody wrote: `it`. */
+    implicit: bool
+}
+
+type StaticParam {
+    name: Name,
+    ty: Option<TypeExpr>,
+    /** Collects the rest of the written arguments. */
+    pack: bool
+}
+
+type TypeParam {
+    name: Name,
+    pack: bool,
+    /** `n: int`: a value the type is instantiated at. */
+    ty: Option<TypeExpr>
+}
+
+/** What follows a function's parameters. */
+type Signature {
+    ret: Option<TypeExpr>,
+    /** `None` leaves the effects to inference; `Some` closes them. */
+    row: Option<List<Applied>>,
+    static_params: List<StaticParam>
+}
+
+/** A name with arguments: a trait in an impl, an effect in a row. */
+type Applied {
+    name: Name,
+    args: List<TypeExpr>
+}
+
+/** `@name(args)` above a declaration or a member. */
+type Attribute {
+    name: Name,
+    args: List<AttrArg>,
+    span: Span
+}
+
+type TypeKind {
+    Named(Name),
+    Applied(Name, List<TypeExpr>),
+    Tuple(List<TypeExpr>),
+    Record(List<FieldType>),
+    /** Parameters, result and effects. */
+    Function(List<TypeExpr>, TypeExpr, List<Applied>),
+    /** A parameter the call site fills from the rest of its arguments. */
+    Variadic(TypeExpr),
+    /** `...Args`. */
+    Spread(TypeExpr),
+    /** `T.Item`. */
+    Assoc(TypeExpr, Name),
+    /** `Output = T`, in a bound. */
+    Bind(Name, TypeExpr),
+    /** `<async, E>` where a type's parameter stands in a row. */
+    Row(List<Applied>)
+}
+
+/** `name: T` in a record type or a variant's named payload. */
+type FieldType {
+    name: Name,
+    ty: TypeExpr
+}

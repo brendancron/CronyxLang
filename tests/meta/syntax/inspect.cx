@@ -1,0 +1,29 @@
+import { Expr, ExprKind, BinOp } from "std/compiler/Ast";
+
+fn operator(op: BinOp): string {
+    match op {
+        BinOp.Add => { return "plus"; }
+        BinOp.Mul => { return "times"; }
+        _ => { return "something"; }
+    }
+}
+
+fn describe(e: Expr): string {
+    match e.kind {
+        ExprKind.Int(n) => { return "the number " + str(n); }
+        ExprKind.Var(n) => { return "the variable " + str(n); }
+        ExprKind.Binary(op, left, right) => {
+            return "(" + describe(left) + ") " + operator(op) + " (" + describe(right) + ")";
+        }
+        ExprKind.Call(callee, args) => {
+            return "a call to " + describe(callee) + " with " + str(args.len()) + " arguments";
+        }
+        _ => { return "something else"; }
+    }
+}
+
+meta {
+    print(describe(code(1 + x * 2)));
+    print(describe(code(f(1, 2, 3))));
+    print(describe(code(a && b)));
+}

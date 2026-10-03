@@ -376,10 +376,10 @@ fn build() {
 meta build();
 ```
 
-`check` is an ordinary local holding a `Code`. The fold is what joins the pieces, so there is no `join`, no operator-as-a-value, and no control flow inside `gen` — the loop that builds the code is the loop the language already has, which is the point. A quasi-quote with a repetition marker can only repeat what the marker anticipated; this can sort the fields, skip one, or call a helper, and the helper is an ordinary function (`code/helper`):
+`check` is an ordinary local holding an `Expr`, from `std/compiler/Ast` ([Syntax Trees](Syntax%20Trees.md)). The fold is what joins the pieces, so there is no `join`, no operator-as-a-value, and no control flow inside `gen` — the loop that builds the code is the loop the language already has, which is the point. A quasi-quote with a repetition marker can only repeat what the marker anticipated; this can sort the fields, skip one, or call a helper, and the helper is an ordinary function (`code/helper`):
 
 ```cronyx
-fn doubled(v: Code): Code { return code(v + v); }
+fn doubled(v: Expr): Expr { return code(v + v); }
 ```
 
 `code` works in a meta block and in any function only a meta block reaches. Reaching run time with one is *'code' is only allowed inside a meta block.* (`code/errors/outside_meta`).
@@ -391,11 +391,11 @@ var one = compare(f.name);
 check = code(check && one);
 ```
 
-**`Code` and `Name` are compile-time types**, next to `Type`. A `Code` cannot reach a running program. A `Name` is ordinary once it is in hand; what is restricted is making one, since that is where a name could otherwise be forged.
+**A quote is data.** `code(…)` is an `Expr`, `code { … }` a `List<Stmt>` and `code fn …` a `Decl`: ordinary values a meta program can take apart, build by hand and pass around. A meta variable holding one splices by its kind — an expression where an expression stands, a statement, a declaration or a list of statements where a statement stands, a type where a type does — and `gen d;` emits a `Decl`. The tree and the reasons for it are [Syntax Trees](Syntax%20Trees.md).
+
+**`Name` and `Span` are compile-time types**, next to `Type`. Either is ordinary once it is in hand; what is restricted is making one, since that is where a name or a source location could otherwise be forged.
 
 **How it is built.** `code` reuses what `gen` already had. Both are lowered before the meta program runs — into a call carrying an index into a table of captured syntax, plus the meta-bound names in scope. `gen`'s call emits, `code`'s returns. The one difference is scope: lowering follows the names bound *up to that point*, because `var body = code(…)` cannot be handed `body`.
-
-**A `Code` holds an expression.** A deriver that emits several statements wants `code { … }` as well, and the two are different modes with only one valid in a given position. It goes with `Gen` as an effect, which needs the same thing.
 
 ## Deriving
 
@@ -443,6 +443,5 @@ meta derive_eq(typeof(Dog).shape);
 ## Not built
 
 - **`Gen` as an effect**, and handling it in a program to test a deriver — [TODO](TODO.md).
-- **`code { … }`** for statements and declarations, above.
 - **What a meta program inherits** from the prelude, and **what compiling one per block costs** — [TODO](TODO.md).
 - **Field defaults, a `meta` generating fields, and value arguments in type annotations**, under [Types with members](#types-with-members).

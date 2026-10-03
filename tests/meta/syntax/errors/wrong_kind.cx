@@ -1,0 +1,7 @@
+import { Stmt } from "std/compiler/Ast";
+
+meta {
+    var s: List<Stmt> = code { print(1); };
+    var one = s[0];
+    gen fn f(): int { return one; }
+}

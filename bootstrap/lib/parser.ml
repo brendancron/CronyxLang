@@ -740,10 +740,30 @@ and primary s : Ast.expr =
     Ast.at sp (`Typeof e)
   | Token.Code ->
     ignore (advance s);
-    ignore (consume s Token.Left_paren "Expected '(' after 'code'.");
-    let e = expression s in
-    ignore (consume s Token.Right_paren "Expected ')' after the captured expression.");
-    Ast.at sp (`Code e)
+    (match (peek s).Token.token_type with
+     | Token.Left_paren ->
+       ignore (advance s);
+       let e = expression s in
+       ignore (consume s Token.Right_paren "Expected ')' after the captured expression.");
+       Ast.at sp (`Code e)
+     | Token.Left_brace ->
+       ignore (advance s);
+       Ast.at sp (`Code_stmts (block s))
+     | _ ->
+       let at = peek s in
+       (match declaration s with
+        | Some ({ Ast.it =
+                    ( `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Effect_decl _
+                    | `Handler_decl _ | `Type_members _ | `Attributed _ | `Import _
+                    | `Global_import _ )
+                ; _
+                } as d) -> Ast.at sp (`Code_decl d)
+        | _ ->
+          raise
+            (error
+               s
+               at
+               "Expected '(' and an expression, '{' and statements, or a declaration after 'code'.")))
   | Token.Left_brace when not s.no_brace ->
     ignore (advance s);
     Ast.at sp (`Record_lit (record_fields s))

@@ -116,6 +116,67 @@ Add a field to `Point` and the impl picks it up on the next compile. That's the 
 
 A `code(...)` value only means something while compiling, so it's allowed in a meta block and in functions that only meta blocks call — the same rule as `gen`.
 
+## Code as data
+
+What `code(...)` hands back is an ordinary value: an `Expr`, from `std/compiler/Ast`. You can look inside one, and you can build one yourself. That matters when the code you need has a part per field that can't be grown one step at a time — a record literal, say, which has to name every field at once:
+
+```cronyx
+import { Expr, ExprKind, FieldInit } from "std/compiler/Ast";
+
+trait Blank {
+    fn blank(): Self;
+}
+
+fn derive(shape: TypeShape) for Blank {
+    match shape {
+        TypeShape.Product(t, fields) => {
+            var entries: List<FieldInit> = [];
+            for (f in fields) {
+                var label = str(f.name);
+                entries.push(FieldInit { name: f.name, value: code("<" + label + ">") });
+            }
+            var built = Expr.of(ExprKind.New(t, entries));
+            gen impl Blank for t {
+                fn blank(): t { return built; }
+            }
+        }
+        _ => {}
+    }
+}
+
+type Config { name: string, host: string }
+
+derive Blank for Config;
+
+var c = Config.blank();
+print(c.name + " " + c.host);
+```
+
+```
+<name> <host>
+```
+
+`ExprKind.New(t, entries)` is the literal `Config { name: …, host: … }`, with as many fields as the list holds. `Expr.of` makes a node with no source position; when `gen` writes it out it takes the position of the `gen`, so an error in it points there.
+
+Statements and declarations can be quoted too. `code { … }` is a `List<Stmt>`, and `code` in front of a declaration is a `Decl` you can keep, change, and emit later with `gen`:
+
+```cronyx
+import { Decl } from "std/compiler/Ast";
+
+meta {
+    var helper: Decl = code fn twice(n: int): int { return n * 2; };
+    gen helper;
+}
+
+print(twice(21));
+```
+
+```
+42
+```
+
+`std/compiler/Printer` turns any of them back into source text, which is the quickest way to see what a deriver built.
+
 ## Deriving several traits at once
 
 List the traits and each one's deriver runs in turn:

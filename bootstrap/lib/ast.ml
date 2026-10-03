@@ -423,7 +423,13 @@ type ('e, 's, 'h) effects =
 
 type 'e reflect = [ `Typeof of 'e ]
 
-type 'e quote = [ `Code of 'e ]
+(* `code(e)`, `code { … }` and `code fn …`: syntax held as a value rather than
+   run, so only metaprocessing ever meets one. *)
+type ('e, 's) quote =
+  [ `Code of 'e
+  | `Code_stmts of 's list
+  | `Code_decl of 's
+  ]
 
 (* The names a binder introduces. More than one takes a tuple apart. *)
 type binder = string list
@@ -510,7 +516,7 @@ and expr_kind =
   | expr static_call
   | expr method_call
   | expr reflect
-  | expr quote
+  | (expr, stmt) quote
   | expr generic_new
   | (expr, stmt) lambdas
   | (expr, stmt, stmt handler_clause) run_expr

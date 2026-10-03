@@ -471,6 +471,10 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
          | contents -> `Bytes contents
          | exception Sys_error _ -> fail e.Ast.span "Cannot embed '%s'." path)
       | `Code inner -> `Code (go inner)
+      | `Code_stmts body ->
+        let inner = List.fold_left (fun acc s -> S.union acc (S.of_list (bound_by s))) locals body in
+        `Code_stmts (List.map (stmt inner) body)
+      | `Code_decl decl -> `Code_decl (stmt locals decl)
       (* What the file declares or imports by name first: an operation of an
          effect every package imports must not take a name from the file's own
          `fn write`. *)

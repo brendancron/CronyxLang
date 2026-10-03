@@ -1,0 +1,635 @@
+/**
+ * Syntax trees as Cronyx source text.
+ *
+ * ```
+ * import { expr_source } from "std/compiler/Printer";
+ *
+ * meta {
+ *     print(expr_source(code(a + b * 2)));   // (a + (b * 2))
+ * }
+ * ```
+ *
+ * Parsing what this writes gives back the same tree. It is not a formatter:
+ * comments are not in the tree, so they are not in the output, and every
+ * binary operation is parenthesised because the tree already says how it
+ * groups. Names are written as the program wrote them.
+ */
+
+import {
+    Expr, ExprKind, Stmt, StmtKind, Decl, DeclKind, TypeExpr, TypeKind, UnOp, BinOp,
+    FieldInit, Args, StaticArg, ValuedBlock, ValuedArm, MatchArm, Pattern, Bindings,
+    TypeDecl, TypeBody, FieldDecl, VariantDecl, Payload, FnDecl, ImplDecl, TraitDecl,
+    EffectDecl, MethodDef, OpKind, Handler, Arm, HandlerClause, Import, Param, StaticParam,
+    TypeParam, Signature, Applied, Attribute, FieldType
+} from "Ast";
+import { AttrArg } from "../meta/Reflect";
+import { join } from "../collections/List";
+import { repeat } from "../text/String";
+
+/** The expression as source text. */
+fn expr_source(e: Expr): string { return __expr(e); }
+
+/** The statement as source text, one or more lines, each ending in a newline. */
+fn stmt_source(s: Stmt): string { return __stmt(0, s); }
+
+/** The declaration as source text, ending in a newline. */
+fn decl_source(d: Decl): string { return __decl(0, d); }
+
+/** The type as source text. */
+fn type_source(t: TypeExpr): string { return __type(t); }
+
+/** The statements as source text, as a file holding them would read. */
+fn source(stmts: List<Stmt>): string { return __block(0, stmts); }
+
+fn __each<T>(items: List<T>, separator: string, show: (T) -> string): string {
+    var shown: List<string> = [];
+    for (item in items) { shown.push(show(item)); }
+    return join(shown, separator);
+}
+
+fn __pad(depth: int): string { return repeat("    ", depth); }
+fn __line(depth: int, text: string): string { return __pad(depth) + text + "\n"; }
+
+fn __escaped(text: string, quote: string): string {
+    var out = text.replace("\\", "\\\\");
+    out = out.replace(quote, "\\" + quote);
+    out = out.replace("\n", "\\n");
+    out = out.replace("\t", "\\t");
+    return out.replace("\r", "\\r");
+}
+
+fn __unop(op: UnOp): string {
+    match op {
+        UnOp.Neg => { return "-"; }
+        UnOp.Not => { return "!"; }
+        UnOp.BitNot => { return "~"; }
+    }
+    return "";
+}
+
+fn __binop(op: BinOp): string {
+    match op {
+        BinOp.Add => { return "+"; }
+        BinOp.Sub => { return "-"; }
+        BinOp.Mul => { return "*"; }
+        BinOp.Div => { return "/"; }
+        BinOp.Mod => { return "%"; }
+        BinOp.BitAnd => { return "&"; }
+        BinOp.BitOr => { return "|"; }
+        BinOp.BitXor => { return "^"; }
+        BinOp.Shl => { return "<<"; }
+        BinOp.Shr => { return ">>"; }
+        BinOp.Equal => { return "=="; }
+        BinOp.NotEqual => { return "!="; }
+        BinOp.Less => { return "<"; }
+        BinOp.LessEqual => { return "<="; }
+        BinOp.Greater => { return ">"; }
+        BinOp.GreaterEqual => { return ">="; }
+    }
+    return "";
+}
+
+fn __row(row: List<Applied>): string {
+    if (row.len() == 0) { return ""; }
+    return " <" + __each(row, ", ", __applied) + ">";
+}
+
+fn __applied(a: Applied): string {
+    if (a.args.len() == 0) { return str(a.name); }
+    return str(a.name) + "<" + __each(a.args, ", ", __type) + ">";
+}
+
+fn __type(t: TypeExpr): string {
+    match t.kind {
+        TypeKind.Named(n) => { return str(n); }
+        TypeKind.Applied(n, args) => { return str(n) + "<" + __each(args, ", ", __type) + ">"; }
+        TypeKind.Tuple(items) => { return "(" + __each(items, ", ", __type) + ")"; }
+        TypeKind.Record(fields) => { return "{ " + __each(fields, ", ", __field_type) + " }"; }
+        TypeKind.Function(params, ret, row) => {
+            return "(" + __each(params, ", ", __type) + ") ->" + __row(row) + " " + __type(ret);
+        }
+        TypeKind.Variadic(inner) => {
+            match inner.kind {
+                TypeKind.Spread(_) => { return __type(inner); }
+                _ => { return "..." + __type(inner); }
+            }
+        }
+        TypeKind.Spread(inner) => { return "..." + __type(inner); }
+        TypeKind.Assoc(owner, member) => { return __type(owner) + "." + str(member); }
+        TypeKind.Bind(n, inner) => { return str(n) + " = " + __type(inner); }
+        TypeKind.Row(row) => {
+            if (row.len() == 0) { return "<>"; }
+            return "<" + __each(row, ", ", __applied) + ">";
+        }
+    }
+    return "";
+}
+
+fn __field_type(f: FieldType): string { return str(f.name) + ": " + __type(f.ty); }
+
+fn __annotation(t: Option<TypeExpr>): string {
+    match t {
+        Option.Some(ty) => { return ": " + __type(ty); }
+        Option.None => { return ""; }
+    }
+    return "";
+}
+
+fn __param(p: Param): string { return str(p.name) + __annotation(p.ty); }
+
+fn __static_params(ps: List<StaticParam>): string {
+    if (ps.len() == 0) { return ""; }
+    return "<" + __each(ps, ", ", (p: StaticParam) => {
+        var dots = "";
+        if (p.pack) { dots = "..."; }
+        return dots + str(p.name) + __annotation(p.ty);
+    }) + ">";
+}
+
+fn __type_params(ps: List<TypeParam>): string {
+    if (ps.len() == 0) { return ""; }
+    return "<" + __each(ps, ", ", (p: TypeParam) => {
+        var dots = "";
+        if (p.pack) { dots = "..."; }
+        return dots + str(p.name) + __annotation(p.ty);
+    }) + ">";
+}
+
+fn __names(ns: List<Name>): string { return __each(ns, ", ", (n: Name) => str(n)); }
+
+fn __signature(sg: Signature): string {
+    match sg.ret {
+        Option.None => { return ""; }
+        Option.Some(ret) => {
+            var row = "";
+            match sg.row {
+                Option.Some(r) => { row = __row(r); }
+                Option.None => {}
+            }
+            return ":" + row + " " + __type(ret);
+        }
+    }
+    return "";
+}
+
+fn __expr(e: Expr): string {
+    match e.kind {
+        ExprKind.Unit => { return "()"; }
+        ExprKind.Int(n) => { return str(n); }
+        ExprKind.Float(f) => { return str(f); }
+        ExprKind.Str(s) => { return "\"" + __escaped(s, "\"") + "\""; }
+        ExprKind.Char(c) => { return "'" + __escaped(str(c), "'") + "'"; }
+        ExprKind.Bool(b) => { return str(b); }
+        ExprKind.NameLit(n) => { return str(n); }
+        ExprKind.Bytes(bytes) => { return "embed(<" + str(bytes.len()) + " bytes>)"; }
+        ExprKind.Var(n) => { return str(n); }
+        ExprKind.Assign(n, v) => { return str(n) + " = " + __expr(v); }
+        ExprKind.Unary(op, a) => { return __unop(op) + __expr(a); }
+        ExprKind.Binary(op, a, b) => { return "(" + __expr(a) + " " + __binop(op) + " " + __expr(b) + ")"; }
+        ExprKind.And(a, b) => { return "(" + __expr(a) + " && " + __expr(b) + ")"; }
+        ExprKind.Or(a, b) => { return "(" + __expr(a) + " || " + __expr(b) + ")"; }
+        ExprKind.Call(callee, args) => { return __expr(callee) + "(" + __each(args, ", ", __expr) + ")"; }
+        ExprKind.MethodCall(receiver, n, args) => {
+            return __expr(receiver) + "." + str(n) + "(" + __each(args, ", ", __expr) + ")";
+        }
+        ExprKind.StaticCall(callee, statics, args) => {
+            return __expr(callee) + "<" + __each(statics, ", ", __static_arg) + ">(" + __each(args, ", ", __expr) + ")";
+        }
+        ExprKind.Compound(op, n, v) => { return str(n) + " " + __binop(op) + "= " + __expr(v); }
+        ExprKind.CompoundIndex(op, target, index, v) => {
+            return __expr(target) + "[" + __expr(index) + "] " + __binop(op) + "= " + __expr(v);
+        }
+        ExprKind.CompoundField(op, target, label, v) => {
+            return __expr(target) + "." + str(label) + " " + __binop(op) + "= " + __expr(v);
+        }
+        ExprKind.Index(target, index) => { return __expr(target) + "[" + __expr(index) + "]"; }
+        ExprKind.IndexAssign(target, index, v) => {
+            return __expr(target) + "[" + __expr(index) + "] = " + __expr(v);
+        }
+        ExprKind.Tuple(items) => { return "(" + __each(items, ", ", __expr) + ")"; }
+        ExprKind.TupleGet(target, at) => { return __expr(target) + "." + str(at); }
+        ExprKind.Spread(inner) => { return "..." + __expr(inner); }
+        ExprKind.Record(fields) => { return "{ " + __each(fields, ", ", __field_init) + " }"; }
+        ExprKind.Field(target, label) => { return __expr(target) + "." + str(label); }
+        ExprKind.FieldAssign(target, label, v) => { return __expr(target) + "." + str(label) + " = " + __expr(v); }
+        ExprKind.New(n, fields) => {
+            if (fields.len() == 0) { return str(n); }
+            return str(n) + " { " + __each(fields, ", ", __field_init) + " }";
+        }
+        ExprKind.NewCall(n, targs, args) => {
+            var types = "";
+            if (targs.len() > 0) { types = "<" + __each(targs, ", ", __type) + ">"; }
+            return str(n) + types + "(" + __each(args, ", ", __expr) + ")";
+        }
+        ExprKind.NewGeneric(n, statics, fields) => {
+            return str(n) + "<" + __each(statics, ", ", __static_arg) + "> { " + __each(fields, ", ", __field_init) + " }";
+        }
+        ExprKind.NewVariant(t, v, args) => { return str(t) + "." + str(v) + __args(args); }
+        ExprKind.Collection(items) => { return "[" + __each(items, ", ", __expr) + "]"; }
+        ExprKind.Lambda(params, sg, body) => {
+            return "(" + __each(params, ", ", __param) + ")" + __signature(sg) + " => { " + __inline(body) + "}";
+        }
+        ExprKind.Run(body, clauses, ret) => {
+            var text = "run { " + __valued(body) + " }";
+            for (c in clauses) {
+                match c {
+                    HandlerClause.Named(n) => { text = text + " with " + str(n) + ";"; }
+                    HandlerClause.Inline(h) => {
+                        text = text + " handle " + str(h.handles) + " { " + __each(h.arms, "", (a: Arm) => __arm(0, a)) + "}";
+                    }
+                }
+            }
+            match ret {
+                Option.Some(r) => { text = text + " return (" + str(r.param) + ") { " + __valued(r.body) + " }"; }
+                Option.None => {}
+            }
+            return text;
+        }
+        ExprKind.Match(scrutinee, arms) => {
+            return "match " + __expr(scrutinee) + " { " + __each(arms, " ", (a: ValuedArm) => {
+                return __pattern(a.pattern) + " => { " + __valued(a.body) + " }";
+            }) + " }";
+        }
+        ExprKind.Typeof(inner) => { return "typeof(" + __expr(inner) + ")"; }
+        ExprKind.QuoteExpr(inner) => { return "code(" + __expr(inner) + ")"; }
+        ExprKind.QuoteStmts(body) => { return "code { " + __inline(body) + "}"; }
+        ExprKind.QuoteDecl(d) => { return "code " + __decl(0, d).trim(); }
+    }
+    return "";
+}
+
+fn __inline(body: List<Stmt>): string {
+    var out = "";
+    for (s in body) { out = out + __stmt(0, s).trim() + " "; }
+    return out;
+}
+
+fn __valued(b: ValuedBlock): string {
+    var out = __inline(b.stmts);
+    match b.value {
+        Option.Some(v) => { out = out + __expr(v); }
+        Option.None => {}
+    }
+    return out.trim();
+}
+
+fn __field_init(f: FieldInit): string { return str(f.name) + ": " + __expr(f.value); }
+
+fn __static_arg(a: StaticArg): string {
+    match a {
+        StaticArg.Type(t) => { return __type(t); }
+        StaticArg.Value(v) => { return __expr(v); }
+    }
+    return "";
+}
+
+fn __args(a: Args): string {
+    match a {
+        Args.None => { return ""; }
+        Args.Positional(items) => {
+            if (items.len() == 0) { return ""; }
+            return "(" + __each(items, ", ", __expr) + ")";
+        }
+        Args.Named(fields) => { return " { " + __each(fields, ", ", __field_init) + " }"; }
+    }
+    return "";
+}
+
+fn __pattern(p: Pattern): string {
+    match p {
+        Pattern.Wild => { return "_"; }
+        Pattern.Variant(t, v, bindings) => {
+            var tail = "";
+            match bindings {
+                Bindings.None => {}
+                Bindings.Positional(names) => { tail = "(" + __names(names) + ")"; }
+                Bindings.Named(pairs) => {
+                    tail = " { " + __each(pairs, ", ", (b) => {
+                        if (str(b.field) == str(b.bound)) { return str(b.field); }
+                        return str(b.field) + ": " + str(b.bound);
+                    }) + " }";
+                }
+            }
+            return str(t) + "." + str(v) + tail;
+        }
+    }
+    return "";
+}
+
+fn __block(depth: int, body: List<Stmt>): string {
+    var out = "";
+    for (s in body) { out = out + __stmt(depth, s); }
+    return out;
+}
+
+// The braces are the enclosing form's; only the contents are printed.
+fn __nested(depth: int, s: Stmt): string {
+    match s.kind {
+        StmtKind.Block(body) => { return __block(depth + 1, body); }
+        _ => { return __stmt(depth + 1, s); }
+    }
+    return "";
+}
+
+fn __stmt(depth: int, s: Stmt): string {
+    match s.kind {
+        StmtKind.Expression(e) => {
+            match e.kind {
+                ExprKind.Run(body, clauses, ret) => {
+                    match ret {
+                        Option.None => {
+                            match body.value {
+                                Option.None => {
+                                    return __line(depth, "run {") + __block(depth + 1, body.stmts) + __handlers(depth, clauses);
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+            return __line(depth, __expr(e) + ";");
+        }
+        StmtKind.Let(n, ty, init) => {
+            var value = "";
+            match init {
+                Option.Some(v) => { value = " = " + __expr(v); }
+                Option.None => {}
+            }
+            return __line(depth, "var " + str(n) + __annotation(ty) + value + ";");
+        }
+        StmtKind.LetTuple(names, init) => {
+            return __line(depth, "var (" + __names(names) + ") = " + __expr(init) + ";");
+        }
+        StmtKind.Block(body) => { return __line(depth, "{") + __block(depth + 1, body) + __line(depth, "}"); }
+        StmtKind.If(cond, then_branch, else_branch) => {
+            var out = __line(depth, "if (" + __expr(cond) + ") {") + __nested(depth, then_branch);
+            match else_branch {
+                Option.Some(other) => { out = out + __line(depth, "} else {") + __nested(depth, other); }
+                Option.None => {}
+            }
+            return out + __line(depth, "}");
+        }
+        StmtKind.While(cond, body) => {
+            return __line(depth, "while (" + __expr(cond) + ") {") + __nested(depth, body) + __line(depth, "}");
+        }
+        StmtKind.For(init, cond, step, body) => {
+            var head = ";";
+            match init {
+                Option.Some(i) => { head = __stmt(0, i).trim(); }
+                Option.None => {}
+            }
+            var test = "";
+            match cond {
+                Option.Some(c) => { test = __expr(c); }
+                Option.None => {}
+            }
+            var next = "";
+            match step {
+                Option.Some(st) => { next = __expr(st); }
+                Option.None => {}
+            }
+            return __line(depth, "for (" + head + " " + test + "; " + next + ") {") + __nested(depth, body) + __line(depth, "}");
+        }
+        StmtKind.ForIn(names, over, body) => {
+            var bound = __names(names);
+            if (names.len() != 1) { bound = "(" + bound + ")"; }
+            return __line(depth, "for (" + bound + " in " + __expr(over) + ") {") + __nested(depth, body) + __line(depth, "}");
+        }
+        StmtKind.Return(v) => {
+            match v {
+                Option.Some(x) => { return __line(depth, "return " + __expr(x) + ";"); }
+                Option.None => { return __line(depth, "return;"); }
+            }
+        }
+        StmtKind.Break => { return __line(depth, "break;"); }
+        StmtKind.Continue => { return __line(depth, "continue;"); }
+        StmtKind.Defer(inner) => { return __line(depth, "defer {") + __nested(depth, inner) + __line(depth, "}"); }
+        StmtKind.Match(scrutinee, arms) => {
+            var out = __line(depth, "match " + __expr(scrutinee) + " {");
+            for (a in arms) {
+                out = out + __line(depth + 1, __pattern(a.pattern) + " => {") + __block(depth + 2, a.body) + __line(depth + 1, "}");
+            }
+            return out + __line(depth, "}");
+        }
+        StmtKind.Run(body, clauses) => {
+            return __line(depth, "run {") + __block(depth + 1, body) + __handlers(depth, clauses);
+        }
+        StmtKind.Resume(v) => {
+            match v {
+                Option.Some(x) => { return __line(depth, "resume " + __expr(x) + ";"); }
+                Option.None => { return __line(depth, "resume;"); }
+            }
+        }
+        StmtKind.Discontinue => { return __line(depth, "discontinue;"); }
+        StmtKind.Meta(body) => { return __line(depth, "meta {") + __block(depth + 1, body) + __line(depth, "}"); }
+        StmtKind.Gen(inner) => { return __line(depth, "gen") + __nested(depth, inner); }
+        StmtKind.Derive(traits, target) => {
+            return __line(depth, "derive " + __names(traits) + " for " + str(target) + ";");
+        }
+        StmtKind.Declare(d) => { return __decl(depth, d); }
+    }
+    return "";
+}
+
+// Each clause reopens the brace the last one closed.
+fn __handlers(depth: int, clauses: List<HandlerClause>): string {
+    var out = "";
+    var closed = true;
+    for (c in clauses) {
+        match c {
+            HandlerClause.Named(n) => {
+                out = out + __line(depth, "} with " + str(n) + ";");
+                closed = true;
+            }
+            HandlerClause.Inline(h) => {
+                out = out + __line(depth, "} handle " + str(h.handles) + " {") + __each(h.arms, "", (a: Arm) => __arm(depth + 1, a));
+                closed = false;
+            }
+        }
+    }
+    if (!closed) { out = out + __line(depth, "}"); }
+    return out;
+}
+
+fn __op_kind(k: OpKind): string {
+    match k {
+        OpKind.Fn => { return "fn"; }
+        OpKind.Ctl => { return "ctl"; }
+        OpKind.Final => { return "final ctl"; }
+    }
+    return "";
+}
+
+fn __arm(depth: int, a: Arm): string {
+    return __line(depth, __op_kind(a.kind) + " " + str(a.name) + "(" + __names(a.params) + ") {")
+        + __block(depth + 1, a.body)
+        + __line(depth, "}");
+}
+
+fn __attr_arg(a: AttrArg): string {
+    match a {
+        AttrArg.Str(s) => { return "\"" + __escaped(s, "\"") + "\""; }
+        AttrArg.Int(n) => { return str(n); }
+        AttrArg.Float(f) => { return str(f); }
+        AttrArg.Bool(b) => { return str(b); }
+    }
+    return "";
+}
+
+// A doc comment rides as an attribute, and is written back as the comment.
+fn __doc(a: Attribute): Option<string> {
+    if (str(a.name) != "doc" || a.args.len() != 1) { return Option.None; }
+    match a.args[0] {
+        AttrArg.Str(text) => { return Option.Some(text); }
+        _ => {}
+    }
+    return Option.None;
+}
+
+fn __doc_comment(depth: int, text: string): string {
+    var lines = text.split('\n');
+    if (lines.len() == 1) { return __line(depth, "/** " + text + " */"); }
+    var out = __line(depth, "/**");
+    for (l in lines) {
+        if (l == "") { out = out + __line(depth, " *"); } else { out = out + __line(depth, " * " + l); }
+    }
+    return out + __line(depth, " */");
+}
+
+fn __attribute(a: Attribute): string {
+    var args = "";
+    if (a.args.len() > 0) { args = "(" + __each(a.args, ", ", __attr_arg) + ")"; }
+    return "@" + str(a.name) + args;
+}
+
+fn __attrs(depth: int, attrs: List<Attribute>): string {
+    var out = "";
+    for (a in attrs) {
+        match __doc(a) {
+            Option.Some(text) => { out = out + __doc_comment(depth, text); }
+            Option.None => { out = out + __line(depth, __attribute(a)); }
+        }
+    }
+    return out;
+}
+
+// On the member's own line, so a doc comment goes above it and takes the
+// member's indent with it.
+fn __member_attrs(depth: int, attrs: List<Attribute>): string {
+    var above = "";
+    var inline = "";
+    for (a in attrs) {
+        match __doc(a) {
+            Option.Some(text) => { above = above + __doc_comment(depth, text); }
+            Option.None => { inline = inline + __attribute(a) + " "; }
+        }
+    }
+    return above + __pad(depth) + inline;
+}
+
+fn __decl(depth: int, d: Decl): string {
+    var head = __attrs(depth, d.attrs);
+    match d.kind {
+        DeclKind.Fn(f) => {
+            return head + __line(depth, "fn " + str(f.name) + __static_params(f.signature.static_params) + "(" + __each(f.params, ", ", __param) + ")" + __signature(f.signature) + " {")
+                + __block(depth + 1, f.body)
+                + __line(depth, "}");
+        }
+        DeclKind.Type(t) => { return head + __type_decl(depth, t, []); }
+        DeclKind.TypeWithMembers(t, members) => { return head + __type_decl(depth, t, members); }
+        DeclKind.Trait(t) => {
+            var params = "";
+            if (t.params.len() > 0) { params = "<" + __names(t.params) + ">"; }
+            var supers = "";
+            if (t.supers.len() > 0) { supers = ": " + __each(t.supers, ", ", __applied); }
+            var out = head + __line(depth, "trait " + str(t.name) + params + supers + " {");
+            for (a in t.assoc) { out = out + __member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + ";\n"; }
+            for (m in t.methods) {
+                out = out + __member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + ";\n";
+            }
+            return out + __line(depth, "}");
+        }
+        DeclKind.Impl(i) => {
+            var implements = "";
+            match i.implements {
+                Option.Some(t) => { implements = __applied(t) + " for "; }
+                Option.None => {}
+            }
+            var out = head + __line(depth, "impl " + implements + str(i.target) + __type_params(i.params) + " {");
+            for (a in i.assoc) {
+                out = out + __member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + " = " + __type(a.ty) + ";\n";
+            }
+            for (m in i.methods) {
+                out = out + __member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + __static_params(m.signature.static_params) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + " {\n"
+                    + __block(depth + 2, m.body)
+                    + __line(depth + 1, "}");
+            }
+            return out + __line(depth, "}");
+        }
+        DeclKind.Effect(ef) => {
+            var params = "";
+            if (ef.params.len() > 0) { params = "<" + __names(ef.params) + ">"; }
+            var out = head + __line(depth, "effect " + str(ef.name) + params + " {");
+            for (o in ef.ops) {
+                var tparams = "";
+                if (o.type_params.len() > 0) { tparams = "<" + __names(o.type_params) + ">"; }
+                out = out + __member_attrs(depth + 1, o.attrs) + __op_kind(o.kind) + " " + str(o.name) + tparams + "(" + __each(o.params, ", ", __param) + ")" + __annotation(o.ret) + ";\n";
+            }
+            return out + __line(depth, "}");
+        }
+        DeclKind.Handler(n, h) => {
+            return head + __line(depth, "handler " + str(n) + " : " + str(h.handles) + " {")
+                + __each(h.arms, "", (a: Arm) => __arm(depth + 1, a))
+                + __line(depth, "}");
+        }
+        DeclKind.Import(i) => { return head + __line(depth, __import(i)); }
+        DeclKind.GlobalImport(i) => { return head + __line(depth, "global " + __import(i)); }
+    }
+    return "";
+}
+
+fn __import(i: Import): string {
+    match i {
+        Import.Qualified(path) => { return "import \"" + __escaped(path, "\"") + "\";"; }
+        Import.Aliased(path, alias) => { return "import \"" + __escaped(path, "\"") + "\" as " + str(alias) + ";"; }
+        Import.Selective(names, path) => {
+            return "import { " + __names(names) + " } from \"" + __escaped(path, "\"") + "\";";
+        }
+        Import.Wildcard(path) => { return "import \"" + __escaped(path, "\"") + "/*\";"; }
+    }
+    return "";
+}
+
+fn __type_decl(depth: int, t: TypeDecl, members: List<Stmt>): string {
+    var out = __line(depth, "type " + str(t.name) + __type_params(t.params) + " {");
+    var parts: List<string> = [];
+    match t.body {
+        TypeBody.Fields(fields) => {
+            for (f in fields) { parts.push(__member_attrs(depth + 1, f.attrs) + str(f.name) + ": " + __type(f.ty)); }
+        }
+        TypeBody.Variants(variants) => {
+            for (v in variants) {
+                var params = "";
+                if (v.params.len() > 0) { params = "<" + __names(v.params) + ">"; }
+                var payload = "";
+                match v.payload {
+                    Payload.None => {}
+                    Payload.Positional(items) => { payload = "(" + __each(items, ", ", __type) + ")"; }
+                    Payload.Named(fields) => { payload = " { " + __each(fields, ", ", __field_type) + " }"; }
+                }
+                var result = "";
+                match v.result {
+                    Option.Some(r) => { result = " -> " + __type(r); }
+                    Option.None => {}
+                }
+                parts.push(__member_attrs(depth + 1, v.attrs) + str(v.name) + params + payload + result);
+            }
+        }
+    }
+    out = out + join(parts, ",\n") + "\n";
+    if (members.len() > 0) { out = out + "\n" + __block(depth + 1, members); }
+    return out + __line(depth, "}");
+}

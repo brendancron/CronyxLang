@@ -842,8 +842,8 @@ and collect_pack name vars args =
 and named_type ?(written = true) span name args =
   if String.equal name Types.reflection_name && args = []
   then Types.ireflected
-  else if String.equal name Types.code_name && args = []
-  then Types.icode
+  else if String.equal name Types.span_name && args = []
+  then Types.ispan
   else if String.equal name Types.name_name && args = []
   then Types.iname
   else if String.equal name Types.array_name

@@ -9,12 +9,14 @@
 let modules =
   [ "core/Array"; "core/Assert"; "core/Iter"; "collections/List"; "collections/Map"; "core/Ops"
   ; "core/Option"; "core/Range"; "meta/Reflect"; "collections/Set"; "text/String"; "text/Format"
+  ; "compiler/Ast"
   ]
 
 (* As [Ast.generated] spells it, which [Types] cannot reach. *)
 let name module_ declared = String.concat "#" [ "std"; Filename.basename module_; declared ]
 
 let option = name "core/Option" "Option"
+let list = name "collections/List" "List"
 let iter = name "core/Iter" "Iter"
 let assertion = name "core/Assert" "Assertion"
 let assertion_failed = name "core/Assert" "failed"
@@ -53,3 +55,5 @@ let field = reflect "TypeField"
 let variant = reflect "TypeVariant"
 let attr = reflect "Attr"
 let attr_arg = reflect "AttrArg"
+
+let syntax = name "compiler/Ast"

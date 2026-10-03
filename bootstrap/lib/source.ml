@@ -177,6 +177,8 @@ let rec expr (e : Ast.expr) : string =
     Printf.sprintf "%s.%s(%s)" (expr receiver) name (arguments args)
   | `Typeof inner -> Printf.sprintf "typeof(%s)" (expr inner)
   | `Code inner -> Printf.sprintf "code(%s)" (expr inner)
+  | `Code_stmts body -> Printf.sprintf "code { %s }" (String.concat " " (List.map (stmt 0) body))
+  | `Code_decl decl -> Printf.sprintf "code %s" (stmt 0 decl)
   | `Lambda (params, sg, body) ->
     Printf.sprintf
       "(%s)%s => { %s }"

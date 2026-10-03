@@ -59,6 +59,12 @@ let derived_eq span target : Ast.stmt =
 let emitter = Ast.generated [ "meta"; "emit" ]
 let capturer = Ast.generated [ "meta"; "value" ]
 let quoter = Ast.generated [ "meta"; "code" ]
+let quoter_stmts = Ast.generated [ "meta"; "code_stmts" ]
+let quoter_decl = Ast.generated [ "meta"; "code_decl" ]
+
+let syntax span read =
+  try read () with
+  | Syntax.Malformed message -> fail span "%s" message
 
 (* A value written back as the syntax that denotes it. A function and an object
    have no such syntax, so they are [None]. *)
@@ -73,8 +79,11 @@ let rec literal_of span (v : Value.value) : Ast.expr option =
       items
       (Some [])
   in
+  match Syntax.kind_of v with
+  | Some Syntax.Expr_node -> Some (syntax span (fun () -> Syntax.to_expr ~fallback:span v))
+  | Some kind -> fail span "This is %s, which cannot stand where an expression does." (Syntax.describe kind)
+  | None ->
   match v with
-  | Value.Code e -> Some e
   | Value.Int n -> Some (at (`Int n))
   | Value.Float n -> Some (at (`Float n))
   | Value.Str s -> Some (at (`Str s))
@@ -144,7 +153,11 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
       match t.Ast.it with
       | Ast.Ty_variadic t -> Ast.Ty_variadic (type_expr t)
       | Ast.Ty_spread t -> Ast.Ty_spread (type_expr t)
-      | Ast.Ty_name n -> Ast.Ty_name (named n)
+      | Ast.Ty_name n ->
+        (match Hashtbl.find_opt bound n with
+         | Some v when Syntax.kind_of v = Some Syntax.Type_node ->
+           (syntax t.Ast.span (fun () -> Syntax.to_type ~fallback:t.Ast.span v)).Ast.it
+         | _ -> Ast.Ty_name (named n))
       | Ast.Ty_assoc (owner, member) -> Ast.Ty_assoc (type_expr owner, member)
       | Ast.Ty_bind (bound, t) -> Ast.Ty_bind (bound, type_expr t)
       | Ast.Ty_app (n, args) -> Ast.Ty_app (named n, List.map type_expr args)
@@ -208,7 +221,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
         | `Method_call (receiver, name, as_function, args) ->
           `Method_call (expr receiver, named name, named as_function, List.map expr args)
         (* Lowered when the code holding it runs, not now. *)
-        | `Code _ as c -> c
+        | (`Code _ | `Code_stmts _ | `Code_decl _) as c -> c
         | `Field (receiver, label) -> `Field (expr receiver, named label)
         | `Field_assign (receiver, label, v) ->
           `Field_assign (expr receiver, named label, expr v)
@@ -261,13 +274,33 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
     match body with
     | [] -> []
     | s :: rest ->
-      let walked = stmt shadowed s in
+      let walked = statements shadowed s in
       let shadowed =
         match s.Ast.it with
         | `Var_decl (name, _, _) -> Shadowed.add name shadowed
         | _ -> shadowed
       in
-      walked :: sequence shadowed rest
+      walked @ sequence shadowed rest
+  (* A bare meta name standing as a statement is spliced by what it holds: a
+     statement, a declaration, or a list of statements, which may be empty. *)
+  and statements shadowed (s : Ast.stmt) : Ast.stmt list =
+    match spliced shadowed s with
+    | Some stmts -> stmts
+    | None -> [ stmt shadowed s ]
+  and spliced shadowed (s : Ast.stmt) : Ast.stmt list option =
+    let sp = s.Ast.span in
+    match s.Ast.it with
+    | `Expr { Ast.it = `Var name; _ } when not (Shadowed.mem name shadowed) ->
+      (match Hashtbl.find_opt bound name with
+       | Some (Value.Record (Some t, _) as v) when String.equal t Core.list ->
+         Some (syntax sp (fun () -> Syntax.to_stmts ~fallback:sp v))
+       | Some v ->
+         (match Syntax.kind_of v with
+          | Some Syntax.Stmt_node -> Some [ syntax sp (fun () -> Syntax.to_stmt ~fallback:sp v) ]
+          | Some Syntax.Decl_node -> Some [ syntax sp (fun () -> Syntax.to_decl ~fallback:sp v) ]
+          | _ -> None)
+       | None -> None)
+    | _ -> None
   and stmt shadowed (s : Ast.stmt) : Ast.stmt =
     let expr = expr shadowed in
     let it : Ast.stmt_kind =
@@ -280,6 +313,11 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
           , signature sg
           , sequence (hidden shadowed (param_names params)) body )
       | `Block body -> `Block (sequence shadowed body)
+      | `Expr ({ Ast.it = `Var _; _ } as e) ->
+        (match spliced shadowed s with
+         | Some [ one ] -> one.Ast.it
+         | Some many -> `Block many
+         | None -> `Expr (expr e))
       | `For_in (names, over, inner) ->
         `For_in
           (names, expr over, stmt (List.fold_left (Fun.flip Shadowed.add) shadowed names) inner)
@@ -375,10 +413,19 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
     in
     { s with Ast.it }
   and expr_in shadowed e = expr shadowed e in
-  expr Shadowed.empty, stmt Shadowed.empty
+  expr Shadowed.empty, stmt Shadowed.empty, sequence Shadowed.empty
 
-let substitute bound (root : Ast.stmt) : Ast.stmt = snd (substitution bound) root
-let substitute_expr bound (e : Ast.expr) : Ast.expr = fst (substitution bound) e
+let substitute bound (root : Ast.stmt) : Ast.stmt =
+  let _, stmt, _ = substitution bound in
+  stmt root
+
+let substitute_expr bound (e : Ast.expr) : Ast.expr =
+  let expr, _, _ = substitution bound in
+  expr e
+
+let substitute_all bound (body : Ast.stmt list) : Ast.stmt list =
+  let _, _, sequence = substitution bound in
+  sequence body
 
 (* A lowered `gen` or `code` carries its meta-bound names beside its index. *)
 let bindings_of args =
@@ -405,7 +452,8 @@ let emit_into { table; current; _ } span args =
   match args with
   | Value.Int index :: rest ->
     (match Hashtbl.find_opt table index with
-     | Some captured -> !current := substitute (bindings_of rest) captured :: !(!current)
+     | Some captured ->
+       !current := List.rev_append (substitute_all (bindings_of rest) [ captured ]) !(!current)
      | None -> Value.fail span "Nothing was captured here.")
   | _ -> Value.fail span "Nothing was captured here."
 
@@ -423,13 +471,27 @@ let run ~out ~codes ~emit ~capture (program : Ast.program) =
        | [ v ] -> capture v
        | _ -> ());
       Value.Unit);
-    native quoter None (fun span args ->
-      match args with
-      | Value.Int index :: rest ->
-        (match Hashtbl.find_opt codes index with
-         | Some captured -> Value.Code (substitute_expr (bindings_of rest) captured)
-         | None -> Value.fail span "Nothing was captured here.")
-      | _ -> Value.fail span "Nothing was captured here.");
+    let quote name convert =
+      native name None (fun span args ->
+        match args with
+        | Value.Int index :: rest ->
+          (match Hashtbl.find_opt codes index with
+           | Some captured ->
+             (try convert (bindings_of rest) captured with
+              | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message })
+              | Syntax.Malformed message -> Value.fail span "%s" message)
+           | None -> Value.fail span "Nothing was captured here.")
+        | _ -> Value.fail span "Nothing was captured here.")
+    in
+    quote quoter (fun bound captured -> Syntax.expr (substitute_expr bound captured));
+    quote quoter_stmts (fun bound captured ->
+      match captured.Ast.it with
+      | `Code_stmts body -> Syntax.list Syntax.stmt (substitute_all bound body)
+      | _ -> Value.fail captured.Ast.span "Nothing was captured here.");
+    quote quoter_decl (fun bound captured ->
+      match captured.Ast.it with
+      | `Code_decl d -> Syntax.decl (substitute bound d)
+      | _ -> Value.fail captured.Ast.span "Nothing was captured here.");
     native emitter None (fun span args ->
       emit span args;
       Value.Unit);
@@ -506,7 +568,7 @@ let promote ~meta ~visible ~refs (s : Ast.stmt) : Ast.stmt * (string * Ast.expr)
           , sequence
               (List.fold_left (fun acc (p : Ast.param) -> Shadowed.add p.Ast.name acc) shadowed params)
               body )
-      | `Code _ as c -> c
+      | (`Code _ | `Code_stmts _ | `Code_decl _) as c -> c
       | #Ast.lit as l -> l
       | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.expr_kind)
       | #Ast.ops as o -> (Ast.map_ops expr o :> Ast.expr_kind)
@@ -626,6 +688,11 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
       let index = Hashtbl.length codes in
       Hashtbl.replace codes index inner;
       { e with Ast.it = (call sp index scope quoter).Ast.it }
+    | `Code_stmts _ | `Code_decl _ ->
+      let index = Hashtbl.length codes in
+      Hashtbl.replace codes index e;
+      let callee = match e.Ast.it with `Code_stmts _ -> quoter_stmts | _ -> quoter_decl in
+      { e with Ast.it = (call sp index scope callee).Ast.it }
     | `Match_expr (scrutinee, cases) ->
       let arm (p, (b : (Ast.expr, Ast.stmt) Ast.valued_block)) =
         let inner = Ast.pattern_names p @ scope in
@@ -636,7 +703,7 @@ let lower { table; codes; _ } ~visible ~refs ~params (body : Ast.program) =
       let expr = expr scope in
       let it : Ast.expr_kind =
         match it with
-        | `Code _ as c -> c
+        | (`Code _ | `Code_stmts _ | `Code_decl _) as c -> c
         | `Lambda (params, sg, body) -> `Lambda (params, sg, block scope body)
         | #Ast.lit as l -> l
         | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.expr_kind)
@@ -796,7 +863,7 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
     let receiver = ex receiver in
     let args = many args in
     h.method_call scope { e with Ast.it = `Method_call (receiver, name, as_function, args) }
-  | `Code _ -> h.code scope e
+  | `Code _ | `Code_stmts _ | `Code_decl _ -> h.code scope e
   | `Lambda (params, sg, body) ->
     { e with Ast.it = `Lambda (params, sg, tblock h (with_params scope params) body) }
   | `Run_expr (body, handlers, clause) ->
@@ -867,7 +934,8 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
         (h.generic_new scope { e with Ast.it = `New_generic (name, static_args, fields) }).Ast.it
       | `Collection_lit items -> `Collection_lit (many items)
       | `Typeof a -> `Typeof (ex a)
-      | `Var _ | `Static_call _ | `Method_call _ | `Code _ | `Lambda _ | `Run_expr _
+      | `Var _ | `Static_call _ | `Method_call _ | `Code _ | `Code_stmts _ | `Code_decl _
+      | `Lambda _ | `Run_expr _
       | `Match_expr _ -> it
     in
     { e with Ast.it }
@@ -1051,7 +1119,7 @@ let rec contains_code (body : Ast.stmt list) =
   let found = ref false in
   let rec expr (e : Ast.expr) =
     match e.Ast.it with
-    | `Code _ -> found := true
+    | `Code _ | `Code_stmts _ | `Code_decl _ -> found := true
     | `Lambda (_, _, b) -> if contains_code b then found := true
     | `Var _ | #Ast.lit -> ()
     | `Static_call (callee, static_args, args) ->

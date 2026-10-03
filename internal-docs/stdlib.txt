@@ -48,6 +48,9 @@ std/
 │   ├── Reflect            # TypeShape, fields, variants, attributes -- what typeof answers
 │   ├── Name               # Identifiers, and building them from strings
 │   └── Derive             # Helpers for writing derivers: walking a shape, emitting impls
+├── compiler/              # The compiler as a library: Cronyx syntax as data
+│   ├── Ast                # The syntax tree: what `code` quotes, what a deriver builds and `gen` emits
+│   └── Printer            # A syntax tree as source text
 ├── async/                 # Cooperative tasks: block_on, all/both, promises, pause
 │   ├── Task               # block_on, the all/both/interleaved scopes, pause
 │   ├── Promise            # promise, resolve, await

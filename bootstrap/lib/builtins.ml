@@ -43,7 +43,10 @@ let methods
 let variadic : (string * (unit -> Types.infer_ty)) list =
   [     Ast.generated [ "meta"; "emit" ], (fun () -> Types.IUnit)
   ; Ast.generated [ "meta"; "value" ], (fun () -> Types.IUnit)
-      ; Ast.generated [ "meta"; "code" ], (fun () -> Types.icode)
+      ; Ast.generated [ "meta"; "code" ], (fun () -> Types.INamed (Core.syntax "Expr", []))
+  ; ( Ast.generated [ "meta"; "code_stmts" ]
+    , fun () -> Types.INamed (Core.list, [ Types.INamed (Core.syntax "Stmt", []) ]) )
+  ; Ast.generated [ "meta"; "code_decl" ], (fun () -> Types.INamed (Core.syntax "Decl", []))
   ]
 
 (* Which test a `cx test` process is for. Only that runner defines it. *)
@@ -82,6 +85,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
        quoted and a byte as its number."
     , fun () -> [ Types.fresh () ], Types.IStr )
   ; ("__written", "", fun () -> [ Types.fresh () ], Types.IStr)
+  ; ("__span_generated", "", fun () -> [], Types.ispan)
   ; ("__fixed", "", fun () -> [ Types.IFloat; Types.IInt ], Types.IStr)
   ; "ord", "The character's Unicode code point.", (fun () -> [ Types.IChr ], Types.IInt)
   ; ( "chr"
@@ -388,6 +392,7 @@ let values ~out ~globals =
   ; one "str" (fun span v -> Value.Str (Utf8.decode (shown span `Display v)))
   ; one "debug" (fun span v -> Value.Str (Utf8.decode (shown span `Debug v)))
   ; one "__written" (fun span v -> Value.Str (Utf8.decode (form span v)))
+  ; native "__span_generated" (Some 0) (fun _ _ -> Value.Span Source_map.Span.nowhere)
   ; two "__fixed" (fun span x digits ->
       match x, digits with
       | Value.Float x, Value.Int digits when digits >= 0 ->

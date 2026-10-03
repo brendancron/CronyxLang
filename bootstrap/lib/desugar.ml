@@ -209,7 +209,7 @@ let rec expr (e : expr) : desugared_expr =
     | #match_expr as m -> (map_match_expr expr stmt m :> desugared_expr_kind)
     | #reflect as r -> (map_reflect expr r :> desugared_expr_kind)
     (* One arriving here stood where no meta program would have run it. *)
-    | `Code _ ->
+    | `Code _ | `Code_stmts _ | `Code_decl _ ->
       raise
         (Error
            { span = sp; message = "'code' is only allowed inside a meta block." })

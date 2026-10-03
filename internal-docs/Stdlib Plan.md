@@ -112,7 +112,9 @@ A `meta` block runs under the same root as a program, so compile time can do any
 
 `Display` and `Debug` come with milestone 1, and this milestone writes three more — `Encode`, `Decode` and `Cli`. `meta/Derive` is extracted from what they share rather than designed ahead of them, and `meta/Name` gathers `as_name` and what builds identifiers.
 
-It starts in `meta/Reflect`, since a deriver cannot see the type of a field and `Cli` has to: `verbose: bool` is a flag and `port: int` takes a value. A field gains `ty: TypeRef`, and a variant's `payload` becomes `Array<TypeRef>`, so `Option<int>` is no longer reported as nothing:
+It starts in the compiler. `Decode` and `Cli` build a record literal with a field per declared field, which the body of a `gen` cannot write, so code becomes data first: [Syntax Trees](Syntax%20Trees.md), with the tree in `std/compiler/Ast`.
+
+Then `meta/Reflect`, since a deriver cannot see the type of a field and `Cli` has to: `verbose: bool` is a flag and `port: int` takes a value. A field gains `ty: TypeRef`, and a variant's `payload` becomes `Array<TypeRef>`, so `Option<int>` is no longer reported as nothing:
 
 ```cronyx
 type TypeRef {
