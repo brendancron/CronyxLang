@@ -55,39 +55,37 @@ fn timeout<T, X, E>(limit: Duration, task: () -> <async, Throw<X>, E> T): <async
     var failure: Option<X> = Option.None;
     var over = false;
     var stop: Option<() -> unit> = Option.None;
-    var settled: Promise<unit> = promise();
-
-    fn settle() {
-        if (!over) {
-            over = true;
-            resolve(settled, ());
-        }
-    }
+    var stopped: Promise<unit> = promise();
 
     var cancel_timer = after(limit, () => {
-        if (!over) {
-            over = true;
-            match stop {
-                Option.Some(unwind) => { unwind(); }
-                Option.None => {}
-            }
-            resolve(settled, ());
+        match stop {
+            Option.Some(unwind) => { unwind(); }
+            Option.None => {}
         }
     });
 
     run {
+        defer {
+            over = true;
+            resolve(stopped, ());
+        }
         run {
             result = Option.Some(task());
         } handle Throw {
             final ctl throw(e) { failure = Option.Some(e); }
         }
-        settle();
     } handle async {
         ctl suspend(register) {
-            stop = Option.Some(() => { discontinue; });
+            // Per wait, as in `all`: an unwound task may still wait in a `defer`.
+            var live = true;
+            stop = Option.Some(() => {
+                live = false;
+                stop = Option.None;
+                discontinue;
+            });
             var wake = waker();
             register(__once(wake, (value) => {
-                if (!over) {
+                if (live) {
                     stop = Option.None;
                     resume value;
                 }
@@ -97,7 +95,7 @@ fn timeout<T, X, E>(limit: Duration, task: () -> <async, Throw<X>, E> T): <async
         fn after(delay, wake) { return after(delay, wake); }
     }
 
-    if (!over) { await(settled); }
+    if (!over) { await(stopped); }
     cancel_timer();
     match failure {
         Option.Some(e) => { throw(e); }

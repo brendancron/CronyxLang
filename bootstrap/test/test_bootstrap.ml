@@ -58,6 +58,8 @@ let cases =
   ; "tests/stdlib/async/sleep"
   ; "tests/stdlib/async/fake_clock"
   ; "tests/stdlib/async/timeout"
+  ; "tests/stdlib/async/timeout_defers"
+  ; "tests/stdlib/async/cancel_defers"
   ; "tests/stdlib/io/files"
   ; "tests/stdlib/io/fake_fs"
   ; "tests/stdlib/fs/paths"

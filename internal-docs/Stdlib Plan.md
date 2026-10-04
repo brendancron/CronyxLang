@@ -191,7 +191,7 @@ Then the library:
 
 [Net](Net.md) is the design. It starts in `async`, with two changes:
 
-- A task a scope cancels is unwound with `discontinue`, as `timeout` unwinds the one it abandons, so its `defer`s run. Today it is dropped, and a connection it held would stay open ([Net](Net.md#a-cancelled-task-closes-what-it-held)).
+- A task a scope cancels is unwound with `discontinue`, as `timeout` unwinds the one it abandons, so its `defer`s run and a connection it held is closed ([Net](Net.md#a-cancelled-task-closes-what-it-held)).
 - `async` gains `when_ready`, and `block_on` waits in `select` on every socket a task is parked on, with the earliest timer as the limit, rather than only on the clock.
 
 Then the library:

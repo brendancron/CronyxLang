@@ -162,20 +162,23 @@ handler around each task it starts:
 
 ```cronyx
 run {
+    defer { finish(); }
     run {
         resolve(slot, task());
     } handle Throw {
         final ctl throw(e) {
-            if (!cancelled) { failure = Option.Some(e); cancelled = true; }
+            if (!cancelled) {
+                failure = Option.Some(e);
+                cancelled = true;
+                …   // unwind every other task where it is parked
+            }
         }
     }
-    …   // count the task finished
 } handle async {
     ctl suspend(register) {
-        var wake = waker();
-        register(__once(wake, (v) => {
-            if (!cancelled) { resume v; } else { … }   // count it finished instead
-        }));
+        var live = true;
+        here.stop = Option.Some(() => { live = false; discontinue; });
+        register(__once(waker(), (v) => { if (live) { resume v; } }));
     }
     fn waker() { return waker(); }
 }
@@ -191,10 +194,18 @@ the failure's value, as an uncaught exception would. That is also what lets a
 scope be called with no `Throw` handler of its own: every scope carries
 `Throw<X>` in its row, and `block_on` discharges it.
 
-A task is cancelled at its next suspension point: when it is woken, the scope
-does not resume it. A task that never suspends runs to its end first, as it
-would in Trio or Eio. A task abandoned this way runs none of its `defer`s
-([TODO](TODO.md#defer-under-a-ctl-arm-that-does-not-resume)).
+A task is cancelled where it is parked: the scope keeps, for each task waiting,
+a closure that `discontinue`s it, and the failure calls each one, so the task
+unwinds and its `defer`s run — closing what it held, or cancelling the timer it
+slept on. A task not yet started never starts. One that never suspends runs to
+its end first, as it would in Trio or Eio.
+
+`live` is per wait rather than per task. A `defer` an unwound task runs may
+itself wait, closing a connection, and is resumed like any other; a wake-up
+left over from the wait it was unwound from finds that wait dead and does
+nothing. The scope counts a task finished in a `defer` of its own, so it is
+finished once its unwinding is, not when the unwinding first parks
+(`tests/stdlib/async/cancel_defers`).
 
 ## Timers
 
@@ -233,8 +244,9 @@ again does nothing, because `select`'s wake-up runs once.
 timer. While the task is parked the handler keeps a closure that `discontinue`s
 it; if the timer fires first, that closure unwinds the task, so its `defer`s run
 — the sleeping timer's cancellation among them — and `timeout` returns `None`.
-If the task finishes first, its timer is cancelled. A scope's cancellation still
-drops the task instead ([A failure lands in its scope](#a-failure-lands-in-its-scope)).
+If the task finishes first, its timer is cancelled. A `defer` that waits while
+the task unwinds is resumed, and `timeout` returns once it has finished, as a
+scope's cancellation does ([A failure lands in its scope](#a-failure-lands-in-its-scope)).
 
 ## A task is woken once
 

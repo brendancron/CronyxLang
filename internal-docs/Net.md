@@ -64,23 +64,21 @@ needs that yet, and the types already allow it.
 
 ## A cancelled task closes what it held
 
-A scope whose task fails cancels the others, and a cancelled task is dropped
-where it is parked ([Async](Async.md#a-failure-lands-in-its-scope)), so none of
-its `defer`s run. Until now that lost a line of cleanup output. With sockets it
-loses the close:
+A scope whose task fails cancels the others where they are parked
+([Async](Async.md#a-failure-lands-in-its-scope)). It `discontinue`s each one, so
+its `defer`s run, and throws the failure once every task has stopped:
 
 ```cronyx
 serve(listener, (conn) => {
-    defer { conn.close(); }   // skipped when a sibling's failure cancels this task
+    defer { conn.close(); }   // runs when a sibling's failure cancels this task
     …
 });
 ```
 
-One failing handler would leave every other connection open — the peer never
-sees the end of the stream, and the server runs out of descriptors. So a scope
-cancels as `timeout` does: it `discontinue`s the parked task, which unwinds it
-and runs its `defer`s, and throws its failure once every task has stopped. That
-comes before sockets, since every connection a scope holds depends on it.
+A scope that dropped a cancelled task instead would turn one failing handler
+into every other connection left open — the peer never sees the end of the
+stream, and the server runs out of descriptors. A `defer` that waits, as a
+close does, is resumed while its task unwinds.
 
 ## Connecting is an effect; a connection is a value
 

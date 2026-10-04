@@ -1,0 +1,12 @@
+import { block_on, pause } from "std/async/Task";
+import { sleep, timeout } from "std/async/Timer";
+import { Duration } from "std/os/Time";
+
+block_on {
+    var r = timeout(Duration.milliseconds(10), () => {
+        defer { print("closing"); pause(); print("closed"); }
+        sleep(Duration.seconds(5));
+        return 1;
+    });
+    print(r);
+};

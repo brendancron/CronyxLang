@@ -63,12 +63,13 @@ fn __once<T>(wake: (() -> unit) -> unit, k: (T) -> unit): (T) -> unit {
  * Runs the tasks side by side and returns their results, in the order the
  * tasks were given.
  *
- * If one fails, the others are cancelled at their next suspension point, and
- * once every one has stopped the failure is thrown from here. A second failure
- * is dropped with its task.
+ * If one fails, the others are cancelled where they are waiting, and their
+ * `defer`s run; one not yet started never starts. Once every one has stopped,
+ * the failure is thrown from here. A second failure is dropped with its task.
  */
 fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E> List<T> {
     var slots: List<Promise<T>> = [];
+    var parked: List<__Parked> = [];
     var failure: Option<X> = Option.None;
     var cancelled = false;
     var remaining = tasks.len();
@@ -82,7 +83,14 @@ fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E>
     for (task in tasks) {
         var slot: Promise<T> = promise();
         slots.push(slot);
+        if (cancelled) {
+            finish();
+            continue;
+        }
+        var here = __Parked { stop: Option.None };
+        parked.push(here);
         run {
+            defer { finish(); }
             run {
                 resolve(slot, task());
             } handle Throw {
@@ -90,15 +98,32 @@ fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E>
                     if (!cancelled) {
                         failure = Option.Some(e);
                         cancelled = true;
+                        for (other in parked) {
+                            match other.stop {
+                                Option.Some(stop) => { stop(); }
+                                Option.None => {}
+                            }
+                        }
                     }
                 }
             }
-            finish();
         } handle async {
             ctl suspend(register) {
+                // Per wait, so a task unwound here can still wait in a `defer`,
+                // and a wake-up left behind by the wait it was unwound from
+                // finds it gone.
+                var live = true;
+                here.stop = Option.Some(() => {
+                    live = false;
+                    here.stop = Option.None;
+                    discontinue;
+                });
                 var wake = waker();
                 register(__once(wake, (value) => {
-                    if (!cancelled) { resume value; } else { finish(); }
+                    if (live) {
+                        here.stop = Option.None;
+                        resume value;
+                    }
                 }));
             }
             fn waker() { return waker(); }
@@ -106,7 +131,7 @@ fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E>
         }
     }
 
-    if (tasks.len() > 0) { await(settled); }
+    if (remaining > 0) { await(settled); }
     match failure {
         Option.Some(e) => { throw(e); }
         Option.None => {}
@@ -114,6 +139,10 @@ fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E>
     var results: List<T> = [];
     for (slot in slots) { results.push(await(slot)); }
     return results;
+}
+
+type __Parked {
+    stop: Option<() -> unit>
 }
 
 /** Runs the actions side by side, as `all` does, for their effects alone. */
