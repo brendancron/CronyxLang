@@ -93,8 +93,8 @@ let eval_binop span (op : Ast.binop) a b =
   | Ast.Shr, Int x, Int n -> Int (if n >= Sys.int_size then (if x < 0 then -1 else 0) else x asr n)
   | Ast.Shl, Byte x, Int n -> Byte (Char.chr (if n >= 8 then 0 else (Char.code x lsl n) land 0xff))
   | Ast.Shr, Byte x, Int n -> Byte (Char.chr (if n >= 8 then 0 else Char.code x lsr n))
-  | Ast.Equal, _, _ -> Bool (values_equal a b)
-  | Ast.Not_equal, _, _ -> Bool (not (values_equal a b))
+  | Ast.Equal, _, _ -> Bool (values_equal span a b)
+  | Ast.Not_equal, _, _ -> Bool (not (values_equal span a b))
   | _ ->
     fail
       span
@@ -174,11 +174,14 @@ let rec eval env (e : Ast.cps_expr) : value =
   | `Call (callee, args) ->
     let f = eval env callee in
     call span f (eval_all env args)
-  | `Object (data, vtable) ->
-    Object (eval env data, List.map (fun (name, f) -> name, eval env f) vtable)
+  | `Object (data, id, vtable) ->
+    Object
+      ( eval env data
+      , { made_from = id.Ast.made_from; equal = Option.map (eval env) id.Ast.equal }
+      , List.map (fun (name, f) -> name, eval env f) vtable )
   | `Dyn_call (receiver, name, _, args) ->
     (match eval env receiver with
-     | Object (data, vtable) ->
+     | Object (data, _, vtable) ->
        (match List.assoc_opt name vtable with
         | Some f -> call span f (data :: eval_all env args)
         | None -> fail span "No '%s' in this object's methods." name)

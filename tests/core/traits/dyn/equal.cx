@@ -1,0 +1,45 @@
+trait Speaker {
+    fn speak(self): string;
+}
+
+type Cat;
+type Dog;
+type Parrot { word: string }
+
+impl Speaker for Cat {
+    fn speak(self): string {
+        return "meow";
+    }
+}
+
+impl Speaker for Dog {
+    fn speak(self): string {
+        return "woof";
+    }
+}
+
+impl Speaker for Parrot {
+    fn speak(self): string {
+        return self.word;
+    }
+}
+
+var cat: Speaker = Cat;
+var other_cat: Speaker = Cat;
+var dog: Speaker = Dog;
+print(cat == cat);
+print(cat == other_cat);
+print(cat == dog);
+print(cat != dog);
+
+var polly: Speaker = Parrot { word: "hello" };
+var also_polly: Speaker = Parrot { word: "hello" };
+var pete: Speaker = Parrot { word: "bye" };
+print(polly == also_polly);
+print(polly == pete);
+
+var first: List<Speaker> = [Cat, Dog];
+var second: List<Speaker> = [Cat, Dog];
+var swapped: List<Speaker> = [Dog, Cat];
+print(first == second);
+print(first == swapped);

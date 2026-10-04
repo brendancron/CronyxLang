@@ -233,7 +233,16 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
         in
         name, { Ast.it = `Var entry; span; ann = at }
       in
-      `Object (data, List.map slot slots)
+      let equal =
+        match Registry.find registry Ast.Equal data.Ast.ann data.Ast.ann with
+        | Some { Registry.emit = Registry.Call name; _ } ->
+          Some (fn_ref span name [ data; data ] Types.Bool)
+        | Some { Registry.emit = Registry.Primitive; _ } | None -> None
+      in
+      `Object
+        ( data
+        , { Ast.made_from = Types.string_of_ty data.Ast.ann; equal }
+        , List.map slot slots )
     (* A vtable dispatches on the value it holds, so the impl is not chosen
        here; the row the call performs was read off the trait. *)
     | `Dyn_call (receiver, name, performs, args) ->

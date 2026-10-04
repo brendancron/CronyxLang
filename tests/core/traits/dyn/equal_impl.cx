@@ -1,0 +1,47 @@
+trait Labeled {
+    fn label(self): string;
+}
+
+type Reading { value: int, taken_at: int }
+type Cell<T> { held: T }
+
+impl Eq for Reading {
+    fn eq(self, rhs: Reading): bool {
+        return self.value == rhs.value;
+    }
+}
+
+impl Labeled for Reading {
+    fn label(self): string {
+        return str(self.value);
+    }
+}
+
+impl Labeled for Cell<T> {
+    fn label(self): string {
+        return "cell";
+    }
+}
+
+impl Labeled for int {
+    fn label(self): string {
+        return str(self);
+    }
+}
+
+print(Reading { value: 3, taken_at: 1 } == Reading { value: 3, taken_at: 2 });
+
+var morning: Labeled = Reading { value: 3, taken_at: 1 };
+var evening: Labeled = Reading { value: 3, taken_at: 2 };
+var colder: Labeled = Reading { value: 1, taken_at: 1 };
+print(morning == evening);
+print(morning == colder);
+
+var number: Labeled = Cell { held: 1 };
+var text: Labeled = Cell { held: "1" };
+var same_number: Labeled = Cell { held: 1 };
+print(number == text);
+print(number == same_number);
+
+var one: Labeled = 1;
+print(one == number);

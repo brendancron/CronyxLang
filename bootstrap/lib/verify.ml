@@ -190,8 +190,18 @@ let rec expr (e : Ast.cps_expr) : unit =
   (* The object's own type says nothing about what it holds, so what is checked
      here is that each slot can take the data it was built beside, and that the
      trait's own methods are the ones the table holds. *)
-  | `Object (data, vtable) ->
+  | `Object (data, id, vtable) ->
     expr data;
+    Option.iter
+      (fun (equal : Ast.cps_expr) ->
+        expr equal;
+        match equal.Ast.ann with
+        | Types.Fn ([ left; right ], Types.Bool, _) ->
+          expect equal.Ast.span "An object's equality" left data.Ast.ann;
+          expect equal.Ast.span "An object's equality" right data.Ast.ann
+        | other ->
+          fail equal.Ast.span "An object's equality is annotated %s." (Types.string_of_ty other))
+      id.Ast.equal;
     (match ann with
      | Types.Named (trait, _) when Resolve.is_trait trait ->
        let owed = List.sort_uniq String.compare (Resolve.methods_of trait) in

@@ -538,6 +538,8 @@ let cases =
   ; "tests/core/traits/dyn/supertrait"
   ; "tests/core/traits/dyn/meets_bound"
   ; "tests/core/traits/dyn/target"
+  ; "tests/core/traits/dyn/equal"
+  ; "tests/core/traits/dyn/equal_impl"
   ; "tests/core/modules/local_binders/main"
   ; "tests/core/modules/callee_stays_pure/main"
   ; "tests/core/modules/entry_var_shadowed/main"

@@ -447,7 +447,7 @@ let rec suspends info (e : Ast.reflected_expr) =
   | `Field_assign (r, _, v) -> suspends info r || suspends info v
   (* A vtable hides which body answers, so whether it suspends is not a
      question the row on this call site can be asked. *)
-  | `Object (data, _) -> suspends info data
+  | `Object (data, _, _) -> suspends info data
   | `Dyn_call (receiver, _, performs, args) ->
     is_delimited info (row_of performs)
     || suspends info receiver
@@ -499,8 +499,8 @@ let rec extract_with select info (e : Ast.reflected_expr)
   | _ when select info e ->
     Some (e, fun name -> { Ast.it = `Var name; span = e.Ast.span; ann = e.Ast.ann })
   | #Ast.lit | `Var _ | `Lambda _ -> None
-  | `Object (data, table) ->
-    extract info data |> Option.map (fun (c, f) -> c, fun n -> rebuild (`Object (f n, table)))
+  | `Object (data, id, table) ->
+    extract info data |> Option.map (fun (c, f) -> c, fun n -> rebuild (`Object (f n, id, table)))
   | `Dyn_call (receiver, name, performs, args) ->
     extract_list info (receiver :: args) (function
       | receiver :: args -> rebuild (`Dyn_call (receiver, name, performs, args))

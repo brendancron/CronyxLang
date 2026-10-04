@@ -356,10 +356,18 @@ type ('e, 'ty) coercions =
    vtable, and evidence is owed by what the method performs. *)
 type ('e, 'ty) dyn_calls = [ `Dyn_call of 'e * string * 'ty * 'e list ]
 
+(* What tells two objects apart: the type each was made from, and the `Eq`
+   impl `==` reaches at that type, if it has one. The data alone cannot say --
+   two fieldless types are the same record. *)
+type 'e identity =
+  { made_from : string
+  ; equal : 'e option
+  }
+
 (* What a coercion becomes: the data beside the functions chosen for it, and a
    call that reads its target out of that table rather than from a name. *)
 type 'e objects =
-  [ `Object of 'e * (string * 'e) list
+  [ `Object of 'e * 'e identity * (string * 'e) list
   | ('e, Types.ty) dyn_calls
   ]
 
@@ -884,7 +892,11 @@ let map_dyn_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) dyn_calls)
 
 let map_object (f : 'a -> 'b) (e : 'a objects) : 'b objects =
   match e with
-  | `Object (data, vtable) -> `Object (f data, List.map (fun (l, v) -> l, f v) vtable)
+  | `Object (data, id, vtable) ->
+    `Object
+      ( f data
+      , { id with equal = Option.map f id.equal }
+      , List.map (fun (l, v) -> l, f v) vtable )
   | #dyn_calls as d -> (map_dyn_call f (fun t -> t) d :> 'b objects)
 
 let map_method_def (fs : 's1 -> 's2) (fa : 'a1 -> 'a2) (m : ('s1, 'a1) method_def)
