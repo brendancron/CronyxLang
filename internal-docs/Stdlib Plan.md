@@ -199,7 +199,8 @@ Then the library:
 - `net/Net`: the `Net` effect — `connect`, `listen`, `bind` and `lookup` — handled at the root over non-blocking `Unix` sockets. `IoError` gains `Refused`, `Reset`, `AddressInUse` and `TimedOut`.
 - `net/Tcp`: `TcpStream`, a `Reader`, `Writer` and `Closer<IoError>`, and `TcpListener`.
 - `net/Udp`: `UdpSocket`, sending and receiving `Datagram`s.
-- `net/Http`: HTTP/1.1 over `TcpStream`, a client in `get` and `request` and a server in `serve`, each connection a task in one scope.
+- `net/Http`: HTTP/1.1 over `TcpStream`, a client in `get`, `post` and `send` and a server in `serve`, each connection a task in one scope.
+- `async/Task` gains `scope`, whose body starts tasks into it while it runs, and `race`, which stops a server; a scope unwound while its tasks wait cancels them.
 
 **Done when**
 

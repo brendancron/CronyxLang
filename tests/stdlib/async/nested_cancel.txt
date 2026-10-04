@@ -1,0 +1,3 @@
+task under a timeout cleans up
+task in a scope cleans up
+winner: quick

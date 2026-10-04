@@ -1,0 +1,25 @@
+import { block_on, race, pause } from "std/async/Task";
+import { sleep } from "std/async/Timer";
+import { Duration } from "std/os/Time";
+
+block_on {
+    var first = race([
+        () => {
+            defer { print("slow cleans up"); }
+            sleep(Duration.milliseconds(200));
+            print("slow finished");
+            return "slow";
+        },
+        () => {
+            pause();
+            pause();
+            return "quick";
+        },
+        () => {
+            defer { print("never wakes cleans up"); }
+            sleep(Duration.seconds(60));
+            return "never";
+        }
+    ]);
+    print("winner: " + first);
+};

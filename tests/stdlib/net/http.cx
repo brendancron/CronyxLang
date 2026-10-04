@@ -1,0 +1,33 @@
+import { async, race, all } from "std/async/Task";
+import { Throw } from "std/core/Error";
+import { IoError } from "std/io/Io";
+import { tcp_listen } from "std/net/Tcp";
+import { get, post, serve, Request, Response } from "std/net/Http";
+
+fn route(request: Request): <async, Throw<IoError>> Response {
+    if (request.target == "/hello") { return Response.text(200, "hello there"); }
+    if (request.target == "/echo") { return Response.text(200, request.method + " " + request.body_text()); }
+    if (request.target == "/broken") { throw(IoError.Other("the handler gave up")); }
+    return Response.text(404, "nothing at " + request.target);
+}
+
+var listener = tcp_listen("127.0.0.1", 0);
+var base = "http://127.0.0.1:" + str(listener.local_port());
+
+race([
+    () => { serve(listener, route); },
+    () => {
+        var replies = all([
+            () => get(base + "/hello"),
+            () => post(base + "/echo", "some words".bytes(), "text/plain"),
+            () => get(base + "/missing"),
+            () => get(base + "/broken")
+        ]);
+        for (r in replies) {
+            print(str(r.status) + " " + r.reason + ": " + r.body_text());
+        }
+        print(replies[0].headers.get("content-type"));
+    }
+]);
+listener.close();
+print("server stopped");

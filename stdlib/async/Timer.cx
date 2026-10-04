@@ -96,8 +96,20 @@ fn timeout<T, X, E>(limit: Duration, task: () -> <async, Throw<X>, E> T): <async
         fn when_ready(socket, writing, wake) { return when_ready(socket, writing, wake); }
     }
 
+    // As a scope does, when this is cancelled while its task waits.
+    var waited = false;
+    defer {
+        cancel_timer();
+        if (!waited) {
+            match stop {
+                Option.Some(unwind) => { unwind(); }
+                Option.None => {}
+            }
+            if (!over) { await(stopped); }
+        }
+    }
     if (!over) { await(stopped); }
-    cancel_timer();
+    waited = true;
     match failure {
         Option.Some(e) => { throw(e); }
         Option.None => {}

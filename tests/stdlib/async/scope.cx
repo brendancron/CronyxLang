@@ -1,0 +1,32 @@
+import { async, block_on, scope, pause } from "std/async/Task";
+import { Throw } from "std/core/Error";
+
+block_on {
+    var count = scope((start) => {
+        var n = 0;
+        for (i in [1, 2, 3]) {
+            start(() => {
+                pause();
+                print("task " + str(i));
+                if (i == 3) {
+                    start(() => { pause(); print("started by task 3"); });
+                }
+            });
+            n += 1;
+        }
+        print("body done starting");
+        return n;
+    });
+    print("scope returned " + str(count));
+
+    run {
+        scope { start ->
+            defer { print("body cleans up"); }
+            start(() => { pause(); throw("task failed"); });
+            start(() => { defer { print("sibling cleans up"); } pause(); pause(); pause(); print("sibling finished"); });
+            while (true) { pause(); }
+        };
+    } handle Throw {
+        final ctl throw(e) { print("scope failed: " + e); }
+    }
+};

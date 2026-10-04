@@ -5,21 +5,23 @@ Status: **built.** `std/async/Task` (`stdlib/async/Task.cx`), with
 `tests/stdlib/async/`. `tests/effects/async/` is the effect machinery on its
 own, with a hand-written scheduler.
 
-The effect has three operations:
+The effect has four operations:
 
 ```cronyx
 effect async {
     ctl suspend<T>(register: ((T) -> unit) -> unit): T;
     fn waker(): (() -> unit) -> unit;
     fn after(delay: Duration, wake: () -> unit): () -> unit;
+    fn when_ready(socket: int, writing: bool, wake: () -> unit): () -> unit;
 }
 ```
 
 `suspend` hands `register` a callback and parks. Whoever calls that callback
 supplies the value `suspend` returns. `waker` hands out the function that puts a
-wake-up in the scheduler's queue, and `after` puts one on the scheduler's clock.
+wake-up in the scheduler's queue, `after` puts one on the scheduler's clock, and
+`when_ready` one on a socket ([Net](Net.md#the-scheduler-waits-on-sockets)).
 Promises, `await`, channels, `select`, `sleep`, `timeout`, yielding and the
-scopes — `all`, `interleaved` and `both` — are ordinary code over the three.
+scopes — `all`, `interleaved`, `both` and `race` — are ordinary code over them.
 
 ## Why these operations
 
@@ -155,6 +157,12 @@ started it, and a task's failure has a scope to go to. The root takes only
 wake-ups, and a wake-up is `() -> unit`: it cannot suspend, so it cannot be an
 unstructured task either.
 
+`scope` is the one scope the others are built on. Its body runs as the scope's
+first task and is handed `start`, which adds a task to the scope while it runs
+— Trio's nursery, Eio's switch — so a server starts a task per connection and
+still cannot outlive its call. `all` is a body that starts each task it was
+given; `race` is one whose tasks stop the rest when the first finishes.
+
 ## A failure lands in its scope
 
 A failure ([Errors](Errors.md)) in a task is caught by `all`, which puts a `Throw`
@@ -199,6 +207,24 @@ a closure that `discontinue`s it, and the failure calls each one, so the task
 unwinds and its `defer`s run — closing what it held, or cancelling the timer it
 slept on. A task not yet started never starts. One that never suspends runs to
 its end first, as it would in Trio or Eio.
+
+A scope cancels its tasks newest first. A task is only started by an older one,
+from inside its frames, and the interpreter unwinds a discontinued continuation
+through every frame it was made in; unwound after the task that started it, a
+task would run that task's `defer`s a second time. Newest first unwinds each
+before its starter, as a stack would be (`tests/stdlib/async/scope`).
+
+`race` is the same scope with one more way to end: the first task to finish
+cancels the rest, as a failure does, and its result is the scope's. It is how a
+task that would run forever is stopped — a server raced against its clients
+stops when they are done (`tests/stdlib/net/http`).
+
+Cancelling reaches into a scope. A task cancelled while it waits on a scope of
+its own — an `all` inside it, or a `timeout` — is parked at that scope's
+`await`, and its tasks are parked apart from it, where unwinding it would never
+reach them. So a scope cancels its tasks in a `defer` when it is left before
+they finished, and waits for their `defer`s before it lets go: a scope never
+outlives its call, cancelled or not (`tests/stdlib/async/nested_cancel`).
 
 `live` is per wait rather than per task. A `defer` an unwound task runs may
 itself wait, closing a connection, and is resumed like any other; a wake-up

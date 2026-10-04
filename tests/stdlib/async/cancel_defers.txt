@@ -2,8 +2,8 @@ log: A start
 log: B start
 log: C start
 log: B fails
-log: A cleanup
 log: C closing
+log: A cleanup
 log: C closed
 scope failed: boom
 log: D fails

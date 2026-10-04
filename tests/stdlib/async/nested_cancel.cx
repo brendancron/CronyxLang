@@ -1,0 +1,23 @@
+import { block_on, race, all, pause } from "std/async/Task";
+import { sleep, timeout } from "std/async/Timer";
+import { Duration } from "std/os/Time";
+
+block_on {
+    var first = race([
+        () => {
+            all([
+                () => { defer { print("task in a scope cleans up"); } sleep(Duration.seconds(60)); }
+            ]);
+            return "scope";
+        },
+        () => {
+            timeout(Duration.seconds(60), () => {
+                defer { print("task under a timeout cleans up"); }
+                sleep(Duration.seconds(60));
+            });
+            return "timeout";
+        },
+        () => { pause(); return "quick"; }
+    ]);
+    print("winner: " + first);
+};

@@ -1,8 +1,7 @@
 # Networking
 
-Status: **TCP and UDP built**, HTTP not yet. `std/net/Net`, `Tcp` and `Udp`
-(`stdlib/net/`), the socket natives in `lib/system.ml`, and `block_on`'s wait
-in `std/async/Task`; `tests/stdlib/net/` runs servers and clients over loopback
+Status: **built.** `std/net/Net`, `Tcp`, `Udp` and `Http` (`stdlib/net/`), the
+socket natives in `lib/system.ml`, and `block_on`'s wait in `std/async/Task`; `tests/stdlib/net/` runs servers and clients over loopback
 and a faked `Net`. This is the design [Stdlib Plan](Stdlib%20Plan.md#10-networking) builds
 `std/net/` from.
 
@@ -157,13 +156,25 @@ address cannot reach an IPv6 one. Waiting is `when_ready`, as for a stream.
 ## HTTP is library over TCP
 
 `net/Http` is HTTP/1.1 written in Cronyx over `TcpStream`: a `Request` and a
-`Response`, headers as a case-insensitive map, a body as bytes with
-`Content-Length` or chunked transfer. The client is `get(url)` and
-`request(req)`; the server is `serve(listener, handler)`, which runs each
-connection as a task in one scope, so a handler that fails takes its connection
-down and not the server. Routing is not in it: a `@route` collector is the
-`meta` pattern [Testing](Testing.md#discovery-is-a-library) describes, and
-belongs to a framework built on this rather than to `std`.
+`Response`, `Headers` compared without regard to case, a body as bytes. The
+client is `get`, `post` and `send`; the server is `serve(listener, handler)`.
+
+Every exchange is one request and one response on a connection of its own:
+both ends send `Connection: close`, so nothing is kept alive and a body never
+has to be told apart from the next request. A body is sent with its
+`Content-Length`; one received may also be chunked, which a server that
+streams sends, and with neither a response runs to the end of the connection.
+
+`serve` accepts in the body of a `scope` and starts a task per connection, so a
+slow client holds up only itself and cancelling the server unwinds every
+connection it has open. A handler that fails answers 500, a request that cannot
+be read 400, and a connection's own failure — a client gone mid-request — is
+dropped with it, so none of them takes the server down. `serve` runs until it
+is cancelled, which `race` does.
+
+Routing is not in it: a `@route` collector is the `meta` pattern
+[Testing](Testing.md#discovery-is-a-library) describes, and belongs to a
+framework built on this rather than to `std`.
 
 ## What is not in it
 

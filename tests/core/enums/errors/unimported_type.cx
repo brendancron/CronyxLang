@@ -1,0 +1,6 @@
+import { decode } from "std/text/Utf8";
+
+match decode("hi".bytes()) {
+    Result.Ok(text) => { print(text); }
+    Result.Err(e) => { print("not text"); }
+}

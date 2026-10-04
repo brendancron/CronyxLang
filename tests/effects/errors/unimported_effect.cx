@@ -1,0 +1,5 @@
+fn ready(): <async> int {
+    return 1;
+}
+
+print(ready());

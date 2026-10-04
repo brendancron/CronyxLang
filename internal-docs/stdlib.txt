@@ -56,11 +56,11 @@ std/
 │   ├── Ast                # The syntax tree: what `code` quotes, what a deriver builds and `gen` emits
 │   └── Printer            # A syntax tree as source text
 ├── async/                 # Cooperative tasks: block_on, all/both, promises, pause
-│   ├── Task               # block_on, the all/both/interleaved scopes, pause
+│   ├── Task               # block_on, scope and the all/both/interleaved/race over it, pause
 │   ├── Promise            # promise, resolve, await
 │   ├── Channel            # Bounded and unbounded channels between tasks
 │   ├── Timer              # sleep and timeout
-│   └── Select             # Waiting on whichever of several is ready first; race
+│   └── Select             # Waiting on whichever of several is ready first
 ├── io/                    # Streams, the terminal, and printing
 │   ├── Io                 # Reader, Writer, Closer, IoError; lines and using
 │   ├── Buffer             # Growable in-memory bytes that are a Reader and a Writer; endian ints

@@ -66,6 +66,32 @@ fn __once<T>(wake: (() -> unit) -> unit, k: (T) -> unit): (T) -> unit {
 }
 
 /**
+ * Runs the body, which may start tasks into this scope with the function it is
+ * handed, and returns what the body returned once the body and every task it
+ * started have finished.
+ *
+ * ```
+ * scope { start ->
+ *     while (true) {
+ *         var conn = listener.accept();
+ *         start(() => { answer(conn); });
+ *     }
+ * };
+ * ```
+ *
+ * The body is a task of the scope like the rest. If any fails, the others,
+ * the body among them, are cancelled where they are waiting, their `defer`s
+ * run, and once every one has stopped the failure is thrown from here; a task
+ * started after that never starts. A second failure is dropped with its task.
+ */
+fn scope<R, X, E>(body: ((() -> <async, Throw<X>, E> unit) -> <async, E> unit) -> <async, Throw<X>, E> R)
+    : <async, Throw<X>, E> R {
+    var result: Promise<R> = promise();
+    __scope((start, stop) => { resolve(result, body(start)); });
+    return await(result);
+}
+
+/**
  * Runs the tasks side by side and returns their results, in the order the
  * tasks were given.
  *
@@ -75,41 +101,95 @@ fn __once<T>(wake: (() -> unit) -> unit, k: (T) -> unit): (T) -> unit {
  */
 fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E> List<T> {
     var slots: List<Promise<T>> = [];
+    __scope((start, stop) => {
+        for (task in tasks) {
+            var slot: Promise<T> = promise();
+            slots.push(slot);
+            start(() => { resolve(slot, task()); });
+        }
+    });
+    var results: List<T> = [];
+    for (slot in slots) { results.push(await(slot)); }
+    return results;
+}
+
+/**
+ * Runs the tasks side by side and returns the result of whichever finishes
+ * first. The others are cancelled where they are waiting, as a failure in
+ * `all` cancels them, and this returns once every one has stopped.
+ *
+ * A failure before any finishes is thrown from here. Panics if given no tasks.
+ */
+fn race<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E> T {
+    if (tasks.len() == 0) { panic("race needs a task to wait for"); }
+    var winner: Promise<T> = promise();
+    var won = false;
+    __scope((start, stop) => {
+        for (task in tasks) {
+            start(() => {
+                var value = task();
+                if (!won) {
+                    won = true;
+                    resolve(winner, value);
+                    stop();
+                }
+            });
+        }
+    });
+    return await(winner);
+}
+
+// The scope `scope`, `all` and `race` share. The body runs as its first task,
+// handed `start`, and `stop`, which cancels every task still running as a
+// failure does but throws nothing.
+fn __scope<X, E>(body: ((() -> <async, Throw<X>, E> unit) -> <async, E> unit, () -> unit) -> <async, Throw<X>, E> unit)
+    : <async, Throw<X>, E> unit {
     var parked: List<__Parked> = [];
     var failure: Option<X> = Option.None;
     var cancelled = false;
-    var remaining = tasks.len();
+    var remaining = 0;
+    var over = false;
     var settled: Promise<unit> = promise();
 
-    fn finish() {
-        remaining -= 1;
-        if (remaining == 0) { resolve(settled, ()); }
+    // Newest first. A task's continuation holds the frames of the task that
+    // started it, and the interpreter unwinds one through every frame it holds:
+    // unwound after its starter, a task would run the starter's `defer`s again.
+    // A task is only ever started by an older one, so this unwinds each before
+    // whatever started it, as unwinding a stack would.
+    fn stop() {
+        cancelled = true;
+        var i = parked.len() - 1;
+        while (i >= 0) {
+            match parked[i].stop {
+                Option.Some(unwind) => { unwind(); }
+                Option.None => {}
+            }
+            i -= 1;
+        }
     }
 
-    for (task in tasks) {
-        var slot: Promise<T> = promise();
-        slots.push(slot);
-        if (cancelled) {
-            finish();
-            continue;
-        }
-        var here = __Parked { stop: Option.None };
+    fn launch(task: () -> <async, Throw<X>, E> unit) {
+        // A scope that runs for as long as a server does would otherwise keep
+        // a record of every task it ever ran.
+        if (parked.len() >= 64 && parked.len() >= 2 * remaining) { parked = __running(parked); }
+        var here = __Parked { stop: Option.None, finished: false };
         parked.push(here);
         run {
-            defer { finish(); }
+            defer {
+                here.finished = true;
+                remaining -= 1;
+                if (remaining == 0) {
+                    over = true;
+                    resolve(settled, ());
+                }
+            }
             run {
-                resolve(slot, task());
+                task();
             } handle Throw {
                 final ctl throw(e) {
                     if (!cancelled) {
                         failure = Option.Some(e);
-                        cancelled = true;
-                        for (other in parked) {
-                            match other.stop {
-                                Option.Some(stop) => { stop(); }
-                                Option.None => {}
-                            }
-                        }
+                        stop();
                     }
                 }
             }
@@ -138,19 +218,47 @@ fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E>
         }
     }
 
-    if (remaining > 0) { await(settled); }
+    fn start(task: () -> <async, Throw<X>, E> unit) {
+        if (over) { panic("a task was started in a scope that had finished"); }
+        if (cancelled) { return; }
+        remaining += 1;
+        launch(task);
+    }
+
+    remaining += 1;
+    launch(() => { body(start, stop); });
+
+    // A task cancelled while it waits here is unwound past this scope, and its
+    // tasks with it: they are parked apart from it, so nothing else would reach
+    // them, and a scope never outlives its call.
+    var waited = false;
+    defer {
+        if (!waited) {
+            stop();
+            if (!over) { await(settled); }
+        }
+    }
+    if (!over) { await(settled); }
+    waited = true;
     match failure {
         Option.Some(e) => { throw(e); }
         Option.None => {}
     }
-    var results: List<T> = [];
-    for (slot in slots) { results.push(await(slot)); }
-    return results;
 }
 
 type __Parked {
-    stop: Option<() -> unit>
+    stop: Option<() -> unit>,
+    finished: bool
 }
+
+fn __running(parked: List<__Parked>): List<__Parked> {
+    var kept: List<__Parked> = [];
+    for (p in parked) {
+        if (!p.finished) { kept.push(p); }
+    }
+    return kept;
+}
+
 
 /** Runs the actions side by side, as `all` does, for their effects alone. */
 fn interleaved<X, E>(actions: List<() -> <async, Throw<X>, E> unit>): <async, Throw<X>, E> unit {
