@@ -93,6 +93,7 @@ fn timeout<T, X, E>(limit: Duration, task: () -> <async, Throw<X>, E> T): <async
         }
         fn waker() { return waker(); }
         fn after(delay, wake) { return after(delay, wake); }
+        fn when_ready(socket, writing, wake) { return when_ready(socket, writing, wake); }
     }
 
     if (!over) { await(stopped); }

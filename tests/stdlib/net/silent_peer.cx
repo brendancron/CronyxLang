@@ -1,0 +1,33 @@
+import { interleaved } from "std/async/Task";
+import { Promise, promise, resolve, await } from "std/async/Promise";
+import { sleep, timeout } from "std/async/Timer";
+import { tcp_listen, tcp_connect } from "std/net/Tcp";
+import { Duration } from "std/os/Time";
+
+var listener = tcp_listen("127.0.0.1", 0);
+var port = listener.local_port();
+var gave_up: Promise<unit> = promise();
+
+interleaved([
+    () => {
+        var conn = listener.accept();
+        await(gave_up);
+        conn.close();
+    },
+    () => {
+        var conn = tcp_connect("127.0.0.1", port);
+        match timeout(Duration.milliseconds(200), () => conn.read(16)) {
+            Option.Some(_) => { print("read something"); }
+            Option.None => { print("gave up waiting"); }
+        }
+        resolve(gave_up, ());
+        conn.close();
+    },
+    () => {
+        for (var i = 1; i <= 3; i += 1) {
+            sleep(Duration.milliseconds(20));
+            print("tick " + str(i));
+        }
+    }
+]);
+listener.close();

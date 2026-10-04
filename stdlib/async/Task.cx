@@ -42,6 +42,12 @@ effect async {
      * A timer that is cancelled, or has fired, is not waited for.
      */
     fn after(delay: Duration, wake: () -> unit): () -> unit;
+
+    /**
+     * Calls `wake` once the socket can be read from without waiting, or
+     * written to when `writing`, and hands back what cancels that.
+     */
+    fn when_ready(socket: int, writing: bool, wake: () -> unit): () -> unit;
 }
 
 /** Lets every other task that is ready run before this one carries on. */
@@ -128,6 +134,7 @@ fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E>
             }
             fn waker() { return waker(); }
             fn after(delay, wake) { return after(delay, wake); }
+            fn when_ready(socket, writing, wake) { return when_ready(socket, writing, wake); }
         }
     }
 
@@ -167,10 +174,18 @@ type __Timer {
     cancelled: bool
 }
 
+type __Watch {
+    socket: int,
+    writing: bool,
+    wake: () -> unit,
+    cancelled: bool
+}
+
 /**
  * Runs `main` and every task it starts, and returns once they have all
- * finished. When every task is asleep, it waits for the first timer through
- * `Time`.
+ * finished. When every task is waiting, it waits for the first timer through
+ * `Time`, or, while a task waits on a socket, for that socket or the first
+ * timer, whichever comes first.
  *
  * Panics if every task is waiting and none is left to wake one, and with the
  * failure's value if one reaches here unhandled.
@@ -178,6 +193,7 @@ type __Timer {
 fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
     var ready: List<() -> unit> = [];
     var timers: List<__Timer> = [];
+    var watches: List<__Watch> = [];
     var finished = false;
     run {
         run {
@@ -196,6 +212,11 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
             timers.push(timer);
             return () => { timer.cancelled = true; };
         }
+        fn when_ready(socket, writing, wake) {
+            var watch = __Watch { socket: socket, writing: writing, wake: wake, cancelled: false };
+            watches.push(watch);
+            return () => { watch.cancelled = true; };
+        }
     }
     // Scopes hold the list `waker` handed out, so it is read with a cursor
     // rather than replaced by its tail.
@@ -207,17 +228,78 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
             at += 1;
             next();
         }
-        match __first_due(timers) {
-            Option.None => { waiting = false; }
-            Option.Some(timer) => {
-                timer.cancelled = true;
-                timers = __pending(timers);
-                if (instant() < timer.due) { wait_until(timer.due); }
-                timer.wake();
+        watches = __watching(watches);
+        var first = __first_due(timers);
+        if (watches.len() > 0) {
+            var limit = -1;
+            match first {
+                Option.Some(timer) => { limit = __at_least_zero((timer.due - instant()).nanos); }
+                Option.None => {}
+            }
+            __wake_ready(watches, limit);
+            match first {
+                Option.Some(timer) => {
+                    if (!(instant() < timer.due)) { __fire(timer); }
+                }
+                Option.None => {}
+            }
+            timers = __pending(timers);
+        } else {
+            match first {
+                Option.None => { waiting = false; }
+                Option.Some(timer) => {
+                    if (instant() < timer.due) { wait_until(timer.due); }
+                    __fire(timer);
+                    timers = __pending(timers);
+                }
             }
         }
     }
     if (!finished) { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
+}
+
+fn __fire(timer: __Timer) {
+    timer.cancelled = true;
+    timer.wake();
+}
+
+fn __at_least_zero(n: int): int {
+    if (n < 0) { return 0; }
+    return n;
+}
+
+fn __watching(watches: List<__Watch>): List<__Watch> {
+    var live: List<__Watch> = [];
+    for (watch in watches) {
+        if (!watch.cancelled) { live.push(watch); }
+    }
+    return live;
+}
+
+// In the order they were set, so tasks waiting on sockets that became ready
+// together carry on in the order they began waiting.
+fn __wake_ready(watches: List<__Watch>, limit: int) {
+    var reads: List<int> = [];
+    var writes: List<int> = [];
+    for (watch in watches) {
+        if (watch.writing) { writes.push(watch.socket); } else { reads.push(watch.socket); }
+    }
+    var (readable, writable) = __net_wait(reads.items[0:reads.len()], writes.items[0:writes.len()], limit);
+    for (watch in watches) {
+        var found = readable;
+        if (watch.writing) { found = writable; }
+        if (!watch.cancelled && __holds(found, watch.socket)) {
+            watch.cancelled = true;
+            watch.wake();
+        }
+    }
+}
+
+fn __holds(sockets: Array<int>, wanted: int): bool {
+    for (socket in sockets) {
+        if (socket == wanted) { return true; }
+    }
+    return false;
 }
 
 // The earliest, and of two due together the one set first, so tasks asleep

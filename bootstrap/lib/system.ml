@@ -1,7 +1,8 @@
 (* What the root hands a program of the OS: its arguments and environment, the
-   clocks, entropy, directories and subprocesses. Each answer is a tuple whose
-   first part is a status the library turns into an `IoError`: 0 is success,
-   then NotFound, Denied and Other. *)
+   clocks, entropy, directories, subprocesses and sockets. Each answer is a
+   tuple whose first part is a status the library turns into an `IoError`: 0 is
+   success, then NotFound, Denied and Other; a socket adds the rest of
+   [net_status]. *)
 
 let arguments : string list ref = ref []
 
@@ -235,6 +236,119 @@ let child_of span handle =
   | Some child -> child
   | None -> Value.fail span "No process has the handle %d." handle
 
+(* ---- sockets ---- *)
+
+(* Every socket is non-blocking, so an operation that would wait answers
+   [would_block] instead, and the task waits for the scheduler to see the
+   socket ready. A handle is a number rather than the descriptor, which is not
+   one on Windows. *)
+let sockets : (int, Unix.file_descr) Hashtbl.t = Hashtbl.create 8
+let next_socket = ref 0
+let would_block = 4
+
+let net_status (e : Unix.error) =
+  match e with
+  | Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.EINPROGRESS -> would_block
+  | Unix.ECONNREFUSED -> 5
+  | Unix.ECONNRESET | Unix.EPIPE | Unix.ECONNABORTED -> 6
+  | Unix.EADDRINUSE -> 7
+  | Unix.ETIMEDOUT -> 8
+  | e -> status_of_unix e
+
+let failed_net e = Value.Int (net_status e), str (Unix.error_message e)
+
+let socket_of span handle =
+  match Hashtbl.find_opt sockets handle with
+  | Some fd -> fd
+  | None -> Value.fail span "No socket has the handle %d." handle
+
+let held fd =
+  Unix.set_nonblock fd;
+  let handle = !next_socket in
+  incr next_socket;
+  Hashtbl.replace sockets handle fd;
+  handle
+
+let addresses host =
+  Unix.getaddrinfo host "" [ Unix.AI_SOCKTYPE Unix.SOCK_STREAM ]
+  |> List.filter_map (fun (info : Unix.addr_info) ->
+    match info.Unix.ai_addr with
+    | Unix.ADDR_INET (a, _) -> Some (Unix.string_of_inet_addr a)
+    | Unix.ADDR_UNIX _ -> None)
+  |> List.fold_left (fun seen a -> if List.mem a seen then seen else seen @ [ a ]) []
+
+let endpoint address port =
+  let a = Unix.inet_addr_of_string address in
+  Unix.domain_of_sockaddr (Unix.ADDR_INET (a, port)), Unix.ADDR_INET (a, port)
+
+let shown_address = function
+  | Unix.ADDR_INET (a, port) -> Printf.sprintf "%s:%d" (Unix.string_of_inet_addr a) port
+  | Unix.ADDR_UNIX path -> path
+
+let listen address port =
+  let domain, at = endpoint address port in
+  let fd = Unix.socket ~cloexec:true domain Unix.SOCK_STREAM 0 in
+  match
+    Unix.setsockopt fd Unix.SO_REUSEADDR true;
+    Unix.bind fd at;
+    Unix.listen fd 128
+  with
+  | () -> held fd
+  | exception e ->
+    close_quietly fd;
+    raise e
+
+(* The connection goes on once this returns; a socket answered [would_block]
+   is connected, or refused, once it is writable, and [connected] says which. *)
+let connect address port =
+  let domain, at = endpoint address port in
+  let fd = Unix.socket ~cloexec:true domain Unix.SOCK_STREAM 0 in
+  Unix.set_nonblock fd;
+  match Unix.connect fd at with
+  | () -> held fd, 0
+  | exception Unix.Unix_error ((Unix.EINPROGRESS | Unix.EWOULDBLOCK | Unix.EAGAIN), _, _) -> held fd, would_block
+  | exception e ->
+    close_quietly fd;
+    raise e
+
+let bind address port =
+  let domain, at = endpoint address port in
+  let fd = Unix.socket ~cloexec:true domain Unix.SOCK_DGRAM 0 in
+  match Unix.bind fd at with
+  | () -> held fd
+  | exception e ->
+    close_quietly fd;
+    raise e
+
+(* The host is looked up in the socket's own family: a socket bound to an IPv4
+   address cannot send to an IPv6 one. *)
+let destination fd host port =
+  let family = Unix.domain_of_sockaddr (Unix.getsockname fd) in
+  match
+    Unix.getaddrinfo host (string_of_int port) [ Unix.AI_SOCKTYPE Unix.SOCK_DGRAM; Unix.AI_FAMILY family ]
+  with
+  | info :: _ -> Some info.Unix.ai_addr
+  | [] -> None
+
+(* Windows reports a connection that failed as exceptional rather than
+   writable, so a socket waited on for writing is watched for both, and either
+   wakes it: [connected] then says which it was. *)
+let net_wait reads writes timeout =
+  let fds handles = List.filter_map (Hashtbl.find_opt sockets) handles in
+  let ready handles fds = List.filter (fun h -> List.mem (Hashtbl.find sockets h) fds) handles in
+  let limit = if timeout < 0 then -1.0 else Float.of_int timeout /. 1e9 in
+  match Unix.select (fds reads) (fds writes) (fds writes) limit with
+  | r, w, e -> ready reads r, ready writes (w @ e)
+  | exception Unix.Unix_error (Unix.EINTR, _, _) -> [], []
+
+let handles_of (v : Value.value) =
+  match v with
+  | Value.Array items ->
+    Array.to_list items |> List.filter_map (function Value.Int h -> Some h | _ -> None)
+  | _ -> []
+
+let int_array handles = Value.Array (Array.of_list (List.map (fun h -> Value.Int h) handles))
+
 let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
   let open Types in
   let status_text = ITuple [ IInt; IStr ] in
@@ -265,6 +379,23 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   ; ( "__process_drain"
     , ""
     , fun () -> [ IInt ], ITuple [ IInt; IInt; iarray IByte; iarray IByte; IStr ] )
+  ; "__net_lookup", "", (fun () -> [ IStr ], ITuple [ IInt; iarray IStr; IStr ])
+  ; "__net_listen", "", (fun () -> [ IStr; IInt ], ITuple [ IInt; IInt; IStr ])
+  ; "__net_connect", "", (fun () -> [ IStr; IInt ], ITuple [ IInt; IInt; IStr ])
+  ; "__net_connected", "", (fun () -> [ IInt ], status_text)
+  ; "__net_accept", "", (fun () -> [ IInt ], ITuple [ IInt; IInt; IStr ])
+  ; "__net_read", "", (fun () -> [ IInt; IInt ], ITuple [ IInt; iarray IByte; IStr ])
+  ; "__net_write", "", (fun () -> [ IInt; iarray IByte ], ITuple [ IInt; IInt; IStr ])
+  ; "__net_shutdown_write", "", (fun () -> [ IInt ], status_text)
+  ; "__net_close", "", (fun () -> [ IInt ], status_text)
+  ; "__net_local_port", "", (fun () -> [ IInt ], IInt)
+  ; "__net_peer", "", (fun () -> [ IInt ], IStr)
+  ; "__net_wait", "", (fun () -> [ iarray IInt; iarray IInt; IInt ], ITuple [ iarray IInt; iarray IInt ])
+  ; "__udp_bind", "", (fun () -> [ IStr; IInt ], ITuple [ IInt; IInt; IStr ])
+  ; "__udp_send", "", (fun () -> [ IInt; IStr; IInt; iarray IByte ], status_text)
+  ; ( "__udp_receive"
+    , ""
+    , fun () -> [ IInt ], ITuple [ IInt; iarray IByte; IStr; IInt; IStr ] )
   ]
 
 let values ~native =
@@ -444,4 +575,169 @@ let values ~native =
            let status, message = failed_unix e in
            Value.Tuple [ status; Value.Int (-1); byte_array ""; byte_array ""; message ])
       | _ -> Value.fail span "__process_drain takes a handle.")
+  ; native "__net_lookup" 1 (fun span args ->
+      match args with
+      | [ Value.Str host ] ->
+        let host = Utf8.encode host in
+        (match addresses host with
+         | [] -> Value.Tuple [ Value.Int 1; Value.Array [||]; str ("no address for " ^ host) ]
+         | found -> Value.Tuple [ Value.Int 0; Value.Array (Array.of_list (List.map str found)); no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; Value.Array [||]; message ])
+      | _ -> Value.fail span "__net_lookup takes a host.")
+  ; native "__net_listen" 2 (fun span args ->
+      match args with
+      | [ Value.Str address; Value.Int port ] ->
+        (match listen (Utf8.encode address) port with
+         | handle -> Value.Tuple [ Value.Int 0; Value.Int handle; no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; Value.Int (-1); message ]
+         | exception Failure message -> Value.Tuple [ Value.Int 3; Value.Int (-1); str message ])
+      | _ -> Value.fail span "__net_listen takes an address and a port.")
+  ; native "__net_connect" 2 (fun span args ->
+      match args with
+      | [ Value.Str address; Value.Int port ] ->
+        Lazy.force ignore_sigpipe;
+        (match connect (Utf8.encode address) port with
+         | handle, status -> Value.Tuple [ Value.Int status; Value.Int handle; no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; Value.Int (-1); message ]
+         | exception Failure message -> Value.Tuple [ Value.Int 3; Value.Int (-1); str message ])
+      | _ -> Value.fail span "__net_connect takes an address and a port.")
+  ; native "__net_connected" 1 (fun span args ->
+      match args with
+      | [ Value.Int handle ] ->
+        (match Unix.getsockopt_error (socket_of span handle) with
+         | None -> Value.Tuple [ Value.Int 0; no_message ]
+         | Some e ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; message ])
+      | _ -> Value.fail span "__net_connected takes a handle.")
+  ; native "__net_accept" 1 (fun span args ->
+      match args with
+      | [ Value.Int handle ] ->
+        (match Unix.accept ~cloexec:true (socket_of span handle) with
+         | fd, _ -> Value.Tuple [ Value.Int 0; Value.Int (held fd); no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; Value.Int (-1); message ])
+      | _ -> Value.fail span "__net_accept takes a handle.")
+  ; native "__net_read" 2 (fun span args ->
+      match args with
+      | [ Value.Int handle; Value.Int max ] ->
+        let buffer = Bytes.create (Int.max 1 max) in
+        (match Unix.read (socket_of span handle) buffer 0 (Bytes.length buffer) with
+         | n -> Value.Tuple [ Value.Int 0; byte_array (Bytes.sub_string buffer 0 n); no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; byte_array ""; message ])
+      | _ -> Value.fail span "__net_read takes a handle and a count.")
+  ; native "__net_write" 2 (fun span args ->
+      match args with
+      | [ Value.Int handle; data ] ->
+        Lazy.force ignore_sigpipe;
+        (match bytes_of data with
+         | Some data ->
+           (match Unix.single_write_substring (socket_of span handle) data 0 (String.length data) with
+            | n -> Value.Tuple [ Value.Int 0; Value.Int n; no_message ]
+            | exception Unix.Unix_error (e, _, _) ->
+              let status, message = failed_net e in
+              Value.Tuple [ status; Value.Int 0; message ])
+         | None -> Value.fail span "__net_write takes bytes.")
+      | _ -> Value.fail span "__net_write takes a handle and bytes.")
+  ; native "__net_shutdown_write" 1 (fun span args ->
+      match args with
+      | [ Value.Int handle ] ->
+        (match Unix.shutdown (socket_of span handle) Unix.SHUTDOWN_SEND with
+         | () -> Value.Tuple [ Value.Int 0; no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; message ])
+      | _ -> Value.fail span "__net_shutdown_write takes a handle.")
+  ; native "__net_close" 1 (fun span args ->
+      match args with
+      | [ Value.Int handle ] ->
+        let fd = socket_of span handle in
+        Hashtbl.remove sockets handle;
+        (match Unix.close fd with
+         | () -> Value.Tuple [ Value.Int 0; no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; message ])
+      | _ -> Value.fail span "__net_close takes a handle.")
+  ; native "__net_local_port" 1 (fun span args ->
+      match args with
+      | [ Value.Int handle ] ->
+        (match Unix.getsockname (socket_of span handle) with
+         | Unix.ADDR_INET (_, port) -> Value.Int port
+         | Unix.ADDR_UNIX _ -> Value.Int 0)
+      | _ -> Value.fail span "__net_local_port takes a handle.")
+  ; native "__net_peer" 1 (fun span args ->
+      match args with
+      | [ Value.Int handle ] ->
+        (match Unix.getpeername (socket_of span handle) with
+         | address -> str (shown_address address)
+         | exception Unix.Unix_error _ -> no_message)
+      | _ -> Value.fail span "__net_peer takes a handle.")
+  ; native "__net_wait" 3 (fun span args ->
+      match args with
+      | [ reads; writes; Value.Int timeout ] ->
+        let readable, writable = net_wait (handles_of reads) (handles_of writes) timeout in
+        Value.Tuple [ int_array readable; int_array writable ]
+      | _ -> Value.fail span "__net_wait takes two lists of handles and a limit.")
+  ; native "__udp_bind" 2 (fun span args ->
+      match args with
+      | [ Value.Str address; Value.Int port ] ->
+        (match bind (Utf8.encode address) port with
+         | handle -> Value.Tuple [ Value.Int 0; Value.Int handle; no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; Value.Int (-1); message ]
+         | exception Failure message -> Value.Tuple [ Value.Int 3; Value.Int (-1); str message ])
+      | _ -> Value.fail span "__udp_bind takes an address and a port.")
+  ; native "__udp_send" 4 (fun span args ->
+      match args with
+      | [ Value.Int handle; Value.Str host; Value.Int port; data ] ->
+        let fd = socket_of span handle in
+        let host = Utf8.encode host in
+        (match bytes_of data with
+         | Some data ->
+           (match destination fd host port with
+            | None -> Value.Tuple [ Value.Int 1; str ("no address for " ^ host) ]
+            | Some at ->
+              (match Unix.sendto_substring fd data 0 (String.length data) [] at with
+               | _ -> Value.Tuple [ Value.Int 0; no_message ]
+               | exception Unix.Unix_error (e, _, _) ->
+                 let status, message = failed_net e in
+                 Value.Tuple [ status; message ])
+            | exception Unix.Unix_error (e, _, _) ->
+              let status, message = failed_net e in
+              Value.Tuple [ status; message ])
+         | None -> Value.fail span "__udp_send takes bytes.")
+      | _ -> Value.fail span "__udp_send takes a handle, a host, a port and bytes.")
+  ; native "__udp_receive" 1 (fun span args ->
+      match args with
+      | [ Value.Int handle ] ->
+        (* The largest payload a UDP datagram can carry, so none is cut short:
+           Windows fails a receive into too small a buffer rather than
+           truncating it. *)
+        let buffer = Bytes.create 65507 in
+        (match Unix.recvfrom (socket_of span handle) buffer 0 (Bytes.length buffer) [] with
+         | n, Unix.ADDR_INET (a, port) ->
+           Value.Tuple
+             [ Value.Int 0
+             ; byte_array (Bytes.sub_string buffer 0 n)
+             ; str (Unix.string_of_inet_addr a)
+             ; Value.Int port
+             ; no_message
+             ]
+         | n, Unix.ADDR_UNIX path ->
+           Value.Tuple [ Value.Int 0; byte_array (Bytes.sub_string buffer 0 n); str path; Value.Int 0; no_message ]
+         | exception Unix.Unix_error (e, _, _) ->
+           let status, message = failed_net e in
+           Value.Tuple [ status; byte_array ""; no_message; Value.Int 0; message ])
+      | _ -> Value.fail span "__udp_receive takes a handle.")
   ]

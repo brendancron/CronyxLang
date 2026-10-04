@@ -70,7 +70,9 @@ std/
 │   ├── File               # File handle management and I/O; listing, creating and removing directories
 │   └── Path               # Platform-agnostic path manipulation
 ├── net/                   # Networking
-│   ├── Tcp                # The Net effect; TcpStream, TcpListener, and resolving names
+│   ├── Net                # The Net effect, and looking names up
+│   ├── Tcp                # TcpStream and TcpListener
+│   ├── Udp                # UdpSocket and Datagram
 │   └── Http               # HTTP/1.1 client and server over Tcp
 ├── os/                    # Operating system integration & environmental controls
 │   ├── Args               # Command-line arguments iterator

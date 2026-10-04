@@ -1,0 +1,86 @@
+import { async } from "std/async/Task";
+import { Throw, Result, Failure } from "std/core/Error";
+import { Reader, Writer, Closer, IoError } from "std/io/Io";
+import { Net, lookup_host } from "std/net/Net";
+import { TcpStream, tcp_connect, tcp_listen } from "std/net/Tcp";
+import { udp_bind } from "std/net/Udp";
+import { read_all } from "std/fs/File";
+import { decode } from "std/text/Utf8";
+
+type Canned {
+    reply: string,
+    heard: List<byte>,
+    answered: bool
+}
+
+impl Reader for Canned {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        if (self.answered) { return Option.None; }
+        self.answered = true;
+        return Option.Some(self.reply.bytes());
+    }
+}
+
+impl Writer for Canned {
+    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+        for (b in data) { self.heard.push(b); }
+    }
+}
+
+impl Closer<IoError> for Canned {
+    fn close(self): <async, Throw<IoError>> unit {}
+}
+
+impl TcpStream for Canned {
+    fn peer(self): string { return "canned"; }
+    fn shutdown_write(self): <async, Throw<IoError>> unit {}
+}
+
+fn fetch(host: string): <Net, async, Throw<IoError>> string {
+    var conn = tcp_connect(host, 80);
+    conn.write(("GET " + host).bytes());
+    conn.shutdown_write();
+    var reply = read_all(conn);
+    conn.close();
+    match decode(reply) {
+        Result.Ok(text) => { return text; }
+        Result.Err(_) => { return "not text"; }
+    }
+    return "";
+}
+
+run {
+    print(fetch("example.test"));
+    print(lookup_host("example.test"));
+    run {
+        udp_bind("example.test", 53);
+    } handle Throw {
+        final ctl throw(e) { print("failed: " + e.message()); }
+    }
+    tcp_listen("example.test", 80);
+} handle Net {
+    ctl connect(host, port) {
+        var conn: TcpStream = Canned { reply: "hello from " + host + ":" + str(port), heard: [], answered: false };
+        resume Result.Ok(conn);
+    }
+    ctl listen(host, port) { resume Result.Err(IoError.Denied(host)); }
+    ctl bind(host, port) { resume Result.Err(IoError.AddressInUse(host + ":" + str(port))); }
+    ctl lookup(host) { resume Result.Ok(["192.0.2.1"]); }
+} handle Throw {
+    final ctl throw(e) { print("failed: " + e.message()); }
+}
+
+var closed = tcp_listen("127.0.0.1", 0);
+var port = closed.local_port();
+closed.close();
+run {
+    tcp_connect("127.0.0.1", port);
+    print("connected");
+} handle Throw {
+    final ctl throw(e) {
+        match e {
+            IoError.Refused(_) => { print("refused"); }
+            _ => { print("failed: " + e.message()); }
+        }
+    }
+}

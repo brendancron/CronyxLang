@@ -1,0 +1,23 @@
+import { all, pause } from "std/async/Task";
+import { Throw, Failure } from "std/core/Error";
+import { IoError } from "std/io/Io";
+import { tcp_listen } from "std/net/Tcp";
+
+var listener = tcp_listen("127.0.0.1", 0);
+run {
+    all([
+        () => {
+            defer { print("stopped listening"); }
+            listener.accept();
+            print("accepted");
+        },
+        () => {
+            pause();
+            throw(IoError.Other("shutting down"));
+        }
+    ]);
+} handle Throw {
+    final ctl throw(e) { print("scope failed: " + e.message()); }
+}
+listener.close();
+print("done");

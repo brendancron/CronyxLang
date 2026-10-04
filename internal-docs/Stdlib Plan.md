@@ -196,7 +196,9 @@ Then the library:
 
 Then the library:
 
-- `net/Tcp`: the `Net` effect — `connect`, `listen` and `resolve` — handled at the root over non-blocking `Unix` sockets; `TcpStream` a `Reader`, `Writer` and `Closer<IoError>`, and `TcpListener`. `IoError` gains `Refused`, `Reset`, `AddressInUse` and `TimedOut`.
+- `net/Net`: the `Net` effect — `connect`, `listen`, `bind` and `lookup` — handled at the root over non-blocking `Unix` sockets. `IoError` gains `Refused`, `Reset`, `AddressInUse` and `TimedOut`.
+- `net/Tcp`: `TcpStream`, a `Reader`, `Writer` and `Closer<IoError>`, and `TcpListener`.
+- `net/Udp`: `UdpSocket`, sending and receiving `Datagram`s.
 - `net/Http`: HTTP/1.1 over `TcpStream`, a client in `get` and `request` and a server in `serve`, each connection a task in one scope.
 
 **Done when**
@@ -205,9 +207,10 @@ Then the library:
 - One program runs an echo server on a port the OS chose and several clients against it, as tasks, with the same output every run.
 - `timeout` abandons a read from a peer that never writes, and the other tasks keep running while it waits.
 - A test handles `Net` with in-memory peers and reaches no socket.
+- Two UDP sockets on loopback exchange datagrams as tasks, one waiting to receive before the other has sent, and each reply goes back to the port it came from.
 - `get` against a `serve` in the same program answers with what the handler wrote, a chunked body among the cases.
 - Each runs on Linux, macOS and Windows.
 
 ## What is not in the plan
 
-`algo/graph`; and in `net/`, TLS and UDP ([Net](Net.md#what-is-not-in-it)).
+`algo/graph`; and in `net/`, TLS and multicast ([Net](Net.md#what-is-not-in-it)).

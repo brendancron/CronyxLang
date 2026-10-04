@@ -224,9 +224,9 @@ clock forward, and an hour's sleep finishes at once with the same output every
 run (`tests/stdlib/async/fake_clock`). Waiting is the scheduler's alone: a task
 that called `wait_until` would hold every other task with it, so tasks `sleep`.
 
-This is the one place the root blocks on the OS, and `net/` will need it to
-block on sockets as well as the clock: the wait becomes "until the first timer
-or until a socket is ready", in the same position ([Net](Net.md#the-scheduler-waits-on-sockets)).
+This is the one place the root blocks on the OS. While a task waits on a socket
+the wait is "until the first timer or until a socket is ready", in the same
+position ([Net](Net.md#the-scheduler-waits-on-sockets)).
 
 ## A channel wakes to look again
 

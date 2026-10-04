@@ -1,7 +1,10 @@
 # Networking
 
-Status: **not built.** This is the design [Stdlib Plan](Stdlib%20Plan.md#10-networking)
-builds `std/net/` from.
+Status: **TCP and UDP built**, HTTP not yet. `std/net/Net`, `Tcp` and `Udp`
+(`stdlib/net/`), the socket natives in `lib/system.ml`, and `block_on`'s wait
+in `std/async/Task`; `tests/stdlib/net/` runs servers and clients over loopback
+and a faked `Net`. This is the design [Stdlib Plan](Stdlib%20Plan.md#10-networking) builds
+`std/net/` from.
 
 ## A socket that waits holds up every task
 
@@ -35,7 +38,7 @@ it: the root's wait becomes "until the first timer, or until a socket is ready".
  * Calls `wake` once the socket can be read from without waiting, or written
  * to when `writing`, and hands back what cancels that.
  */
-fn when_ready(socket: Socket, writing: bool, wake: () -> unit): () -> unit;
+fn when_ready(socket: int, writing: bool, wake: () -> unit): () -> unit;
 ```
 
 A socket is non-blocking from the moment it is made. A read tries first; when
@@ -46,8 +49,18 @@ loop, and so is connecting, whose result is read once the socket is writable.
 `block_on` keeps its waiters beside its timers. When nothing is ready it hands
 every live waiter's socket to `select`, with the time to the earliest timer as
 the limit, and wakes whatever `select` answered, in the order they were
-registered. With no waiters it waits on the clock, as now; with neither, it is
-the deadlock it reports today.
+registered. With no waiters it waits on the clock, as before; with neither, it
+is the deadlock it reports.
+
+`block_on` calls `select` as a native rather than through an effect, as
+`DiskFile.read` calls `__file_read`: opening is the effect and an open socket is
+a value, so waiting on one is an operation on the value. That keeps `async`
+free of `net/` — the socket is a handle, an `int`, and nothing in `Task`
+imports a type from `Tcp`.
+
+A task waits on a socket as `sleep` waits on a timer, cancelling its watch in a
+`defer`: a task unwound while waiting in `accept` would otherwise leave the
+scheduler watching a socket nobody reads (`tests/stdlib/net/cancelled_accept`).
 
 In `async` rather than an effect of its own, because only the scheduler can
 answer it: a wait is "sleep until any of these", and one handler has to see
@@ -90,14 +103,21 @@ when it reaches the network, and a test answers it with peers of its own:
 effect Net {
     ctl connect(host: string, port: int): Result<TcpStream, IoError>;
     ctl listen(host: string, port: int): Result<TcpListener, IoError>;
-    ctl resolve(host: string): Result<List<string>, IoError>;
+    ctl bind(host: string, port: int): Result<UdpSocket, IoError>;
+    ctl lookup(host: string): Result<List<string>, IoError>;
 }
 ```
 
+The effect is `std/net/Net`, with `Tcp` and `Udp` beside it rather than under
+it, since one handler answers for both: a test faking datagrams imports `Net`
+from where a test faking connections does.
+
 `ctl`, as `open` is, because the root's answer suspends. A failure is a value in
-the result, and `tcp_connect` and `tcp_listen` throw it where they were asked
-for. `connect` resolves a name itself, trying each address in turn; `resolve` is
-for a program that wants the addresses.
+the result, and `tcp_connect`, `tcp_listen` and `lookup_host` throw it where
+they were asked for. `connect` looks a name up itself and tries each address in
+turn, so `localhost` reaching an IPv6 address nothing listens on still reaches
+the IPv4 one that does; `lookup` is for a program that wants the addresses. Not
+`resolve`, which is a promise's.
 
 `TcpStream` is a trait, as `File` is — `Reader`, `Writer` and
 `Closer<IoError>`, plus `peer()` and `shutdown_write()` — so `lines(conn)` and
@@ -112,6 +132,27 @@ variants a network has and a disk does not — `Refused`, `Reset`, `AddressInUse
 
 The natives are `Unix` sockets in `lib/system.ml`, which is already a
 dependency, so there is nothing new to link.
+
+## A datagram is not a stream
+
+UDP sends separate datagrams, each whole or not at all, which may arrive out of
+order or never, with nothing to say one was lost. So a `UdpSocket` is not a
+`Reader` or a `Writer` — reading "the next bytes" means nothing when the bytes
+come from several peers in pieces that each stand alone. Each send names where
+it goes and each receive says where it came from:
+
+```cronyx
+trait UdpSocket: Closer<IoError> {
+    fn send_to(self, data: Array<byte>, host: string, port: int): <async, Throw<IoError>> unit;
+    fn receive(self): <async, Throw<IoError>> Datagram;   // data, host, port
+    fn local_port(self): int;
+}
+```
+
+A receive reads into a buffer as large as any datagram can be, so none is cut
+short: Unix truncates one that does not fit, and Windows fails the read. A send
+looks its host up in the socket's own family, since a socket bound to an IPv4
+address cannot reach an IPv6 one. Waiting is `when_ready`, as for a stream.
 
 ## HTTP is library over TCP
 
@@ -129,6 +170,6 @@ belongs to a framework built on this rather than to `std`.
 - **TLS.** HTTPS needs a TLS implementation, which means linking one or writing
   one, and either is a project of its own. Until then `get("https://…")` is an
   error that says so.
-- **UDP.** Its own trait, a datagram rather than a stream, and nothing in the
-  first version needs it. It uses the same `when_ready`.
+- **Multicast and broadcast.** Socket options on top of `bind`, when something
+  needs them.
 - **Asynchronous files.** Above: threads, when something needs them.
