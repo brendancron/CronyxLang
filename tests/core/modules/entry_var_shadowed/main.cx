@@ -1,0 +1,7 @@
+import { show } from "display";
+
+for (i in [1, 2]) {
+    show(i);
+}
+var s = 0;
+print(s);

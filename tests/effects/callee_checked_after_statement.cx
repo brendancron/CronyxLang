@@ -1,0 +1,18 @@
+import { pause } from "std/async/Task";
+
+show();
+var late = 0;
+
+fn steps() {
+    print("steps");
+    wait_key();
+}
+
+fn show() {
+    steps();
+}
+
+fn wait_key() {
+    pause();
+    if (false) { print(late); }
+}

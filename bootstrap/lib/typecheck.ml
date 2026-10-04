@@ -1251,59 +1251,131 @@ type dependency_name =
   | Member of string
 
 (* A method call names every method of that name, since which impl answers is
-   not known yet. Shadowing is not tracked, which is safe only because a value
-   name never reaches a method. *)
+   not known yet. A local is tracked by scope: the entry file's top-level names
+   are not mangled, so a loop variable `s` in another module would otherwise
+   tie that module's functions to the entry's `var s`, and through the order
+   top-level statements keep, to every statement before it. *)
 let names_used (s : Ast.desugared_stmt) =
+  let module S = Set.Make (String) in
   let used = Hashtbl.create 16 in
+  let bound = ref S.empty in
   let note name = Hashtbl.replace used name () in
+  let value name = if not (S.mem name !bound) then note (Value name) in
+  let bind names = bound := List.fold_left (Fun.flip S.add) !bound names in
+  let scoped f =
+    let saved = !bound in
+    Fun.protect ~finally:(fun () -> bound := saved) f
+  in
+  let declared_fns body =
+    List.filter_map
+      (fun (s : Ast.desugared_stmt) ->
+        match s.Ast.it with
+        | `Fn (name, _, _, _) -> Some name
+        | _ -> None)
+      body
+  in
+  let param_names = List.map (fun (p : Ast.param) -> p.Ast.name) in
   let rec expr (e : Ast.desugared_expr) =
     (match e.Ast.it with
-     | `Var name | `Assign (name, _) | `Compound (_, name, _) | `New_call (name, _, _) ->
-       note (Value name)
+     | `Var name | `Assign (name, _) | `Compound (_, name, _) | `New_call (name, _, _) -> value name
      | `Method_call (_, name, as_function, _) ->
        note (Member name);
-       note (Value as_function)
+       value as_function
      | _ -> ());
-    let (_ : Ast.desugared_expr_kind) =
-      match e.Ast.it with
-      | `Lambda (ps, sg, body) -> `Lambda (ps, sg, List.map stmt body)
-      | #Ast.lit as l -> l
-      | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.desugared_expr_kind)
-      | #Ast.ops as o -> (Ast.map_ops expr o :> Ast.desugared_expr_kind)
-      | #Ast.logic as l -> (Ast.map_logic expr l :> Ast.desugared_expr_kind)
-      | #Ast.compound as c -> (Ast.map_compound expr c :> Ast.desugared_expr_kind)
-      | #Ast.indexing as i -> (Ast.map_indexing expr i :> Ast.desugared_expr_kind)
-      | #Ast.tuple as t -> (Ast.map_tuple expr t :> Ast.desugared_expr_kind)
-      | #Ast.spread as x -> (Ast.map_spread expr x :> Ast.desugared_expr_kind)
-      | #Ast.record as r -> (Ast.map_record expr r :> Ast.desugared_expr_kind)
-      | #Ast.nominal as n -> (Ast.map_nominal expr n :> Ast.desugared_expr_kind)
-      | #Ast.collection as c -> (Ast.map_collection expr c :> Ast.desugared_expr_kind)
-      | #Ast.static_call as c -> (Ast.map_static_call expr c :> Ast.desugared_expr_kind)
-      | #Ast.method_call as m -> (Ast.map_method_call expr m :> Ast.desugared_expr_kind)
-      | #Ast.reflect as r -> (Ast.map_reflect expr r :> Ast.desugared_expr_kind)
-      | #Ast.run_expr as r ->
-        (Ast.map_run_expr expr stmt (Ast.map_handler stmt) r :> Ast.desugared_expr_kind)
-      | #Ast.match_expr as m -> (Ast.map_match_expr expr stmt m :> Ast.desugared_expr_kind)
-    in
-    e
+    match e.Ast.it with
+    | `Lambda (ps, _, body) -> scoped (fun () -> bind (param_names ps); block body)
+    | `Run_expr (body, handlers, clause) ->
+      valued body;
+      List.iter handler handlers;
+      Option.iter
+        (fun (c : (_, _) Ast.ret_clause) ->
+          scoped (fun () -> bind [ c.Ast.rc_param ]; valued c.Ast.rc_body))
+        clause
+    | `Match_expr (scrutinee, cases) ->
+      expr scrutinee;
+      List.iter (fun (p, b) -> scoped (fun () -> bind (Ast.pattern_names p); valued b)) cases
+    | _ ->
+      let (_ : Ast.desugared_expr_kind) =
+        match e.Ast.it with
+        | `Lambda _ | `Run_expr _ | `Match_expr _ -> e.Ast.it
+        | #Ast.lit as l -> l
+        | #Ast.vars as v -> (Ast.map_vars (fun e -> expr e; e) v :> Ast.desugared_expr_kind)
+        | #Ast.ops as o -> (Ast.map_ops (fun e -> expr e; e) o :> Ast.desugared_expr_kind)
+        | #Ast.logic as l -> (Ast.map_logic (fun e -> expr e; e) l :> Ast.desugared_expr_kind)
+        | #Ast.compound as c -> (Ast.map_compound (fun e -> expr e; e) c :> Ast.desugared_expr_kind)
+        | #Ast.indexing as i -> (Ast.map_indexing (fun e -> expr e; e) i :> Ast.desugared_expr_kind)
+        | #Ast.tuple as t -> (Ast.map_tuple (fun e -> expr e; e) t :> Ast.desugared_expr_kind)
+        | #Ast.spread as x -> (Ast.map_spread (fun e -> expr e; e) x :> Ast.desugared_expr_kind)
+        | #Ast.record as r -> (Ast.map_record (fun e -> expr e; e) r :> Ast.desugared_expr_kind)
+        | #Ast.nominal as n -> (Ast.map_nominal (fun e -> expr e; e) n :> Ast.desugared_expr_kind)
+        | #Ast.collection as c -> (Ast.map_collection (fun e -> expr e; e) c :> Ast.desugared_expr_kind)
+        | #Ast.static_call as c ->
+          (Ast.map_static_call (fun e -> expr e; e) c :> Ast.desugared_expr_kind)
+        | #Ast.method_call as m ->
+          (Ast.map_method_call (fun e -> expr e; e) m :> Ast.desugared_expr_kind)
+        | #Ast.reflect as r -> (Ast.map_reflect (fun e -> expr e; e) r :> Ast.desugared_expr_kind)
+      in
+      ()
+  and valued (b : (Ast.desugared_expr, Ast.desugared_stmt) Ast.valued_block) =
+    scoped (fun () ->
+      bind (declared_fns b.Ast.vb_stmts);
+      List.iter stmt b.Ast.vb_stmts;
+      Option.iter expr b.Ast.vb_value)
+  and handler (h : Ast.desugared_stmt Ast.handler) =
+    List.iter
+      (fun (a : Ast.desugared_stmt Ast.arm) -> scoped (fun () -> bind a.Ast.arm_params; block a.Ast.arm_body))
+      h.Ast.arms
+  (* A function declared in a block is in scope for all of it. *)
+  and block body =
+    bind (declared_fns body);
+    List.iter stmt body
+  and nested (s : Ast.desugared_stmt) = scoped (fun () -> stmt s)
   and stmt (s : Ast.desugared_stmt) =
-    let (_ : Ast.desugared_stmt_kind) =
-      match s.Ast.it with
-      | #Ast.stmts as st -> (Ast.map_stmts expr stmt st :> Ast.desugared_stmt_kind)
-      | #Ast.effects as ef ->
-        (Ast.map_effects expr stmt (Ast.map_handler stmt) ef :> Ast.desugared_stmt_kind)
-      | #Ast.type_defs as t -> t
-      | #Ast.method_defs as m -> (Ast.map_method_defs stmt Fun.id m :> Ast.desugared_stmt_kind)
-      | #Ast.matching as m -> (Ast.map_matching expr stmt m :> Ast.desugared_stmt_kind)
-      (* What the checker lowers it to calls these, and an order that misses
-         one checks the loop before the method it reaches. *)
-      | `For_in (names, iterable, body) ->
-        List.iter (fun name -> note (Member name)) [ "len"; "next"; "close" ];
-        `For_in (names, expr iterable, stmt body)
-    in
-    s
+    match s.Ast.it with
+    | `Expr e -> expr e
+    | `Var_decl (name, _, init) ->
+      Option.iter expr init;
+      bind [ name ]
+    | `Var_tuple (names, init) ->
+      expr init;
+      bind names
+    | `Block body -> scoped (fun () -> block body)
+    | `If (c, t, e) ->
+      expr c;
+      nested t;
+      Option.iter nested e
+    | `While (c, body) ->
+      expr c;
+      nested body
+    | `Fn (name, params, _, body) ->
+      bind [ name ];
+      scoped (fun () -> bind (param_names params); block body)
+    | `Return e -> Option.iter expr e
+    | `Break | `Continue -> ()
+    | `Defer inner -> nested inner
+    (* What the checker lowers it to calls these, and an order that misses
+       one checks the loop before the method it reaches. *)
+    | `For_in (names, iterable, body) ->
+      List.iter (fun name -> note (Member name)) [ "len"; "next"; "close" ];
+      expr iterable;
+      scoped (fun () -> bind names; stmt body)
+    | `Match (scrutinee, cases) ->
+      expr scrutinee;
+      List.iter (fun (p, body) -> scoped (fun () -> bind (Ast.pattern_names p); block body)) cases
+    | `Run (body, handlers) ->
+      scoped (fun () -> block body);
+      List.iter handler handlers
+    | `Resume e -> Option.iter expr e
+    | `Discontinue | `Effect_decl _ -> ()
+    | #Ast.type_defs -> ()
+    | `Trait_decl _ -> ()
+    | `Impl_decl (_, _, _, impl) ->
+      List.iter
+        (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+          scoped (fun () -> bind (param_names m.Ast.md_params); block m.Ast.md_body))
+        impl.Ast.ib_methods
   in
-  ignore (stmt s);
+  stmt s;
   Hashtbl.fold (fun name () acc -> name :: acc) used []
 
 let names_declared (s : Ast.desugared_stmt) =
@@ -3566,29 +3638,47 @@ and infer_in_order env ctx assigned ~attempt (body : Ast.desugared_stmt list) =
             | _ -> [])
           impls
       in
+      let waiting = ref [] in
+      let generalize_waiting ?(with_methods = false) () =
+        if !waiting <> [] || with_methods
+        then (
+          discharge_pending ();
+          generalize_methods
+            env
+            ((if with_methods then methods () else [])
+             @ List.filter_map
+               (fun i ->
+                 match name_of i, checked.(i) with
+                 | Some name, Some (c : checked_stmt) -> Some (name, c.Ast.ann)
+                 | _ -> None)
+               (List.rev !waiting));
+          waiting := [])
+      in
       List.iter
         (fun i -> checked.(i) <- attempt (fun () -> infer_stmt ~generalize:false env ctx assigned stmts.(i)))
         impls;
       discharge_pending ();
       if not together then generalize_methods env (methods ());
+      (* A group holding a top-level statement too -- a function reaching a
+         `var` declared after a statement that calls it -- still generalizes
+         its functions together. One generalized while a callee later in the
+         group is unchecked has its row grow when that callee is, after its
+         callers have instantiated the smaller one, and CPS then gives the
+         declaration more evidence parameters than those calls pass. *)
+      let mixed = List.length group > 1 in
+      let last_fn =
+        List.fold_left (fun last i -> if Option.is_some (name_of i) then Some i else last) None rest
+      in
       List.iter
         (fun i ->
           checked.(i)
           <- attempt (fun () ->
-               infer_stmt ~generalize:(not together) env ctx assigned stmts.(i)))
+               infer_stmt ~generalize:(not mixed) env ctx assigned stmts.(i));
+          if mixed && Option.is_some (name_of i) then waiting := i :: !waiting;
+          if Some i = last_fn && mixed then generalize_waiting ~with_methods:together ())
         rest;
       discharge_pending ();
-      if together
-      then
-        generalize_methods
-          env
-          (methods ()
-           @ List.filter_map
-               (fun i ->
-                 match name_of i, checked.(i) with
-                 | Some name, Some (c : checked_stmt) -> Some (name, c.Ast.ann)
-                 | _ -> None)
-               rest))
+      if together && Option.is_none last_fn then generalize_waiting ~with_methods:true ())
     (dependency_order body);
   Array.to_list checked
 

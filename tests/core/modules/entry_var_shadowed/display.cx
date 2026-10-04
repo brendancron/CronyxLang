@@ -1,0 +1,25 @@
+import { pause } from "std/async/Task";
+
+fn steps(a: int, b: int) {
+    print("steps");
+    wait_key();
+    print(looks([a, b]));
+}
+
+fn show(a: int) {
+    steps(a, 3);
+}
+
+fn wait_key() {
+    for (s in [1]) {
+        pause();
+    }
+}
+
+fn looks(xs: Array<int>): int {
+    var t = 0;
+    for (s in xs) {
+        t = t + s;
+    }
+    return t;
+}
