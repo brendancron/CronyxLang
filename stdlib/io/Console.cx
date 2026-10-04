@@ -54,6 +54,22 @@ effect Console {
     fn write(to: Stream, text: string): unit;
 }
 
+/**
+ * Writes out whatever standard output is holding. At a terminal each line
+ * shows as it is printed; through a pipe or into a file output is held until
+ * there is enough of it, so a program reporting progress there flushes:
+ *
+ * ```
+ * import { flush } from "std/io/Console";
+ *
+ * print("step 1 of 3");
+ * flush();
+ * ```
+ */
+fn flush(): <Console> unit {
+    __flush_out();
+}
+
 /** The process's standard input. */
 effect Stdin {
     /** Standard input, as a stream. Getting it never waits; reading it may. */

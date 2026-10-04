@@ -94,10 +94,10 @@ let execute_linked ?(dumps = no_dumps) ~entry program =
       print_endline "-- code --";
       print_string (Source.program processed))
   in
-  match Pipeline.linked ~on_code ~on_types ~out:print_string program with
+  match Pipeline.linked ~on_code ~on_types ~out:Builtins.to_stdout program with
   | Error errors -> die_at ~entry errors
   | Ok converted ->
-    (match Pipeline.run (Builtins.env ~out:print_string) converted with
+    (match Pipeline.run (Builtins.env ~out:Builtins.to_stdout) converted with
      | Ok 0 -> ()
      | Ok code -> exit code
      | Error e -> die_at ~entry [ e ])
@@ -117,10 +117,10 @@ let execute ?(dumps = no_dumps) ?roots entry =
       print_endline "-- types --";
       print_string (Printer.string_of_typed_program typed))
   in
-  match Pipeline.compile ~on_code ~on_types ~roots ~out:print_string entry with
+  match Pipeline.compile ~on_code ~on_types ~roots ~out:Builtins.to_stdout entry with
   | Error errors -> die_at ~entry errors
   | Ok converted ->
-    (match Pipeline.run (Builtins.env ~out:print_string) converted with
+    (match Pipeline.run (Builtins.env ~out:Builtins.to_stdout) converted with
      | Ok 0 -> ()
      | Ok code -> exit code
      | Error e -> die_at ~entry [ e ])

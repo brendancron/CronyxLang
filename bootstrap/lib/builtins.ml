@@ -60,6 +60,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   [ selected_test, "", (fun () -> [], Types.IInt)
   ; bench_size, "", (fun () -> [], Types.IInt)
   ; ("__write_out", "", fun () -> [ Types.IStr ], Types.IUnit)
+  ; ("__flush_out", "", fun () -> [], Types.IUnit)
   ; ( "__file_open"
     , ""
     , fun () -> [ Types.IStr; Types.IInt ], Types.ITuple [ Types.IInt; Types.IInt; Types.IStr ] )
@@ -278,6 +279,14 @@ let written ~globals =
   in
   shown, form
 
+let stdout_is_terminal = lazy (Unix.isatty Unix.stdout)
+
+(* Line-buffered at a terminal, as C's stdio is, so a line shows when it is
+   printed; block-buffered anywhere else, where flushing every line is slow. *)
+let to_stdout text =
+  print_string text;
+  if Lazy.force stdout_is_terminal && String.contains text '\n' then flush stdout
+
 let values ~out ~globals =
   let shown, form = written ~globals in
   let native name arity apply = name, Value.Fn { Value.name; arity; apply } in
@@ -315,6 +324,9 @@ let values ~out ~globals =
         out (Utf8.encode text);
         Value.Unit
       | _ -> Value.fail span "__write_out takes a string.")
+  ; native "__flush_out" (Some 0) (fun _ _ ->
+      flush stdout;
+      Value.Unit)
   ; two "__file_open" (fun span p m ->
       match p, m with
       | Value.Str path, Value.Int mode ->

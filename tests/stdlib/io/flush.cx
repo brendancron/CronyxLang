@@ -1,0 +1,6 @@
+import { flush } from "std/io/Console";
+
+print("before");
+flush();
+print("after");
+flush();

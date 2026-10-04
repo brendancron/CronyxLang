@@ -72,6 +72,7 @@ let cases =
   ; "tests/stdlib/random/seeded"
   ; "tests/stdlib/io/fake_stdin"
   ; "tests/stdlib/io/blank_line"
+  ; "tests/stdlib/io/flush"
   ; "tests/stdlib/io/using"
   ; "tests/stdlib/io/lines"
   ; "tests/stdlib/io/lines_to_end"

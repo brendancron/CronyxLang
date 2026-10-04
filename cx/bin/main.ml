@@ -98,7 +98,7 @@ let mode_of ?(dumps = false) args =
 
 let build args =
   let root = package_root () in
-  match Cx.Build.package ~mode:(mode_of args) ~note ~out:print_string root with
+  match Cx.Build.package ~mode:(mode_of args) ~note ~out:Builtins.to_stdout root with
   | Error errors -> report root errors
   | Ok (artifacts, compiled) ->
     List.iter
@@ -147,7 +147,7 @@ let run_package ~mode dumps =
   let root = package_root () in
   let entry = Cx.Workspace.entry_of root in
   Option.iter (fun entry -> Driver.dump_front ~entry dumps (Driver.read_source entry)) entry;
-  match Cx.Build.package ~mode ~note ~out:print_string root with
+  match Cx.Build.package ~mode ~note ~out:Builtins.to_stdout root with
   | Error errors -> report root errors
   | Ok (artifacts, _) ->
     let entry = Option.value entry ~default:root in

@@ -22,6 +22,9 @@ type effects =
   (* Where a `return` leaves its value when it has a `run` block to get out of
      first, and the flag saying it did. *)
   ; mutable leaving : (string * string) option
+  (* The flags of [leaving] some `return` set, whose function needs the frame
+     that answers them; one no `return` crosses a `run` in is emitted without. *)
+  ; crossings : (string, unit) Hashtbl.t
   (* Whether the statement being compiled sits inside a `run` the enclosing
      function has not left. *)
   ; mutable inside_run : bool
@@ -668,6 +671,7 @@ and cps_stmts info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt li
              is left to leave. Calling the continuation here instead would let
              the caller see the value before the arm had finished being left. *)
           | Some (stash, crossed) ->
+            Hashtbl.replace info.crossings crossed ();
             let handed = expr info value in
             let assign name v ann : Ast.cps_stmt =
               node span (`Expr { Ast.it = `Assign (name, v); span; ann })
@@ -713,12 +717,20 @@ and cps_stmts info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt li
          | Some v -> expr info v
          | None -> ignored span
        in
-       let back = fresh "resumed" in
-       let saving, restore = resumption info span in
-       saving
-       @ [ frame_decl span back [ fresh "x" ] (restore @ cps info ret k ~at:span rest)
-         ; call span continuation [ value; var span back_ty back ]
-         ]
+       (match rest, info.returning_to with
+        (* Nothing of the arm is left to come back to, so the block's end keeps
+           going where it already goes. A frame per resumption that only puts
+           that back would chain each one to the last, and a handler resuming
+           in a loop would hold every iteration. *)
+        | [], Some returning when String.equal ret k && !open_defers = [] && !open_unwinds = [] ->
+          [ call span continuation [ value; var span back_ty returning ] ]
+        | _ ->
+          let back = fresh "resumed" in
+          let saving, restore = resumption info span in
+          saving
+          @ [ frame_decl span back [ fresh "x" ] (restore @ cps info ret k ~at:span rest)
+            ; call span continuation [ value; var span back_ty back ]
+            ])
      (* Converted code leaves a scope by calling the continuation, by
         returning, or by an unwind. The first two are calls, so the deferred
         statement wraps each — which is what runs it once per exit when a
@@ -1221,6 +1233,13 @@ and stmt info (s : Ast.reflected_stmt) : Ast.cps_stmt option =
           (fun () -> cps info own own ~at:s.Ast.span body)
       in
       let all = params @ evidence @ [ { Ast.name = own; ty = None; implicit = false } ] in
+      (* A frame rather than a function: no `return` is left to answer, and a
+         function's frame would stay on the interpreter's stack under the call
+         to the continuation that ends the body, holding the caller's locals
+         for as long as the rest of the program runs. *)
+      if not (Hashtbl.mem info.crossings crossed)
+      then keep (`Frame (name, all, converted))
+      else (
       let span = s.Ast.span in
       let flag value : Ast.cps_expr =
         { Ast.it = (if value then `Bool true else `Bool false); span; ann = Types.Bool }
@@ -1263,7 +1282,7 @@ and stmt info (s : Ast.reflected_stmt) : Ast.cps_stmt option =
                   ( var span Types.Bool crossed
                   , node span (`Block [ call span own [ var span Types.Unit stash ] ])
                   , None ))
-            ] )))
+            ] ))))
     else keep (`Fn (name, params @ evidence, signature, sequence_body info body))))
   | `Run (body, handlers) when handlers_delimited info handlers ->
     unsupported
@@ -1363,6 +1382,7 @@ let collect (p : Ast.reflected_stmt list) =
     ; op_ty = Hashtbl.create 16
     ; bound = Hashtbl.create 8
     ; leaving = None
+    ; crossings = Hashtbl.create 8
     ; inside_run = false
     ; returning = no_return
     ; run_end = None
