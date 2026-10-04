@@ -3,4 +3,6 @@
  (name bootstrap)
  ; `Toolchain` resolves the running binary's real path, so that a `cx` reached
  ; through a symlink still finds the standard library beside the real one.
- (libraries unix))
+ ; `System.drain` reads a child's two output pipes at once on a thread, since
+ ; Windows cannot `select` on a pipe.
+ (libraries unix threads.posix))
