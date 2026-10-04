@@ -5,86 +5,144 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
-    { "include": "#meta-blocks" },
+    { "include": "#chars" },
     { "include": "#attributes" },
+    { "include": "#function-declarations" },
     { "include": "#keywords" },
     { "include": "#types" },
     { "include": "#constants" },
     { "include": "#numbers" },
     { "include": "#type-names" },
+    { "include": "#function-calls" },
     { "include": "#operators" }
   ],
   "repository": {
     "comments": {
-      "match": "//.*$",
-      "name": "comment.line.double-slash.cx"
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.cx",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.documentation.cx",
+          "begin": "/\\*\\*(?![*/])",
+          "end": "\\*/",
+          "patterns": [{ "include": "#block-comment" }]
+        },
+        { "include": "#block-comment" }
+      ]
+    },
+    "block-comment": {
+      "name": "comment.block.cx",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [{ "include": "#block-comment" }]
+    },
+    "escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.cx",
+          "match": "\\\\[ntr0\\\\\"']"
+        },
+        {
+          "name": "invalid.illegal.escape.cx",
+          "match": "\\\\."
+        }
+      ]
     },
     "strings": {
       "name": "string.quoted.double.cx",
       "begin": "\"",
       "end": "\"",
-      "patterns": [
-        {
-          "match": "\\\\[ntr\\\\\"']",
-          "name": "constant.character.escape.cx"
-        }
-      ]
+      "patterns": [{ "include": "#escapes" }]
     },
-    "meta-blocks": {
-      "comment": "Highlight meta {} and gen {} as special constructs",
-      "patterns": [
-        {
-          "match": "\\b(meta|gen)\\b",
-          "name": "keyword.other.meta.cx"
-        }
-      ]
+    "chars": {
+      "name": "string.quoted.single.cx",
+      "match": "'(?:\\\\.|[^\\\\'])'",
+      "captures": {
+        "0": { "patterns": [{ "include": "#escapes" }] }
+      }
     },
     "attributes": {
-      "match": "@[A-Za-z_][A-Za-z0-9_]*",
-      "name": "entity.name.function.decorator.cx"
+      "name": "entity.name.function.decorator.cx",
+      "match": "@[A-Za-z_][A-Za-z0-9_]*"
     },
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(if|else|for|while|in|return|match)\\b",
-          "name": "keyword.control.cx"
+          "name": "keyword.control.cx",
+          "match": "\\b(if|else|match|for|while|in|return|break|continue|defer)\\b"
         },
         {
-          "match": "\\b(fn|var|struct|enum|trait|impl|import|from|as|embed|typeof)\\b",
-          "name": "keyword.declaration.cx"
+          "name": "keyword.control.effect.cx",
+          "match": "\\b(effect|ctl|final|handle|handler|resume|discontinue|run|with)\\b"
         },
         {
-          "match": "\\b(print)\\b",
-          "name": "support.function.builtin.cx"
+          "name": "keyword.other.meta.cx",
+          "match": "\\b(meta|gen|code|typeof|derive)\\b"
+        },
+        {
+          "name": "keyword.control.import.cx",
+          "match": "\\b(import|from|as)\\b|\\bglobal(?=\\s+import\\b)"
+        },
+        {
+          "name": "storage.type.cx",
+          "match": "\\b(fn|var|type|trait|impl)\\b"
+        },
+        {
+          "name": "variable.language.self.cx",
+          "match": "\\b(self|Self)\\b"
         }
       ]
     },
     "types": {
-      "match": "\\b(int|bool|string|unit)\\b",
-      "name": "storage.type.cx"
+      "name": "support.type.primitive.cx",
+      "match": "\\b(int|float|bool|string|char|byte|unit|never|any)\\b"
     },
     "constants": {
-      "match": "\\b(true|false)\\b",
-      "name": "constant.language.cx"
+      "name": "constant.language.boolean.cx",
+      "match": "\\b(true|false)\\b"
     },
     "numbers": {
-      "match": "\\b[0-9]+\\b",
-      "name": "constant.numeric.cx"
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.cx",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.cx",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.cx",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.cx",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "function-declarations": {
+      "match": "\\b(fn|ctl)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "storage.type.cx" },
+        "2": { "name": "entity.name.function.cx" }
+      }
     },
     "type-names": {
-      "comment": "PascalCase identifiers are treated as type/enum names",
-      "match": "\\b[A-Z][a-zA-Z0-9_]*\\b",
-      "name": "entity.name.type.cx"
+      "name": "entity.name.type.cx",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "function-calls": {
+      "name": "entity.name.function.call.cx",
+      "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\s*\\()"
     },
     "operators": {
       "patterns": [
         {
-          "match": "(=>|->|==|!=|<=|>=|\\+=|-=|\\+\\+|--|&&|\\|\\|)",
-          "name": "keyword.operator.cx"
-        },
-        {
-          "match": "[+\\-*/<>=!&|]",
-          "name": "keyword.operator.cx"
+          "name": "keyword.operator.cx",
+          "match": "\\.\\.\\.|=>|->|\\+\\+|--|[-+*/%=!<>]=|&&|\\|\\||[-+*/%=!<>&|^~]"
         }
       ]
     }
