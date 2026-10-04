@@ -48,8 +48,27 @@ jobs:
       - name: Test cx
         run: opam exec -- dune test cx
 
-      # `cx` links the compiler as a library, so the two drivers must not drift.
-      # The script builds the whole workspace, which is what covers `cx/`.
+  # `cx` links the compiler as a library, so the two drivers must not drift.
+  # The script builds the whole workspace, which is what covers `cx/`. A job of
+  # its own so that it runs beside the fixture suite rather than after it.
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: '5'
+          dune-cache: true
+          opam-pin: false
+
+      - name: Install dependencies
+        working-directory: bootstrap
+        run: opam install . --deps-only --with-test --yes
+
       - name: cx parity
         run: opam exec -- bash ./scripts/cx-parity.sh
 
