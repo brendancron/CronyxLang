@@ -4,7 +4,7 @@ std/
 │   ├── Array              # Fixed-size primitive array and slicing
 │   ├── Assert             # Basic assertion mechanisms
 │   ├── Error              # Throw, Result, Failure, Fallible; attempt and rethrow
-│   ├── Iter               # The Iter type that `for` consumes
+│   ├── Iter               # The Iter type that `for` consumes, and Iterable over List and Array
 │   ├── Ops                # Fundamental operator traits
 │   ├── Option             # Optional value type (Some/None)
 │   └── Range              # Slice and loop bounds
@@ -25,8 +25,12 @@ std/
 │   ├── Regex              # Regular expressions (AST/Parser hidden internally, built on algo/automata)
 │   └── regex/             # The pattern's syntax tree, its parser, and its automaton
 ├── math/                  # Numeric and mathematical utilities
-│   ├── Math               # min, max, abs
-│   └── BigInt             # Arbitrary-precision integers, with the operator traits implemented
+│   ├── Math               # float and int functions, constants, and min, max, clamp, sum over Num
+│   ├── Num                # Ord, Zero, One, Num, Signed, Pow, for int, float and BigInt
+│   ├── BigInt             # Arbitrary-precision integers, with the operator traits implemented
+│   ├── Rational           # Exact fractions over BigInt, always reduced
+│   ├── Complex            # Complex numbers over float
+│   └── Stats              # Mean, median, variance, quantiles over any Iterable of float
 ├── algo/                  # General-purpose algorithms
 │   ├── automata/          # Finite automata over integer symbols
 │   │   ├── Nfa            # Nondeterministic automaton, epsilon closure, simulation

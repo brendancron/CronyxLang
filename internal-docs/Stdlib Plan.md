@@ -167,6 +167,26 @@ Then the library:
 - A test handles `Logger` and asserts on what was logged.
 - A benchmark reports through a handled `Time`, so its fixture's output is fixed.
 
+## 9. Mathematics
+
+[Math](Math.md) is the design. It starts in the language, with the gaps in its last section: `float` equality and `partial_cmp` that answer NaN as IEEE 754 does, and exponents in float literals and in `__parse_float`, so that what `print` writes reads back, a dot that reaches a trait's impl only where the trait is in scope, and a call through a bound that reaches an impl generic in the trait's argument, which `Iterable<T>` for `List<T>` needs.
+
+Then the library:
+
+- `math/Math`: the `float` functions as `libm` natives, the `int` functions, the constants as functions of no arguments, and the generic functions over `math/Num`.
+- `math/Num`: `Ord`, `Zero`, `One`, `Num`, `Signed` and `Pow`, implemented for `int`, `float` and `BigInt`, with `BigInt`'s own `abs` and `pow` becoming its impls.
+- `Iterable<T>` in `core`, for `List` and `Array`.
+- `math/Rational`, `math/Complex`, and `math/Stats` over `C: Iterable<float>`.
+
+**Done when**
+
+- `0.0 / 0.0 == 0.0 / 0.0` is false, and `1e-9` is a literal that prints and parses back.
+- Every `float` function has a fixture covering NaN, both infinities and `-0.0`, and every `int` function one covering zero, negatives and `int_max()`.
+- `2.pow(10)`, `(2.0).pow(0.5)` and `BigInt.of(2).pow(100)` are the same name, imported once, and `2.pow(10)` in a file that does not import `Pow` is an error.
+- `sum` and `clamp` work over `int`, `float` and `BigInt` from one declaration each.
+- A `Rational` is reduced after every operation, and `Complex.from_polar` of a number's `abs` and `arg` is that number.
+- `Stats.mean` takes a `List<float>` and an `Array<float>` through one declaration, is `None` for an empty list, and its `variance` of values near 1e9 matches the exact answer where the naive formula does not.
+
 ## What is not in the plan
 
 `net/` and HTTP over it, and `algo/graph`. `net/` is the next step after 5, since it shares the scheduler work.
