@@ -165,6 +165,25 @@ has to be told apart from the next request. A body is sent with its
 `Content-Length`; one received may also be chunked, which a server that
 streams sends, and with neither a response runs to the end of the connection.
 
+What a server takes is bounded by `ServerLimits` — the body, the number of
+fields, the length of a line — and refused with the status that limit names
+(413, 431, 414) before more is read: a body over the limit is refused on its
+`Content-Length`, so even a client that asked `Expect: 100-continue` never sends
+it. A client also has `patience` to send its whole request and then to take the
+response, which is `timeout` around each; one slower than that gets 408 or is
+dropped, so a connection that trickles bytes holds one task for that long and
+no longer. `serve` is `serve_with` the defaults.
+
+Both ends refuse a header field that would break the message apart — a line
+break in a value, or anything but a token in a name — since a handler echoing
+what a client sent into a field would otherwise let the client write fields, or
+a second response, of its own. The client refuses before connecting; the server
+answers 500 in place of the response that held it.
+
+A response to `HEAD`, a `1xx`, a 204 or a 304 has no body whatever its fields
+say, at both ends. An interim `100 Continue` is read past to the response that
+follows it.
+
 `serve` accepts in the body of a `scope` and starts a task per connection, so a
 slow client holds up only itself and cancelling the server unwinds every
 connection it has open. A handler that fails answers 500, a request that cannot

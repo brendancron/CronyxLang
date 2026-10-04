@@ -70,6 +70,7 @@ let cases =
   ; "tests/stdlib/net/ping"
   ; "tests/stdlib/net/http"
   ; "tests/stdlib/net/http_wire"
+  ; "tests/stdlib/net/http_limits"
   ; "tests/stdlib/io/files"
   ; "tests/stdlib/io/fake_fs"
   ; "tests/stdlib/fs/paths"

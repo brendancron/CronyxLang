@@ -20,11 +20,14 @@
  */
 
 import { async, scope } from "../async/Task";
+import { timeout } from "../async/Timer";
+import { Duration } from "../os/Time";
 import { Throw, Result, Failure } from "../core/Error";
 import { IoError } from "../io/Io";
 import { Net } from "Net";
 import { TcpStream, TcpListener, tcp_connect } from "Tcp";
 import { decode } from "../text/Utf8";
+import { is_alphanumeric } from "../text/String";
 
 /** Header fields, in the order they were given. Names are compared without regard to case. */
 type Headers {
@@ -114,32 +117,62 @@ fn post(url: string, body: Array<byte>, content_type: string): <Net, async, Thro
     return send("POST", url, Headers.new().set("Content-Type", content_type), body);
 }
 
-/** Sends a request with the method, the headers and the body to the URL, and reads the response. */
+/**
+ * Sends a request with the method, the headers and the body to the URL, and
+ * reads the response. Throws, before connecting, if a header field or the URL
+ * would break the request apart.
+ */
 fn send(method: string, url: string, headers: Headers, body: Array<byte>): <Net, async, Throw<IoError>> Response {
     var (host, port, target) = __parsed_url(url);
+    if (!__is_token(method)) { throw(IoError.Other("not a method: " + method)); }
+    if (!__is_clean(target) || target.contains(" ")) { throw(IoError.Other("not a request target: " + target)); }
+    var named = Headers { fields: [] };
+    named.set("Host", __host_header(host, port));
+    for ((n, v) in headers.fields) { named.add(n, v); }
+    match __invalid_field(named) {
+        Option.Some(why) => { throw(IoError.Other(why)); }
+        Option.None => {}
+    }
     var conn = tcp_connect(host, port);
     var (response, failure) = __closing(conn, () => {
-        var named = Headers { fields: [] };
-        named.set("Host", __host_header(host, port));
-        for ((n, v) in headers.fields) { named.add(n, v); }
-        conn.write(__head(method + " " + target + " HTTP/1.1", named, body.len()));
+        conn.write(__head(method + " " + target + " HTTP/1.1", named, Option.Some(body.len())));
         conn.write(body);
-        var incoming = __Incoming { stream: conn, pending: [], at: 0 };
-        var status_line = __line(incoming);
-        var parts = status_line.split(' ');
-        if (parts.len() < 2 || !parts[0].starts_with("HTTP/")) { __malformed("a status line", status_line); }
-        var status = 0;
-        match parts[1].to_int() {
-            Option.Some(n) => { status = n; }
-            Option.None => { __malformed("a status code", parts[1]); }
+        var incoming = __Incoming.of(conn, 65536);
+        var (first, first_reason) = __status_line(incoming);
+        var status = first;
+        var reason = first_reason;
+        var received = __fields(incoming, -1);
+        // An interim response — `100 Continue` — is followed by the real one.
+        while (status >= 100 && status < 200 && status != 101) {
+            var (next, next_reason) = __status_line(incoming);
+            status = next;
+            reason = next_reason;
+            received = __fields(incoming, -1);
         }
-        var reason = "";
-        if (parts.len() > 2) { reason = status_line[(parts[0].len() + parts[1].len() + 2):status_line.len()]; }
-        var received = __fields(incoming);
-        var content = __body(incoming, received, true);
+        var content: Array<byte> = [];
+        if (method != "HEAD" && __has_body(status)) { content = __body(incoming, received, true, -1); }
         return Response { status: status, reason: reason, headers: received, body: content };
     });
     return __settled(response, failure);
+}
+
+fn __status_line(incoming: __Incoming): <async, Throw<IoError>> (int, string) {
+    var status_line = __line(incoming);
+    var parts = status_line.split(' ');
+    if (parts.len() < 2 || !parts[0].starts_with("HTTP/")) { __malformed("a status line", status_line); }
+    var status = 0;
+    match parts[1].to_int() {
+        Option.Some(n) => { status = n; }
+        Option.None => { __malformed("a status code", parts[1]); }
+    }
+    var reason = "";
+    if (parts.len() > 2) { reason = status_line[(parts[0].len() + parts[1].len() + 2):status_line.len()]; }
+    return (status, reason);
+}
+
+// A response to these has no body whatever its fields say.
+fn __has_body(status: int): bool {
+    return !(status < 200 || status == 204 || status == 304);
 }
 
 // "http://host:port/path?query" as its host, its port and its target.
@@ -177,17 +210,51 @@ fn __host_header(host: string, port: int): string {
 
 // ---- the server ----
 
+/** How much a server takes from a client, and how long it waits. */
+type ServerLimits {
+    /** The largest request body, in bytes. A larger one is answered 413. */
+    max_body: int,
+    /** The most header fields a request may have. More are answered 431. */
+    max_headers: int,
+    /** The longest line, in bytes: 414 for the request line, 431 for a field. */
+    max_line: int,
+    /**
+     * How long a client has to send its whole request, and then to take the
+     * response. One slower than that is answered 408, or dropped.
+     */
+    patience: Duration
+}
+
+impl ServerLimits {
+    /** 8 MiB of body, 100 fields, 8 KiB lines, and 30 seconds. */
+    fn default(): ServerLimits {
+        return ServerLimits {
+            max_body: 8 * 1024 * 1024,
+            max_headers: 100,
+            max_line: 8192,
+            patience: Duration.seconds(30)
+        };
+    }
+}
+
 /**
  * Answers each request that reaches the listener with what the handler
  * returns, until the task running it is cancelled — by `race`, or by a failure
- * beside it in `all`.
+ * beside it in `all` — within `ServerLimits.default()`.
  *
  * Each connection is a task of its own in one scope, so a slow client holds up
- * only itself. A handler that fails answers its request with 500, and a request
- * that cannot be read gets 400; neither stops the server, and nor does a
- * client that goes away.
+ * only itself. A handler that fails, or returns a header field that would
+ * break the response apart, answers 500; a request that cannot be read gets
+ * 400, or the 4xx its limit names. None of these stops the server, and nor
+ * does a client that goes away.
  */
 fn serve<E>(listener: TcpListener, respond: (Request) -> <async, Throw<IoError>, E> Response)
+    : <async, Throw<IoError>, E> unit {
+    serve_with(listener, ServerLimits.default(), respond);
+}
+
+/** `serve`, within these limits. */
+fn serve_with<E>(listener: TcpListener, limits: ServerLimits, respond: (Request) -> <async, Throw<IoError>, E> Response)
     : <async, Throw<IoError>, E> unit {
     scope { start ->
         while (true) {
@@ -196,7 +263,7 @@ fn serve<E>(listener: TcpListener, respond: (Request) -> <async, Throw<IoError>,
             // connection's alone; thrown, it would cancel the server.
             start(() => {
                 run {
-                    __answer(conn, respond);
+                    __answer(conn, limits, respond);
                 } handle Throw {
                     final ctl throw(e) {}
                 }
@@ -205,41 +272,78 @@ fn serve<E>(listener: TcpListener, respond: (Request) -> <async, Throw<IoError>,
     };
 }
 
-fn __answer<E>(conn: TcpStream, respond: (Request) -> <async, Throw<IoError>, E> Response)
+fn __answer<E>(conn: TcpStream, limits: ServerLimits, respond: (Request) -> <async, Throw<IoError>, E> Response)
     : <async, Throw<IoError>, E> unit {
     var (result, failure) = __closing(conn, () => {
-        var incoming = __Incoming { stream: conn, pending: [], at: 0 };
+        var incoming = __Incoming.of(conn, limits.max_line);
         var request: Option<Request> = Option.None;
-        run {
-            var request_line = __line(incoming);
-            var parts = request_line.split(' ');
-            if (parts.len() != 3 || !parts[2].starts_with("HTTP/")) { __malformed("a request line", request_line); }
-            var fields = __fields(incoming);
-            request = Option.Some(Request {
-                method: parts[0],
-                target: parts[1],
-                headers: fields,
-                body: __body(incoming, fields, false)
-            });
-        } handle Throw {
-            final ctl throw(e) {}
-        }
-        var response = Response.text(400, "Bad Request");
-        match request {
-            Option.Some(r) => {
-                run {
-                    response = respond(r);
-                } handle Throw {
-                    final ctl throw(e) { response = Response.text(500, "Internal Server Error"); }
+        var arrived = timeout(limits.patience, () => {
+            run {
+                request = Option.Some(__request(conn, incoming, limits));
+            } handle Throw {
+                final ctl throw(e) {}
+            }
+        });
+        var response = Response.text(408, "Request Timeout");
+        match arrived {
+            Option.None => {}
+            Option.Some(_) => {
+                match request {
+                    Option.None => { response = Response.text(incoming.refusal, __reason(incoming.refusal)); }
+                    Option.Some(r) => {
+                        run {
+                            response = respond(r);
+                        } handle Throw {
+                            final ctl throw(e) { response = Response.text(500, "Internal Server Error"); }
+                        }
+                        if (__invalid_field(response.headers) != Option.None || !__is_clean(response.reason)) {
+                            response = Response.text(500, "Internal Server Error");
+                        }
+                    }
                 }
             }
-            Option.None => {}
         }
-        conn.write(__head("HTTP/1.1 " + str(response.status) + " " + response.reason, response.headers, response.body.len()));
-        conn.write(response.body);
+        var head = request != Option.None && __method_of(request) == "HEAD";
+        timeout(limits.patience, () => {
+            var length: Option<int> = Option.None;
+            if (__has_body(response.status)) { length = Option.Some(response.body.len()); }
+            conn.write(__head("HTTP/1.1 " + str(response.status) + " " + response.reason, response.headers, length));
+            if (!head && __has_body(response.status)) { conn.write(response.body); }
+        });
         return ();
     });
     __settled(result, failure);
+}
+
+fn __method_of(request: Option<Request>): string {
+    match request {
+        Option.Some(r) => { return r.method; }
+        Option.None => { return ""; }
+    }
+    return "";
+}
+
+// The request, read within the limits. A request that breaks one sets the
+// status to refuse it with before throwing.
+fn __request(conn: TcpStream, incoming: __Incoming, limits: ServerLimits): <async, Throw<IoError>> Request {
+    incoming.too_long = 414;
+    var request_line = __line(incoming);
+    var parts = request_line.split(' ');
+    if (parts.len() != 3 || !parts[2].starts_with("HTTP/")) { __malformed("a request line", request_line); }
+    incoming.too_long = 431;
+    var fields = __fields(incoming, limits.max_headers);
+    // Asked to say whether the body is wanted before it is sent, which a body
+    // over the limit is not.
+    match fields.get("Expect") {
+        Option.Some(expectation) => {
+            if (expectation.to_lower() == "100-continue") {
+                __within(incoming, fields, limits.max_body);
+                conn.write("HTTP/1.1 100 Continue\r\n\r\n".bytes());
+            }
+        }
+        Option.None => {}
+    }
+    return Request { method: parts[0], target: parts[1], headers: fields, body: __body(incoming, fields, false, limits.max_body) };
 }
 
 // ---- the wire ----
@@ -279,9 +383,9 @@ fn __settled<T>(result: Option<T>, failure: Option<IoError>): <Throw<IoError>> T
     }
 }
 
-// The start line, the fields, and the length of the body that follows. The
-// connection closes after one exchange, which both ends are told.
-fn __head(start: string, headers: Headers, length: int): Array<byte> {
+// The start line, the fields, and the length of the body that follows, if one
+// does. The connection closes after one exchange, which both ends are told.
+fn __head(start: string, headers: Headers, length: Option<int>): Array<byte> {
     var out = start + "\r\n";
     for ((n, v) in headers.fields) {
         var lower = n.to_lower();
@@ -289,15 +393,63 @@ fn __head(start: string, headers: Headers, length: int): Array<byte> {
             out = out + n + ": " + v + "\r\n";
         }
     }
-    out = out + "Content-Length: " + str(length) + "\r\nConnection: close\r\n\r\n";
+    match length {
+        Option.Some(n) => { out = out + "Content-Length: " + str(n) + "\r\n"; }
+        Option.None => {}
+    }
+    out = out + "Connection: close\r\n\r\n";
     return out.bytes();
+}
+
+// A field that would end the line it is written on, or put a colon in its
+// name, lets whoever chose it write fields — or a whole response — of their own.
+fn __invalid_field(headers: Headers): Option<string> {
+    for ((n, v) in headers.fields) {
+        if (!__is_token(n)) { return Option.Some("not a header field name: " + n); }
+        if (!__is_clean(v)) { return Option.Some("a header field's value holds a line break: " + n); }
+    }
+    return Option.None;
+}
+
+// A name as HTTP spells one: letters, digits, and a few marks, nothing else.
+fn __is_token(text: string): bool {
+    if (text.len() == 0) { return false; }
+    for (c in text.chars()) {
+        if (!(is_alphanumeric(c) || "!#$%&'*+-.^_`|~".contains(str(c)))) { return false; }
+    }
+    return true;
+}
+
+// Text with no control character but a tab.
+fn __is_clean(text: string): bool {
+    for (c in text.chars()) {
+        var point = ord(c);
+        if ((point < 32 && c != '\t') || point == 127) { return false; }
+    }
+    return true;
 }
 
 // A connection's bytes, read as they are asked for: a line, a count, or the rest.
 type __Incoming {
     stream: TcpStream,
     pending: List<byte>,
-    at: int
+    at: int,
+    max_line: int,
+    /** What a line over `max_line` is answered with. */
+    too_long: int,
+    /** What a request that cannot be read is answered with. */
+    refusal: int
+}
+
+impl __Incoming {
+    fn of(stream: TcpStream, max_line: int): __Incoming {
+        return __Incoming { stream: stream, pending: [], at: 0, max_line: max_line, too_long: 400, refusal: 400 };
+    }
+}
+
+fn __refuse(incoming: __Incoming, status: int, why: string): <Throw<IoError>> unit {
+    incoming.refusal = status;
+    throw(IoError.Other(why));
 }
 
 fn __more(incoming: __Incoming): <async, Throw<IoError>> bool {
@@ -329,7 +481,9 @@ fn __line(incoming: __Incoming): <async, Throw<IoError>> string {
                 return __text_of(collected.items[0:stop]);
             }
             collected.push(b);
-            if (collected.len() > 65536) { __malformed("a line", "longer than 64 KiB"); }
+            if (collected.len() > incoming.max_line) {
+                __refuse(incoming, incoming.too_long, "a line longer than " + str(incoming.max_line) + " bytes");
+            }
         }
         if (!__more(incoming)) { __malformed("a line", "the connection ended in the middle of one"); }
     }
@@ -362,8 +516,9 @@ fn __rest(incoming: __Incoming): <async, Throw<IoError>> Array<byte> {
     return collected.items[0:collected.len()];
 }
 
-// Header fields up to the blank line that ends them.
-fn __fields(incoming: __Incoming): <async, Throw<IoError>> Headers {
+// Header fields up to the blank line that ends them; at most `max` of them,
+// unless it is negative.
+fn __fields(incoming: __Incoming, max: int): <async, Throw<IoError>> Headers {
     var headers = Headers.new();
     var going = true;
     while (going) {
@@ -374,24 +529,48 @@ fn __fields(incoming: __Incoming): <async, Throw<IoError>> Headers {
             var colon = line.index_of(":");
             if (colon <= 0) { __malformed("a header field", line); }
             headers.add(line[0:colon].trim(), line[(colon + 1):line.len()].trim());
+            if (max >= 0 && headers.fields.len() > max) {
+                __refuse(incoming, 431, "more than " + str(max) + " header fields");
+            }
         }
     }
     return headers;
 }
 
+// Refuses a body whose `Content-Length` is over `max`, before any of it is read.
+fn __within(incoming: __Incoming, headers: Headers, max: int): <Throw<IoError>> unit {
+    if (max < 0) { return; }
+    match headers.get("Content-Length") {
+        Option.Some(text) => {
+            match text.to_int() {
+                Option.Some(n) => {
+                    if (n > max) { __refuse(incoming, 413, "a body of " + str(n) + " bytes"); }
+                }
+                Option.None => {}
+            }
+        }
+        Option.None => {}
+    }
+}
+
 // Chunked, or as long as `Content-Length` says; with neither, a response's
-// body runs to the end of the connection and a request has none.
-fn __body(incoming: __Incoming, headers: Headers, to_end: bool): <async, Throw<IoError>> Array<byte> {
+// body runs to the end of the connection and a request has none. At most
+// `max` bytes, unless it is negative.
+fn __body(incoming: __Incoming, headers: Headers, to_end: bool, max: int): <async, Throw<IoError>> Array<byte> {
     match headers.get("Transfer-Encoding") {
         Option.Some(coding) => {
-            if (coding.to_lower() == "chunked") { return __chunked(incoming); }
+            if (coding.to_lower() == "chunked") { return __chunked(incoming, max); }
         }
         Option.None => {}
     }
     match headers.get("Content-Length") {
         Option.Some(text) => {
             match text.to_int() {
-                Option.Some(n) => { return __exactly(incoming, n); }
+                Option.Some(n) => {
+                    if (n < 0) { __malformed("a Content-Length", text); }
+                    __within(incoming, headers, max);
+                    return __exactly(incoming, n);
+                }
                 Option.None => { __malformed("a Content-Length", text); }
             }
         }
@@ -403,7 +582,7 @@ fn __body(incoming: __Incoming, headers: Headers, to_end: bool): <async, Throw<I
 
 // Each chunk is its size in hex on a line, the bytes, and a line ending; a
 // size of 0 ends them, and any trailer fields after it are read and dropped.
-fn __chunked(incoming: __Incoming): <async, Throw<IoError>> Array<byte> {
+fn __chunked(incoming: __Incoming, max: int): <async, Throw<IoError>> Array<byte> {
     var collected: List<byte> = [];
     var going = true;
     while (going) {
@@ -415,11 +594,14 @@ fn __chunked(incoming: __Incoming): <async, Throw<IoError>> Array<byte> {
         if (size == 0) {
             going = false;
         } else {
+            if (max >= 0 && collected.len() + size > max) {
+                __refuse(incoming, 413, "a body over " + str(max) + " bytes");
+            }
             for (b in __exactly(incoming, size)) { collected.push(b); }
             __line(incoming);
         }
     }
-    __fields(incoming);
+    __fields(incoming, 100);
     return collected.items[0:collected.len()];
 }
 
@@ -447,6 +629,7 @@ fn __malformed(what: string, found: string): <Throw<IoError>> unit {
 }
 
 fn __reason(status: int): string {
+    if (status == 100) { return "Continue"; }
     if (status == 200) { return "OK"; }
     if (status == 201) { return "Created"; }
     if (status == 204) { return "No Content"; }
@@ -458,6 +641,11 @@ fn __reason(status: int): string {
     if (status == 403) { return "Forbidden"; }
     if (status == 404) { return "Not Found"; }
     if (status == 405) { return "Method Not Allowed"; }
+    if (status == 408) { return "Request Timeout"; }
+    if (status == 413) { return "Content Too Large"; }
+    if (status == 414) { return "URI Too Long"; }
+    if (status == 417) { return "Expectation Failed"; }
+    if (status == 431) { return "Request Header Fields Too Large"; }
     if (status == 500) { return "Internal Server Error"; }
     if (status == 503) { return "Service Unavailable"; }
     return "Unknown";
