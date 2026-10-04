@@ -165,6 +165,10 @@ The interpreter needs a real table rather than a type tag: a record value holds 
 
 A method call on a trait-typed receiver becomes a call through that table. It is a resolved callee that reads its target from a slot, which is why `Verify` still rejects an unresolved one — and why it also checks the table against the trait it claims to be, so a slot the trait never declared, or a method the table has no slot for, is caught before the interpreter has to have an opinion about it.
 
+## Comparing two objects
+
+`==` on two objects answers what it would answer on the values inside them, which the table alone cannot: two fieldless types are the same value, and a type's `Eq` impl is chosen statically at the type. So an object also carries the type it was made from, written out with its arguments, and the function `==` reaches at that type when there is an impl. Two objects made from different types are unequal; two made from the same one are compared by that function, or structurally when there is none. Both are read off the coercion by `Resolve`, beside the table, so nothing is decided at run time that the checker could not already see. Rejecting `==` on a trait-typed operand was the alternative, and it would make objects the one thing `==` cannot compare when it has no `Eq` bound anywhere else.
+
 ## Effects travel with the call
 
 A row cannot be read off a vtable, so the method's own type travels with the call site. One call sequence is emitted, and the row decides how many evidence parameters it appends, so every impl has to agree on that row: the trait declares it and an impl repeats it, and an impl that writes a different one — or omits a row the trait wrote — is a conformance error like any other signature mismatch.

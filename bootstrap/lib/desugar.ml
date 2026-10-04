@@ -111,7 +111,7 @@ let rec indexed span (names : binder) seq (body : desugared_stmt) : desugared_st
   [ node (`Var_decl (index, None, Some (value (`Int 0))))
   ; looped
       span
-      (value (`Binop (Less, value (`Var index), value (`Method_call (value (`Var seq), "len", "len", [])))))
+      (value (`Binop (Less, value (`Var index), value (`Method_call (value (`Var seq), "len", "len", [], None)))))
       inner
       (Some step)
   ]
@@ -127,12 +127,12 @@ and pulled span (names : binder) seq ~closes (body : desugared_stmt) : desugared
   and element = fresh "item" in
   let asked =
     if closes
-    then value (`Method_call (value (`Var seq), "next", "next", []))
+    then value (`Method_call (value (`Var seq), "next", "next", [], None))
     else value (`Call (value (`Var seq), []))
   in
   let closing =
     if closes
-    then [ node (`Defer (node (`Expr (value (`Method_call (value (`Var seq), "close", "close", [])))))) ]
+    then [ node (`Defer (node (`Expr (value (`Method_call (value (`Var seq), "close", "close", [], None)))))) ]
     else []
   in
   closing

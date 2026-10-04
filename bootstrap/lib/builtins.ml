@@ -260,7 +260,7 @@ let written ~globals =
       let buf = Buffer.create 4 in
       Buffer.add_utf_8_uchar buf c;
       if mode = `Debug then quoted ~mark:'\'' (Buffer.contents buf) else Buffer.contents buf
-    | None, Value.Object (data, _) -> shown span mode data
+    | None, Value.Object (data, _, _) -> shown span mode data
     | None, v -> form span v
   (* The builtin form: the structure, each part as `debug` writes it. *)
   and form span (v : Value.value) =
@@ -274,7 +274,7 @@ let written ~globals =
     | Value.Record (_, fields) ->
       "{ " ^ String.concat ", " (List.map (fun (l, v) -> l ^ ": " ^ part !v) fields) ^ " }"
     | Value.Byte b -> string_of_int (Char.code b)
-    | Value.Object (data, _) -> form span data
+    | Value.Object (data, _, _) -> form span data
     | other -> Value.string_of_value other
   in
   shown, form
@@ -494,9 +494,9 @@ let values ~out ~globals =
       match v with
       | Value.Str s -> Value.fail span "%s" (Utf8.encode s)
       | _ -> Value.fail span "Cannot apply panic to these arguments.")
-  ; two "same" (fun _ a b -> Value.Bool (Value.same a b))
+  ; two "same" (fun span a b -> Value.Bool (Value.same span a b))
   ; one "__upcast" (fun _ v -> v)
-  ; two "__structural_eq" (fun _ a b -> Value.Bool (Value.values_equal a b))
+  ; two "__structural_eq" (fun span a b -> Value.Bool (Value.values_equal span a b))
   ; one (Ast.method_name "string" "as_name") (fun span v ->
       match v with
       | Value.Str s ->

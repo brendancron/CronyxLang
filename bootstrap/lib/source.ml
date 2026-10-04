@@ -173,7 +173,7 @@ let rec expr (e : Ast.expr) : string =
               | Ast.St_value v -> expr v)
             static_args))
       (arguments args)
-  | `Method_call (receiver, name, _, args) ->
+  | `Method_call (receiver, name, _, args, _) ->
     Printf.sprintf "%s.%s(%s)" (expr receiver) name (arguments args)
   | `Typeof inner -> Printf.sprintf "typeof(%s)" (expr inner)
   | `Code inner -> Printf.sprintf "code(%s)" (expr inner)

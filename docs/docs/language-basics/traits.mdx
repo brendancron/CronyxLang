@@ -77,6 +77,24 @@ A few things worth noticing:
 
 If you forget to implement a trait method, or implement it with the wrong signature, the compiler will tell you. Implementations must match the trait's declarations exactly.
 
+### A trait's methods need the trait in scope
+
+A trait's methods are reachable through a dot only in a file that can see the trait: one that declares it, imports it by name, or imports the whole module that declares it. Here `shapes.cx` declares `Area` and implements it for `Square`:
+
+```cronyx
+import { square } from "shapes";
+
+print(square(3).area());   // error: 'area' on 'Square' comes from the trait 'Area', which is not in scope here
+```
+
+```cronyx
+import { Area, square } from "shapes";
+
+print(square(3).area());   // 9
+```
+
+`import "shapes";` works too. The traits the standard prelude imports for every file, such as `Display`, `Eq` and the operator traits, are always in scope, and an operator like `+` reaches its trait wherever it is written. A method a type declares in a plain `impl Square { … }` block needs no import.
+
 ## One trait, many types
 
 A trait pays off when you have *several* types that share an interface. Here's the same `Show` operation implemented for two unrelated types:
@@ -253,6 +271,18 @@ viaBound(sp);
 ```
 
 Reach for the bound by default. Reach for the object when a single value, field or collection genuinely has to hold more than one type.
+
+### Comparing objects
+
+`==` on two objects gives the answer it would give on the values inside them. Two objects holding different types are never equal, and two holding the same type compare the way that type does, using its `Eq` impl if it has one:
+
+```cronyx
+var a: Speaker = Cat;
+var b: Speaker = Cat;
+var c: Speaker = Dog;
+print(a == b);   // true
+print(a == c);   // false
+```
 
 ### Effects are part of the contract
 

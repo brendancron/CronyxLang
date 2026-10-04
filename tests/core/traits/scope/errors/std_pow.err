@@ -1,0 +1,1 @@
+[3:7] 'pow' on 'int' comes from the trait 'Pow<int>', which is not in scope here. Import it to call the method.

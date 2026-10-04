@@ -111,6 +111,7 @@ let describe_entry owner e =
   in
   match e.trait with
   | None -> written owner
+  | Some trait when e.targets = [] -> written trait
   | Some trait ->
     Printf.sprintf
       "%s<%s>"

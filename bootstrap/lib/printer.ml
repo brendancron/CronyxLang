@@ -106,7 +106,7 @@ let rec string_of_expr (e : Ast.expr) : string =
       (string_of_expr callee)
       (String.concat ", " (List.map static_arg static_args))
       (String.concat "" (List.map (fun a -> " " ^ string_of_expr a) args))
-  | `Method_call (receiver, name, _, args) ->
+  | `Method_call (receiver, name, _, args, _) ->
     Printf.sprintf
       "(. %s %s%s)"
       (string_of_expr receiver)

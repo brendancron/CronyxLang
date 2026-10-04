@@ -1,0 +1,4 @@
+import { square, doubled, Area } from "shapes";
+
+print(doubled(square(3)));
+print(square(3).area());

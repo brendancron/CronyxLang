@@ -33,6 +33,7 @@ let packages =
   ; "reads_data"
   ; "explicit_type_arg"
   ; "shadowed_static_param"
+  ; "trait_across/app"
   ]
 let bad_packages =
   [ "reaches_out"
@@ -41,6 +42,7 @@ let bad_packages =
   ; "version_conflict"
   ; "needs_future_compiler"
   ; "path_version_mismatch"
+  ; "trait_across/hidden"
   ]
 
 (* Run through `cx test` rather than `cx run`: the expectation is the report,

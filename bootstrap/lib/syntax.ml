@@ -151,7 +151,7 @@ let rec expr (e : Ast.expr) : Value.value =
     | `And (a, b) -> k "And" [ expr a; expr b ]
     | `Or (a, b) -> k "Or" [ expr a; expr b ]
     | `Call (f, args) -> k "Call" [ expr f; list expr args ]
-    | `Method_call (receiver, n, _, args) -> k "MethodCall" [ expr receiver; name n; list expr args ]
+    | `Method_call (receiver, n, _, args, _) -> k "MethodCall" [ expr receiver; name n; list expr args ]
     | `Static_call (f, static_args, args) ->
       k "StaticCall" [ expr f; list static_arg static_args; list expr args ]
     | `Compound (op, n, v) -> k "Compound" [ binop op; name n; expr v ]
@@ -592,7 +592,7 @@ let rec read_expr r v : Ast.expr =
     | "Call", [ f; a ] -> `Call (e f, es a)
     | "MethodCall", [ recv; n; a ] ->
       let n = read_name n in
-      `Method_call (e recv, n, n, es a)
+      `Method_call (e recv, n, n, es a, None)
     | "StaticCall", [ f; sa; a ] -> `Static_call (e f, read_list (read_static_arg r) sa, es a)
     | "Compound", [ op; n; x ] -> `Compound (read_binop op, read_name n, e x)
     | "CompoundIndex", [ op; a; i; x ] -> `Compound_index (read_binop op, e a, e i, e x)

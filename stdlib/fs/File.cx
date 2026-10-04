@@ -17,7 +17,7 @@
  */
 
 import { async } from "../async/Task";
-import { Throw, Result } from "../core/Error";
+import { Throw, Result, Failure } from "../core/Error";
 import { Reader, Writer, Closer, IoError, using } from "../io/Io";
 import { decode } from "../text/Utf8";
 import { join, parent } from "Path";

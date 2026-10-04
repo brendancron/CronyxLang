@@ -34,7 +34,7 @@
  */
 
 import { async } from "../async/Task";
-import { Throw, Result } from "../core/Error";
+import { Throw, Result, Failure } from "../core/Error";
 import { Reader, IoError } from "Io";
 import { decode } from "../text/Utf8";
 

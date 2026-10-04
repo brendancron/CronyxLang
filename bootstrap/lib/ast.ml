@@ -321,7 +321,12 @@ type ('s, 'ann) method_defs =
   ]
 
 (* Method-or-function is a typing question, the name a loading one. *)
-type 'e method_call = [ `Method_call of 'e * string * string * 'e list ]
+(* The names the file that wrote the call can see, which is where a trait's
+   impl may answer it from; [None] for a call no file wrote, which a meta block
+   built and which reaches any impl. *)
+type in_scope = string list option
+
+type 'e method_call = [ `Method_call of 'e * string * string * 'e list * in_scope ]
 
 (* Which impl a call reaches: the trait, and the arguments that tell two impls of
    it on one type apart. A bound is where these come from, so a call inside a
@@ -351,10 +356,18 @@ type ('e, 'ty) coercions =
    vtable, and evidence is owed by what the method performs. *)
 type ('e, 'ty) dyn_calls = [ `Dyn_call of 'e * string * 'ty * 'e list ]
 
+(* What tells two objects apart: the type each was made from, and the `Eq`
+   impl `==` reaches at that type, if it has one. The data alone cannot say --
+   two fieldless types are the same record. *)
+type 'e identity =
+  { made_from : string
+  ; equal : 'e option
+  }
+
 (* What a coercion becomes: the data beside the functions chosen for it, and a
    call that reads its target out of that table rather than from a name. *)
 type 'e objects =
-  [ `Object of 'e * (string * 'e) list
+  [ `Object of 'e * 'e identity * (string * 'e) list
   | ('e, Types.ty) dyn_calls
   ]
 
@@ -766,13 +779,12 @@ let generated parts =
 let discontinue_name = generated [ "cps"; "discontinue" ]
 let discontinued_name = generated [ "cps"; "discontinued" ]
 
-(* The function each top-level statement runs under, found by the name it was
-   written with: the prelude imports it from a module, so it carries that
-   module's name. *)
-let root_function = "__root"
+(* The function each top-level statement runs under, by the whole name the
+   prelude's declaration is mangled to. Any module may declare a `__root` of its
+   own, and one matched by its last part would take every statement over. *)
+let root_function = generated [ "std"; "prelude"; "__root" ]
 
-let is_root name =
-  String.equal name root_function || String.ends_with ~suffix:("#" ^ root_function) name
+let is_root name = String.equal name root_function
 
 (* By trait rather than by the name written, so every deriver may be called
    `derive`. *)
@@ -844,8 +856,8 @@ let map_static_call (f : 'a -> 'b) (e : 'a static_call) : 'b static_call =
 
 let map_method_call (f : 'a -> 'b) (e : 'a method_call) : 'b method_call =
   match e with
-  | `Method_call (receiver, name, as_function, args) ->
-    `Method_call (f receiver, name, as_function, List.map f args)
+  | `Method_call (receiver, name, as_function, args, scope) ->
+    `Method_call (f receiver, name, as_function, List.map f args, scope)
 
 let map_coercion (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) coercions)
   : ('b, 'u) coercions
@@ -880,7 +892,11 @@ let map_dyn_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) dyn_calls)
 
 let map_object (f : 'a -> 'b) (e : 'a objects) : 'b objects =
   match e with
-  | `Object (data, vtable) -> `Object (f data, List.map (fun (l, v) -> l, f v) vtable)
+  | `Object (data, id, vtable) ->
+    `Object
+      ( f data
+      , { id with equal = Option.map f id.equal }
+      , List.map (fun (l, v) -> l, f v) vtable )
   | #dyn_calls as d -> (map_dyn_call f (fun t -> t) d :> 'b objects)
 
 let map_method_def (fs : 's1 -> 's2) (fa : 'a1 -> 'a2) (m : ('s1, 'a1) method_def)

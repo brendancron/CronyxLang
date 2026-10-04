@@ -1,5 +1,5 @@
 import { Encode, Decode, Data, Entry, DecodeError, decode_data } from "std/encoding/Codec";
-import { Result, attempt } from "std/core/Error";
+import { Result, attempt, Failure } from "std/core/Error";
 
 type Shape {
     Circle(int),

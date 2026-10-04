@@ -1,0 +1,1 @@
+[src/main.cx 3:7] 'area' on 'Square' comes from the trait 'Area', which is not in scope here. Import it to call the method.

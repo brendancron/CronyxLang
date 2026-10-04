@@ -28,7 +28,7 @@ print(x.sqrt().floor());   // 3.0
 
 - **The import is the opt-in.** A file that never names `sin` never has it, so a program's own `fn round` is never contested by a library one it did not ask for. `import "std/math/Math"` still gives `Math.sqrt(x)`; only a name brought in by `import { … }` is reachable through a dot, because the dot resolves the name the way a bare reference does.
 - **An impl still answers first.** `BigInt` keeps its own `abs` and `pow`, and `n.abs()` on a `BigInt` reaches them rather than anything imported.
-- **A trait method is opted into the same way.** `2.pow(10)` reaches `Pow`'s impl only in a file that has `Pow` in scope, by importing it or by being the module that declares it, as in Rust. Loading `math/Num` somewhere else in the program does not make it reachable here. The operators are the exception: `+` reaches `Add` wherever it is written, since its traits are in every file.
+- **A trait method is opted into the same way.** `2.pow(10)` reaches `Pow`'s impl only in a file that has `Pow` in scope: by importing it by name, by importing `math/Num` whole, or by being the module that declares it. Loading `math/Num` somewhere else in the program does not make it reachable here. The operators are the exception: `+` reaches `Add` wherever it is written, since its traits are in every file.
 - **One declaration serves both spellings.** The reference documents `sqrt` once, and `Math.sqrt(x)` and `x.sqrt()` are the same call.
 
 ## One name, one meaning
@@ -222,7 +222,5 @@ What numpy adds beyond this, vectors, matrices and element-wise functions over t
 ## What the language owes the library
 
 Each of these is a gap in the language that the library cannot paper over, and each is fixed with a fixture of its own before the functions that depend on it.
-
-**A dot reaches any impl the program has loaded.** A method call finds a trait's impl whether or not the file names the trait: once one file imports `math/Num`, `2.pow(10)` works in a file that imported nothing from it. The checker has to look for a method only among the traits in scope at the call, which also stops a library's impl on `int` from changing what `x.f()` means in a file that never asked for it.
 
 **`const` is wanted, not required.** The constants work as functions; `const` changes their spelling and nothing else.
