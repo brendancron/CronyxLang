@@ -1,0 +1,45 @@
+import { scratch } from "benchmarks";
+import { async } from "std/async/Task";
+
+fn pure_step(): int { return 0; }
+fn async_step(): <async> int { return 0; }
+
+@bench(100)
+@time("linear")
+@memory("constant")
+fn pure_calls(n: int) {
+    var total = 0;
+    for (var i = 0; i < n; i += 1) { total += scratch(2000) + pure_step(); }
+}
+
+// Issue #133: each call kept the caller's scope alive.
+@bench(100)
+@time("linear")
+@memory("constant")
+fn async_calls(n: int) {
+    var total = 0;
+    for (var i = 0; i < n; i += 1) { total += scratch(2000) + async_step(); }
+}
+
+@bench(100)
+@time("linear")
+@memory("constant")
+fn closure_calls(n: int) {
+    var total = 0;
+    for (var i = 0; i < n; i += 1) {
+        var size = 2000;
+        var f = () => scratch(size);
+        total += f();
+    }
+}
+
+fn depth(n: int): int {
+    if (n == 0) { return 0; }
+    return 1 + depth(n - 1);
+}
+
+@bench(2000)
+@time("linear")
+fn recursion(n: int) {
+    for (var i = 0; i < 20; i += 1) { depth(n); }
+}

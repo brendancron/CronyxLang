@@ -1,5 +1,5 @@
 /**
- * Timing a piece of code.
+ * Timing a piece of code, and the half of `cx bench` written in Cronyx.
  *
  * ```
  * import { bench } from "std/test/Bench";
@@ -13,9 +13,28 @@
  *
  * The clock is `Time`'s, so a test that handles `Time` with a fixed clock gets
  * the same report every run.
+ *
+ * `cx bench` runs each `@bench` function under `benches/` in a process of its
+ * own, at a size `n` and at four times it, and reports how its time and its
+ * peak memory grew between the two:
+ *
+ * ```
+ * @bench(1000)
+ * @memory("constant")
+ * fn calls(n: int) {
+ *     for (var i = 0; i < n; i += 1) { step(); }
+ * }
+ * ```
+ *
+ * `@bench` takes the size, 1000 if none is given. `@time` and `@memory` each
+ * take `"constant"`, `"linear"` or `"quadratic"`: a benchmark that grows faster
+ * than it says fails, which is how a leak or a quadratic slowdown is caught
+ * without trusting any one timing.
  */
 
 import { Duration, Instant, Time } from "../os/Time";
+import { Expr, ExprKind, Stmt } from "../compiler/Ast";
+import { attr } from "../meta/Derive";
 
 /** How long a piece of code took, over how many runs. */
 type Measurement {
@@ -44,4 +63,113 @@ fn bench<E>(name: string, runs: int, body: () -> <E> unit): <Time, E> Measuremen
     var start = instant();
     for (var i = 0; i < runs; i += 1) { body(); }
     return Measurement { name: name, runs: runs, total: instant() - start };
+}
+
+/**
+ * Generates `__bench_names()`, `__bench_plans()` and `__bench_run(index, size)`
+ * for the `@bench` functions in the module. A plan is the size, the time class
+ * and the memory class, separated by tabs, with `-` for a class not given.
+ */
+fn collect_benches(m: Module) {
+    var benches = __benches_in(m);
+    var names: List<Expr> = [];
+    var plans: List<Expr> = [];
+    var chain: List<Stmt> = [];
+    for (var i = 0; i < benches.len(); i += 1) {
+        var d = benches[i];
+        if (d.params.len() != 1) {
+            compile_error(d.span, "'" + str(d.name) + "' is a benchmark, so it takes one parameter: the size it runs at.");
+        }
+        var label = str(d.name);
+        names.push(code(label));
+        var plan = str(__size_of(d)) + "\t" + __class_of(d, "time") + "\t" + __class_of(d, "memory");
+        plans.push(code(plan));
+        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span };
+        var size = Expr { kind: ExprKind.Var("size".as_name()), span: d.span };
+        var call = Expr { kind: ExprKind.Call(callee, [size]), span: d.span };
+        var index = i;
+        for (s in code { if (selected == index) { call; } }) { chain.push(s); }
+    }
+    var all = Expr.of(ExprKind.Collection(names));
+    var every = Expr.of(ExprKind.Collection(plans));
+    gen fn __bench_names(): List<string> { return all; }
+    gen fn __bench_plans(): List<string> { return every; }
+    gen fn __bench_run(selected: int, size: int) { chain; }
+}
+
+/**
+ * Runs the benchmark `cx bench` chose for this process at the size it chose,
+ * or lists each one's name and plan when none was chosen.
+ */
+fn run_benches<E>(names: List<string>, plans: List<string>, body: (int, int) -> <E> unit): <E> unit {
+    var mark = str(chr(30));
+    var selected = __test_selected();
+    if (selected < 0) {
+        for (var i = 0; i < names.len(); i += 1) { print(mark + "?" + names[i] + "\t" + plans[i]); }
+        return;
+    }
+    if (selected >= names.len()) { return; }
+    print(mark + ">" + names[selected]);
+    body(selected, __bench_size());
+    print(mark + "+" + names[selected]);
+}
+
+fn __benches_in(m: Module): List<Declaration> {
+    var found: List<Declaration> = [];
+    match m {
+        Module.File(_, declarations) => {
+            for (d in declarations) {
+                match d.kind {
+                    DeclarationKind.Function => {
+                        match attr(d.attrs, "bench") {
+                            Option.Some(_) => { found.push(d); }
+                            Option.None => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Module.Directory(_, modules) => {
+            for (inner in modules) {
+                for (d in __benches_in(inner)) { found.push(d); }
+            }
+        }
+    }
+    return found;
+}
+
+fn __size_of(d: Declaration): int {
+    match attr(d.attrs, "bench") {
+        Option.Some(a) => {
+            if (a.args.len() == 0) { return 1000; }
+            if (a.args.len() == 1) {
+                match a.args[0] {
+                    AttrArg.Int(n) => { if (n > 0) { return n; } }
+                    _ => {}
+                }
+            }
+        }
+        Option.None => {}
+    }
+    compile_error(d.span, "'" + str(d.name) + "' takes its size as '@bench(n)', with n above 0.");
+    return 0;
+}
+
+fn __class_of(d: Declaration, name: string): string {
+    match attr(d.attrs, name) {
+        Option.Some(a) => {
+            if (a.args.len() == 1) {
+                match a.args[0] {
+                    AttrArg.Str(c) => {
+                        if (c == "constant" || c == "linear" || c == "quadratic") { return c; }
+                    }
+                    _ => {}
+                }
+            }
+            compile_error(d.span, "'@" + name + "' takes \"constant\", \"linear\" or \"quadratic\".");
+        }
+        Option.None => {}
+    }
+    return "-";
 }

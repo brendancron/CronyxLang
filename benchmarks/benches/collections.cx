@@ -1,0 +1,23 @@
+@bench(20000)
+@time("linear")
+@memory("linear")
+fn list_push(n: int) {
+    var xs: List<int> = [];
+    for (var i = 0; i < n; i += 1) { xs.push(i); }
+}
+
+@bench(20000)
+@time("linear")
+fn list_sum(n: int) {
+    var xs: List<int> = [];
+    for (var i = 0; i < n; i += 1) { xs.push(i); }
+    var total = 0;
+    for (x in xs) { total += x; }
+}
+
+@bench(50000)
+@time("linear")
+fn string_concat(n: int) {
+    var parts: List<string> = [];
+    for (var i = 0; i < n; i += 1) { parts.push(str(i)); }
+}

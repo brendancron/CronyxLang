@@ -207,6 +207,41 @@ If no test matches, `cx test` prints `no tests` and succeeds.
 
 A file under `tests/` that does not compile is reported along with any others that do not, and no tests run.
 
+## cx bench
+
+```
+cx bench [filter] [--locked | --offline | --frozen]
+```
+
+Builds the package and runs every function marked `@bench` in the files under `benches/`, including its subdirectories. A benchmark takes one parameter, the size it runs at, and imports the package by its name as a test does:
+
+```cronyx title="benches/calls.cx"
+import { step } from "hello";
+
+@bench(1000)
+@time("linear")
+@memory("constant")
+fn calls(n: int) {
+    for (var i = 0; i < n; i += 1) { step(); }
+}
+```
+
+`@bench` takes the size, and 1000 if none is given. Each benchmark runs in a process of its own, once at its size and once at four times it, and `cx bench` reports the time and the peak memory of each run, and how each grew between them:
+
+```
+ok   calls
+  n=1000: 118.3ms 1.2MB   n=4000: 460.4ms 1.2MB   time n^1.0, memory n^0.0
+FAIL leaks
+  memory grew as n^1.0, and it is declared constant
+  n=100: 125.5ms 2.0MB   n=400: 543.4ms 8.1MB   time n^1.0, memory n^1.0
+
+1/2 passed
+```
+
+`@time` and `@memory` each take `"constant"`, `"linear"` or `"quadratic"`. A benchmark that grows faster than it declares fails, with half a power of slack, so `cx bench` judges how a program scales rather than how fast one machine ran it: a call that leaks memory, or a loop that has become quadratic, fails on any machine. One that declares neither is reported and never fails. Runs under 10ms and memory under 1MB are too small to tell growth from noise, and count as that floor.
+
+`cx bench` exits with status 1 if any benchmark failed. With a filter, only the benchmarks whose names contain it run. Nothing in `benches/` is part of the package, so `cx publish` ships none of it.
+
 ## cx publish
 
 ```

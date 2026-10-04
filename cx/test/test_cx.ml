@@ -47,6 +47,10 @@ let bad_packages =
    not what the program prints. *)
 let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "crashing_test"; "logged" ]
 
+(* Run through `cx bench`. Only the verdicts are compared: the indented lines
+   under each are timings and sizes, which no two runs share. *)
+let bench_packages = [ "benched"; "bad_bench" ]
+
 (* Paired with an `expected.json` of the documentation index, which is compared
    twice: once built cold and once over the artifacts the first build left, so
    the index is a function of the source rather than of the cache. *)
@@ -736,6 +740,33 @@ let test_package_case dir name =
     Printf.printf "FAIL test/%s\n  expected the diagnostics in expected.err\n" name;
     false
 
+let bench_package_case dir name =
+  let root = Filename.concat dir name in
+  let failing = Filename.concat root "expected.err" in
+  clean dir;
+  match Cx.Bench.run ~self:cx root, Sys.file_exists failing with
+  | Error errors, true ->
+    compare_case
+      ("bench/" ^ name)
+      ~expected:(expectation failing)
+      ~actual:(diagnostics ~root:dir root errors)
+  | Error errors, false ->
+    Printf.printf "FAIL bench/%s\n  %s\n" name (diagnostics ~root:dir root errors);
+    false
+  | Ok (rendered, _), false ->
+    let verdicts =
+      String.split_on_char '\n' rendered
+      |> List.filter (fun line -> not (String.length line >= 2 && String.equal (String.sub line 0 2) "  "))
+      |> String.concat "\n"
+    in
+    compare_case
+      ("bench/" ^ name)
+      ~expected:(expectation (Filename.concat root "expected.txt"))
+      ~actual:verdicts
+  | Ok _, true ->
+    Printf.printf "FAIL bench/%s\n  expected the diagnostics in expected.err\n" name;
+    false
+
 let bad_package_case dir name =
   let root = Filename.concat dir name in
   let expected = expectation (Filename.concat root "expected.err") in
@@ -755,7 +786,12 @@ let unclaimed_packages dir =
   let claimed = Hashtbl.create 8 in
   List.iter
     (fun name -> Hashtbl.replace claimed name ())
-    (packages @ bad_packages @ test_packages @ doc_packages @ List.map fst expected_failing_packages);
+    (packages
+     @ bad_packages
+     @ test_packages
+     @ bench_packages
+     @ doc_packages
+     @ List.map fst expected_failing_packages);
   let rec walk prefix =
     let full = if String.equal prefix "" then dir else Filename.concat dir prefix in
     Sys.readdir full
@@ -1548,6 +1584,7 @@ let () =
         ]
       @ List.map (bad_package_case packages_dir) bad_packages
       @ List.map (test_package_case packages_dir) test_packages
+      @ List.map (bench_package_case packages_dir) bench_packages
       @ List.map run_preamble preambles
       @ List.map run_dispatch dispatches
       @ List.map run_dispatched dispatched_commands

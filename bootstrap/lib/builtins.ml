@@ -53,8 +53,12 @@ let variadic : (string * (unit -> Types.infer_ty)) list =
    anywhere else it is -1, which asks `std/test/Test` for the list instead. *)
 let selected_test = "__test_selected"
 
+(* The size `cx bench` runs a benchmark at in this process; 0 anywhere else. *)
+let bench_size = "__bench_size"
+
 let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
   [ selected_test, "", (fun () -> [], Types.IInt)
+  ; bench_size, "", (fun () -> [], Types.IInt)
   ; ("__write_out", "", fun () -> [ Types.IStr ], Types.IUnit)
   ; ( "__file_open"
     , ""
@@ -420,6 +424,7 @@ let values ~out ~globals =
   ; one "__written" (fun span v -> Value.Str (Utf8.decode (form span v)))
   ; native "__span_generated" (Some 0) (fun _ _ -> Value.Span Source_map.Span.nowhere)
   ; native selected_test (Some 0) (fun _ _ -> Value.Int (-1))
+  ; native bench_size (Some 0) (fun _ _ -> Value.Int 0)
   ; two "compile_error" (fun span at message ->
       match at, message with
       | Value.Span at, Value.Str message ->

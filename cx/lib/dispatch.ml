@@ -62,7 +62,7 @@ let asks_for_help args =
    way to get a newer one. Help is about the `cx` that was run, so it is never
    handed on. *)
 let dispatched = function
-  | ("build" | "update" | "run" | "test" | "publish") :: rest -> not (asks_for_help rest)
+  | ("build" | "update" | "run" | "test" | "bench" | "publish") :: rest -> not (asks_for_help rest)
   | _ -> false
 
 let marker = "CRONYX_DISPATCHED"

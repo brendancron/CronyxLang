@@ -185,8 +185,20 @@ let float_to_string n =
   else if Float.is_integer n && Float.abs n < 1e16
   then Printf.sprintf "%.1f" n
   else (
+    (* The Windows C library writes `1e+016` where the others write `1e+16`. *)
+    let two_digit_exponent text =
+      match String.index_opt text 'e' with
+      | None -> text
+      | Some at ->
+        let digits = at + 2 in
+        let stop = ref digits in
+        while String.length text - !stop > 2 && Char.equal text.[!stop] '0' do
+          incr stop
+        done;
+        String.sub text 0 digits ^ String.sub text !stop (String.length text - !stop)
+    in
     let rec shortest digits =
-      let text = Printf.sprintf "%.*g" digits n in
+      let text = two_digit_exponent (Printf.sprintf "%.*g" digits n) in
       if digits >= 17 || Float.equal (float_of_string text) n then text else shortest (digits + 1)
     in
     shortest 1)
