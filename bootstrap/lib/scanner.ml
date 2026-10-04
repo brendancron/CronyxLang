@@ -305,13 +305,28 @@ let number s =
   done;
   (* Consume the '.' only if a digit follows: `123.` is not a float, and the
      dot is also what tells int and float literals apart. *)
-  let is_float = peek s = '.' && is_digit (peek_next s) in
-  if is_float
+  let is_fraction = peek s = '.' && is_digit (peek_next s) in
+  if is_fraction
   then (
     ignore (advance s);
     while is_digit (peek s) do
       ignore (advance s)
     done);
+  (* As `print` writes a float: `1e+16`, `5e-324`. The digit after it is
+     required, so `2e` is `2` followed by a name. *)
+  let after n = if s.current + n < String.length s.source then s.source.[s.current + n] else '\000' in
+  let is_exponent =
+    (peek s = 'e' || peek s = 'E')
+    && (is_digit (after 1) || ((after 1 = '+' || after 1 = '-') && is_digit (after 2)))
+  in
+  if is_exponent
+  then (
+    ignore (advance s);
+    if peek s = '+' || peek s = '-' then ignore (advance s);
+    while is_digit (peek s) do
+      ignore (advance s)
+    done);
+  let is_float = is_fraction || is_exponent in
   let text = lexeme s in
   if is_float
   then add_token s (Token.Float (float_of_string text))

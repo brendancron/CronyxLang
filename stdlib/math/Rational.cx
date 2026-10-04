@@ -1,0 +1,179 @@
+/**
+ * Exact fractions.
+ *
+ * ```
+ * import { Rational } from "std/math/Rational";
+ *
+ * var third = Rational.of(1, 3);
+ * print(third + Rational.of(1, 6));            // 1/2
+ * print(Rational.from_float(0.1));             // Some(3602879701896397/36028797018963968)
+ * ```
+ *
+ * A `Rational` is always in lowest terms with a positive denominator, so two
+ * equal fractions are the same pair and `==` compares them field by field.
+ * Dividing by zero panics, as it does on an `int`.
+ */
+
+import { BigInt } from "BigInt";
+import { Ord, Zero, One, Num, Signed, Pow } from "Num";
+
+/** A fraction of two integers of any size. */
+type Rational {
+    /** Carries the sign. */
+    numerator: BigInt,
+    /** Always positive, and sharing no factor with the numerator. */
+    denominator: BigInt
+}
+
+derive Eq for Rational;
+
+impl Rational {
+    /** `numerator / denominator`. Panics if `denominator` is zero. */
+    fn of(numerator: int, denominator: int): Rational {
+        return __reduced(BigInt.of(numerator), BigInt.of(denominator));
+    }
+
+    /** `numerator / denominator`, of any size. Panics if `denominator` is zero. */
+    fn of_big(numerator: BigInt, denominator: BigInt): Rational {
+        return __reduced(numerator, denominator);
+    }
+
+    /**
+     * The float's exact value, which every finite float has: `0.1` is
+     * `3602879701896397/36028797018963968`. `None` for NaN and the infinities.
+     */
+    fn from_float(x: float): Option<Rational> {
+        if (!__float_is_finite(x)) { return Option.None; }
+        // Doubling a float is exact, and one with a fraction is below 2^53, so
+        // this stops with the float's value scaled to a whole number.
+        var scaled = x;
+        var halvings = 0;
+        while (scaled != __float_floor(scaled)) {
+            scaled = scaled * 2.0;
+            halvings += 1;
+        }
+        return Option.Some(__reduced(__whole(scaled), BigInt.of(2).pow(halvings)));
+    }
+
+    /** The value as a `float`, rounded. */
+    fn to_float(self): float { return self.numerator.to_float() / self.denominator.to_float(); }
+
+    /** Whether the denominator is 1. */
+    fn is_whole(self): bool { return self.denominator == BigInt.of(1); }
+}
+
+impl Add<Rational> for Rational {
+    type Output = Rational;
+    fn add(self, rhs: Rational): Rational {
+        return __reduced(self.numerator * rhs.denominator + rhs.numerator * self.denominator, self.denominator * rhs.denominator);
+    }
+}
+
+impl Sub<Rational> for Rational {
+    type Output = Rational;
+    fn sub(self, rhs: Rational): Rational {
+        return __reduced(self.numerator * rhs.denominator - rhs.numerator * self.denominator, self.denominator * rhs.denominator);
+    }
+}
+
+impl Mul<Rational> for Rational {
+    type Output = Rational;
+    fn mul(self, rhs: Rational): Rational {
+        return __reduced(self.numerator * rhs.numerator, self.denominator * rhs.denominator);
+    }
+}
+
+impl Div<Rational> for Rational {
+    type Output = Rational;
+    fn div(self, rhs: Rational): Rational {
+        return __reduced(self.numerator * rhs.denominator, self.denominator * rhs.numerator);
+    }
+}
+
+impl Neg for Rational {
+    type Output = Rational;
+    fn neg(self): Rational { return Rational { numerator: -self.numerator, denominator: self.denominator }; }
+}
+
+impl PartialOrd for Rational {
+    fn partial_cmp(self, rhs: Rational): Option<Ordering> { return Option.Some(self.cmp(rhs)); }
+}
+
+impl Ord for Rational {
+    // The denominators are positive, so cross-multiplying keeps the order.
+    fn cmp(self, rhs: Rational): Ordering {
+        return (self.numerator * rhs.denominator).cmp(rhs.numerator * self.denominator);
+    }
+}
+
+impl Zero for Rational { fn zero(): Rational { return Rational.of(0, 1); } }
+impl One for Rational { fn one(): Rational { return Rational.of(1, 1); } }
+impl Num for Rational {}
+
+impl Signed for Rational {
+    fn abs(self): Rational { return Rational { numerator: self.numerator.abs(), denominator: self.denominator }; }
+    fn sign(self): Rational { return Rational { numerator: self.numerator.sign(), denominator: BigInt.of(1) }; }
+}
+
+impl Pow<int> for Rational {
+    /** A negative exponent is the reciprocal's power. Panics for zero to a negative power. */
+    fn pow(self, exponent: int): Rational {
+        if (exponent < 0) { return __reduced(self.denominator.pow(-exponent), self.numerator.pow(-exponent)); }
+        return Rational { numerator: self.numerator.pow(exponent), denominator: self.denominator.pow(exponent) };
+    }
+}
+
+impl Display for Rational {
+    /** `1/2`, and `3` for a whole number. */
+    fn fmt(self): string {
+        if (self.is_whole()) { return str(self.numerator); }
+        return str(self.numerator) + "/" + str(self.denominator);
+    }
+}
+
+impl Debug for Rational {
+    fn debug(self): string { return self.fmt(); }
+}
+
+fn __reduced(numerator: BigInt, denominator: BigInt): Rational {
+    if (denominator.is_zero()) { panic("Division by zero."); }
+    var n = numerator;
+    var d = denominator;
+    if (d < BigInt.of(0)) {
+        n = -n;
+        d = -d;
+    }
+    var g = __gcd(n.abs(), d);
+    return Rational { numerator: n / g, denominator: d / g };
+}
+
+fn __gcd(a: BigInt, b: BigInt): BigInt {
+    var x = a;
+    var y = b;
+    while (!y.is_zero()) {
+        var r = x % y;
+        x = y;
+        y = r;
+    }
+    return x;
+}
+
+// A whole-numbered float's exact value, bit by bit: halving one is exact, and
+// so is what is left after taking the halves back.
+fn __whole(x: float): BigInt {
+    var rest = __float_copysign(x, 1.0);
+    var bits: List<int> = [];
+    while (rest >= 1.0) {
+        var half = __float_floor(rest / 2.0);
+        bits.push((rest - half * 2.0).to_int());
+        rest = half;
+    }
+    var n = BigInt.of(0);
+    var i = bits.len() - 1;
+    while (i >= 0) {
+        n = n * 2 + bits[i];
+        i -= 1;
+    }
+    if (x < 0.0) { return -n; }
+    return n;
+}

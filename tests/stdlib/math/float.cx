@@ -1,0 +1,94 @@
+import "std/math/Math";
+import {
+    floor, ceil, trunc, round, round_even, fract, sqrt, cbrt, exp, exp2, exp_m1,
+    ln, log2, log10, ln_1p, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh,
+    asinh, acosh, atanh, next_up, next_down, to_radians, to_degrees,
+    hypot, atan2, copysign, log, fmin, fmax, fma,
+    is_nan, is_infinite, is_finite, is_sign_negative,
+    infinity, neg_infinity, nan, pi
+} from "std/math/Math";
+import { join } from "std/collections/List";
+import { fixed } from "std/text/Format";
+
+var specials = [0.0, -0.0, 1.0, -2.5, infinity(), neg_infinity(), nan()];
+
+// C libraries agree on the exact cases, but not always on an inexact result's
+// last digit.
+fn shown(x: float): string {
+    if (is_finite(x) && x != floor(x)) { return fixed(x, 10); }
+    return str(x);
+}
+
+fn row(name: string, f: (float) -> float) {
+    var parts: List<string> = [];
+    for (x in specials) { parts.push(shown(f(x))); }
+    print(name + ": " + join(parts, " "));
+}
+
+fn test(name: string, f: (float) -> bool) {
+    var parts: List<string> = [];
+    for (x in specials) { parts.push(str(f(x))); }
+    print(name + ": " + join(parts, " "));
+}
+
+row("x", (x) => x);
+row("floor", floor);
+row("ceil", ceil);
+row("trunc", trunc);
+row("round", round);
+row("round_even", round_even);
+row("fract", fract);
+row("sqrt", sqrt);
+row("cbrt", cbrt);
+row("exp", exp);
+row("exp2", exp2);
+row("exp_m1", exp_m1);
+row("ln", ln);
+row("log2", log2);
+row("log10", log10);
+row("ln_1p", ln_1p);
+row("sin", sin);
+row("cos", cos);
+row("tan", tan);
+row("asin", asin);
+row("acos", acos);
+row("atan", atan);
+row("sinh", sinh);
+row("cosh", cosh);
+row("tanh", tanh);
+row("asinh", asinh);
+row("acosh", acosh);
+row("atanh", atanh);
+row("to_radians", to_radians);
+row("to_degrees", to_degrees);
+test("is_nan", is_nan);
+test("is_infinite", is_infinite);
+test("is_finite", is_finite);
+test("is_sign_negative", is_sign_negative);
+
+print(round(2.5));
+print(round(-2.5));
+print(round_even(2.5));
+print(round_even(3.5));
+print(round_even(-2.5));
+print(next_up(1.0) - 1.0 == Math.epsilon());
+print(next_down(0.0));
+print(next_up(Math.float_max()));
+print(hypot(3.0, 4.0));
+print(hypot(infinity(), nan()));
+print(fixed(atan2(1.0, -1.0), 10));
+print(atan2(0.0, -0.0));
+print(atan2(-0.0, -0.0));
+print(copysign(3.0, -0.0));
+print(copysign(nan(), 1.0));
+print(fixed(log(8.0, 2.0), 10));
+print(fixed(log(100.0, 10.0), 10));
+print(fmin(nan(), 1.0));
+print(fmax(1.0, nan()));
+print(fmin(nan(), nan()));
+print(fma(2.0, 3.0, 4.0));
+print(fma(infinity(), 0.0, 1.0));
+
+var x = 10.0;
+print(x.sqrt().floor());
+print((2.0).to_radians().to_degrees());

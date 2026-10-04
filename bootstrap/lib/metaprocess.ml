@@ -1626,8 +1626,13 @@ let rec fold w (e : Ast.expr) : Ast.expr =
       | Ast.Div, `Float x, `Float y -> at (`Float (x /. y))
       | Ast.Add, `Str x, `Str y -> at (`Str (Array.append x y))
       | _, `Int x, `Int y -> Option.fold ~none:e ~some:(fun r -> at (`Bool r)) (judged (Int.compare x y))
-      | _, `Float x, `Float y ->
-        Option.fold ~none:e ~some:(fun r -> at (`Bool r)) (judged (Float.compare x y))
+      (* Not through [judged]: a total order would make NaN equal to itself. *)
+      | Ast.Equal, `Float x, `Float y -> at (`Bool (x = y))
+      | Ast.Not_equal, `Float x, `Float y -> at (`Bool (x <> y))
+      | Ast.Less, `Float x, `Float y -> at (`Bool (x < y))
+      | Ast.Less_equal, `Float x, `Float y -> at (`Bool (x <= y))
+      | Ast.Greater, `Float x, `Float y -> at (`Bool (x > y))
+      | Ast.Greater_equal, `Float x, `Float y -> at (`Bool (x >= y))
       | _, `Str x, `Str y -> Option.fold ~none:e ~some:(fun r -> at (`Bool r)) (judged (Utf8.compare x y))
       | _ -> e)
   | _ -> e

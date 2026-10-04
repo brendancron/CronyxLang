@@ -1,0 +1,78 @@
+import { Ord, Zero, One, Num, Signed, Pow } from "std/math/Num";
+import {
+    min, max, clamp, abs, sign, sum, product, lerp, total_cmp,
+    pi, tau, e, sqrt2, ln2, ln10, infinity, neg_infinity, nan, epsilon,
+    float_max, float_min_positive, int_max, int_min, is_nan
+} from "std/math/Math";
+import { BigInt } from "std/math/BigInt";
+import { sort_by } from "std/algo/Sort";
+
+print(2.pow(10));
+print(2.pow(0));
+print((-3).pow(3));
+print((4.0).pow(0.5));
+print((2.0).pow(-1.0));
+print(BigInt.of(2).pow(100));
+
+print(abs(-5));
+print(abs(-2.5));
+print(abs(-0.0));
+print(abs(-BigInt.of(10).pow(20)));
+print(sign(-5));
+print(sign(0));
+print(sign(7));
+print(sign(-2.5));
+print(sign(0.0));
+print(sign(-0.0));
+print(sign(nan()));
+print(sign(BigInt.of(-9)));
+print((-4).abs());
+print((-4.5).abs());
+
+print(sum([1, 2, 3, 4]));
+print(sum([0.5, 0.25]));
+print(sum([BigInt.of(1), BigInt.of(10).pow(20), BigInt.of(10).pow(20)]));
+var none: List<int> = [];
+print(sum(none));
+print(product([1, 2, 3, 4]));
+print(product(none));
+print(product([BigInt.of(10).pow(20), BigInt.of(10).pow(20)]));
+print(lerp(0.0, 10.0, 0.25));
+print(lerp(10, 20, 2));
+
+print(min(3, 7));
+print(max(3, 7));
+print(min(nan(), 1.0));
+print(min(1.0, nan()));
+print(clamp(15, 0, 10));
+print(clamp(-5, 0, 10));
+print(clamp(5, 0, 10));
+print(clamp(2.5, 0.0, 1.0));
+print(clamp(BigInt.of(5), BigInt.of(0), BigInt.of(3)));
+
+print(3.cmp(5));
+print("b".cmp("a"));
+print('x'.cmp('x'));
+print(BigInt.of(10).cmp(BigInt.of(-10)));
+print(int.zero());
+print(float.one());
+print(BigInt.zero());
+
+var floats: List<float> = [2.0, nan(), -0.0, -infinity(), 0.0, 1.0, neg_infinity()];
+sort_by(floats, total_cmp);
+print(floats);
+
+print(pi());
+print(tau());
+print(e());
+print(sqrt2());
+print(ln2());
+print(ln10());
+print(infinity());
+print(neg_infinity());
+print(is_nan(nan()));
+print(1.0 + epsilon() > 1.0);
+print(1.0 + epsilon() / 2.0 == 1.0);
+print(float_max() * 2.0);
+print(float_min_positive() > 0.0);
+print(int_max() + 1 == int_min());

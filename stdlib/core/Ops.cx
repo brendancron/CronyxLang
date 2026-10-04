@@ -170,6 +170,35 @@ fn __is_greater_equal(o: Option<Ordering>): bool {
     }
 }
 
+impl PartialOrd for int {
+    fn partial_cmp(self, rhs: int): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+}
+
+impl PartialOrd for string {
+    fn partial_cmp(self, rhs: string): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+}
+
+impl PartialOrd for char {
+    fn partial_cmp(self, rhs: char): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+}
+
+impl PartialOrd for byte {
+    fn partial_cmp(self, rhs: byte): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+}
+
+impl PartialOrd for float {
+    /** `None` when either is NaN, which compares to nothing. */
+    fn partial_cmp(self, rhs: float): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+}
+
+// Not `<` and `>`: on a primitive with an impl, they would reach this impl.
+fn __ordering_of(order: int): Option<Ordering> {
+    if (order < 0) { return Option.Some(Ordering.Less); }
+    if (order == 0) { return Option.Some(Ordering.Equal); }
+    if (order == 1) { return Option.Some(Ordering.Greater); }
+    return Option.None;
+}
+
 /** `-self`. */
 trait Neg {
     /** What the negation answers with. */

@@ -175,8 +175,14 @@ let token_type_to_string = function
 
 (* Floats keep a visible fractional part so they never read as ints. *)
 (* The fewest digits that read back as the same float. *)
+(* Spelled here rather than by printf, whose NaN carries its sign bit and
+   differs between C libraries. *)
 let float_to_string n =
-  if Float.is_integer n && Float.abs n < 1e16
+  if Float.is_nan n
+  then "NaN"
+  else if Float.is_finite n |> not
+  then if n > 0.0 then "inf" else "-inf"
+  else if Float.is_integer n && Float.abs n < 1e16
   then Printf.sprintf "%.1f" n
   else (
     let rec shortest digits =

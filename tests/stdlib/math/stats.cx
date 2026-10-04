@@ -1,0 +1,46 @@
+import { mean, median, variance, stddev, sample_variance, sample_stddev, quantile, min_of, max_of } from "std/math/Stats";
+import { nan } from "std/math/Math";
+
+var list: List<float> = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+var array = Array(3, 1.5);
+var empty: List<float> = [];
+var one: List<float> = [3.0];
+
+print(mean(list));
+print(mean(array));
+print(mean(empty));
+print(median(list));
+print(median([3.0, 1.0, 2.0]));
+print(median(empty));
+print(variance(list));
+print(stddev(list));
+print(variance(one));
+print(variance(empty));
+print(sample_variance(list));
+print(sample_variance(one));
+print(sample_stddev([1.0, 3.0]));
+print(quantile(list, 0.0));
+print(quantile(list, 0.25));
+print(quantile(list, 1.0));
+print(quantile(empty, 0.5));
+print(min_of(list));
+print(max_of(array));
+print(min_of([nan(), 2.0, -1.0, nan()]));
+print(max_of([nan()]));
+print(min_of(empty));
+
+var unsorted: List<float> = [5.0, 1.0, 3.0];
+print(median(unsorted));
+print(unsorted);
+
+// Near 1e9 the squares outrun a float's digits, and summing them goes wrong.
+var big: List<float> = [1000000004.0, 1000000007.0, 1000000013.0, 1000000016.0];
+print(variance(big));
+var sum = 0.0;
+var squares = 0.0;
+for (x in big) {
+    sum = sum + x;
+    squares = squares + x * x;
+}
+var naive = squares / 4.0 - (sum / 4.0) * (sum / 4.0);
+print(naive == 22.5);

@@ -799,6 +799,21 @@ and type_arguments owner (args : Ast.type_expr list) =
       if List.nth_opt standing i = Some true then row_argument owner a else infer_ty_of_annotation a)
     args
 
+(* A supertrait as its parent wrote it: arguments in the parent's parameters and
+   [self], and an `Output = Self` among them a binding rather than an argument. *)
+and super_arguments ~self scope super (written : Ast.type_expr list) =
+  let bindings, args =
+    List.partition_map
+      (fun (a : Ast.type_expr) ->
+        match a.Ast.it with
+        | Ast.Ty_bind (name, bound) -> Either.Left (name, bound)
+        | _ -> Either.Right a)
+      written
+  in
+  with_type_params (("Self", self) :: scope) (fun () ->
+    ( type_arguments super args
+    , List.map (fun (name, bound) -> name, infer_ty_of_annotation bound) bindings ))
+
 (* The arguments [target] is reached at from [trait] at [args], through the
    supertraits: `File` at none reaches `Closer` at `IoError`. *)
 and reached_at trait (args : Types.infer_ty list) target : Types.infer_ty list option =
@@ -811,7 +826,7 @@ and reached_at trait (args : Types.infer_ty list) target : Types.infer_ty list o
       let scope = if List.length params = List.length args then List.combine params args else [] in
       List.find_map
         (fun (super, written) ->
-          reached_at super (with_type_params scope (fun () -> type_arguments super written)) target)
+          reached_at super (fst (super_arguments ~self:(Types.fresh ()) scope super written)) target)
         body.Ast.tb_super)
 
 (* Where the parameter stands in a row: a written row, or a parameter of the
@@ -944,7 +959,7 @@ let rec declaring_trait trait (args : Types.infer_ty list) name
       in
       List.find_map
         (fun (super, written) ->
-          let super_args = with_type_params scope (fun () -> type_arguments super written) in
+          let super_args = fst (super_arguments ~self:(Types.fresh ()) scope super written) in
           declaring_trait super super_args name)
         body.Ast.tb_super)
 
@@ -2877,14 +2892,20 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                  let self = self_concrete () in
                  List.iter
                    (fun op ->
-                     Registry.register
-                       registry
-                       op
-                       self
-                       self
-                       { Registry.result = Some Types.Bool
-                       ; emit = Registry.Call (entry_name "partial_cmp")
-                       })
+                     (* A primitive keeps the machine's comparison: its impl is
+                        for a call to `partial_cmp`, and `<` reaching it would
+                        put the impl's own comparisons through itself. *)
+                     match Registry.find registry op self self with
+                     | Some { Registry.emit = Registry.Primitive; _ } -> ()
+                     | _ ->
+                       Registry.register
+                         registry
+                         op
+                         self
+                         self
+                         { Registry.result = Some Types.Bool
+                         ; emit = Registry.Call (entry_name "partial_cmp")
+                         })
                    [ Ast.Less; Ast.Less_equal; Ast.Greater; Ast.Greater_equal ])
              (* By the names written: `Index<int> for List<T>` is every List. *)
              | t when String.equal t Core.index ->
@@ -2946,8 +2967,11 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                   }))
           trait
       | _ -> ())
-    body;
-  (* An impl may satisfy a supertrait further down the file. *)
+    body
+
+(* Separate from [declare_impls] and run after it over the whole program: the
+   impl a supertrait needs may come from a module declared later. *)
+and check_supertraits (body : Ast.desugared_stmt list) =
   List.iter
     (fun (s : Ast.desugared_stmt) ->
       match s.Ast.it with
@@ -2974,11 +2998,12 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
              (fun (super, super_args) ->
                (* At the arguments the supertrait is written with: `Derived<int>`
                   over `Base<Idx>` is satisfied by `Base<int>` and no other. *)
-               let wanted =
-                 List.map
-                   written
-                   (with_type_params scope (fun () -> type_arguments super super_args))
+               let self =
+                 with_type_params type_params (fun () ->
+                   self_ty s.Ast.span type_name (List.map fst type_params))
                in
+               let wanted, bindings = super_arguments ~self scope super super_args in
+               let wanted = List.map written wanted in
                let supplied = Hashtbl.find_all ctx_impls (type_name, super) in
                if not (List.exists (fun have -> List.map written have = wanted) supplied)
                then (
@@ -3002,7 +3027,24 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                      trait
                      type_name
                      (named wanted)
-                     (listed (List.map (fun have -> named (List.map written have)) supplied))))
+                     (listed (List.map (fun have -> named (List.map written have)) supplied)));
+               List.iter
+                 (fun (member, expected) ->
+                   match Hashtbl.find_opt ctx_assoc (type_name, member) with
+                   | Some found when written found = written expected -> ()
+                   | found ->
+                     fail
+                       s.Ast.span
+                       "'%s' for '%s' needs '%s' with %s = %s, and %s."
+                       trait
+                       type_name
+                       super
+                       member
+                       (written expected)
+                       (match found with
+                        | Some found -> Printf.sprintf "has %s = %s" member (written found)
+                        | None -> "binds no " ^ member))
+                 bindings)
              body.Ast.tb_super)
       | _ -> ())
     body
@@ -3473,6 +3515,7 @@ and infer_block env ctx (body : Ast.desugared_stmt list) : checked_stmt list =
     declare_type_names body;
     declare_type_bodies body;
     declare_impls ctx.registry body;
+    check_supertraits body;
     hoist env body;
     let assigned = assigned_names body in
     List.map
@@ -4380,28 +4423,33 @@ let proving : (string * string) list ref = ref []
 
 (* An impl a meta block has yet to generate is as unknown as a name. *)
 let satisfies name (b : Types.bound) =
-  (List.exists
-    (fun declared ->
-      List.length declared = List.length b.Types.bd_args
-      &&
-      try
-        List.iter2 Types.unify b.Types.bd_args declared;
-        true
-      with
-      | Types.Type_error _ -> false)
-    (Hashtbl.find_all ctx_impls (name, b.Types.bd_trait))
-  (* The impl reached must have bound the name to what the bound said. *)
-  && List.for_all
-       (fun (member, expected) ->
-         match Hashtbl.find_opt ctx_assoc (name, member) with
-         | None -> false
-         | Some found ->
-           (try
-              Types.unify found expected;
-              true
-            with
-            | Types.Type_error _ -> false))
-       b.Types.bd_bindings)
+  let fits declared =
+    List.length declared = List.length b.Types.bd_args
+    &&
+    try
+      List.iter2 Types.unify b.Types.bd_args declared;
+      (* The impl reached must have bound the name to what the bound said. *)
+      List.for_all
+        (fun (member, expected) ->
+          match Hashtbl.find_opt ctx_assoc (name, member) with
+          | None -> false
+          | Some found ->
+            Types.unify found expected;
+            true)
+        b.Types.bd_bindings
+    with
+    | Types.Type_error _ -> false
+  in
+  (* Each impl is tried with its unifications taken back, then the one that fits
+     is unified for good: `Add<int>` tried first would otherwise fix the
+     argument to `int` before `Add<V>` is reached. *)
+  (match
+     List.find_opt
+       (fun declared -> Types.retracting (fun () -> fits declared))
+       (Hashtbl.find_all ctx_impls (name, b.Types.bd_trait))
+   with
+   | Some declared -> fits declared
+   | None -> false)
   || !current.unknown (fun () -> false) (fun () -> true)
 
 let admits registry kind (t : Types.infer_ty) =
@@ -4566,6 +4614,7 @@ let check_with ~registry (program : Ast.desugared_stmt list)
   each declare_type_names;
   each declare_type_bodies;
   each (declare_impls registry);
+  each check_supertraits;
   each (hoist env);
   let assigned = assigned_names program in
   let attempt check =

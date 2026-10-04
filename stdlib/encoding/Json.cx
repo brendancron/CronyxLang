@@ -103,9 +103,8 @@ fn __scalar(data: Data): string {
         Data.Bool(b) => { return str(b); }
         Data.Int(n) => { return str(n); }
         Data.Float(f) => {
-            var text = str(f);
-            if (text.contains("inf") || text.contains("nan")) { return "null"; }
-            return text;
+            if (!__float_is_finite(f)) { return "null"; }
+            return str(f);
         }
         Data.Str(s) => { return __quoted(s); }
         _ => {}

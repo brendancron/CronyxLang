@@ -1,0 +1,13 @@
+print(1e9);
+print(2.5e-3);
+print(1E+16);
+print(5e-324);
+print(1e400);
+print(1e+16 == 10000000000000000.0);
+print("1e+16".to_float());
+print("-2.5E3".to_float());
+print("1e".to_float());
+print("1.e5".to_float());
+print(str(0.1 + 0.2).to_float() == Option.Some(0.1 + 0.2));
+var e2 = 7;
+print(3 + e2);

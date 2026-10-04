@@ -73,6 +73,8 @@ The natives are `__float_<name>` in `builtins.ml`, with an empty doc so the refe
 
 **A domain error is NaN, not a panic.** `sqrt(-1.0)`, `ln(0.0 - 1.0)` and `acos(2.0)` return NaN, and `ln(0.0)` is negative infinity, as IEEE 754 and `libm` define them. A panic would make every numeric loop decide in advance which inputs it might meet, and NaN already propagates through arithmetic to where someone checks `is_nan`. A caller who wants a failure checks the input or the result.
 
+**NaN and the infinities print as `NaN`, `inf` and `-inf`.** Spelled by the compiler rather than by C's `printf`, whose NaN carries its sign bit and differs between C libraries, so a program prints the same on every platform. `==` on floats is IEEE 754's: NaN equals nothing, itself included, and `-0.0 == 0.0`. `same(x, x)` is still true for a NaN, since it compares identity.
+
 **`round` rounds half away from zero.** `round(2.5)` is `3.0`, as people round by hand and as C's `round` does; `round_even` is banker's rounding for whoever is summing many of them.
 
 **Converting to `int` is a separate function.** `x.to_int()` truncates and panics on NaN, an infinity, or a value outside `int`'s range. `floor`, `ceil` and `round` all return `float`, so a NaN stays representable until something asks for an integer.
@@ -158,7 +160,7 @@ fn sum<T: Num>(items: List<T>): T {
 
 Nothing in the library requires `Ord` yet. `algo/Sort` takes `PartialOrd`, so a `List<float>` sorts, and moving it to `Ord` would break every program that does that; it is a decision of its own. `Ord` is declared so that its first consumer, an ordered map for one, has the impls waiting.
 
-The implementations are `Pow<int>` for `int` and `BigInt` (a negative exponent panics), and `Pow<float>` and `Pow<int>` for `float`. `int`, `float` and `BigInt` are `Signed`. A `sign` is `-1`, `0` or `1` in the type's own terms; on `float` it is `copysign(1.0, x)` for a non-zero `x`, `x` itself for a zero, so `-0.0` keeps its sign, and NaN for NaN.
+The implementations are `Pow<int>` for `int` and `BigInt` (a negative exponent panics) and `Pow<float>` for `float`. A method is found by its name and not by its argument's type, so `float` holding both `Pow<float>` and `Pow<int>` would make `(2.0).pow(3)` ambiguous; an `int` exponent on a `float` is written `x.pow(n.to_float())`. `int`, `float` and `BigInt` are `Signed`. A `sign` is `-1`, `0` or `1` in the type's own terms; on `float` it is `copysign(1.0, x)` for a non-zero `x`, `x` itself for a zero, so `-0.0` keeps its sign, and NaN for NaN.
 
 The generic functions in `math/Math` are bound by these:
 
@@ -183,11 +185,11 @@ print(third + Rational.of(1, 6));   // 1/2
 
 A `Rational` is a `BigInt` numerator over a positive `BigInt` denominator with no common factor, and every operation returns one in that form. Reducing every time keeps `==` structural: two equal fractions are the same pair, so `Eq` is the derived one and nothing has to cross-multiply. Over `int` the numerator overflows after a handful of additions, which is what a type for exact arithmetic exists to avoid.
 
-It implements `Num`, `Signed`, `Ord`, `Pow<int>`, `Display` (`1/2`, and `3` for a whole number) and `Debug`; `Eq` is `derive Eq for Rational;`. It has `numerator`, `denominator`, `to_float` and `from_float`. `from_float` is exact: every finite `float` is a dyadic fraction, so `from_float(0.1)` is `3602879701896397/36028797018963968`, which is the truth about `0.1`. NaN and the infinities are `None`. Dividing by zero panics, as it does on `int`.
+It implements `Num`, `Signed`, `Ord`, `Pow<int>`, `Display` (`1/2`, and `3` for a whole number) and `Debug`; `Eq` is `derive Eq for Rational;`. Its fields are `numerator` and `denominator`. It is made with `Rational.of(n, d)` from `int`s or `Rational.of_big(n, d)` from `BigInt`s, and has `to_float`, `from_float` and `is_whole`. `from_float` is exact: every finite `float` is a dyadic fraction, so `from_float(0.1)` is `3602879701896397/36028797018963968`, which is the truth about `0.1`. NaN and the infinities are `None`. Dividing by zero panics, as it does on `int`.
 
 ## `Complex`
 
-A `Complex` is a pair of `float`s, `re` and `im`, made with `Complex.of(re, im)` or `Complex.from_polar(r, theta)`. It implements `Num`, `Neg`, `Eq`, `Display` (`1+2i`, `1-2i`) and `Debug`, and has `conj`, `abs`, `arg`, `exp`, `ln`, `sqrt` and `pow`, each on the principal branch.
+A `Complex` is a pair of `float`s, `re` and `im`, made with `Complex.of(re, im)` or `Complex.from_polar(r, theta)`. It implements `Num`, `Neg`, `Eq`, `Pow<Complex>`, `Display` (`1.0+2.0i`, `1.0-2.0i`) and `Debug`, and has `conj`, `abs`, `arg`, `exp`, `ln` and `sqrt`; `exp`, `ln`, `sqrt` and `pow` take the principal branch.
 
 It is not `PartialOrd`. There is no order on the complex plane that agrees with arithmetic, and a type that answers `<` with something invites code that trusts it. This is why `Num` has no `PartialOrd` among its supertraits: the functions that compare, `clamp`, `min` and `max`, ask for it on their own, and `sum` over a `List<Complex>` needs no order. `Complex.abs` is the magnitude and returns `float`, so `Complex` is not `Signed`, whose `abs` returns `Self`.
 
@@ -221,31 +223,6 @@ What numpy adds beyond this, vectors, matrices and element-wise functions over t
 
 Each of these is a gap in the language that the library cannot paper over, and each is fixed with a fixture of its own before the functions that depend on it.
 
-**`float` equality is not IEEE.** `==` on floats is OCaml's `Float.equal`, which treats NaN as equal to itself:
-
-```cronyx
-var x = 0.0 / 0.0;
-print(x == x);   // true, and IEEE 754 says false
-```
-
-`is_nan` can be written as `x != x` only once this is fixed, and so can every NaN test in `Stats`.
-
-**`float` has no real `partial_cmp`.** `PartialOrd` is marked as satisfied for `float` without an implementation behind it, so `<` works but nothing answers `None` for NaN. A generic function that calls `partial_cmp` on a `T: PartialOrd` gets a wrong answer at `float`, which is what `min` and `clamp` would do.
-
-**A float cannot be written the way it prints.** `print` writes `1e+16` for a large float, but the scanner has no exponent and reads `1e9` as `1` followed by the name `e9`, and `__parse_float` rejects the exponent too. `float_max()` and `epsilon()` cannot be written as literals, and Display's output does not parse back. Exponents go into the scanner and into `__parse_float` together, so that what `print` writes is a literal.
-
 **A dot reaches any impl the program has loaded.** A method call finds a trait's impl whether or not the file names the trait: once one file imports `math/Num`, `2.pow(10)` works in a file that imported nothing from it. The checker has to look for a method only among the traits in scope at the call, which also stops a library's impl on `int` from changing what `x.f()` means in a file that never asked for it.
-
-**A method called through a bound misses an impl generic in the trait's argument.** `impl Iterable<T> for List<T>` checks, and a call to `iter` through `C: Iterable<float>` checks, but at run time the method is undefined. The smallest case:
-
-```cronyx
-trait Sz<T> { fn size(self): int; }
-impl Sz<T> for List<T> { fn size(self): int { return self.len(); } }
-fn f<C: Sz<float>>(c: C): int { return c.size(); }
-var l: List<float> = [1.0];
-print(f(l));   // Runtime error: Undefined variable 'size'.
-```
-
-A trait without the parameter (`impl Sz for List<T>`) works, and so does a concrete impl (`impl Sz<float> for List<float>`). `Stats` waits on this.
 
 **`const` is wanted, not required.** The constants work as functions; `const` changes their spelling and nothing else.

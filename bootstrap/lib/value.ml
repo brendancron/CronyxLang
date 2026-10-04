@@ -143,7 +143,8 @@ let rec equal_with seen a b =
       && List.length a = List.length b
       && List.for_all2 (fun (_, x) (_, y) -> equal_with seen x y) a b
     | Int x, Int y -> x = y
-    | Float x, Float y -> Float.equal x y
+    (* IEEE 754's, so NaN equals nothing, itself included, and -0.0 equals 0.0. *)
+    | Float x, Float y -> x = y
     | Str x, Str y -> x = y
     | Byte x, Byte y -> Char.equal x y
     | Chr x, Chr y -> Uchar.equal x y
@@ -164,6 +165,8 @@ let rec same a b =
   | Fn x, Fn y -> x == y
   | Span x, Span y -> x == y
   | Name x, Name y -> String.equal x y
+  (* By bits: a NaN is itself even though it equals nothing. *)
+  | Float x, Float y -> Int64.equal (Int64.bits_of_float x) (Int64.bits_of_float y)
   | Tuple x, Tuple y -> List.length x = List.length y && List.for_all2 same x y
   | Variant (_, n, a), Variant (_, m, b) ->
     String.equal n m

@@ -1,0 +1,160 @@
+/**
+ * The traits that let one function serve every number type.
+ *
+ * ```
+ * import { Pow } from "std/math/Num";
+ * import { BigInt } from "std/math/BigInt";
+ *
+ * print(2.pow(10));                // 1024
+ * print((2.0).pow(0.5));           // 1.4142135623730951
+ * print(BigInt.of(2).pow(100));    // 1267650600228229401496703205376
+ * ```
+ *
+ * `int`, `float` and `BigInt` implement each of them but `Ord`, which `float`
+ * does not: NaN compares to nothing, so a total order over it would be a lie.
+ */
+
+import { BigInt } from "BigInt";
+
+/** An order in which every two values compare. */
+trait Ord: PartialOrd {
+    /** How the two compare. */
+    fn cmp(self, rhs: Self): Ordering;
+}
+
+/** A type with a value that adding changes nothing by. */
+trait Zero {
+    /** That value. */
+    fn zero(): Self;
+}
+
+/** A type with a value that multiplying changes nothing by. */
+trait One {
+    /** That value. */
+    fn one(): Self;
+}
+
+/** A number: the four operators, each taking and giving the type itself. */
+trait Num: Zero, One, Add<Self, Output = Self>, Sub<Self, Output = Self>,
+           Mul<Self, Output = Self>, Div<Self, Output = Self> {}
+
+/** A number with a sign. */
+trait Signed: Num, Neg<Output = Self> {
+    /** The number without its sign. */
+    fn abs(self): Self;
+
+    /** -1, 0 or 1 in the type's own terms, as the number is negative, zero or positive. */
+    fn sign(self): Self;
+}
+
+/** A type that can be raised to a power of type `E`. */
+trait Pow<E> {
+    /** The value to the power `exponent`. */
+    fn pow(self, exponent: E): Self;
+}
+
+impl Ord for int {
+    fn cmp(self, rhs: int): Ordering { return __ordering(self < rhs, self > rhs); }
+}
+
+impl Ord for string {
+    fn cmp(self, rhs: string): Ordering { return __ordering(self < rhs, self > rhs); }
+}
+
+impl Ord for char {
+    fn cmp(self, rhs: char): Ordering { return __ordering(self < rhs, self > rhs); }
+}
+
+impl Ord for BigInt {
+    fn cmp(self, rhs: BigInt): Ordering { return __ordering(self < rhs, self > rhs); }
+}
+
+impl Zero for int { fn zero(): int { return 0; } }
+impl One for int { fn one(): int { return 1; } }
+impl Num for int {}
+
+impl Signed for int {
+    fn abs(self): int {
+        if (self < 0) { return -self; }
+        return self;
+    }
+
+    fn sign(self): int {
+        if (self < 0) { return -1; }
+        if (self > 0) { return 1; }
+        return 0;
+    }
+}
+
+impl Pow<int> for int {
+    /** Panics if `exponent` is negative: no `int` is the answer. */
+    fn pow(self, exponent: int): int {
+        if (exponent < 0) { panic("pow takes an exponent of 0 or more, not " + str(exponent) + "."); }
+        var result = 1;
+        var square = self;
+        var e = exponent;
+        while (e > 0) {
+            if (e % 2 == 1) { result = result * square; }
+            e = e / 2;
+            if (e > 0) { square = square * square; }
+        }
+        return result;
+    }
+}
+
+impl Zero for float { fn zero(): float { return 0.0; } }
+impl One for float { fn one(): float { return 1.0; } }
+impl Num for float {}
+
+impl Signed for float {
+    fn abs(self): float { return __float_copysign(self, 1.0); }
+
+    /** A zero is itself, so `-0.0` keeps its sign, and NaN is NaN. */
+    fn sign(self): float {
+        if (__float_is_nan(self) || self == 0.0) { return self; }
+        return __float_copysign(1.0, self);
+    }
+}
+
+impl Pow<float> for float {
+    fn pow(self, exponent: float): float { return __float_pow(self, exponent); }
+}
+
+impl Zero for BigInt { fn zero(): BigInt { return BigInt.of(0); } }
+impl One for BigInt { fn one(): BigInt { return BigInt.of(1); } }
+impl Num for BigInt {}
+
+impl Signed for BigInt {
+    fn abs(self): BigInt {
+        if (self < BigInt.of(0)) { return -self; }
+        return self;
+    }
+
+    fn sign(self): BigInt {
+        if (self < BigInt.of(0)) { return BigInt.of(-1); }
+        if (self > BigInt.of(0)) { return BigInt.of(1); }
+        return BigInt.of(0);
+    }
+}
+
+impl Pow<int> for BigInt {
+    /** Panics if `exponent` is negative. */
+    fn pow(self, exponent: int): BigInt {
+        if (exponent < 0) { panic("pow takes an exponent of 0 or more, not " + str(exponent) + "."); }
+        var result = BigInt.of(1);
+        var square = self;
+        var e = exponent;
+        while (e > 0) {
+            if (e % 2 == 1) { result = result * square; }
+            e = e / 2;
+            if (e > 0) { square = square * square; }
+        }
+        return result;
+    }
+}
+
+fn __ordering(less: bool, greater: bool): Ordering {
+    if (less) { return Ordering.Less; }
+    if (greater) { return Ordering.Greater; }
+    return Ordering.Equal;
+}

@@ -25,3 +25,50 @@ type Iter<T, E> {
     /** Finishes with the sequence. Asking for more afterwards answers `None`. */
     close: () -> unit
 }
+
+/**
+ * A collection whose items can be pulled one at a time, which is what lets
+ * one function take a `List` or an `Array`:
+ *
+ * ```
+ * fn total<C: Iterable<int>>(items: C): int {
+ *     var sum = 0;
+ *     for (n in items.iter()) { sum += n; }
+ *     return sum;
+ * }
+ * ```
+ */
+trait Iterable<T> {
+    /** Each item in order. */
+    fn iter(self): Iter<T, <>>;
+}
+
+impl Iterable<T> for List<T> {
+    fn iter(self): Iter<T, <>> {
+        var items = self;
+        var at = 0;
+        return Iter {
+            next: () => {
+                if (at >= items.len()) { return Option.None; }
+                at += 1;
+                return Option.Some(items[at - 1]);
+            },
+            close: () => {}
+        };
+    }
+}
+
+impl Iterable<T> for Array<T> {
+    fn iter(self): Iter<T, <>> {
+        var items = self;
+        var at = 0;
+        return Iter {
+            next: () => {
+                if (at >= items.len()) { return Option.None; }
+                at += 1;
+                return Option.Some(items[at - 1]);
+            },
+            close: () => {}
+        };
+    }
+}

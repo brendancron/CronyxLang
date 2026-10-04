@@ -1,0 +1,91 @@
+import {
+    gcd, lcm, isqrt, is_power_of_two, floor_div, floor_mod, euclid_div, euclid_mod,
+    checked_add, checked_sub, checked_mul, checked_pow,
+    wrapping_add, wrapping_sub, wrapping_mul,
+    saturating_add, saturating_sub, saturating_mul,
+    count_ones, leading_zeros, trailing_zeros, int_max, int_min
+} from "std/math/Math";
+
+var top = int_max();
+var bottom = int_min();
+var width = leading_zeros(0);
+
+print(gcd(12, 18));
+print(gcd(-12, 18));
+print(gcd(12, -18));
+print(gcd(0, 5));
+print(gcd(0, 0));
+print(gcd(top, top - 1));
+print(lcm(4, 6));
+print(lcm(-4, 6));
+print(lcm(0, 6));
+print(lcm(0, 0));
+
+print(isqrt(0));
+print(isqrt(1));
+print(isqrt(15));
+print(isqrt(16));
+print(isqrt(top) * isqrt(top) <= top);
+print(checked_mul(isqrt(top) + 1, isqrt(top) + 1));
+
+print(is_power_of_two(0));
+print(is_power_of_two(1));
+print(is_power_of_two(64));
+print(is_power_of_two(96));
+print(is_power_of_two(-8));
+print(is_power_of_two(bottom));
+
+for (pair in [(7, 2), (-7, 2), (7, -2), (-7, -2), (6, 3), (0, 5)]) {
+    var (a, b) = pair;
+    print(str(a) + " " + str(b) + ": " + str(a / b) + " " + str(a % b)
+        + " | floor " + str(floor_div(a, b)) + " " + str(floor_mod(a, b))
+        + " | euclid " + str(euclid_div(a, b)) + " " + str(euclid_mod(a, b)));
+}
+
+print(checked_add(1, 2));
+print(checked_add(top, 1));
+print(checked_add(bottom, -1));
+print(checked_add(top, bottom));
+print(checked_sub(bottom, 1));
+print(checked_sub(top, -1));
+print(checked_sub(0, bottom));
+print(checked_sub(-1, bottom) == Option.Some(top));
+print(checked_mul(top, 1) == Option.Some(top));
+print(checked_mul(top, 2));
+print(checked_mul(bottom, -1));
+print(checked_mul(-1, bottom));
+print(checked_mul(bottom, 1) == Option.Some(bottom));
+print(checked_mul(0, bottom));
+print(checked_pow(2, 10));
+print(checked_pow(2, width - 2) == Option.Some(top / 2 + 1));
+print(checked_pow(2, width - 1));
+print(checked_pow(-2, width - 2) == Option.Some(-(top / 2 + 1)));
+print(checked_pow(-2, width - 1));
+print(checked_pow(0, 0));
+print(checked_pow(1, top));
+
+print(wrapping_add(top, 1) == bottom);
+print(wrapping_sub(bottom, 1) == top);
+print(wrapping_mul(top, 2));
+print(wrapping_add(2, 3));
+
+print(saturating_add(top, 1) == top);
+print(saturating_add(bottom, -1) == bottom);
+print(saturating_sub(bottom, 1) == bottom);
+print(saturating_sub(top, -1) == top);
+print(saturating_mul(top, -2) == bottom);
+print(saturating_mul(bottom, -2) == top);
+print(saturating_mul(6, 7));
+
+print(count_ones(0));
+print(count_ones(7));
+print(count_ones(-1) == leading_zeros(0));
+print(count_ones(top) + 1 == leading_zeros(0));
+print(count_ones(bottom));
+print(leading_zeros(1) == leading_zeros(0) - 1);
+print(leading_zeros(top));
+print(leading_zeros(-1));
+print(trailing_zeros(0) == leading_zeros(0));
+print(trailing_zeros(8));
+print(trailing_zeros(-8));
+print(trailing_zeros(bottom) == leading_zeros(0) - 1);

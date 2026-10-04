@@ -1,0 +1,8 @@
+trait Sz { fn size(self): int; }
+impl Sz for int { fn size(self): int { return 1; } }
+fn helper<C: Sz>(x: C): (int, int) { return (x.size(), 2); }
+fn outer<C: Sz>(x: C): int {
+    var (a, b) = helper(x);
+    return a + b;
+}
+print(outer(5));

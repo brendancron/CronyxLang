@@ -155,8 +155,7 @@ let note (cell : 'a ref) = if !recording then trail := Undo (cell, !cell) :: !tr
 
 
 
-(* Unused: refinement solves a substitution instead. Kept because a speculative
-   unification is the obvious thing to want next. *)
+(* Whatever [f] unifies is taken back, so a candidate can be tried and dropped. *)
 let retracting f =
   let outer_trail = !trail
   and outer_recording = !recording in
@@ -836,6 +835,17 @@ and unify (a : infer_ty) (b : infer_ty) : unit =
   and b = settle b in
   match a, b with
   | IVar r1, IVar r2 when r1 == r2 -> ()
+  (* A literal nothing has chosen a container for meets a bound: it becomes the
+     `Array` it would default to, and the bound is checked against that, since
+     no kind says "a collection that is also Iterable". *)
+  | ( IVar ({ contents = Unbound (_, Collection elem) } as literal)
+    , (IVar { contents = Unbound (id, Bound _) } as bounded) )
+  | ( (IVar { contents = Unbound (id, Bound _) } as bounded)
+    , IVar ({ contents = Unbound (_, Collection elem) } as literal) )
+    when not (Hashtbl.mem declared_params id) ->
+    note literal;
+    literal := Link (iarray elem);
+    unify bounded (iarray elem)
   | ( IVar ({ contents = Unbound (id1, k1) } as r1)
     , IVar ({ contents = Unbound (id2, k2) } as r2) ) ->
     (* A scheme records the survivor's id; an alias would leave it pointing at

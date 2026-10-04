@@ -242,8 +242,9 @@ fn __inline(data: Data): string {
         Data.Bool(b) => { return str(b); }
         Data.Int(n) => { return str(n); }
         Data.Float(f) => {
+            if (__float_is_nan(f)) { return "nan"; }
             var text = str(f);
-            if (text.contains("e") || text.contains(".") || text.contains("n")) { return text; }
+            if (text.contains("e") || text.contains(".") || text.contains("inf")) { return text; }
             return text + ".0";
         }
         Data.Str(s) => { return __quoted(s); }

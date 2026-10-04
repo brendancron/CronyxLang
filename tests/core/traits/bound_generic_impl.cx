@@ -1,0 +1,9 @@
+trait Sized<T> { fn size(self): int; }
+impl Sized<T> for List<T> { fn size(self): int { return self.len(); } }
+impl Sized<T> for Array<T> { fn size(self): int { return self.len(); } }
+
+fn count<C: Sized<float>>(c: C): int { return c.size(); }
+
+var l: List<float> = [1.0, 2.0];
+print(count(l));
+print(count(Array(3, 0.5)));
