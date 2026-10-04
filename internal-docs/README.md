@@ -14,6 +14,7 @@ This is separate from `docs/`, which is the Docusaurus site published for langua
 | [Async.md](Async.md)                                         | The two operations `async` declares, and why the queue holds wake-ups, not tasks |
 | [Errors.md](Errors.md)                                       | A failure as a typed value, and why one effect carries every kind     |
 | [IO.md](IO.md)                                               | Files and the console: async from the start, an effect to open, traits to use |
+| [Net.md](Net.md)                                             | Sockets: why the scheduler waits on them, and TCP and HTTP over that |
 | [Data Structures.md](Data%20Structures.md)                   | The datatypes and how each is used                                    |
 | [Collection Literals.md](Collection%20Literals.md)           | How `[...]` picks a collection type                                   |
 | [Elaboration.md](Elaboration.md)                             | Type-directed resolution of operators, indexing, and literals         |

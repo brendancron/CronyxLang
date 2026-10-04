@@ -215,7 +215,7 @@ that called `wait_until` would hold every other task with it, so tasks `sleep`.
 
 This is the one place the root blocks on the OS, and `net/` will need it to
 block on sockets as well as the clock: the wait becomes "until the first timer
-or until a socket is ready", in the same position.
+or until a socket is ready", in the same position ([Net](Net.md#the-scheduler-waits-on-sockets)).
 
 ## A channel wakes to look again
 

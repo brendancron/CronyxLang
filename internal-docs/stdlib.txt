@@ -69,7 +69,9 @@ std/
 ├── fs/                    # File system operations
 │   ├── File               # File handle management and I/O; listing, creating and removing directories
 │   └── Path               # Platform-agnostic path manipulation
-├── net/                   # Low-level networking primitives
+├── net/                   # Networking
+│   ├── Tcp                # The Net effect; TcpStream, TcpListener, and resolving names
+│   └── Http               # HTTP/1.1 client and server over Tcp
 ├── os/                    # Operating system integration & environmental controls
 │   ├── Args               # Command-line arguments iterator
 │   ├── Cli                # Typed argument parsing: derive a parser from a struct, with generated help
