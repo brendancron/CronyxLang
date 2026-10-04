@@ -24,6 +24,7 @@ let cases =
   ; "tests/core/modules/multi_export/main"
   ; "tests/core/modules/global_import/main"
   ; "tests/core/modules/shadowing/own_print"
+  ; "tests/core/modules/shadowing/own_root"
   ; "tests/core/modules/shadowing/own_type"
   ; "tests/core/modules/shadowing/own_var"
   ; "tests/core/modules/qualified/main"

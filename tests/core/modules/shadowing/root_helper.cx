@@ -1,0 +1,2 @@
+fn __root(x: int): int { return x + 1; }
+fn twice(x: int): int { return __root(x) * 2; }

@@ -1,0 +1,6 @@
+import { twice } from "root_helper";
+
+fn __root(x: int): int { return x * 10; }
+
+print(twice(4));
+print(__root(3));

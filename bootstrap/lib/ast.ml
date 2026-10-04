@@ -771,13 +771,12 @@ let generated parts =
 let discontinue_name = generated [ "cps"; "discontinue" ]
 let discontinued_name = generated [ "cps"; "discontinued" ]
 
-(* The function each top-level statement runs under, found by the name it was
-   written with: the prelude imports it from a module, so it carries that
-   module's name. *)
-let root_function = "__root"
+(* The function each top-level statement runs under, by the whole name the
+   prelude's declaration is mangled to. Any module may declare a `__root` of its
+   own, and one matched by its last part would take every statement over. *)
+let root_function = generated [ "std"; "prelude"; "__root" ]
 
-let is_root name =
-  String.equal name root_function || String.ends_with ~suffix:("#" ^ root_function) name
+let is_root name = String.equal name root_function
 
 (* By trait rather than by the name written, so every deriver may be called
    `derive`. *)
