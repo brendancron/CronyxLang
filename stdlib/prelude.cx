@@ -24,7 +24,7 @@ import { Process, Exit, __start_on_system } from "std/os/Process";
 import { Logger, __written_line } from "std/log/Logger";
 
 global import { Assertion, assert } from "std/core/Assert";
-global import { Iter } from "std/core/Iter";
+global import { Iter, Iterable } from "std/core/Iter";
 global import { List } from "std/collections/List";
 global import { Map } from "std/collections/Map";
 global import {

@@ -1,0 +1,3 @@
+ok   square_area_works
+
+1/1 passed

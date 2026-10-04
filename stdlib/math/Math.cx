@@ -1,16 +1,391 @@
 /**
- * The comparisons that need no type of their own.
- *
- * Each works on anything implementing `PartialOrd` -- `int`, `float`, a
- * `string`, a `Duration` -- and `abs` on anything that can also be negated.
+ * Functions over `float` and `int`, the constants, and the generic functions
+ * over `math/Num`.
  *
  * ```
- * import { min, max, abs } from "std/math/Math";
+ * import { sqrt, floor, floor_div, clamp } from "std/math/Math";
  *
- * print(min(3, 9));   // 3
- * print(abs(0 - 4));  // 4
+ * var x = 10.0;
+ * print(x.sqrt().floor());      // 3.0
+ * print(floor_div(-7, 2));      // -4
+ * print(clamp(15, 0, 10));      // 10
  * ```
+ *
+ * A function brought in by name is also reachable through a dot, so
+ * `x.sqrt()` is `sqrt(x)`. A domain error is NaN rather than a panic, as IEEE
+ * 754 defines it: `sqrt(-1.0)` is NaN and `ln(0.0)` is negative infinity.
  */
+
+import { Num, Signed } from "Num";
+
+/** π. */
+fn pi(): float { return 3.141592653589793; }
+
+/** 2π, a whole turn in radians. */
+fn tau(): float { return 6.283185307179586; }
+
+/** Euler's number. */
+fn e(): float { return 2.718281828459045; }
+
+/** √2. */
+fn sqrt2(): float { return 1.4142135623730951; }
+
+/** ln 2. */
+fn ln2(): float { return 0.6931471805599453; }
+
+/** ln 10. */
+fn ln10(): float { return 2.302585092994046; }
+
+/** Positive infinity. */
+fn infinity(): float { return __float_infinity(); }
+
+/** Negative infinity. */
+fn neg_infinity(): float { return -__float_infinity(); }
+
+/** A NaN. Compare with `is_nan`, never with `==`. */
+fn nan(): float { return __float_nan(); }
+
+/** The gap between `1.0` and the next `float` above it. */
+fn epsilon(): float { return __float_epsilon(); }
+
+/** The largest finite `float`. */
+fn float_max(): float { return __float_max(); }
+
+/** The smallest positive normal `float`. */
+fn float_min_positive(): float { return __float_min_positive(); }
+
+/** The largest `int`. */
+fn int_max(): int { return __int_max(); }
+
+/** The smallest `int`. */
+fn int_min(): int { return __int_min(); }
+
+/** The largest whole number at or below `x`. */
+fn floor(x: float): float { return __float_floor(x); }
+
+/** The smallest whole number at or above `x`. */
+fn ceil(x: float): float { return __float_ceil(x); }
+
+/** `x` with its fraction dropped, toward zero. */
+fn trunc(x: float): float { return __float_trunc(x); }
+
+/** The nearest whole number, a half rounding away from zero: `round(2.5)` is `3.0`. */
+fn round(x: float): float { return __float_round(x); }
+
+/** The nearest whole number, a half rounding to the even one: `round_even(2.5)` is `2.0`. */
+fn round_even(x: float): float { return __float_round_even(x); }
+
+/** The fraction `trunc` drops, with the sign of `x`. */
+fn fract(x: float): float { return __float_copysign(x - __float_trunc(x), x); }
+
+/** The square root. NaN below zero. */
+fn sqrt(x: float): float { return __float_sqrt(x); }
+
+/** The cube root, which a negative has. */
+fn cbrt(x: float): float { return __float_cbrt(x); }
+
+/** √(x² + y²), without overflowing where the squares would. */
+fn hypot(x: float, y: float): float { return __float_hypot(x, y); }
+
+/** e to the power `x`. */
+fn exp(x: float): float { return __float_exp(x); }
+
+/** 2 to the power `x`. */
+fn exp2(x: float): float { return __float_exp2(x); }
+
+/** `exp(x) - 1`, accurate where `x` is near zero. */
+fn exp_m1(x: float): float { return __float_exp_m1(x); }
+
+/** The natural logarithm. NaN below zero, negative infinity at zero. */
+fn ln(x: float): float { return __float_ln(x); }
+
+/** The base-2 logarithm. */
+fn log2(x: float): float { return __float_log2(x); }
+
+/** The base-10 logarithm. */
+fn log10(x: float): float { return __float_log10(x); }
+
+/** `ln(1 + x)`, accurate where `x` is near zero. */
+fn ln_1p(x: float): float { return __float_ln_1p(x); }
+
+/** The logarithm to `base`. */
+fn log(x: float, base: float): float { return __float_ln(x) / __float_ln(base); }
+
+/** The sine of an angle in radians. */
+fn sin(x: float): float { return __float_sin(x); }
+
+/** The cosine of an angle in radians. */
+fn cos(x: float): float { return __float_cos(x); }
+
+/** The tangent of an angle in radians. */
+fn tan(x: float): float { return __float_tan(x); }
+
+/** The angle whose sine is `x`, from -π/2 to π/2. NaN outside -1 to 1. */
+fn asin(x: float): float { return __float_asin(x); }
+
+/** The angle whose cosine is `x`, from 0 to π. NaN outside -1 to 1. */
+fn acos(x: float): float { return __float_acos(x); }
+
+/** The angle whose tangent is `x`, from -π/2 to π/2. */
+fn atan(x: float): float { return __float_atan(x); }
+
+/** The angle of the point (`x`, `y`) from the positive x axis, from -π to π. */
+fn atan2(y: float, x: float): float { return __float_atan2(y, x); }
+
+/** The hyperbolic sine. */
+fn sinh(x: float): float { return __float_sinh(x); }
+
+/** The hyperbolic cosine. */
+fn cosh(x: float): float { return __float_cosh(x); }
+
+/** The hyperbolic tangent. */
+fn tanh(x: float): float { return __float_tanh(x); }
+
+/** The inverse hyperbolic sine. */
+fn asinh(x: float): float { return __float_asinh(x); }
+
+/** The inverse hyperbolic cosine. NaN below 1. */
+fn acosh(x: float): float { return __float_acosh(x); }
+
+/** The inverse hyperbolic tangent. NaN outside -1 to 1. */
+fn atanh(x: float): float { return __float_atanh(x); }
+
+/** Whether `x` is NaN. */
+fn is_nan(x: float): bool { return __float_is_nan(x); }
+
+/** Whether `x` is either infinity. */
+fn is_infinite(x: float): bool { return __float_is_infinite(x); }
+
+/** Whether `x` is neither NaN nor an infinity. */
+fn is_finite(x: float): bool { return __float_is_finite(x); }
+
+/** Whether the sign bit is set, which it is for `-0.0`. */
+fn is_sign_negative(x: float): bool { return __float_is_sign_negative(x); }
+
+/** The magnitude of `x` with the sign of `sign`. */
+fn copysign(x: float, sign: float): float { return __float_copysign(x, sign); }
+
+/** `x * y + z`, rounded once. */
+fn fma(x: float, y: float, z: float): float { return __float_fma(x, y, z); }
+
+/** The next `float` above `x`. */
+fn next_up(x: float): float { return __float_next_up(x); }
+
+/** The next `float` below `x`. */
+fn next_down(x: float): float { return __float_next_down(x); }
+
+/** Degrees in radians. */
+fn to_radians(degrees: float): float { return degrees * (pi() / 180.0); }
+
+/** Radians in degrees. */
+fn to_degrees(radians: float): float { return radians * (180.0 / pi()); }
+
+/** The smaller, where a NaN loses to any number. */
+fn fmin(a: float, b: float): float {
+    if (__float_is_nan(a)) { return b; }
+    if (__float_is_nan(b)) { return a; }
+    return min(a, b);
+}
+
+/** The larger, where a NaN loses to any number. */
+fn fmax(a: float, b: float): float {
+    if (__float_is_nan(a)) { return b; }
+    if (__float_is_nan(b)) { return a; }
+    return max(a, b);
+}
+
+/**
+ * IEEE 754's total order, which every two floats have: a negative NaN first,
+ * then the numbers with `-0.0` before `0.0`, then a positive NaN. For sorting
+ * floats once you have decided where NaN goes.
+ */
+fn total_cmp(a: float, b: float): Ordering {
+    var c = __float_total_cmp(a, b);
+    if (c < 0) { return Ordering.Less; }
+    if (c > 0) { return Ordering.Greater; }
+    return Ordering.Equal;
+}
+
+/** The greatest common divisor, never negative. `gcd(0, 0)` is 0. */
+fn gcd(a: int, b: int): int {
+    var x = abs(a);
+    var y = abs(b);
+    while (y != 0) {
+        var r = x % y;
+        x = y;
+        y = r;
+    }
+    return x;
+}
+
+/** The least common multiple, never negative. 0 if either is 0. */
+fn lcm(a: int, b: int): int {
+    if (a == 0 || b == 0) { return 0; }
+    return abs(a / gcd(a, b) * b);
+}
+
+/** The largest `r` with `r * r <= n`. Panics if `n` is negative. */
+fn isqrt(n: int): int {
+    if (n < 0) { panic("isqrt takes 0 or more, not " + str(n) + "."); }
+    if (n < 2) { return n; }
+    // Newton's method on integers: through `float` it is wrong above 2^53.
+    var x = n;
+    var y = n / 2 + n % 2;
+    while (y < x) {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    return x;
+}
+
+/** Whether `n` is a power of two: 1, 2, 4 and so on. */
+fn is_power_of_two(n: int): bool { return n > 0 && (n & (n - 1)) == 0; }
+
+/** `a / b` rounded down rather than toward zero: `floor_div(-7, 2)` is -4. */
+fn floor_div(a: int, b: int): int {
+    var q = a / b;
+    if (a % b != 0 && (a < 0) != (b < 0)) { return q - 1; }
+    return q;
+}
+
+/** The remainder of `floor_div`, with the sign of `b`: `floor_mod(-7, 2)` is 1. */
+fn floor_mod(a: int, b: int): int {
+    var r = a % b;
+    if (r != 0 && (r < 0) != (b < 0)) { return r + b; }
+    return r;
+}
+
+/** The quotient whose remainder `euclid_mod` gives. */
+fn euclid_div(a: int, b: int): int {
+    var q = a / b;
+    if (a % b < 0) {
+        if (b > 0) { return q - 1; }
+        return q + 1;
+    }
+    return q;
+}
+
+/** The remainder that is never negative, whatever the signs: an index into a ring. */
+fn euclid_mod(a: int, b: int): int {
+    var r = a % b;
+    if (r < 0) {
+        if (b > 0) { return r + b; }
+        return r - b;
+    }
+    return r;
+}
+
+/** `a + b`, or `None` outside `int`'s range. */
+fn checked_add(a: int, b: int): Option<int> {
+    if ((b > 0 && a > __int_max() - b) || (b < 0 && a < __int_min() - b)) { return Option.None; }
+    return Option.Some(a + b);
+}
+
+/** `a - b`, or `None` outside `int`'s range. */
+fn checked_sub(a: int, b: int): Option<int> {
+    if ((b < 0 && a > __int_max() + b) || (b > 0 && a < __int_min() + b)) { return Option.None; }
+    return Option.Some(a - b);
+}
+
+/** `a * b`, or `None` outside `int`'s range. */
+fn checked_mul(a: int, b: int): Option<int> {
+    var over = false;
+    if (a > 0) {
+        if (b > 0) { over = a > __int_max() / b; } else { over = b < __int_min() / a; }
+    } else if (a < 0) {
+        if (b > 0) { over = a < __int_min() / b; } else { over = b < __int_max() / a; }
+    }
+    if (over) { return Option.None; }
+    return Option.Some(a * b);
+}
+
+/** `base` to the power `exponent`, or `None` outside `int`'s range. Panics if `exponent` is negative. */
+fn checked_pow(base: int, exponent: int): Option<int> {
+    if (exponent < 0) { panic("checked_pow takes an exponent of 0 or more, not " + str(exponent) + "."); }
+    var result = 1;
+    for (var i = 0; i < exponent; i += 1) {
+        match checked_mul(result, base) {
+            Option.Some(n) => { result = n; }
+            Option.None => { return Option.None; }
+        }
+        if (result == 0 || result == 1) { return Option.Some(result); }
+    }
+    return Option.Some(result);
+}
+
+/** `a + b`, wrapping from one end of `int`'s range to the other. */
+fn wrapping_add(a: int, b: int): int { return __int_wrapping_add(a, b); }
+
+/** `a - b`, wrapping from one end of `int`'s range to the other. */
+fn wrapping_sub(a: int, b: int): int { return __int_wrapping_sub(a, b); }
+
+/** `a * b`, wrapping from one end of `int`'s range to the other. */
+fn wrapping_mul(a: int, b: int): int { return __int_wrapping_mul(a, b); }
+
+/** `a + b`, or the end of `int`'s range it passed. */
+fn saturating_add(a: int, b: int): int {
+    match checked_add(a, b) {
+        Option.Some(n) => { return n; }
+        Option.None => {}
+    }
+    if (b > 0) { return __int_max(); }
+    return __int_min();
+}
+
+/** `a - b`, or the end of `int`'s range it passed. */
+fn saturating_sub(a: int, b: int): int {
+    match checked_sub(a, b) {
+        Option.Some(n) => { return n; }
+        Option.None => {}
+    }
+    if (b < 0) { return __int_max(); }
+    return __int_min();
+}
+
+/** `a * b`, or the end of `int`'s range it passed. */
+fn saturating_mul(a: int, b: int): int {
+    match checked_mul(a, b) {
+        Option.Some(n) => { return n; }
+        Option.None => {}
+    }
+    if ((a < 0) != (b < 0)) { return __int_min(); }
+    return __int_max();
+}
+
+/** How many bits of `n` are set, counting a negative's in two's complement. */
+fn count_ones(n: int): int {
+    var rest = n;
+    var count = 0;
+    while (rest != 0) {
+        rest = rest & (rest - 1);
+        count += 1;
+    }
+    return count;
+}
+
+/** How many unset bits are above the highest set one. 0 for a negative. */
+fn leading_zeros(n: int): int {
+    if (n < 0) { return 0; }
+    var rest = n;
+    var count = __int_width();
+    while (rest != 0) {
+        rest = rest >> 1;
+        count -= 1;
+    }
+    return count;
+}
+
+/** How many unset bits are below the lowest set one. Every bit of `int` for 0. */
+fn trailing_zeros(n: int): int {
+    if (n == 0) { return __int_width(); }
+    var rest = n;
+    var count = 0;
+    while ((rest & 1) == 0) {
+        rest = rest >> 1;
+        count += 1;
+    }
+    return count;
+}
 
 /** Whichever is smaller; the first when they are equal or do not compare. */
 fn min<T: PartialOrd>(a: T, b: T): T {
@@ -24,7 +399,33 @@ fn max<T: PartialOrd>(a: T, b: T): T {
     return a;
 }
 
-/** The value without its sign: the larger of it and its negation. */
-fn abs<T: PartialOrd>(a: T): T {
-    return max(a, -a);
+/** `x` brought within `low` to `high`. Panics if `high` is below `low`. */
+fn clamp<T: PartialOrd>(x: T, low: T, high: T): T {
+    if (high < low) { panic("clamp needs its low end at or below its high end."); }
+    return max(low, min(x, high));
 }
+
+/** The number without its sign. */
+fn abs<T: Signed>(x: T): T { return x.abs(); }
+
+/** -1, 0 or 1 in the number's own type, as it is negative, zero or positive. */
+fn sign<T: Signed>(x: T): T { return x.sign(); }
+
+/** Every item added up, from zero. */
+fn sum<T: Num>(items: List<T>): T {
+    var total = T.zero();
+    for (x in items) { total = total + x; }
+    return total;
+}
+
+/** Every item multiplied together, from one. */
+fn product<T: Num>(items: List<T>): T {
+    var total = T.one();
+    for (x in items) { total = total * x; }
+    return total;
+}
+
+/** The point `t` of the way from `a` to `b`: `a` at 0, `b` at 1. */
+fn lerp<T: Num>(a: T, b: T, t: T): T { return a + (b - a) * t; }
+
+fn __int_width(): int { return count_ones(__int_max()) + 1; }

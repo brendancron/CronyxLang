@@ -1,0 +1,44 @@
+import { Complex } from "std/math/Complex";
+import { Pow } from "std/math/Num";
+import { sum, pi } from "std/math/Math";
+import { fixed } from "std/text/Format";
+
+// What is left of sin(π) differs in sign between C libraries.
+fn tidy(x: float): string {
+    if (x < 0.000000000001 && x > -0.000000000001) { return fixed(0.0, 10); }
+    return fixed(x, 10);
+}
+
+fn shown(z: Complex): string { return tidy(z.re) + " " + tidy(z.im); }
+
+var z = Complex.of(1.0, 2.0);
+var w = Complex.of(3.0, -4.0);
+print(z);
+print(w);
+print(z + w);
+print(z - w);
+print(z * w);
+print(z / Complex.of(0.0, 1.0));
+print(-z);
+print(z.conj());
+print(z * z.conj());
+print(w.abs());
+print(Complex.of(0.0, 1.0).arg() * 2.0 == pi());
+print(z == Complex.of(1.0, 2.0));
+print(z == w);
+print(sum([z, w, Complex.of(0.5, 0.5)]));
+
+print(Complex.of(-4.0, 0.0).sqrt());
+print(Complex.of(-4.0, -0.0).sqrt());
+print(Complex.of(3.0, 4.0).sqrt());
+print(shown(Complex.of(0.0, pi()).exp()));
+print(shown(Complex.of(-1.0, 0.0).ln()));
+print(shown(Complex.of(0.0, 1.0).pow(Complex.of(2.0, 0.0))));
+print(shown(Complex.of(0.0, 1.0).pow(Complex.of(0.0, 1.0))));
+print(Complex.zero().pow(Complex.of(2.0, 0.0)));
+print(Complex.zero().pow(Complex.zero()));
+
+var v = Complex.of(-1.5, 2.0);
+var back = Complex.from_polar(v.abs(), v.arg());
+print(shown(back));
+print(shown(v));

@@ -96,8 +96,10 @@ and type_directed self (s : Ast.typed_stmt) =
   let expr = type_directed_expr self in
   let type_directed = type_directed self in
   match s.Ast.it with
-  | `Expr e | `Return (Some e) | `Var_decl (_, _, Some e) | `Resume (Some e) -> expr e
+  | `Expr e | `Return (Some e) | `Var_decl (_, _, Some e) | `Var_tuple (_, e) | `Resume (Some e) ->
+    expr e
   | `Block body | `Fn (_, _, _, body) -> List.exists type_directed body
+  | `Defer body -> type_directed body
   | `If (cond, then_branch, else_branch) ->
     expr cond
     || type_directed then_branch
@@ -412,7 +414,7 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
          bound already said which impl a type answers with. *)
       let owned =
         Option.map
-          (fun owner -> Registry.dispatched dispatch owner name)
+          (fun owner -> Registry.dispatched state.registry dispatch owner name)
           (Types.type_name receiver.Ast.ann)
       in
       (match owned with
@@ -481,7 +483,7 @@ let rec rewrite state (e : Ast.typed_expr) : Ast.typed_expr =
       let slot (name, (d : Types.ty Ast.dispatch)) =
         match Types.type_name inner.Ast.ann with
         | Some owner when not (Types.has_generic inner.Ast.ann) ->
-          let mangled = Registry.dispatched d owner name in
+          let mangled = Registry.dispatched state.registry d owner name in
           (match Hashtbl.find_opt state.generic mangled with
            | Some { Ast.ann = Types.Fn (self :: _, _, _) as generic; _ } ->
              let mapping = Types.match_generic self inner.Ast.ann [] in

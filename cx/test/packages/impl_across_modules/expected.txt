@@ -1,0 +1,3 @@
+ok   twice_doubles
+
+1/1 passed

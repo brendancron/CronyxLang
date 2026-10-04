@@ -1,0 +1,6 @@
+trait Zero { fn zero(): Self; }
+trait Summable: Zero, Add<Self, Output = Self> {}
+
+type Flag { on: bool }
+impl Zero for Flag { fn zero(): Flag { return Flag { on: false }; } }
+impl Summable for Flag {}

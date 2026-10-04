@@ -1,0 +1,27 @@
+trait Zero { fn zero(): Self; }
+trait Summable: Zero, Add<Self, Output = Self> {}
+
+type Meters { n: int }
+impl Add<Meters> for Meters {
+    type Output = Meters;
+    fn add(self, rhs: Meters): Meters { return Meters { n: self.n + rhs.n }; }
+}
+impl Add<int> for Meters {
+    type Output = Meters;
+    fn add(self, rhs: int): Meters { return Meters { n: self.n + rhs }; }
+}
+impl Zero for Meters { fn zero(): Meters { return Meters { n: 0 }; } }
+impl Summable for Meters {}
+
+impl Zero for int { fn zero(): int { return 0; } }
+impl Summable for int {}
+
+fn total<T: Summable>(items: List<T>): T {
+    var sum = T.zero();
+    for (x in items) { sum = sum + x; }
+    return sum;
+}
+
+print(total([Meters { n: 2 }, Meters { n: 3 }]).n);
+print(total([4, 5]));
+print((Meters { n: 1 } + 6).n);

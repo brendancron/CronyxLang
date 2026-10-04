@@ -1,0 +1,21 @@
+var x = 0.0 / 0.0;
+print(x == x);
+print(x != x);
+print(0.0 / 0.0 == 0.0 / 0.0);
+print(-0.0 == 0.0);
+print(same(x, x));
+print((1.0, x) == (1.0, x));
+print([x] == [x]);
+fn lt<T: PartialOrd>(a: T, b: T): bool { return a < b; }
+fn cmp<T: PartialOrd>(a: T, b: T): Option<Ordering> { return a.partial_cmp(b); }
+var n = x;
+print(lt(1.0, 2.0));
+print(lt(n, 2.0));
+print(lt(2.0, n));
+print(cmp(1.0, 2.0));
+print(cmp(n, 1.0));
+print(cmp(3, 3));
+print((1.0).partial_cmp(0.0 / 0.0));
+print((1.0).partial_cmp(2.0));
+print(3.partial_cmp(3));
+print("b".partial_cmp("a"));

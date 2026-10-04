@@ -1,0 +1,17 @@
+false
+true
+false
+true
+true
+false
+false
+true
+false
+false
+Some(Less)
+None
+Some(Equal)
+None
+Some(Less)
+Some(Equal)
+Some(Greater)

@@ -53,9 +53,14 @@ let variadic : (string * (unit -> Types.infer_ty)) list =
    anywhere else it is -1, which asks `std/test/Test` for the list instead. *)
 let selected_test = "__test_selected"
 
+(* The size `cx bench` runs a benchmark at in this process; 0 anywhere else. *)
+let bench_size = "__bench_size"
+
 let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list =
   [ selected_test, "", (fun () -> [], Types.IInt)
+  ; bench_size, "", (fun () -> [], Types.IInt)
   ; ("__write_out", "", fun () -> [ Types.IStr ], Types.IUnit)
+  ; ("__flush_out", "", fun () -> [], Types.IUnit)
   ; ( "__file_open"
     , ""
     , fun () -> [ Types.IStr; Types.IInt ], Types.ITuple [ Types.IInt; Types.IInt; Types.IStr ] )
@@ -99,6 +104,12 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   ; ( "chr"
     , "The character at a Unicode code point. Panics if there is none."
     , fun () -> [ Types.IInt ], Types.IChr )
+  (* -1, 0 or 1, or 2 for two floats that do not compare. *)
+  ; ( "__order"
+    , ""
+    , fun () ->
+        let t = Types.fresh () in
+        [ t; t ], Types.IInt )
   ; ("__parse_int", "", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IInt ])
   ; ("__parse_float", "", fun () -> [ Types.IStr ], Types.ITuple [ Types.IBool; Types.IFloat ])
   ; ( "panic"
@@ -133,6 +144,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
         [ Types.iarray t; Types.IInt; t ], Types.iarray t )
   ]
   @ System.functions
+  @ Numeric.functions
 
 (* ---- values ---- *)
 
@@ -151,10 +163,21 @@ let numeral ~fraction text =
     if stop = from then None else Some stop
   in
   let start = if String.length text > 0 && text.[0] = '-' then 1 else 0 in
+  let length = String.length text in
+  let exponent at =
+    at < length
+    && (text.[at] = 'e' || text.[at] = 'E')
+    &&
+    let sign = if at + 1 < length && (text.[at + 1] = '+' || text.[at + 1] = '-') then 1 else 0 in
+    digits (at + 1 + sign) = Some length
+  in
   match digits start with
-  | Some stop when stop = String.length text -> true
+  | Some stop when stop = length -> true
   | Some stop when fraction && text.[stop] = '.' ->
-    digits (stop + 1) = Some (String.length text)
+    (match digits (stop + 1) with
+     | Some stop -> stop = length || exponent stop
+     | None -> false)
+  | Some stop when fraction -> exponent stop
   | _ -> false
 
 (* Open files, by the handle the program holds. A handle is never reused, so a
@@ -256,6 +279,14 @@ let written ~globals =
   in
   shown, form
 
+let stdout_is_terminal = lazy (Unix.isatty Unix.stdout)
+
+(* Line-buffered at a terminal, as C's stdio is, so a line shows when it is
+   printed; block-buffered anywhere else, where flushing every line is slow. *)
+let to_stdout text =
+  print_string text;
+  if Lazy.force stdout_is_terminal && String.contains text '\n' then flush stdout
+
 let values ~out ~globals =
   let shown, form = written ~globals in
   let native name arity apply = name, Value.Fn { Value.name; arity; apply } in
@@ -293,6 +324,9 @@ let values ~out ~globals =
         out (Utf8.encode text);
         Value.Unit
       | _ -> Value.fail span "__write_out takes a string.")
+  ; native "__flush_out" (Some 0) (fun _ _ ->
+      flush stdout;
+      Value.Unit)
   ; two "__file_open" (fun span p m ->
       match p, m with
       | Value.Str path, Value.Int mode ->
@@ -402,6 +436,7 @@ let values ~out ~globals =
   ; one "__written" (fun span v -> Value.Str (Utf8.decode (form span v)))
   ; native "__span_generated" (Some 0) (fun _ _ -> Value.Span Source_map.Span.nowhere)
   ; native selected_test (Some 0) (fun _ _ -> Value.Int (-1))
+  ; native bench_size (Some 0) (fun _ _ -> Value.Int 0)
   ; two "compile_error" (fun span at message ->
       match at, message with
       | Value.Span at, Value.Str message ->
@@ -427,6 +462,16 @@ let values ~out ~globals =
       | Value.Int n when Uchar.is_valid n -> Value.Chr (Uchar.of_int n)
       | Value.Int n -> Value.fail span "%d is not a Unicode scalar value." n
       | _ -> Value.fail span "Cannot apply chr to these arguments.")
+  ; two "__order" (fun span a b ->
+      let sign c = Value.Int (Int.compare c 0) in
+      match a, b with
+      | Value.Int x, Value.Int y -> sign (Int.compare x y)
+      | Value.Float x, Value.Float y ->
+        if Float.is_nan x || Float.is_nan y then Value.Int 2 else sign (Float.compare x y)
+      | Value.Str x, Value.Str y -> sign (Utf8.compare x y)
+      | Value.Chr x, Value.Chr y -> sign (Uchar.compare x y)
+      | Value.Byte x, Value.Byte y -> sign (Char.compare x y)
+      | _ -> Value.fail span "__order takes two numbers, strings, chars or bytes of one type.")
   ; one "__parse_int" (fun span v ->
       match v with
       | Value.Str s ->
@@ -514,6 +559,7 @@ let values ~out ~globals =
       | _ -> Value.fail span "Cannot apply bytes to these arguments.")
   ]
   @ System.values ~native:(fun name arity apply -> native name (Some arity) apply)
+  @ Numeric.values ~native:(fun name arity apply -> native name (Some arity) apply)
 
 let env ~out =
   let env = Value.new_env None in

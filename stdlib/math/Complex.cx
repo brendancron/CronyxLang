@@ -1,0 +1,119 @@
+/**
+ * Complex numbers over `float`.
+ *
+ * ```
+ * import { Complex } from "std/math/Complex";
+ *
+ * var z = Complex.of(1.0, 2.0);
+ * print(z * z.conj());          // 5.0+0.0i
+ * print(Complex.of(-4.0, 0.0).sqrt());   // 0.0+2.0i
+ * ```
+ *
+ * `exp`, `ln`, `sqrt` and `pow` take the principal branch. A `Complex` has no
+ * order: none agrees with its arithmetic, so it is not `PartialOrd`, and
+ * `abs` is the magnitude as a `float` rather than `Signed`'s.
+ */
+
+import { Zero, One, Num, Pow } from "Num";
+
+/** `re + im·i`. */
+type Complex {
+    re: float,
+    im: float
+}
+
+derive Eq for Complex;
+
+impl Complex {
+    /** `re + im·i`. */
+    fn of(re: float, im: float): Complex { return Complex { re: re, im: im }; }
+
+    /** The number at distance `r` from zero and angle `theta` in radians. */
+    fn from_polar(r: float, theta: float): Complex {
+        return Complex { re: r * __float_cos(theta), im: r * __float_sin(theta) };
+    }
+
+    /** The conjugate, `re - im·i`. */
+    fn conj(self): Complex { return Complex { re: self.re, im: -self.im }; }
+
+    /** The distance from zero. */
+    fn abs(self): float { return __float_hypot(self.re, self.im); }
+
+    /** The angle from the positive real axis, from -π to π. */
+    fn arg(self): float { return __float_atan2(self.im, self.re); }
+
+    /** e to the power of the number. */
+    fn exp(self): Complex { return Complex.from_polar(__float_exp(self.re), self.im); }
+
+    /** The natural logarithm, with its imaginary part from -π to π. */
+    fn ln(self): Complex { return Complex { re: __float_ln(self.abs()), im: self.arg() }; }
+
+    /** The square root with a real part of zero or more. */
+    fn sqrt(self): Complex {
+        var r = self.abs();
+        var re = __float_sqrt((r + self.re) / 2.0);
+        var im = __float_copysign(__float_sqrt((r - self.re) / 2.0), self.im);
+        return Complex { re: re, im: im };
+    }
+}
+
+impl Add<Complex> for Complex {
+    type Output = Complex;
+    fn add(self, rhs: Complex): Complex { return Complex { re: self.re + rhs.re, im: self.im + rhs.im }; }
+}
+
+impl Sub<Complex> for Complex {
+    type Output = Complex;
+    fn sub(self, rhs: Complex): Complex { return Complex { re: self.re - rhs.re, im: self.im - rhs.im }; }
+}
+
+impl Mul<Complex> for Complex {
+    type Output = Complex;
+    fn mul(self, rhs: Complex): Complex {
+        return Complex { re: self.re * rhs.re - self.im * rhs.im, im: self.re * rhs.im + self.im * rhs.re };
+    }
+}
+
+impl Div<Complex> for Complex {
+    type Output = Complex;
+    fn div(self, rhs: Complex): Complex {
+        var d = rhs.re * rhs.re + rhs.im * rhs.im;
+        return Complex {
+            re: (self.re * rhs.re + self.im * rhs.im) / d,
+            im: (self.im * rhs.re - self.re * rhs.im) / d
+        };
+    }
+}
+
+impl Neg for Complex {
+    type Output = Complex;
+    fn neg(self): Complex { return Complex { re: -self.re, im: -self.im }; }
+}
+
+impl Zero for Complex { fn zero(): Complex { return Complex { re: 0.0, im: 0.0 }; } }
+impl One for Complex { fn one(): Complex { return Complex { re: 1.0, im: 0.0 }; } }
+impl Num for Complex {}
+
+impl Pow<Complex> for Complex {
+    /** `exp(exponent * ln(self))`. Zero to any power but zero is zero, and to zero is one. */
+    fn pow(self, exponent: Complex): Complex {
+        if (self.re == 0.0 && self.im == 0.0) {
+            if (exponent.re == 0.0 && exponent.im == 0.0) { return Complex.one(); }
+            return Complex.zero();
+        }
+        return (exponent * self.ln()).exp();
+    }
+}
+
+impl Display for Complex {
+    /** `1.0+2.0i`, `1.0-2.0i`. */
+    fn fmt(self): string {
+        var sign = "+";
+        if (__float_is_sign_negative(self.im) && !__float_is_nan(self.im)) { sign = "-"; }
+        return str(self.re) + sign + str(__float_copysign(self.im, 1.0)) + "i";
+    }
+}
+
+impl Debug for Complex {
+    fn debug(self): string { return self.fmt(); }
+}

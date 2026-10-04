@@ -170,23 +170,34 @@ let declarations program =
       Option.is_some (Loader.declared_name s)
       ||
       match s.Ast.it with
-      | `Meta _ | `Derive _ | `Attributed (_, { Ast.it = `Meta _ | `Derive _; _ }) -> true
+      (* An impl declares no name, so [declared_name] passes it over, and
+         without it every method of the package is missing. *)
+      | `Meta _ | `Derive _ | `Impl_decl _
+      | `Attributed (_, { Ast.it = `Meta _ | `Derive _ | `Impl_decl _; _ }) -> true
       | _ -> false)
     program
+
+let suite_source suite =
+  Printf.sprintf
+    "import { collect, run_tests } from \"std/test/Test\";\n\
+     import \"%s\" as suite;\n\n\
+     meta { collect(moduleof(suite)); }\n\
+     run_tests(__test_names(), __test_run);\n"
+    suite
 
 (* One program per test file, as a Rust integration test is its own crate: a
    file that fails to compile takes only itself down. The program is a file
    this writes under `target/`, importing the test file so it can be
    reflected: the test file's own top-level meta runs when it is, so a test it
    generates is found. *)
-let harness ~root file =
+let harness ?(dir = "tests") ?(target = "test") ?(source = suite_source) ~root file =
   let relative =
-    let tests = Loader.normalize (Filename.concat root "tests") ^ "/" in
+    let tests = Loader.normalize (Filename.concat root dir) ^ "/" in
     let file = Loader.normalize file in
     String.sub file (String.length tests) (String.length file - String.length tests)
   in
   let stem = Filename.chop_suffix relative ".cx" in
-  let path = Filename.concat (Filename.concat (Build.target_dir root) "test") (stem ^ ".cx") in
+  let path = Filename.concat (Filename.concat (Build.target_dir root) target) (stem ^ ".cx") in
   let rec ensure dir =
     if not (Sys.file_exists dir)
     then (
@@ -197,26 +208,18 @@ let harness ~root file =
   (* From the harness back up to the package root, then down to the file. *)
   let depth = List.length (String.split_on_char '/' stem) + 1 in
   let up = String.concat "" (List.init depth (fun _ -> "../")) in
-  let source =
-    Printf.sprintf
-      "import { collect, run_tests } from \"std/test/Test\";\n\
-       import \"%stests/%s\" as suite;\n\n\
-       meta { collect(moduleof(suite)); }\n\
-       run_tests(__test_names(), __test_run);\n"
-      up
-      stem
-  in
-  Out_channel.with_open_bin path (fun out -> Out_channel.output_string out source);
+  Out_channel.with_open_bin path (fun out ->
+    Out_channel.output_string out (source (Printf.sprintf "%s%s/%s" up dir stem)));
   path
 
-let of_file ~root ~manifest ~package program file =
+let of_file ?(write = fun ~root file -> harness ~root file) ~root ~manifest ~package program file =
   let ( let* ) = Result.bind in
   let deps =
     (manifest.Manifest.name, { Loader.dep_root = root; compiled = Some package })
     :: Workspace.dependency_roots manifest
   in
   let roots = { Loader.package = root; std = Toolchain.stdlib (); deps } in
-  let entry = harness ~root file in
+  let entry = write ~root file in
   let* loaded, _ = Pipeline.package ~roots ~seeds:[ entry ] entry in
   (* Both carry the prelude and what it imports, as two linked packages do. *)
   Ok (Build.deduplicated (declarations program @ loaded))

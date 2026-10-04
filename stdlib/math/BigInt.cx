@@ -88,28 +88,16 @@ impl BigInt {
     /** Whether it is zero. */
     fn is_zero(self): bool { return self.digits.len() == 0; }
 
-    /** -1, 0 or 1, as the integer is negative, zero or positive. */
-    fn sign(self): int {
-        if (self.is_zero()) { return 0; }
-        if (self.negative) { return -1; }
-        return 1;
-    }
-
-    /** The integer without its sign. */
-    fn abs(self): BigInt { return BigInt { negative: false, digits: self.digits }; }
-
-    /** The integer to the power `exponent`, which must not be negative. */
-    fn pow(self, exponent: int): BigInt {
-        if (exponent < 0) { panic("pow takes an exponent of 0 or more, not " + str(exponent) + "."); }
-        var result = BigInt.of(1);
-        var square = self;
-        var e = exponent;
-        while (e > 0) {
-            if (e % 2 == 1) { result = __multiply(result, square); }
-            square = __multiply(square, square);
-            e = e / 2;
+    /** The value as a `float`: exact up to 2^53, rounded beyond, and infinite past the largest. */
+    fn to_float(self): float {
+        var total = 0.0;
+        var i = self.digits.len() - 1;
+        while (i >= 0) {
+            total = total * __base().to_float() + self.digits[i].to_float();
+            i -= 1;
         }
-        return result;
+        if (self.negative) { return -total; }
+        return total;
     }
 }
 

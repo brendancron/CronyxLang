@@ -83,3 +83,5 @@ Checks each node against its children — including that every slot of a trait o
 ### Interp
 
 Walks the converted tree. It is also the evaluator `Metaprocess` runs a meta block with, which is what makes the recursion real: there is no second pipeline and no compile-time subset of the language.
+
+Calls from a frame or a continuation in tail position are proper tail calls. Converted code never returns to the frame it came from -- every step ends by calling the next continuation -- so a loop that suspends is a chain of calls as long as the loop, and without them the interpreter's stack, and every local each step held, grows until the program ends. The frame hands its last call back to whoever called it, which makes it after putting back the scopes that frame had re-entered. A function answers its own `return` and is never left that way, and a call inside a `defer`, an unwind's cleanup or a scope's abort is never in tail position, since something runs after it.

@@ -1,0 +1,58 @@
+x: 0.0 -0.0 1.0 -2.5000000000 inf -inf NaN
+floor: 0.0 -0.0 1.0 -3.0 inf -inf NaN
+ceil: 0.0 -0.0 1.0 -2.0 inf -inf NaN
+trunc: 0.0 -0.0 1.0 -2.0 inf -inf NaN
+round: 0.0 -0.0 1.0 -3.0 inf -inf NaN
+round_even: 0.0 -0.0 1.0 -2.0 inf -inf NaN
+fract: 0.0 -0.0 0.0 -0.5000000000 NaN NaN NaN
+sqrt: 0.0 -0.0 1.0 NaN inf NaN NaN
+cbrt: 0.0 -0.0 1.0 -1.3572088083 inf -inf NaN
+exp: 1.0 1.0 2.7182818285 0.0820849986 inf 0.0 NaN
+exp2: 1.0 1.0 2.0 0.1767766953 inf 0.0 NaN
+exp_m1: 0.0 -0.0 1.7182818285 -0.9179150014 inf -1.0 NaN
+ln: -inf -inf 0.0 NaN inf NaN NaN
+log2: -inf -inf 0.0 NaN inf NaN NaN
+log10: -inf -inf 0.0 NaN inf NaN NaN
+ln_1p: 0.0 -0.0 0.6931471806 NaN inf NaN NaN
+sin: 0.0 -0.0 0.8414709848 -0.5984721441 NaN NaN NaN
+cos: 1.0 1.0 0.5403023059 -0.8011436155 NaN NaN NaN
+tan: 0.0 -0.0 1.5574077247 0.7470222972 NaN NaN NaN
+asin: 0.0 -0.0 1.5707963268 NaN NaN NaN NaN
+acos: 1.5707963268 1.5707963268 0.0 NaN NaN NaN NaN
+atan: 0.0 -0.0 0.7853981634 -1.1902899497 1.5707963268 -1.5707963268 NaN
+sinh: 0.0 -0.0 1.1752011936 -6.0502044810 inf -inf NaN
+cosh: 1.0 1.0 1.5430806348 6.1322894797 inf inf NaN
+tanh: 0.0 -0.0 0.7615941560 -0.9866142982 1.0 -1.0 NaN
+asinh: 0.0 -0.0 0.8813735870 -1.6472311464 inf -inf NaN
+acosh: NaN NaN 0.0 NaN inf NaN NaN
+atanh: 0.0 -0.0 inf NaN NaN NaN NaN
+to_radians: 0.0 -0.0 0.0174532925 -0.0436332313 inf -inf NaN
+to_degrees: 0.0 -0.0 57.2957795131 -143.2394487827 inf -inf NaN
+is_nan: false false false false false false true
+is_infinite: false false false false true true false
+is_finite: true true true true false false false
+is_sign_negative: false true false true false true false
+3.0
+-3.0
+2.0
+4.0
+-2.0
+true
+-5e-324
+inf
+5.0
+inf
+2.3561944902
+3.141592653589793
+-3.141592653589793
+-3.0
+NaN
+3.0000000000
+2.0000000000
+1.0
+1.0
+NaN
+10.0
+NaN
+3.0
+2.0

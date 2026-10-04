@@ -1,0 +1,1 @@
+[bad_bench/benches/wrong.cx 3:1] '@memory' takes "constant", "linear" or "quadratic".

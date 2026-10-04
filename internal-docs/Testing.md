@@ -95,6 +95,14 @@ An HTTP framework collecting `@route` functions is the same shape: a `meta` bloc
 
 That is why making `print` an algebraic effect is *not* a prerequisite for any of this, though it remains worth doing for its own reasons — see Open.
 
+## Benchmarks judge growth, not speed
+
+`cx bench` is `cx test`'s machinery pointed at `benches/` and `@bench`: one program per file, `std/test/Bench` generating the calls from `moduleof`, each benchmark in a process of its own. What differs is what a run is held to.
+
+A single timing is a fact about one machine on one afternoon, and a gate built on it is either loose enough to catch nothing or tight enough to fail on a busy runner. How a benchmark *grows* is a fact about the program. So each one runs at its size `n` and at `4n`, and the report is the exponent `k` in `n^k` for time and for peak memory. A benchmark declares the class it belongs to, `@memory("constant")` for a loop of calls that each let go of what they made, and fails if it grows half a power faster. A leak shows up as memory `n^1` where `n^0` was declared, whatever the machine.
+
+Memory is the major heap's peak above what the program needed once loaded, measured in the child after compacting, so it counts what the run kept rather than what it passed through. Below 10ms and 1MB a ratio is noise, so each measurement is floored there.
+
 ## Settled
 
 **Tests live in `tests/`.** A `@test` written in `src/` is not looked for. A manifest key naming a different folder is the expected way to change that, and is not built.

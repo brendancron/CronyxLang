@@ -29,9 +29,14 @@ let sources root =
 (* A test file is not a source file: it is compiled against the package's
    artifact rather than into it, so `sources` must not see it and an artifact
    never carries one. *)
-let tests root =
-  let dir = Filename.concat root "tests" in
+let under root name =
+  let dir = Filename.concat root name in
   if Sys.file_exists dir && Sys.is_directory dir then walk dir else []
+
+let tests root = under root "tests"
+
+(* Compiled against the artifact as a test file is, and kept out of it the same way. *)
+let benches root = under root "benches"
 
 let manifest_of root =
   Manifest.load (Filename.concat root Manifest.file_name)

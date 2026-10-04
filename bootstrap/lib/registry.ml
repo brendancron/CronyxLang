@@ -127,17 +127,28 @@ let entry_with_targets t owner method_ targets =
   List.find_opt matches (method_entries t owner method_)
 
 (* A bound names the entry outright, so a call it dispatched asks no table which
-   impl it reaches. *)
-let dispatched (d : Types.ty Ast.dispatch) owner method_ =
+   impl it reaches -- unless the impl wrote the trait's arguments in its own
+   parameters: `impl Sized<T> for List<T>` is mangled with `T`, and a bound at
+   `Sized<float>` names `float`. Then it is the type's one impl of that trait. *)
+let dispatched t (d : Types.ty Ast.dispatch) owner method_ =
   match d.Ast.dp_instance with
   | Some copy -> copy
   | None ->
-    let written t = Option.value (Types.type_name t) ~default:"_" in
-    Ast.dispatched_method_name
-      owner
-      d.Ast.dp_trait
-      (List.map written d.Ast.dp_targets)
-      method_
+    let written ty = Option.value (Types.type_name ty) ~default:"_" in
+    let targets = List.map written d.Ast.dp_targets in
+    let exact = Ast.dispatched_method_name owner d.Ast.dp_trait targets method_ in
+    let entries = method_entries t owner method_ in
+    if List.exists (fun e -> String.equal e.mangled exact) entries
+    then exact
+    else (
+      match
+        List.filter
+          (fun e ->
+            e.trait = Some d.Ast.dp_trait && List.length e.targets = List.length targets)
+          entries
+      with
+      | [ only ] -> only.mangled
+      | _ -> exact)
 
 (* A call left ambiguous is rejected before here, so the head is the one entry
    a receiver's method has. *)

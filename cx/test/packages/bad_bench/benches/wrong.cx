@@ -1,0 +1,3 @@
+@bench(10)
+@memory("flat")
+fn unknown_class(n: int) {}

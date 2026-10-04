@@ -1,0 +1,4 @@
+import { Box } from "a";
+import { twice } from "b";
+
+print(str(twice(Box { n: 2 })));

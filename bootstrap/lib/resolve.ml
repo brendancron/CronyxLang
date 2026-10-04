@@ -217,7 +217,7 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
             trait
       in
       let slot (name, dispatch) : string * Ast.resolved_expr =
-        let entry = Registry.dispatched dispatch owner name in
+        let entry = Registry.dispatched registry dispatch owner name in
         let declared =
           match Hashtbl.find_opt declared_types entry with
           | Some ty -> ty
@@ -271,7 +271,7 @@ let rec expr registry (e : Ast.typed_expr) : Ast.resolved_expr =
       let all =
         if Registry.is_associated registry owner name then args else receiver :: args
       in
-      `Call (fn_ref span (Registry.dispatched dispatch owner name) all ann, all)
+      `Call (fn_ref span (Registry.dispatched registry dispatch owner name) all ann, all)
     | `Collection_lit items ->
       let items = List.map (expr registry) items in
       if Types.is_array ann

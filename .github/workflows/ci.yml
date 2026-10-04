@@ -53,6 +53,36 @@ jobs:
       - name: cx parity
         run: opam exec -- bash ./scripts/cx-parity.sh
 
+  # A job of its own, as `windows` is: the ruleset requires `test` alone, so a
+  # benchmark that fails is reported without blocking a merge.
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: '5'
+          dune-cache: true
+          opam-pin: false
+
+      - name: Install dependencies
+        working-directory: bootstrap
+        run: opam install . --deps-only --with-test --yes
+
+      - name: Build
+        run: opam exec -- dune build
+
+      # This tree's library, not one an installed toolchain would find.
+      - name: Benchmarks
+        working-directory: benchmarks
+        env:
+          CRONYX_STDLIB: ${{ github.workspace }}/stdlib
+        run: opam exec -- ../_build/default/cx/bin/main.exe bench --frozen
+
   # Windows was exercised only at release time, which made cutting a release the
   # only way to find out whether a fix for it worked. The main branch ruleset
   # requires the check named `test`, so this is a job of its own rather than a

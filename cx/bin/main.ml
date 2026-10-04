@@ -11,11 +11,12 @@ let usage =
   \  run [file.cx] [-- args…]\n\
   \                  compile and execute a program, or the package here\n\
   \  test [filter]   run the package's @test functions\n\
+  \  bench [filter]  run the package's @bench functions, each at two sizes\n\
   \  docs [std]      render the reference for the package here, or the library\n\n\
    options for `docs`:\n\
   \  --json          write the index to stdout and render nothing\n\
   \  --no-open       render, but do not open a browser\n\n\
-   options for `build`, `run` and `test`:\n\
+   options for `build`, `run`, `test` and `bench`:\n\
   \  --locked        fail if the lockfile would change\n\
   \  --offline       resolve from ~/.cronyx/registry alone, never the registry\n\
   \  --frozen        both\n\n\
@@ -97,7 +98,7 @@ let mode_of ?(dumps = false) args =
 
 let build args =
   let root = package_root () in
-  match Cx.Build.package ~mode:(mode_of args) ~note ~out:print_string root with
+  match Cx.Build.package ~mode:(mode_of args) ~note ~out:Builtins.to_stdout root with
   | Error errors -> report root errors
   | Ok (artifacts, compiled) ->
     List.iter
@@ -146,7 +147,7 @@ let run_package ~mode dumps =
   let root = package_root () in
   let entry = Cx.Workspace.entry_of root in
   Option.iter (fun entry -> Driver.dump_front ~entry dumps (Driver.read_source entry)) entry;
-  match Cx.Build.package ~mode ~note ~out:print_string root with
+  match Cx.Build.package ~mode ~note ~out:Builtins.to_stdout root with
   | Error errors -> report root errors
   | Ok (artifacts, _) ->
     let entry = Option.value entry ~default:root in
@@ -164,6 +165,20 @@ let test args =
   in
   let root = package_root () in
   match Cx.Test.run ~mode:(mode_of args) ~note ?filter ~self:Sys.executable_name root with
+  | Error errors -> report root errors
+  | Ok (rendered, failed) ->
+    print_string rendered;
+    if failed > 0 then exit 1
+
+let bench args =
+  let filter =
+    match List.filter (fun a -> not (String.length a > 0 && Char.equal a.[0] '-')) args with
+    | [] -> None
+    | [ one ] -> Some one
+    | _ -> Driver.die ("bench takes at most one filter.\n" ^ usage)
+  in
+  let root = package_root () in
+  match Cx.Bench.run ~mode:(mode_of args) ~note ?filter ~self:Sys.executable_name root with
   | Error errors -> report root errors
   | Ok (rendered, failed) ->
     print_string rendered;
@@ -291,6 +306,8 @@ let () =
   (match args with
    | [ flag; carrier; index; name ] when String.equal flag Cx.Test.internal ->
      Cx.Test.run_one carrier (int_of_string index) name
+   | [ flag; carrier; index; name; size ] when String.equal flag Cx.Bench.internal ->
+     Cx.Bench.run_one carrier (int_of_string index) name (int_of_string size)
    | _ -> ());
   if Cx.Dispatch.dispatched args then dispatch ();
   match args with
@@ -306,6 +323,7 @@ let () =
     no_arguments "publish" args;
     publish ()
   | "test" :: args -> test args
+  | "bench" :: args -> bench args
   | "docs" :: args -> docs args
   | "version" :: args ->
     no_arguments "version" args;

@@ -1,0 +1,117 @@
+/**
+ * Summaries of a sample of floats.
+ *
+ * ```
+ * import { mean, median, stddev } from "std/math/Stats";
+ *
+ * var heights = [1.62, 1.75, 1.80, 1.68];
+ * print(mean(heights));     // Some(1.7125)
+ * print(median(heights));   // Some(1.715)
+ * ```
+ *
+ * Each takes anything `Iterable<float>`, a `List` or an `Array`. A summary of
+ * nothing is `None` rather than NaN: no value went wrong, there was none.
+ * `variance` and `stddev` are of the population; the `sample_` ones divide by
+ * one fewer. `median` and `quantile` sort a copy, so the input is left as it
+ * was.
+ */
+
+import { sort } from "../algo/Sort";
+
+/** The arithmetic mean. */
+fn mean<C: Iterable<float>>(items: C): Option<float> {
+    var (count, m, _) = __welford(items);
+    if (count == 0) { return Option.None; }
+    return Option.Some(m);
+}
+
+/** The middle value, or the mean of the two middle ones. */
+fn median<C: Iterable<float>>(items: C): Option<float> { return quantile(items, 0.5); }
+
+/** The mean squared distance from the mean. */
+fn variance<C: Iterable<float>>(items: C): Option<float> {
+    var (count, _, squares) = __welford(items);
+    if (count == 0) { return Option.None; }
+    return Option.Some(squares / count.to_float());
+}
+
+/** The square root of `variance`. */
+fn stddev<C: Iterable<float>>(items: C): Option<float> { return __sqrt_of(variance(items)); }
+
+/** The variance with `n - 1` below the line, estimating a population from a sample. `None` below two items. */
+fn sample_variance<C: Iterable<float>>(items: C): Option<float> {
+    var (count, _, squares) = __welford(items);
+    if (count < 2) { return Option.None; }
+    return Option.Some(squares / (count - 1).to_float());
+}
+
+/** The square root of `sample_variance`. */
+fn sample_stddev<C: Iterable<float>>(items: C): Option<float> { return __sqrt_of(sample_variance(items)); }
+
+/**
+ * The value `q` of the way through the sorted items, from 0 for the smallest
+ * to 1 for the largest, interpolating between the two closest. Panics if `q`
+ * is outside 0 to 1.
+ */
+fn quantile<C: Iterable<float>>(items: C, q: float): Option<float> {
+    if (!(q >= 0.0 && q <= 1.0)) { panic("quantile takes a q from 0 to 1, not " + str(q) + "."); }
+    var sorted: List<float> = [];
+    for (x in items.iter()) { sorted.push(x); }
+    if (sorted.len() == 0) { return Option.None; }
+    sort(sorted);
+    var at = q * (sorted.len() - 1).to_float();
+    var low = __float_floor(at).to_int();
+    if (low == sorted.len() - 1) { return Option.Some(sorted[low]); }
+    var fraction = at - low.to_float();
+    return Option.Some(sorted[low] + (sorted[low + 1] - sorted[low]) * fraction);
+}
+
+/** The smallest, ignoring NaN. `None` if nothing else is there. */
+fn min_of<C: Iterable<float>>(items: C): Option<float> {
+    var found: Option<float> = Option.None;
+    for (x in items.iter()) {
+        if (!__float_is_nan(x)) {
+            match found {
+                Option.Some(m) => { if (x < m) { found = Option.Some(x); } }
+                Option.None => { found = Option.Some(x); }
+            }
+        }
+    }
+    return found;
+}
+
+/** The largest, ignoring NaN. `None` if nothing else is there. */
+fn max_of<C: Iterable<float>>(items: C): Option<float> {
+    var found: Option<float> = Option.None;
+    for (x in items.iter()) {
+        if (!__float_is_nan(x)) {
+            match found {
+                Option.Some(m) => { if (x > m) { found = Option.Some(x); } }
+                Option.None => { found = Option.Some(x); }
+            }
+        }
+    }
+    return found;
+}
+
+// Welford's update: summing values and then squares loses the digits that
+// matter when the values are large and close together, and can go negative.
+fn __welford<C: Iterable<float>>(items: C): (int, float, float) {
+    var count = 0;
+    var m = 0.0;
+    var squares = 0.0;
+    for (x in items.iter()) {
+        count += 1;
+        var delta = x - m;
+        m = m + delta / count.to_float();
+        squares = squares + delta * (x - m);
+    }
+    return (count, m, squares);
+}
+
+fn __sqrt_of(v: Option<float>): Option<float> {
+    match v {
+        Option.Some(x) => { return Option.Some(__float_sqrt(x)); }
+        Option.None => { return Option.None; }
+    }
+}

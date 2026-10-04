@@ -1,0 +1,7 @@
+trait Sized { fn size(self): int; }
+impl Sized for Array<T> { fn size(self): int { return self.len(); } }
+
+fn count<C: Sized>(c: C): int { return c.size(); }
+
+print(count([1, 2, 3]));
+print(count(["a"]));

@@ -16,6 +16,23 @@ exception Aborted of string * Ast.span
    entering it installed. Innermost first. *)
 let active_scopes : (string * Ast.cps_stmt list * Value.env) list ref = ref []
 
+(* Tail calls. Converted code ends every function by calling the next
+   continuation, so without them each step of a loop that suspends runs inside
+   the last, and the stack -- and every local each step held -- grows until
+   the program ends. A frame or a continuation whose body ends in a call hands
+   the call to whoever called it instead of making it: [tail] says the
+   statement being run is in that position, and [pending] holds the call with
+   the scopes the frame had re-entered, which the caller puts back around it. *)
+let tail = ref false
+let tail_scopes : (string * Ast.cps_stmt list * Value.env) list ref = ref []
+let pending : (Value.fn * Value.value list * (string * Ast.cps_stmt list * Value.env) list) option ref =
+  ref None
+
+let not_tail f =
+  let outer = !tail in
+  tail := false;
+  Fun.protect ~finally:(fun () -> tail := outer) f
+
 (* What `discontinue` resumes a continuation with. Compared by identity, so no
    value a program builds can be mistaken for it. *)
 let discontinued = Variant (None, "discontinued", [])
@@ -230,7 +247,7 @@ and under missing k =
     (match under inner k with
      | v -> v
      | exception Aborted (caught, _) when String.equal caught name ->
-       List.iter (exec senv) on_abort;
+       not_tail (fun () -> List.iter (exec senv) on_abort);
        Unit)
 
 (* [returns] is false for a function the CPS pass cut out of another: a
@@ -268,8 +285,17 @@ and closure ?(is_continuation = false) ?(returns = true) env name params body =
              have every continuation made from here capture it twice, and the
              list double with each resumption. *)
           active_scopes := missing @ List.filter (fun frame -> not (List.memq frame missing)) current;
+          let outer_tail = !tail
+          and outer_scopes = !tail_scopes in
+          (* A function answers its own `return`, so a call it ends in has to
+             come back through it. *)
+          tail := not returns;
+          tail_scopes := missing;
           Fun.protect
-            ~finally:(fun () -> active_scopes := saved)
+            ~finally:(fun () ->
+              active_scopes := saved;
+              tail := outer_tail;
+              tail_scopes := outer_scopes)
             (fun () ->
               under
                 (List.rev missing)
@@ -300,8 +326,26 @@ and call span f args =
      | Some n when n <> List.length args ->
        fail span "%s expects %d argument(s) but got %d." f.name n (List.length args)
      | _ -> ());
-    f.apply span args
+    bounce span [] (f.apply span args)
   | v -> fail span "Cannot call %s." (type_name v)
+
+(* Makes the calls handed back to it, each in the scopes the frame that handed
+   it over had re-entered. Those already put back by an enclosing bounce are
+   not put back again, so a loop of continuations re-entering the same scopes
+   runs here, flat, rather than one level deeper each time. *)
+and bounce span installed v =
+  match !pending with
+  | None -> v
+  | Some (g, args, scopes) ->
+    pending := None;
+    if List.for_all (fun scope -> List.memq scope installed) scopes
+    then bounce span installed (g.apply span args)
+    else (
+      let saved = !active_scopes in
+      active_scopes := scopes @ List.filter (fun scope -> not (List.memq scope scopes)) saved;
+      Fun.protect
+        ~finally:(fun () -> active_scopes := saved)
+        (fun () -> under (List.rev scopes) (fun () -> bounce span scopes (g.apply span args))))
 
 (* Deferred statements run when the block is left, however it is left, and in
    reverse. *)
@@ -314,15 +358,26 @@ and run_block env body =
       | _ -> ())
     body;
   let deferred = ref [] in
-  let run_deferred () = List.iter (fun (scope, s) -> exec scope s) !deferred in
+  let run_deferred () = not_tail (fun () -> List.iter (fun (scope, s) -> exec scope s) !deferred) in
   let rec walk = function
     | [] -> ()
     | { Ast.it = `Defer inner; _ } :: rest ->
       deferred := (env, inner) :: !deferred;
       walk rest
     | { Ast.it = `Fn _ | `Cont _ | `Frame _; _ } :: rest -> walk rest
+    (* What this block defers runs when it is left, which has to be after the
+       call rather than before it. *)
+    | [ s ] when !deferred <> [] -> not_tail (fun () -> exec env s)
+    | [ { Ast.it = `Expr { Ast.it = `Call (callee, args); span; _ }; _ } ]
+      when !tail && not (discontinuing callee) ->
+      let f, args = not_tail (fun () -> eval env callee, eval_all env args) in
+      (match f with
+       | Fn f when (match f.arity with Some n -> n = List.length args | None -> true) ->
+         pending := Some (f, args, !tail_scopes)
+       | f -> ignore (call span f args))
+    | [ s ] -> exec env s
     | s :: rest ->
-      exec env s;
+      not_tail (fun () -> exec env s);
       walk rest
   in
   (match walk body with
@@ -330,6 +385,11 @@ and run_block env body =
    | exception e ->
      run_deferred ();
      raise e)
+
+and discontinuing (callee : Ast.cps_expr) =
+  match callee.Ast.it with
+  | `Var name -> String.equal name Ast.discontinue_name || String.equal name Ast.discontinued_name
+  | _ -> false
 
 and exec env (s : Ast.cps_stmt) : unit =
   let span = s.Ast.span in
@@ -345,16 +405,16 @@ and exec env (s : Ast.cps_stmt) : unit =
   | `Scope (scope, body, on_abort) ->
     let saved = !active_scopes in
     active_scopes := (scope, on_abort, env) :: saved;
-    (match Fun.protect ~finally:(fun () -> active_scopes := saved) (fun () -> run_block env body)
+    (match Fun.protect ~finally:(fun () -> active_scopes := saved) (fun () -> not_tail (fun () -> run_block env body))
      with
      | () -> ()
      | exception Aborted (caught, _) when String.equal caught scope ->
-       List.iter (exec env) on_abort)
+       not_tail (fun () -> List.iter (exec env) on_abort))
   | `Abort scope -> raise (Aborted (scope, s.Ast.span))
   | `On_unwind (body, cleanup) ->
-    (try List.iter (exec env) body with
+    (try not_tail (fun () -> List.iter (exec env) body) with
      | e ->
-       List.iter (exec env) cleanup;
+       not_tail (fun () -> List.iter (exec env) cleanup);
        raise e)
   | `Var_decl (name, _, init) ->
     let v =
@@ -377,7 +437,7 @@ and exec env (s : Ast.cps_stmt) : unit =
   | `While (cond, body) ->
     (try
        while as_bool span (eval env cond) do
-         try exec env body with
+         try not_tail (fun () -> exec env body) with
          | Continue_loop -> ()
        done
      with

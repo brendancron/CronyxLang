@@ -1,0 +1,3 @@
+import { Box } from "a";
+
+fn twice(b: Box): int { return b.get() * 2; }

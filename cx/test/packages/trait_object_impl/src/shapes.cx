@@ -1,0 +1,14 @@
+trait Area {
+    fn area(self): int;
+}
+
+type Square { side: int }
+
+impl Area for Square {
+    fn area(self): int { return self.side * self.side; }
+}
+
+fn square_area(side: int): int {
+    var s: Area = Square { side: side };
+    return s.area();
+}

@@ -1,0 +1,4 @@
+[package]
+name    = "bad_bench"
+version = "0.1.0"
+cronyx  = "0.0.1"

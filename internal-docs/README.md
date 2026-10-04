@@ -23,6 +23,8 @@ This is separate from `docs/`, which is the Docusaurus site published for langua
 | [Modules.md](Modules.md)                                     | `import`, and why several files become one program                    |
 | [Package Manager.md](Package%20Manager.md)                   | `cx`, packages, resolution, and where the module boundary hardens     |
 | [Package Manager Plan.md](Package%20Manager%20Plan.md)       | The order `cx` gets built in, and what "done" means at each step      |
+| [Math.md](Math.md)                                           | `std/math`: why one name means one function, and what the language owes it |
+| [Native Readiness.md](Native%20Readiness.md)                 | What has to hold before a native backend starts, and why the first one struggled |
 | [Metaprocessing.md](Metaprocessing.md)                       | `meta` and `gen`, the walk that runs them, and compilation calling itself |
 | [Meta Scope and Instantiation.md](Meta%20Scope%20and%20Instantiation.md) | What a meta scope receives and what `gen` sends back, and when an instantiation is made |
 | [Reify.md](Reify.md)                                         | Turning a compile-time value back into syntax                         |

@@ -1,0 +1,5 @@
+fn step(): int {
+    var junk: List<int> = [];
+    for (var i = 0; i < 2000; i += 1) { junk.push(i); }
+    return junk.len();
+}

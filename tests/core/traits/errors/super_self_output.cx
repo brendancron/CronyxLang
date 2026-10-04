@@ -1,0 +1,10 @@
+trait Zero { fn zero(): Self; }
+trait Summable: Zero, Add<Self, Output = Self> {}
+
+type Count { n: int }
+impl Add<Count> for Count {
+    type Output = int;
+    fn add(self, rhs: Count): int { return self.n + rhs.n; }
+}
+impl Zero for Count { fn zero(): Count { return Count { n: 0 }; } }
+impl Summable for Count {}
