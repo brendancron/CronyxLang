@@ -1,0 +1,3 @@
+import { square_area } from "shapes";
+
+print(str(square_area(3)));

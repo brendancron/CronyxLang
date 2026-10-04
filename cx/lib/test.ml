@@ -170,7 +170,10 @@ let declarations program =
       Option.is_some (Loader.declared_name s)
       ||
       match s.Ast.it with
-      | `Meta _ | `Derive _ | `Attributed (_, { Ast.it = `Meta _ | `Derive _; _ }) -> true
+      (* An impl declares no name, so [declared_name] passes it over, and
+         without it every method of the package is missing. *)
+      | `Meta _ | `Derive _ | `Impl_decl _
+      | `Attributed (_, { Ast.it = `Meta _ | `Derive _ | `Impl_decl _; _ }) -> true
       | _ -> false)
     program
 

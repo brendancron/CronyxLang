@@ -1,0 +1,7 @@
+import { Box } from "impl_across_modules/a";
+import { twice } from "impl_across_modules/b";
+
+@test
+fn twice_doubles() {
+    assert(twice(Box { n: 2 }) == 4, "twice");
+}

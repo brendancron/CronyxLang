@@ -1,0 +1,6 @@
+import { square_area } from "trait_object_impl/shapes";
+
+@test
+fn square_area_works() {
+    assert(square_area(3) == 9, "9");
+}

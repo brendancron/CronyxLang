@@ -45,7 +45,16 @@ let bad_packages =
 
 (* Run through `cx test` rather than `cx run`: the expectation is the report,
    not what the program prints. *)
-let test_packages = [ "tested"; "bad_test"; "tests_dir"; "generated_tests"; "crashing_test"; "logged" ]
+let test_packages =
+  [ "tested"
+  ; "bad_test"
+  ; "tests_dir"
+  ; "generated_tests"
+  ; "crashing_test"
+  ; "logged"
+  ; "impl_across_modules"
+  ; "trait_object_impl"
+  ]
 
 (* Run through `cx bench`. Only the verdicts are compared: the indented lines
    under each are timings and sizes, which no two runs share. *)
