@@ -246,13 +246,16 @@ let sockets : (int, Unix.file_descr) Hashtbl.t = Hashtbl.create 8
 let next_socket = ref 0
 let would_block = 4
 
+(* Windows hands some failures back as Winsock's own numbers rather than the
+   errors they mean -- a refused connection read through [getsockopt_error]
+   is [EUNKNOWNERR 10061] -- so those are read here as well. *)
 let net_status (e : Unix.error) =
   match e with
-  | Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.EINPROGRESS -> would_block
-  | Unix.ECONNREFUSED -> 5
-  | Unix.ECONNRESET | Unix.EPIPE | Unix.ECONNABORTED -> 6
-  | Unix.EADDRINUSE -> 7
-  | Unix.ETIMEDOUT -> 8
+  | Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.EINPROGRESS | Unix.EUNKNOWNERR (10035 | 10036) -> would_block
+  | Unix.ECONNREFUSED | Unix.EUNKNOWNERR 10061 -> 5
+  | Unix.ECONNRESET | Unix.EPIPE | Unix.ECONNABORTED | Unix.EUNKNOWNERR (10053 | 10054) -> 6
+  | Unix.EADDRINUSE | Unix.EUNKNOWNERR 10048 -> 7
+  | Unix.ETIMEDOUT | Unix.EUNKNOWNERR 10060 -> 8
   | e -> status_of_unix e
 
 let failed_net e = Value.Int (net_status e), str (Unix.error_message e)
