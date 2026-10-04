@@ -1132,7 +1132,7 @@ let rec assigned_in_expr (e : Ast.desugared_expr) acc =
   | `Call (callee, args) ->
     List.fold_left (fun acc a -> assigned_in_expr a acc) (assigned_in_expr callee acc) args
   | `Typeof e -> assigned_in_expr e acc
-  | `Method_call (receiver, _, _, args) | `Static_call (receiver, _, args) ->
+  | `Method_call (receiver, _, _, args, _) | `Static_call (receiver, _, args) ->
     List.fold_left
       (fun acc a -> assigned_in_expr a acc)
       (assigned_in_expr receiver acc)
@@ -1278,7 +1278,7 @@ let names_used (s : Ast.desugared_stmt) =
   let rec expr (e : Ast.desugared_expr) =
     (match e.Ast.it with
      | `Var name | `Assign (name, _) | `Compound (_, name, _) | `New_call (name, _, _) -> value name
-     | `Method_call (_, name, as_function, _) ->
+     | `Method_call (_, name, as_function, _, _) ->
        note (Member name);
        value as_function
      | _ -> ());
@@ -2014,7 +2014,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     node ret (`Call (callee_node, args))
   (* `Option.Some(x)` and `Option.None` read as a method call and a field until
      `Option` turns out to be a type with that variant. *)
-  | `Method_call ({ Ast.it = `Var ty; _ }, variant, _, args) when declared_variant env ty variant <> None ->
+  | `Method_call ({ Ast.it = `Var ty; _ }, variant, _, args, _) when declared_variant env ty variant <> None ->
     let declared = Option.get (declared_variant env ty variant) in
     if args = [] && Ast.payload_fields declared.vd_payload = []
     then fail span "'%s.%s' carries nothing, so it is written without parentheses." ty variant;
@@ -2027,7 +2027,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
              | Some (Sum _) -> true
              | _ -> false) ->
     fail span "Type '%s' has no variant '%s'." ty variant
-  | `Method_call (receiver, name, as_function, args) ->
+  | `Method_call (receiver, name, as_function, args, in_scope) ->
     (* `T.from(x)` names a type rather than a value. *)
     let named_receiver =
       match receiver.Ast.it with
@@ -2064,10 +2064,25 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     in
     (* The method's own parameters, so a lambda among the arguments is sized and
        typed before its body is read rather than after. *)
+    (* An inherent method answers anywhere; a trait's only where the file
+       that wrote the call can see the trait. *)
+    let in_reach owner =
+      List.filter
+        (fun (e : Registry.method_entry) ->
+          match e.Registry.trait, in_scope with
+          | None, _ | _, None -> true
+          | Some trait, Some names -> List.mem trait names)
+        (Registry.method_entries ctx.registry owner name)
+    in
+    let entry_in_reach owner =
+      match in_reach owner with
+      | e :: _ -> e.Registry.mangled
+      | [] -> Registry.entry_for_method ctx.registry owner name
+    in
     let expected =
       match found with
       | Ok (Owner owner) when not (Hashtbl.mem ctx_associated (owner, name)) ->
-        (match lookup env (Registry.entry_for_method ctx.registry owner name) with
+        (match lookup env (entry_in_reach owner) with
          | Some scheme ->
            (match Types.repr (Types.instantiate scheme) with
             | Types.IFn (self :: rest, _, _) ->
@@ -2332,17 +2347,27 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
             then `Str_len receiver
             else `Array_len receiver))
        else if not (Hashtbl.mem ctx_methods (owner, name))
+               || (Registry.method_entries ctx.registry owner name <> [] && in_reach owner = [])
        then (
          match via_function () with
          | Some call -> call
          | None ->
            (match via_field () with
             | Some call -> call
-            | None -> missing anything))
+            | None ->
+              (match Registry.method_entries ctx.registry owner name with
+               | ({ Registry.trait = Some _; _ } as entry) :: _ ->
+                 fail
+                   span
+                   "'%s' on '%s' comes from the trait '%s', which is not in scope here. Import it to call the method."
+                   name
+                   owner
+                   (Registry.describe_entry owner entry)
+               | _ -> missing anything)))
        else (
          (* Which impl a call reaches is decided by the receiver's type and the
             arguments, and neither tells these apart. *)
-         (match Registry.method_entries ctx.registry owner name with
+         (match in_reach owner with
           | (first :: _ :: _) as several ->
             fail
               span
@@ -2354,7 +2379,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
               (String.concat ", " first.Registry.targets)
           | _ -> ());
          let fn =
-           match lookup env (Registry.entry_for_method ctx.registry owner name) with
+           match lookup env (entry_in_reach owner) with
            | Some scheme -> Types.instantiate scheme
            | None -> missing Types.fresh
          in

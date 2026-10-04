@@ -1,0 +1,3 @@
+import { Zero } from "std/math/Num";
+
+print(2.pow(10));

@@ -1,7 +1,7 @@
 import { Encode, Decode, DecodeError, Data } from "std/encoding/Codec";
 import { to_toml, from_toml, parse_toml, write_toml } from "std/encoding/Toml";
 import { write_json } from "std/encoding/Json";
-import { Result, attempt } from "std/core/Error";
+import { Result, attempt, Failure } from "std/core/Error";
 
 var doc = "# A manifest
 title = \"demo\"   # trailing comment

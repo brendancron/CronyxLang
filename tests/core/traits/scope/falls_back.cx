@@ -1,0 +1,6 @@
+import { Square, square } from "shapes";
+
+// `Area` is not in scope, so `area` reaches this function rather than the impl.
+fn area(s: Square): string { return "free"; }
+
+print(square(2).area());

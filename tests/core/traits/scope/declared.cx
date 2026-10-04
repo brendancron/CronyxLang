@@ -1,0 +1,4 @@
+trait Twice { fn twice(self): int; }
+impl Twice for int { fn twice(self): int { return self * 2; } }
+
+print(21.twice());

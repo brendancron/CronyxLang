@@ -219,8 +219,8 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
                   | Ast.St_value v -> Ast.St_value (expr v))
                 static_args
             , List.map (fun (l, v) -> l, expr v) fields )
-        | `Method_call (receiver, name, as_function, args) ->
-          `Method_call (expr receiver, named name, named as_function, List.map expr args)
+        | `Method_call (receiver, name, as_function, args, scope) ->
+          `Method_call (expr receiver, named name, named as_function, List.map expr args, scope)
         (* Lowered when the code holding it runs, not now. *)
         | (`Code _ | `Code_stmts _ | `Code_decl _) as c -> c
         | `Field (receiver, label) -> `Field (expr receiver, named label)
@@ -538,7 +538,7 @@ let promote ~meta ~visible ~refs (s : Ast.stmt) : Ast.stmt * (string * Ast.expr)
     | `Unop (_, a) -> reads a
     | `Binop (_, a, b) | `And (a, b) | `Or (a, b) -> all [ a; b ]
     | `Call (callee, args) -> all (callee :: args)
-    | `Method_call (receiver, _, _, args) -> all (receiver :: args)
+    | `Method_call (receiver, _, _, args, _) -> all (receiver :: args)
     | `Index (a, b) -> all [ a; b ]
     | `Tuple items | `Collection_lit items -> all items
     | `Tuple_get (a, _) | `Field (a, _) -> reads a
@@ -871,10 +871,10 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
     let static_args = List.map (Ast.map_static_arg ex) static_args in
     let args = many args in
     h.static_call scope { e with Ast.it = `Static_call (callee, static_args, args) }
-  | `Method_call (receiver, name, as_function, args) ->
+  | `Method_call (receiver, name, as_function, args, in_scope) ->
     let receiver = ex receiver in
     let args = many args in
-    h.method_call scope { e with Ast.it = `Method_call (receiver, name, as_function, args) }
+    h.method_call scope { e with Ast.it = `Method_call (receiver, name, as_function, args, in_scope) }
   | `Code _ | `Code_stmts _ | `Code_decl _ -> h.code scope e
   | `Lambda (params, sg, body) ->
     { e with Ast.it = `Lambda (params, sg, tblock h (with_params scope params) body) }
@@ -1110,7 +1110,7 @@ let survey (body : Ast.stmt list) ~scope =
     ; method_call =
         (fun _ e ->
           (match e.Ast.it with
-           | `Method_call (_, name, as_function, _) ->
+           | `Method_call (_, name, as_function, _, _) ->
              reads := S.add as_function (S.add (method_read name) !reads)
            | _ -> ());
           e)
@@ -1142,7 +1142,7 @@ let rec contains_code (body : Ast.stmt list) =
           | Ast.St_type _ -> ())
         static_args;
       List.iter expr args
-    | `Method_call (r, _, _, args) -> List.iter expr (r :: args)
+    | `Method_call (r, _, _, args, _) -> List.iter expr (r :: args)
     | `Call (c, args) -> List.iter expr (c :: args)
     | `Unop (_, a) -> expr a
     | `Binop (_, a, b) | `And (a, b) | `Or (a, b) | `Index (a, b) -> expr a; expr b
@@ -1487,7 +1487,7 @@ let rec key_of w (e : Ast.expr) : string option =
         | Some v, Some f -> Some (name ^ "<" ^ v ^ ">" ^ f)
         | _ -> None))
   | `Field ({ Ast.it = `Var ty; _ }, name) when variant_of w ty name -> Some (ty ^ "." ^ name)
-  | `Method_call ({ Ast.it = `Var ty; _ }, name, _, args) when variant_of w ty name ->
+  | `Method_call ({ Ast.it = `Var ty; _ }, name, _, args, _) when variant_of w ty name ->
     Option.map (fun k -> ty ^ "." ^ name ^ "(" ^ k ^ ")") (all args)
   | `New_variant (ty, name, Ast.P_none) -> Some (ty ^ "." ^ name)
   | `New_variant (ty, name, Ast.P_tuple args) ->
@@ -1530,7 +1530,7 @@ let rec constructed w (e : Ast.expr) =
   | `Record_lit fs -> all (List.map snd fs)
   | `New (name, fs) | `New_generic (name, _, fs) -> named name :: all (List.map snd fs)
   | `Field ({ Ast.it = `Var ty; _ }, _) -> [ ty ]
-  | `Method_call ({ Ast.it = `Var ty; _ }, _, _, args) -> ty :: all args
+  | `Method_call ({ Ast.it = `Var ty; _ }, _, _, args, _) -> ty :: all args
   | `New_variant (ty, _, payload) ->
     ty
     :: (match payload with
@@ -1566,8 +1566,8 @@ let rec fold w (e : Ast.expr) : Ast.expr =
   | `New (name, fs) -> at (`New (name, fields fs))
   | `New_generic (name, static_args, fs) ->
     at (`New_generic (name, List.map (Ast.map_static_arg (fold w)) static_args, fields fs))
-  | `Method_call (receiver, name, as_function, args) ->
-    at (`Method_call (receiver, name, as_function, List.map (fold w) args))
+  | `Method_call (receiver, name, as_function, args, scope) ->
+    at (`Method_call (receiver, name, as_function, List.map (fold w) args, scope))
   | `New_variant (ty, name, payload) -> at (`New_variant (ty, name, Ast.map_payload (fold w) payload))
   | `Tuple_get (a, i) ->
     (match (fold w a).Ast.it with
@@ -1948,7 +1948,7 @@ and runtime_hooks w ~deps ~current ~statics ~env =
     ; method_call =
         (fun _ e ->
           (match e.Ast.it with
-           | `Method_call (receiver, name, as_function, _) ->
+           | `Method_call (receiver, name, as_function, _, _) ->
              if (not (reach w ~deps as_function)) && not (Hashtbl.mem w.known_methods name)
              then (
                if not (Hashtbl.mem w.unknown_methods name)
@@ -2244,7 +2244,7 @@ and run_meta w ~statics ~runtime ~outer body =
     ; method_call =
         (fun _ e ->
           (match e.Ast.it with
-           | `Method_call (_, _, as_function, _) -> ignore (reach w ~deps as_function)
+           | `Method_call (_, _, as_function, _, _) -> ignore (reach w ~deps as_function)
            | _ -> ());
           e)
     ; (* Nested, so it runs while this one is compiled, and what it generates

@@ -321,7 +321,12 @@ type ('s, 'ann) method_defs =
   ]
 
 (* Method-or-function is a typing question, the name a loading one. *)
-type 'e method_call = [ `Method_call of 'e * string * string * 'e list ]
+(* The names the file that wrote the call can see, which is where a trait's
+   impl may answer it from; [None] for a call no file wrote, which a meta block
+   built and which reaches any impl. *)
+type in_scope = string list option
+
+type 'e method_call = [ `Method_call of 'e * string * string * 'e list * in_scope ]
 
 (* Which impl a call reaches: the trait, and the arguments that tell two impls of
    it on one type apart. A bound is where these come from, so a call inside a
@@ -844,8 +849,8 @@ let map_static_call (f : 'a -> 'b) (e : 'a static_call) : 'b static_call =
 
 let map_method_call (f : 'a -> 'b) (e : 'a method_call) : 'b method_call =
   match e with
-  | `Method_call (receiver, name, as_function, args) ->
-    `Method_call (f receiver, name, as_function, List.map f args)
+  | `Method_call (receiver, name, as_function, args, scope) ->
+    `Method_call (f receiver, name, as_function, List.map f args, scope)
 
 let map_coercion (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) coercions)
   : ('b, 'u) coercions

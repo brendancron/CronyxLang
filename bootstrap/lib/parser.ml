@@ -465,14 +465,14 @@ and call s : Ast.expr =
             loop
               (Ast.at
                  callee.Ast.span
-                 (`Method_call (callee, label, label, trailing_lambda s (arguments s))))
+                 (`Method_call (callee, label, label, trailing_lambda s (arguments s), None)))
           (* `x.m { it }` is the method, not a field holding a function: with
              parentheses there is no field to reach, so braces agree. *)
           | None when check s Token.Left_brace && not s.no_brace ->
             loop
               (Ast.at
                  callee.Ast.span
-                 (`Method_call (callee, label, label, trailing_lambda s [])))
+                 (`Method_call (callee, label, label, trailing_lambda s [], None)))
           | None -> loop (Ast.at callee.Ast.span (`Field (callee, label)))))
     | _ -> callee
   in

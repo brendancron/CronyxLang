@@ -1,0 +1,9 @@
+trait Area { fn area(self): int; }
+
+type Square { side: int }
+
+impl Area for Square { fn area(self): int { return self.side * self.side; } }
+
+fn square(side: int): Square { return Square { side: side }; }
+
+fn doubled(s: Square): int { return s.area() * 2; }

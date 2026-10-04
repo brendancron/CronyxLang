@@ -1,5 +1,5 @@
 import { Complex } from "std/math/Complex";
-import { Pow } from "std/math/Num";
+import { Pow, Zero } from "std/math/Num";
 import { sum, pi } from "std/math/Math";
 import { fixed } from "std/text/Format";
 

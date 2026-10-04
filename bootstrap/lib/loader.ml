@@ -374,8 +374,16 @@ let rec bound_by (s : Ast.stmt) =
   | `Block body -> List.concat_map bound_by body
   | _ -> []
 
-let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.program) =
+let rewrite ~aliases ~direct ~own ~whole ~foreign ~ops ~rename ~from (program : Ast.program) =
   let module S = Set.Make (String) in
+  (* One list for the whole file, shared by every call in it. *)
+  let in_scope =
+    Some
+      (Hashtbl.fold
+         (fun _ bound acc -> bound :: acc)
+         direct
+         (Hashtbl.fold (fun name () acc -> rename name :: acc) own whole))
+  in
     let resolve_local name =
     match Hashtbl.find_opt direct name with
     | Some target -> target
@@ -511,7 +519,7 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
           ( { e with Ast.it = `Var "__moduleof" }
           , [ { e with Ast.it = `Str (Utf8.decode prefix) }; { e with Ast.it = `Str (Utf8.decode m) } ] )
       (* A method call unless `math` names a module and nothing took the name. *)
-      | `Method_call ({ Ast.it = `Var receiver; _ }, name, _, args)
+      | `Method_call ({ Ast.it = `Var receiver; _ }, name, _, args, _)
         when (not (S.mem receiver locals)) && Hashtbl.mem aliases receiver ->
         `Call
           ( { e with Ast.it = `Var (Hashtbl.find aliases receiver name) }
@@ -522,9 +530,9 @@ let rewrite ~aliases ~direct ~own ~foreign ~ops ~rename ~from (program : Ast.pro
         `Var (Hashtbl.find aliases receiver name)
       (* Not known here, so the name it would have as a function is carried
          along for whoever can tell. *)
-      | `Method_call (receiver, name, _, args) ->
+      | `Method_call (receiver, name, _, args, _) ->
         let as_function = if S.mem name locals then name else resolve_local name in
-        `Method_call (go receiver, name, as_function, List.map go args)
+        `Method_call (go receiver, name, as_function, List.map go args, in_scope)
       | `New (name, fields) ->
         `New (resolve_type name, List.map (fun (l, v) -> l, go v) fields)
       | `New_generic (name, static_args, fields) ->
@@ -805,6 +813,9 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
     let locally = Hashtbl.create 4 in
     (* Each operation this file may perform bare, and the name it has. *)
     let reachable = Hashtbl.create 8 in
+    (* What the modules this file imported whole declare: a trait among them
+       answers a method call here, as one imported by name does. *)
+    let whole = ref [] in
     List.iter
       (fun op -> Hashtbl.replace reachable op (renamed u ~entry op))
       (List.concat_map operations u.program);
@@ -864,9 +875,16 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                 under
                 (target_unit.path, fun name -> renamed target_unit ~entry:is_entry name)
           in
+          let imported_whole () =
+            whole := List.map (renamed target_unit ~entry:is_entry) target_exports @ !whole
+          in
           (match decl with
-           | Ast.Qualified _ -> bind target
-           | Ast.Aliased (_, alias) -> bind alias
+           | Ast.Qualified _ ->
+             imported_whole ();
+             bind target
+           | Ast.Aliased (_, alias) ->
+             imported_whole ();
+             bind alias
            | Ast.Selective (names, _) ->
              List.iter
                (fun name ->
@@ -922,6 +940,7 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
       ~aliases
       ~direct
       ~own
+      ~whole:!whole
       ~foreign
       ~ops:reachable
       ~rename:(fun name -> renamed u ~entry name)

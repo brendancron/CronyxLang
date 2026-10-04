@@ -1,6 +1,6 @@
 import { Encode, Decode, DecodeError, Data } from "std/encoding/Codec";
 import { to_json, to_json_pretty, from_json, parse_json, write_json } from "std/encoding/Json";
-import { Result, attempt } from "std/core/Error";
+import { Result, attempt, Failure } from "std/core/Error";
 
 type Point { x: int, y: float, label: string, tags: List<string>, note: Option<string> }
 derive Encode, Decode for Point;
