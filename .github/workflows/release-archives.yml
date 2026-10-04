@@ -95,6 +95,8 @@ jobs:
       matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
 
     runs-on: ${{ matrix.runner }}
+    # A hang otherwise runs to GitHub's six-hour limit.
+    timeout-minutes: 60
     permissions:
       contents: write
 

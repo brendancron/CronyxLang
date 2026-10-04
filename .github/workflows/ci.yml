@@ -57,6 +57,8 @@ jobs:
   # matrix over that one -- it reports, and it does not gate.
   windows:
     runs-on: windows-latest
+    # A hang otherwise runs to GitHub's six-hour limit.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v5
@@ -79,10 +81,14 @@ jobs:
         working-directory: bootstrap
         run: opam exec -- dune build
 
+      # The fixture suite is run directly rather than through `dune test`, which
+      # holds its output until it exits: a fixture that hangs then shows as the
+      # one after the last line printed.
       - name: Test
         shell: bash
         run: |
-          (cd bootstrap && opam exec -- dune test)
+          opam exec -- dune build bootstrap/test/test_bootstrap.exe
+          opam exec -- ./_build/default/bootstrap/test/test_bootstrap.exe
           opam exec -- dune test cx
           opam exec -- bash ./scripts/cx-parity.sh
 

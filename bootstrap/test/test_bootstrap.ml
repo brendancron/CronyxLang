@@ -1268,13 +1268,20 @@ let () =
        the environment would have the suite check a standard library other than
        the one beside these fixtures. *)
     Unix.putenv "CRONYX_STDLIB" (Filename.concat root "stdlib");
+    (* Each line out as soon as its fixture is done, so a run that hangs shows
+       which fixture it stopped after rather than nothing at all. *)
+    let flushed run x =
+      let result = run x in
+      flush stdout;
+      result
+    in
     let results =
-      List.map (run_case root) cases
-      @ List.map (run_error_case root) error_cases
-      @ List.map (run_runtime_case root) runtime_cases
-      @ List.map (run_round_trip root) cases
-      @ List.map (run_expected_failing root) expected_failing
-      @ List.map (run_known_unsound root) known_unsound
+      List.map (flushed (run_case root)) cases
+      @ List.map (flushed (run_error_case root)) error_cases
+      @ List.map (flushed (run_runtime_case root)) runtime_cases
+      @ List.map (flushed (run_round_trip root)) cases
+      @ List.map (flushed (run_expected_failing root)) expected_failing
+      @ List.map (flushed (run_known_unsound root)) known_unsound
       @ [ run_partition root; run_rendering (); run_prelude_walk (); run_stdlib_parses root ]
       @ [ run_prompt_flushed () ]
     in
