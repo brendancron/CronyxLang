@@ -209,10 +209,8 @@ slept on. A task not yet started never starts. One that never suspends runs to
 its end first, as it would in Trio or Eio.
 
 A scope cancels its tasks newest first. A task is only started by an older one,
-from inside its frames, and the interpreter unwinds a discontinued continuation
-through every frame it was made in; unwound after the task that started it, a
-task would run that task's `defer`s a second time. Newest first unwinds each
-before its starter, as a stack would be (`tests/stdlib/async/scope`).
+so each is unwound before the task that started it, as a stack unwinds, and a
+cleanup that depends on what its starter set up still finds it there.
 
 `race` is the same scope with one more way to end: the first task to finish
 cancels the rest, as a failure does, and its result is the scope's. It is how a

@@ -1,0 +1,4 @@
+failed: boom
+outer cleans up
+inner cleans up
+done

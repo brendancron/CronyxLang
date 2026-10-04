@@ -151,11 +151,6 @@ fn __scope<X, E>(body: ((() -> <async, Throw<X>, E> unit) -> <async, E> unit, ()
     var over = false;
     var settled: Promise<unit> = promise();
 
-    // Newest first. A task's continuation holds the frames of the task that
-    // started it, and the interpreter unwinds one through every frame it holds:
-    // unwound after its starter, a task would run the starter's `defer`s again.
-    // A task is only ever started by an older one, so this unwinds each before
-    // whatever started it, as unwinding a stack would.
     fn stop() {
         cancelled = true;
         var i = parked.len() - 1;

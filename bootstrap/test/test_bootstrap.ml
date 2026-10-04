@@ -147,6 +147,7 @@ let cases =
   ; "tests/effects/handled_in_import/main"
   ; "tests/effects/stream/stream"
   ; "tests/effects/discontinue/discontinue"
+  ; "tests/effects/discontinue/nested_after_outer"
   ; "tests/effects/run_value/value"
   ; "tests/effects/run_value/return_clause"
   ; "tests/effects/run_value/unit_body"
