@@ -201,28 +201,33 @@ let wait child =
 
 (* Both streams to their end at once: read one after the other, a child that
    fills the second pipe while the first is still open waits on this process
-   forever. Windows cannot `select` on a pipe, so there they are read in turn. *)
+   forever. The second is read on a thread rather than through `select`, which
+   Windows cannot do on a pipe -- and one way on every platform is the way the
+   tests on any of them check. *)
 let drain child =
-  let chunk = Bytes.create 65536 in
+  let read_all fd buffer =
+    let chunk = Bytes.create 65536 in
+    let rec go () =
+      let n = retrying (fun () -> Unix.read fd chunk 0 (Bytes.length chunk)) in
+      if n > 0
+      then (
+        Buffer.add_subbytes buffer chunk 0 n;
+        go ())
+    in
+    go ()
+  in
   let out = Buffer.create 256
   and err = Buffer.create 256 in
-  let read_into fd buffer =
-    let n = retrying (fun () -> Unix.read fd chunk 0 (Bytes.length chunk)) in
-    Buffer.add_subbytes buffer chunk 0 n;
-    n > 0
-  in
-  let streams = List.filter_map (fun (fd, b) -> Option.map (fun fd -> fd, b) fd) [ child.output, out; child.errors, err ] in
-  if Sys.win32
-  then List.iter (fun (fd, b) -> while read_into fd b do () done) streams
-  else (
-    let rec loop open_ =
-      if open_ <> []
-      then (
-        let ready, _, _ = retrying (fun () -> Unix.select (List.map fst open_) [] [] (-1.0)) in
-        loop (List.filter (fun (fd, b) -> (not (List.mem fd ready)) || read_into fd b) open_))
-    in
-    loop streams);
-  List.iter (fun (fd, _) -> close_quietly fd) streams;
+  (match child.output, child.errors with
+   | Some o, Some e ->
+     let reader = Thread.create (fun () -> read_all e err) () in
+     read_all o out;
+     Thread.join reader
+   | Some o, None -> read_all o out
+   | None, Some e -> read_all e err
+   | None, None -> ());
+  Option.iter close_quietly child.output;
+  Option.iter close_quietly child.errors;
   Buffer.contents out, Buffer.contents err
 
 let child_of span handle =

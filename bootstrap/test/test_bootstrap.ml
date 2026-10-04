@@ -810,6 +810,32 @@ let rejections path =
 
 (* Passing here is the failure, as with [expected_failing]: being rejected is
    what this fixture is waiting for. *)
+(* A fixture that hangs -- a read that never returns -- cannot be stopped from
+   here, least of all on Windows, which has no signals to send it. So a
+   watchdog ends the whole run instead, naming the fixture, rather than leaving
+   it to whatever limit the job runs under. *)
+let fixture_timeout =
+  match Option.bind (Sys.getenv_opt "CRONYX_FIXTURE_TIMEOUT") float_of_string_opt with
+  | Some seconds -> seconds
+  | None -> 60.0
+
+let running : (string * float) option Atomic.t = Atomic.make None
+
+let watchdog () =
+  ignore
+    (Thread.create
+       (fun () ->
+         while true do
+           Thread.delay 1.0;
+           match Atomic.get running with
+           | Some (name, started) when Unix.gettimeofday () -. started > fixture_timeout ->
+             Printf.printf "FAIL %s\n  timed out after %.0fs\n" name fixture_timeout;
+             flush_all ();
+             Unix._exit 1
+           | _ -> ()
+         done)
+       ())
+
 let run_known_unsound root name =
   let path ext = Filename.concat root (name ^ ext) in
   match rejections (path ".cx") with
@@ -1268,13 +1294,23 @@ let () =
        the environment would have the suite check a standard library other than
        the one beside these fixtures. *)
     Unix.putenv "CRONYX_STDLIB" (Filename.concat root "stdlib");
+    (* Each line out as soon as its fixture is done, so a run that hangs shows
+       which fixture it stopped after rather than nothing at all. *)
+    watchdog ();
+    let flushed name run x =
+      Atomic.set running (Some (name x, Unix.gettimeofday ()));
+      let result = run x in
+      Atomic.set running None;
+      flush stdout;
+      result
+    in
     let results =
-      List.map (run_case root) cases
-      @ List.map (run_error_case root) error_cases
-      @ List.map (run_runtime_case root) runtime_cases
-      @ List.map (run_round_trip root) cases
-      @ List.map (run_expected_failing root) expected_failing
-      @ List.map (run_known_unsound root) known_unsound
+      List.map (flushed Fun.id (run_case root)) cases
+      @ List.map (flushed Fun.id (run_error_case root)) error_cases
+      @ List.map (flushed Fun.id (run_runtime_case root)) runtime_cases
+      @ List.map (flushed Fun.id (run_round_trip root)) cases
+      @ List.map (flushed fst (run_expected_failing root)) expected_failing
+      @ List.map (flushed Fun.id (run_known_unsound root)) known_unsound
       @ [ run_partition root; run_rendering (); run_prelude_walk (); run_stdlib_parses root ]
       @ [ run_prompt_flushed () ]
     in
