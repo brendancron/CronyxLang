@@ -341,6 +341,7 @@ let cases =
   ; "tests/core/strings/parse"
   ; "tests/core/strings/split_str"
   ; "tests/stdlib/string/string"
+  ; "tests/stdlib/string/long"
   ; "tests/stdlib/format/collections"
   ; "tests/stdlib/format/derived"
   ; "tests/stdlib/format/written"
@@ -745,9 +746,13 @@ let error_cases =
   ; "tests/effects/errors/duplicate_operation"
   ; "tests/effects/errors/discontinue_outside_ctl"
   ; "tests/effects/errors/row_argument_kind"
+  ; "tests/effects/errors/closed_row_argument"
   ; "tests/types/errors/local_type_escapes"
   ; "tests/types/inference/errors/unspecializable_names_the_caller"
   ; "tests/core/modules/errors/outside_package/main"
+  ; "tests/core/modules/errors/module_var/main"
+  ; "tests/core/modules/errors/module_var_shadowed/main"
+  ; "tests/core/modules/errors/module_var_assigned/main"
   ; "tests/effects/errors/handler_widens"
   ; "tests/core/traits/errors/impl_row_narrower"
   ; "tests/core/traits/errors/impl_row_wider"
@@ -832,6 +837,10 @@ let expected_failing : (string * blocker) list =
   ; "tests/compile/m8/gadt", Parked
   ; "tests/meta/03_derive/errors/gen_in_comptime", Waiting "Gen as an effect"
   ]
+
+(* Run everywhere but Windows, which cannot wait on a pipe with `select`, so
+   there a task reading a child still holds up the others. *)
+let posix_cases : string list = [ "tests/stdlib/os/pipe_wait" ]
 
 (* Ought to be rejected and are not, paired with the `.err` they should
    produce. The suite announces the moment one starts being caught. *)
@@ -1048,6 +1057,7 @@ let unclaimed root =
   List.iter (fun name -> Hashtbl.replace claimed name ()) runtime_cases;
   List.iter (fun (name, _) -> Hashtbl.replace claimed name ()) expected_failing;
   List.iter (fun name -> Hashtbl.replace claimed name ()) known_unsound;
+  List.iter (fun name -> Hashtbl.replace claimed name ()) posix_cases;
   let missing = ref [] in
   let rec walk dir =
     Array.iter
@@ -1354,6 +1364,7 @@ let () =
     in
     let results =
       List.map (flushed Fun.id (run_case root)) cases
+      @ List.map (flushed Fun.id (run_case root)) (if Sys.win32 then [] else posix_cases)
       @ List.map (flushed Fun.id (run_error_case root)) error_cases
       @ List.map (flushed Fun.id (run_runtime_case root)) runtime_cases
       @ List.map (flushed Fun.id (run_round_trip root)) cases

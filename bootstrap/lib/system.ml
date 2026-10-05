@@ -272,6 +272,26 @@ let held fd =
   Hashtbl.replace sockets handle fd;
   handle
 
+(* A child's pipe, entered in the socket table so the scheduler can wait on it
+   with the sockets. The pipe stays blocking: a read the scheduler saw ready
+   does not wait, and [drain] reads it on a thread. Windows cannot select on a
+   pipe, so there a read waits as it always has. *)
+let watched : (int * int, int) Hashtbl.t = Hashtbl.create 8
+
+let watch handle which fd =
+  match Hashtbl.find_opt watched (handle, which) with
+  | Some socket -> socket
+  | None ->
+    let socket = !next_socket in
+    incr next_socket;
+    Hashtbl.replace sockets socket fd;
+    Hashtbl.replace watched (handle, which) socket;
+    socket
+
+let unwatch handle which =
+  Option.iter (Hashtbl.remove sockets) (Hashtbl.find_opt watched (handle, which));
+  Hashtbl.remove watched (handle, which)
+
 let addresses host =
   Unix.getaddrinfo host "" [ Unix.AI_SOCKTYPE Unix.SOCK_STREAM ]
   |> List.filter_map (fun (info : Unix.addr_info) ->
@@ -378,6 +398,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   ; "__process_read", "", (fun () -> [ IInt; IInt; IInt ], ITuple [ IInt; iarray IByte; IStr ])
   ; "__process_write", "", (fun () -> [ IInt; iarray IByte ], status_text)
   ; "__process_close_input", "", (fun () -> [ IInt ], status_text)
+  ; "__process_watch", "", (fun () -> [ IInt; IInt ], IInt)
   ; "__process_wait", "", (fun () -> [ IInt ], ITuple [ IInt; IInt; IStr ])
   ; ( "__process_drain"
     , ""
@@ -549,6 +570,14 @@ let values ~native =
          | None, _ -> Value.Tuple [ Value.Int 3; str "The process's input is closed, or was not piped." ]
          | _, None -> Value.fail span "__process_write takes bytes.")
       | _ -> Value.fail span "__process_write takes a handle and bytes.")
+  ; native "__process_watch" 2 (fun span args ->
+      match args with
+      | [ Value.Int handle; Value.Int which ] ->
+        let child = child_of span handle in
+        (match if which = 1 then child.output else child.errors with
+         | Some fd when not Sys.win32 -> Value.Int (watch handle which fd)
+         | _ -> Value.Int (-1))
+      | _ -> Value.fail span "__process_watch takes a handle and a stream.")
   ; native "__process_close_input" 1 (fun span args ->
       match args with
       | [ Value.Int handle ] ->
@@ -569,6 +598,8 @@ let values ~native =
       | [ Value.Int handle ] ->
         let child = child_of span handle in
         close_input child;
+        unwatch handle 1;
+        unwatch handle 2;
         (match
            let out, err = drain child in
            out, err, wait child

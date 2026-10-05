@@ -111,12 +111,12 @@ fn parse_toml(text: string): <Throw<DecodeError>> Data {
 }
 
 fn __dotted(path: Array<string>): string {
-    var out = "";
+    var parts: List<string> = [];
     for (key in path) {
-        if (out != "") { out = out + "."; }
-        out = out + key;
+        if (parts.len() > 0) { parts.push("."); }
+        parts.push(key);
     }
-    return out;
+    return __str_join(parts.items, parts.count);
 }
 
 fn __find(entries: List<Entry>, key: string): Option<Entry> {
@@ -274,16 +274,17 @@ fn __inline(data: Data): string {
 }
 
 fn __quoted(text: string): string {
-    var out = "\"";
+    var parts: List<string> = ["\""];
     for (c in text.chars()) {
-        if (c == '"') { out = out + "\\\""; }
-        else if (c == '\\') { out = out + "\\\\"; }
-        else if (c == '\n') { out = out + "\\n"; }
-        else if (c == '\r') { out = out + "\\r"; }
-        else if (c == '\t') { out = out + "\\t"; }
-        else { out = out + str(c); }
+        if (c == '"') { parts.push("\\\""); }
+        else if (c == '\\') { parts.push("\\\\"); }
+        else if (c == '\n') { parts.push("\\n"); }
+        else if (c == '\r') { parts.push("\\r"); }
+        else if (c == '\t') { parts.push("\\t"); }
+        else { parts.push(str(c)); }
     }
-    return out + "\"";
+    parts.push("\"");
+    return __str_join(parts.items, parts.count);
 }
 
 type __Reader {
@@ -355,13 +356,13 @@ impl __Reader {
             if (c == '"') { parts.push(self.basic()); }
             else if (c == '\'') { parts.push(self.literal()); }
             else {
-                var bare = "";
+                var bare: List<string> = [];
                 while (!self.done() && __bare(self.chars[self.at])) {
-                    bare = bare + str(self.chars[self.at]);
+                    bare.push(str(self.chars[self.at]));
                     self.at += 1;
                 }
-                if (bare == "") { return throw(self.unexpected()); }
-                parts.push(bare);
+                if (bare.len() == 0) { return throw(self.unexpected()); }
+                parts.push(__str_join(bare.items, bare.count));
             }
             self.inline_space();
             if (!self.done() && self.chars[self.at] == '.') { self.at += 1; } else {
@@ -474,28 +475,28 @@ impl __Reader {
 
     fn basic(self): <Throw<DecodeError>> string {
         self.expect('"');
-        var out = "";
+        var parts: List<string> = [];
         while (true) {
             var c = self.peek();
             if (c == '\n') { return throw(self.unexpected()); }
             self.at += 1;
-            if (c == '"') { return out; }
-            if (c == '\\') { out = out + self.escape(); } else { out = out + str(c); }
+            if (c == '"') { return __str_join(parts.items, parts.count); }
+            if (c == '\\') { parts.push(self.escape()); } else { parts.push(str(c)); }
         }
-        return out;
+        return __str_join(parts.items, parts.count);
     }
 
     fn literal(self): <Throw<DecodeError>> string {
         self.expect('\'');
-        var out = "";
+        var parts: List<string> = [];
         while (true) {
             var c = self.peek();
             if (c == '\n') { return throw(self.unexpected()); }
             self.at += 1;
-            if (c == '\'') { return out; }
-            out = out + str(c);
+            if (c == '\'') { return __str_join(parts.items, parts.count); }
+            parts.push(str(c));
         }
-        return out;
+        return __str_join(parts.items, parts.count);
     }
 
     // A newline straight after the opening quotes is not part of the string.
@@ -507,11 +508,11 @@ impl __Reader {
     fn multiline_basic(self): <Throw<DecodeError>> string {
         self.at += 3;
         self.skip_first_newline();
-        var out = "";
+        var parts: List<string> = [];
         while (true) {
             if (self.starts("\"\"\"")) {
                 self.at += 3;
-                return out;
+                return __str_join(parts.items, parts.count);
             }
             var c = self.peek();
             self.at += 1;
@@ -523,42 +524,43 @@ impl __Reader {
                         self.at += 1;
                     }
                 } else {
-                    out = out + self.escape();
+                    parts.push(self.escape());
                 }
             } else {
-                out = out + str(c);
+                parts.push(str(c));
             }
         }
-        return out;
+        return __str_join(parts.items, parts.count);
     }
 
     fn multiline_literal(self): <Throw<DecodeError>> string {
         self.at += 3;
         self.skip_first_newline();
-        var out = "";
+        var parts: List<string> = [];
         while (true) {
             if (self.starts("'''")) {
                 self.at += 3;
-                return out;
+                return __str_join(parts.items, parts.count);
             }
-            out = out + str(self.peek());
+            parts.push(str(self.peek()));
             self.at += 1;
         }
-        return out;
+        return __str_join(parts.items, parts.count);
     }
 
     fn number(self): <Throw<DecodeError>> Data {
         var start = self.at;
-        var text = "";
+        var digits: List<string> = [];
         while (!self.done()) {
             var c = self.chars[self.at];
             if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '+' || c == '-' || c == '.' || c == '_') {
-                if (c != '_') { text = text + str(c); }
+                if (c != '_') { digits.push(str(c)); }
                 self.at += 1;
             } else {
                 break;
             }
         }
+        var text = __str_join(digits.items, digits.count);
         if (text == "") { return throw(self.unexpected()); }
         if (text == "inf" || text == "+inf") { return Data.Float(1.0 / 0.0); }
         if (text == "-inf") { return Data.Float(-1.0 / 0.0); }

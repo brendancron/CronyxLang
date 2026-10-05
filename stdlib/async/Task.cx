@@ -322,15 +322,22 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
         }
     }
     // Scopes hold the list `waker` handed out, so it is read with a cursor
-    // rather than replaced by its tail.
+    // rather than replaced by its tail. A slot that has run is overwritten,
+    // because what it held is a continuation and with it every local of the
+    // function that suspended. The placeholder is made out here: a closure made
+    // in the loop would capture `next`.
     var at = 0;
+    var idle: () -> unit = () => {};
     var waiting = true;
     while (waiting) {
         while (at < ready.len()) {
             var next = ready[at];
+            ready[at] = idle;
             at += 1;
             next();
         }
+        ready.count = 0;
+        at = 0;
         watches = __watching(watches);
         var first = __first_due(timers);
         if (watches.len() > 0) {

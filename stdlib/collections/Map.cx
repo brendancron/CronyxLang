@@ -70,14 +70,17 @@ impl Map<K, V> {
 /** Each key and its value, in insertion order: `{"a": 1, "b": 2}`. */
 impl Debug for Map<K, V> {
     fn debug(self): string {
-        var out = "{";
+        var parts: List<string> = ["{"];
         var i = 0;
         while (i < self.entries.len()) {
-            if (i > 0) { out = out + ", "; }
-            out = out + debug(self.entries[i].0) + ": " + debug(self.entries[i].1);
+            if (i > 0) { parts.push(", "); }
+            parts.push(debug(self.entries[i].0));
+            parts.push(": ");
+            parts.push(debug(self.entries[i].1));
             i = i + 1;
         }
-        return out + "}";
+        parts.push("}");
+        return __str_join(parts.items, parts.count);
     }
 }
 

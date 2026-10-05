@@ -1,3 +1,5 @@
+import { repeat } from "std/text/String";
+
 @bench(20000)
 @time("linear")
 @memory("linear")
@@ -20,4 +22,13 @@ fn list_sum(n: int) {
 fn string_concat(n: int) {
     var parts: List<string> = [];
     for (var i = 0; i < n; i += 1) { parts.push(str(i)); }
+}
+
+// Issue #152: slicing and replacing copied one character at a time.
+@bench(20000)
+@time("linear")
+fn string_replace(n: int) {
+    var text = repeat("abcdefghi</", n / 10);
+    var swapped = text.replace("</", "<\\/");
+    var whole = text[0:text.len()];
 }

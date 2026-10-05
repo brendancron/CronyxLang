@@ -386,19 +386,19 @@ fn __settled<T>(result: Option<T>, failure: Option<IoError>): <Throw<IoError>> T
 // The start line, the fields, and the length of the body that follows, if one
 // does. The connection closes after one exchange, which both ends are told.
 fn __head(start: string, headers: Headers, length: Option<int>): Array<byte> {
-    var out = start + "\r\n";
+    var parts: List<string> = [start, "\r\n"];
     for ((n, v) in headers.fields) {
         var lower = n.to_lower();
         if (lower != "content-length" && lower != "connection" && lower != "transfer-encoding") {
-            out = out + n + ": " + v + "\r\n";
+            parts.push(n + ": " + v + "\r\n");
         }
     }
     match length {
-        Option.Some(n) => { out = out + "Content-Length: " + str(n) + "\r\n"; }
+        Option.Some(n) => { parts.push("Content-Length: " + str(n) + "\r\n"); }
         Option.None => {}
     }
-    out = out + "Connection: close\r\n\r\n";
-    return out.bytes();
+    parts.push("Connection: close\r\n\r\n");
+    return __str_join(parts.items, parts.count).bytes();
 }
 
 // A field that would end the line it is written on, or put a colon in its

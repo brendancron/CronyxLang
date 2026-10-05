@@ -113,18 +113,19 @@ fn __scalar(data: Data): string {
 }
 
 fn __quoted(text: string): string {
-    var out = "\"";
+    var parts: List<string> = ["\""];
     for (c in text.chars()) {
         var point = ord(c);
-        if (c == '"') { out = out + "\\\""; }
-        else if (c == '\\') { out = out + "\\\\"; }
-        else if (c == '\n') { out = out + "\\n"; }
-        else if (c == '\r') { out = out + "\\r"; }
-        else if (c == '\t') { out = out + "\\t"; }
-        else if (point < 32) { out = out + "\\u" + __hex4(point); }
-        else { out = out + str(c); }
+        if (c == '"') { parts.push("\\\""); }
+        else if (c == '\\') { parts.push("\\\\"); }
+        else if (c == '\n') { parts.push("\\n"); }
+        else if (c == '\r') { parts.push("\\r"); }
+        else if (c == '\t') { parts.push("\\t"); }
+        else if (point < 32) { parts.push("\\u" + __hex4(point)); }
+        else { parts.push(str(c)); }
     }
-    return out + "\"";
+    parts.push("\"");
+    return __str_join(parts.items, parts.count);
 }
 
 fn __hex4(point: int): string {
@@ -229,20 +230,20 @@ impl __Reader {
 
     fn string(self): <Throw<DecodeError>> string {
         self.expect('"');
-        var out = "";
+        var parts: List<string> = [];
         while (true) {
             var c = self.peek();
             self.at += 1;
-            if (c == '"') { return out; }
+            if (c == '"') { return __str_join(parts.items, parts.count); }
             if (c == '\\') {
                 var e = self.peek();
                 self.at += 1;
-                if (e == 'n') { out = out + "\n"; }
-                else if (e == 't') { out = out + "\t"; }
-                else if (e == 'r') { out = out + "\r"; }
-                else if (e == 'b') { out = out + str(chr(8)); }
-                else if (e == 'f') { out = out + str(chr(12)); }
-                else if (e == '"' || e == '\\' || e == '/') { out = out + str(e); }
+                if (e == 'n') { parts.push("\n"); }
+                else if (e == 't') { parts.push("\t"); }
+                else if (e == 'r') { parts.push("\r"); }
+                else if (e == 'b') { parts.push(str(chr(8))); }
+                else if (e == 'f') { parts.push(str(chr(12))); }
+                else if (e == '"' || e == '\\' || e == '/') { parts.push(str(e)); }
                 else if (e == 'u') {
                     var point = self.hex4();
                     // A surrogate pair names one character in two escapes.
@@ -252,7 +253,7 @@ impl __Reader {
                         var low = self.hex4();
                         point = 65536 + (point - 55296) * 1024 + (low - 56320);
                     }
-                    out = out + str(chr(point));
+                    parts.push(str(chr(point)));
                 } else {
                     self.at -= 1;
                     return throw(self.unexpected());
@@ -261,10 +262,10 @@ impl __Reader {
                 self.at -= 1;
                 return throw(self.unexpected());
             } else {
-                out = out + str(c);
+                parts.push(str(c));
             }
         }
-        return out;
+        return __str_join(parts.items, parts.count);
     }
 
     fn hex4(self): <Throw<DecodeError>> int {
@@ -283,12 +284,12 @@ impl __Reader {
     }
 
     fn digits(self): string {
-        var out = "";
+        var parts: List<string> = [];
         while (self.at < self.chars.len() && self.chars[self.at] >= '0' && self.chars[self.at] <= '9') {
-            out = out + str(self.chars[self.at]);
+            parts.push(str(self.chars[self.at]));
             self.at += 1;
         }
-        return out;
+        return __str_join(parts.items, parts.count);
     }
 
     fn number(self): <Throw<DecodeError>> Data {

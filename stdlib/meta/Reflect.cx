@@ -66,12 +66,13 @@ impl TypeRef {
         match self {
             TypeRef.Named(name, args) => {
                 if (args.len() == 0) { return str(name); }
-                var out = str(name) + "<";
+                var parts: List<string> = [str(name), "<"];
                 for (var i = 0; i < args.len(); i += 1) {
-                    if (i > 0) { out = out + ", "; }
-                    out = out + args[i].text();
+                    if (i > 0) { parts.push(", "); }
+                    parts.push(args[i].text());
                 }
-                return out + ">";
+                parts.push(">");
+                return __str_join(parts.items, parts.count);
             }
             TypeRef.Param(name) => { return str(name); }
             TypeRef.Other => { return "?"; }

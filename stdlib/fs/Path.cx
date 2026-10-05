@@ -38,18 +38,18 @@ fn join(base: string, part: string): string {
 /** The parts between the separators, without empty ones. A root is not a part. */
 fn components(path: string): Array<string> {
     var parts: List<string> = [];
-    var current = "";
+    var current: List<string> = [];
     var chars = path.chars();
     if (__root_of(path).len() == 3) { chars = chars[3:]; }
     for (c in chars) {
         if (__is_separator(c)) {
-            if (current.len() > 0) { parts.push(current); }
-            current = "";
+            if (current.len() > 0) { parts.push(__str_join(current.items, current.count)); }
+            current = [];
         } else {
-            current = current + str(c);
+            current.push(str(c));
         }
     }
-    if (current.len() > 0) { parts.push(current); }
+    if (current.len() > 0) { parts.push(__str_join(current.items, current.count)); }
     return parts.items[0:parts.len()];
 }
 
@@ -62,14 +62,14 @@ fn __root_of(path: string): string {
 }
 
 fn __joined(root: string, parts: List<string>): string {
-    var out = root;
+    var out: List<string> = [root];
     var i = 0;
     while (i < parts.len()) {
-        if (i > 0) { out = out + "/"; }
-        out = out + parts[i];
+        if (i > 0) { out.push("/"); }
+        out.push(parts[i]);
         i = i + 1;
     }
-    return out;
+    return __str_join(out.items, out.count);
 }
 
 /** The last part, or `None` for a root or an empty path. */

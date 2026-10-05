@@ -28,6 +28,7 @@ import { async } from "../async/Task";
 import { Throw, Result, Failure } from "../core/Error";
 import { Reader, Writer, IoError } from "../io/Io";
 import { decode } from "../text/Utf8";
+import { __ready } from "../net/Net";
 
 /**
  * Ending the program. The root ends the process with the code, after the
@@ -235,6 +236,8 @@ type ChildStream { id: int, which: int, program: string }
 
 impl Reader for ChildStream {
     fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        var watch = __process_watch(self.id, self.which);
+        if (watch >= 0) { __ready(watch, false); }
         var (status, data, message) = suspend { it(__process_read(self.id, self.which, max)) };
         if (status != 0) { throw(__failure(status, self.program, message)); }
         if (data.len() == 0) { return Option.None; }

@@ -16,9 +16,10 @@ fn read_file(path: string): <async, Fs, Throw<IoError>> string { … }
 ```
 
 A socket overlaps: the scheduler waits on it in `select` while other tasks run
-([Net](Net.md#the-scheduler-waits-on-sockets)). A file, the terminal and a
-child's pipes do not yet — their natives block and call back at once — since
-`select` cannot wait on them on every platform, and threads are what would.
+([Net](Net.md#the-scheduler-waits-on-sockets)), and so does a child's output
+pipe outside Windows. A file, the terminal and a pipe on Windows do not yet —
+their natives block and call back at once — since `select` cannot wait on them
+there, and threads are what would.
 When something needs that, the native becomes a submission and no caller
 changes. The alternative, blocking functions now and async ones beside
 them later, is Rust's `std::fs` next to `tokio::fs`: every I/O function twice, and

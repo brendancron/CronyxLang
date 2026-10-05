@@ -43,6 +43,27 @@ type t =
 
 let digest_of path = try Some (Digest.to_hex (Digest.file path)) with _ -> None
 
+(* The standard library is found when the toolchain runs rather than built into
+   it, so a library edited under an unchanged binary has to change the name too,
+   or artifacts compiled against the old one stay fresh. *)
+let stdlib_digest () =
+  match Toolchain.stdlib () with
+  | None -> "no-stdlib"
+  | Some dir ->
+    let rec files under =
+      Sys.readdir (Filename.concat dir under)
+      |> Array.to_list
+      |> List.sort String.compare
+      |> List.concat_map (fun entry ->
+        let path = if String.equal under "" then entry else Filename.concat under entry in
+        if Sys.is_directory (Filename.concat dir path)
+        then files path
+        else if Filename.check_suffix entry ".cx"
+        then [ path ^ " " ^ Option.value (digest_of (Filename.concat dir path)) ~default:"" ]
+        else [])
+    in
+    Digest.to_hex (Digest.string (String.concat "\n" (files "")))
+
 (* The version alone does not name a compiler: a build of the tree between two
    releases reports the last one while its types have moved on. The binary's own
    digest does. One that cannot be read names nothing it could match, so its
@@ -51,10 +72,11 @@ let compiler =
   lazy
     (Release.version
      ^ "+"
-     ^
-     match digest_of Sys.executable_name with
-     | Some digest -> digest
-     | None -> "unread-" ^ string_of_float (Unix.gettimeofday ()))
+     ^ (match digest_of Sys.executable_name with
+        | Some digest -> digest
+        | None -> "unread-" ^ string_of_float (Unix.gettimeofday ()))
+     ^ "+"
+     ^ stdlib_digest ())
 
 (* One string over everything the build depended on. The compiler version is in
    it because an artifact is only readable by the compiler that wrote it, and

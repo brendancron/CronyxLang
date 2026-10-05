@@ -36,19 +36,20 @@ fn encode(bytes: Array<byte>): string {
 /** In the given alphabet, padded with `=` or not. */
 fn encode_with(bytes: Array<byte>, alphabet: Alphabet, padded: bool): string {
     var chars = __alphabet(alphabet);
-    var out = "";
+    var parts: List<string> = [];
     var i = 0;
     while (i < bytes.len()) {
         var left = bytes.len() - i;
         var n = bytes[i].to_int() << 16;
         if (left > 1) { n = n | (bytes[i + 1].to_int() << 8); }
         if (left > 2) { n = n | bytes[i + 2].to_int(); }
-        out = out + str(chars[(n >> 18) & 63]) + str(chars[(n >> 12) & 63]);
-        if (left > 1) { out = out + str(chars[(n >> 6) & 63]); } else if (padded) { out = out + "="; }
-        if (left > 2) { out = out + str(chars[n & 63]); } else if (padded) { out = out + "="; }
+        parts.push(str(chars[(n >> 18) & 63]));
+        parts.push(str(chars[(n >> 12) & 63]));
+        if (left > 1) { parts.push(str(chars[(n >> 6) & 63])); } else if (padded) { parts.push("="); }
+        if (left > 2) { parts.push(str(chars[n & 63])); } else if (padded) { parts.push("="); }
         i = i + 3;
     }
-    return out;
+    return __str_join(parts.items, parts.count);
 }
 
 /** The bytes standard Base64 spells, padded or not. */

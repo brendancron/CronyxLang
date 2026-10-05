@@ -1,0 +1,1 @@
+[lib.cx 2:37] 'limit' is a top-level variable of lib.cx, which is imported rather than run, so it is never set. Make it a function, or pass it in.

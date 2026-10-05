@@ -374,7 +374,7 @@ let rec bound_by (s : Ast.stmt) =
   | `Block body -> List.concat_map bound_by body
   | _ -> []
 
-let rewrite ~aliases ~direct ~own ~whole ~foreign ~ops ~rename ~from (program : Ast.program) =
+let rewrite ~aliases ~direct ~own ~whole ~foreign ~ops ~rename ~from ~runs (program : Ast.program) =
   let module S = Set.Make (String) in
   (* One list for the whole file, shared by every call in it. *)
   let in_scope =
@@ -383,6 +383,30 @@ let rewrite ~aliases ~direct ~own ~whole ~foreign ~ops ~rename ~from (program : 
          (fun _ bound acc -> bound :: acc)
          direct
          (Hashtbl.fold (fun name () acc -> rename name :: acc) own whole))
+  in
+  (* A file that is imported rather than run contributes its declarations and
+     nothing else, so its top-level variables are never set. Left in scope, a
+     function reading one would find the entry's variable of the same name. *)
+  let skipped =
+    if runs
+    then S.empty
+    else
+      S.of_list
+        (List.concat_map
+           (fun (s : Ast.stmt) ->
+             match s.Ast.it with
+             | `Var_decl (name, _, _) -> [ name ]
+             | `Var_tuple (names, _) -> names
+             | _ -> [])
+           program)
+  in
+  let never_set span name =
+    fail
+      span
+      "'%s' is a top-level variable of %s, which is imported rather than run, so it is never \
+       set. Make it a function, or pass it in."
+      name
+      (Filename.basename from)
   in
     let resolve_local name =
     match Hashtbl.find_opt direct name with
@@ -488,6 +512,7 @@ let rewrite ~aliases ~direct ~own ~whole ~foreign ~ops ~rename ~from (program : 
          `fn write`. *)
       | `Var name when (not (S.mem name locals)) && (Hashtbl.mem direct name || Hashtbl.mem own name) ->
         `Var (resolve_local name)
+      | `Var name when (not (S.mem name locals)) && S.mem name skipped -> never_set e.Ast.span name
       | `Var name when not (S.mem name locals) ->
         (match Hashtbl.find_opt foreign name with
          | Some (declaring, namespace) ->
@@ -566,6 +591,8 @@ let rewrite ~aliases ~direct ~own ~whole ~foreign ~ops ~rename ~from (program : 
               static_args
           , List.map go args )
       | #Ast.lit as l -> l
+      | `Assign (name, _) when (not (S.mem name locals)) && S.mem name skipped ->
+        never_set e.Ast.span name
       | #Ast.vars as v -> (Ast.map_vars go v :> Ast.expr_kind)
       | #Ast.ops as o -> (Ast.map_ops go o :> Ast.expr_kind)
       | #Ast.logic as l -> (Ast.map_logic go l :> Ast.expr_kind)
@@ -753,7 +780,14 @@ let rewrite ~aliases ~direct ~own ~whole ~foreign ~ops ~rename ~from (program : 
     | `Attributed (_, inner) -> top_level_vars inner
     | _ -> []
   in
-  List.map (stmt (S.of_list (List.concat_map top_level_vars program))) program
+  let vars = S.of_list (List.concat_map top_level_vars program) in
+  (* Rewritten before they are filtered, because an import becomes an empty
+     block that the filter drops. What is dropped keeps the file's variables in
+     scope, so it raises nothing. *)
+  let rewritten =
+    List.map (fun s -> stmt (if runs || not (is_declaration s) then vars else S.empty) s) program
+  in
+  if runs then rewritten else List.filter is_declaration rewritten
 
 (* The declarations, and what each unit of this package exports so that a
    consumer can bind the names without reading the source again. *)
@@ -799,7 +833,10 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
     List.concat_map (written_in `Global) (List.filter (fun (v : unit_) -> String.equal v.package u.package) all)
     @ implicit
   in
-  let resolve_unit u ~entry =
+  (* [entry] says whose names stay plain; [runs] says whose statements run. A
+     module's statements run only when it is the file being run, so importing
+     one loads its declarations and nothing else. *)
+  let resolve_unit u ~entry ~runs =
     let own = Hashtbl.create 8 in
     List.iter (fun name -> Hashtbl.replace own name ()) (exports u);
     let aliases = Hashtbl.create 4 in
@@ -945,13 +982,8 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
       ~ops:reachable
       ~rename:(fun name -> renamed u ~entry name)
       ~from:u.path
+      ~runs
       u.program
-  in
-  (* [entry] says whose names stay plain; [keep] says whose statements run. A
-     module's statements run only when it is the file being run, so importing
-     one loads its declarations and nothing else. *)
-  let declarations_of u ~entry ~keep =
-    resolve_unit u ~entry |> List.filter (fun s -> is_declaration s || keep)
   in
   (* A module's own meta blocks wait for the walk to first ask it for a name. *)
   let deferred u (s : Ast.stmt) =
@@ -960,11 +992,11 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
     | _ -> s
   in
   ( List.concat_map
-      (fun u -> List.map (deferred u) (declarations_of u ~entry:false ~keep:false))
+      (fun u -> List.map (deferred u) (resolve_unit u ~entry:false ~runs:false))
       rest
     @ (match entry_unit with
        | None -> []
-       | Some u -> declarations_of u ~entry:plain_entry ~keep:true)
+       | Some u -> resolve_unit u ~entry:plain_entry ~runs:true)
   , List.map
       (fun u ->
         { Artifact.namespace = u.namespace

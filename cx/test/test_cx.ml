@@ -1034,6 +1034,73 @@ let archive_checkout_case () =
       (String.concat ", " packed);
     false)
 
+(* The library is found when `cx` runs, so an edit to it under an unchanged
+   binary has to make a cached artifact stale. Spawned, as above: what names the
+   compiler is read once per process. *)
+let run_stdlib_edited_case ~library =
+  let name = "an artifact goes stale when the library changes" in
+  let root = Filename.concat (Filename.get_temp_dir_name ()) "cx-test-stdlib-edited" in
+  remove root;
+  let rec files under =
+    Sys.readdir (Filename.concat library under)
+    |> Array.to_list
+    |> List.concat_map (fun entry ->
+      let path = if String.equal under "" then entry else under ^ "/" ^ entry in
+      if Sys.is_directory (Filename.concat library path)
+      then files path
+      else [ path, read_file (Filename.concat library path) ])
+  in
+  let copy = Filename.concat root "stdlib" in
+  let probe answer =
+    Cx.Archive.into_directory copy [ "probe/Probe.cx", Printf.sprintf "fn answer(): int { return %d; }\n" answer ]
+  in
+  Cx.Archive.into_directory copy (files "");
+  probe 1;
+  let package = Filename.concat root "pkg" in
+  Cx.Archive.into_directory
+    package
+    [ "cronyx.toml", "[package]\nname    = \"edited\"\nversion = \"0.1.0\"\ncronyx  = \"0.0.1\"\n"
+    ; "src/main.cx", "import { answer } from \"std/probe/Probe\";\n\nprint(answer());\n"
+    ];
+  let run () =
+    let read, write = Unix.pipe () in
+    let here = Sys.getcwd () in
+    Sys.chdir package;
+    let pid =
+      Fun.protect
+        ~finally:(fun () -> Sys.chdir here)
+        (fun () ->
+          Unix.create_process_env
+            cx
+            [| cx; "run" |]
+            (Array.append
+               (Array.of_list
+                  (List.filter
+                     (fun entry -> not (String.starts_with ~prefix:"CRONYX_STDLIB=" entry))
+                     (Array.to_list (Unix.environment ()))))
+               [| "CRONYX_STDLIB=" ^ copy |])
+            Unix.stdin
+            write
+            write)
+    in
+    Unix.close write;
+    let said = In_channel.input_all (Unix.in_channel_of_descr read) in
+    Unix.close read;
+    ignore (Unix.waitpid [] pid);
+    String.trim said
+  in
+  let before = run () in
+  probe 2;
+  let after = run () in
+  remove root;
+  if String.equal before "1" && String.equal after "2"
+  then (
+    Printf.printf "ok   %s\n" name;
+    true)
+  else (
+    Printf.printf "FAIL %s\n  before the edit: %s\n  after it: %s\n" name before after;
+    false)
+
 (* `cx` as a user runs it: its own process, its exit status and both streams. *)
 let invoke ~cwd args =
   let temp = Filename.get_temp_dir_name () in
@@ -1585,6 +1652,7 @@ let () =
             ~layout:(Filename.concat root (Filename.concat "internal-docs" "stdlib.txt"))
         ; run_library_case
             (Filename.concat root (Filename.concat "cx" (Filename.concat "test" "library")))
+        ; run_stdlib_edited_case ~library:(Filename.concat root "stdlib")
         ; run_missing_core_case
             ~library:
               (Filename.concat root (Filename.concat "cx" (Filename.concat "test" "library")))

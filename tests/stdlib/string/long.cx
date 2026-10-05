@@ -1,0 +1,14 @@
+import { substring, repeat } from "std/text/String";
+
+print("aXbXc".replace("X", "--"));
+print("XaX".replace("X", ""));
+print("aaaa".replace("aa", "b"));
+print("abc".replace("abcd", "z"));
+print(substring("hello", 0 - 3, 99));
+print("héllo"[1:4]);
+
+var text = repeat("abcdefghi</", 30000);
+var swapped = text.replace("</", "<\\/");
+print(swapped.len());
+print(text[0:text.len()].len());
+print(substring(text, 5, 16));
