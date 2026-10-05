@@ -63,6 +63,7 @@ let cases =
   ; "tests/stdlib/async/race"
   ; "tests/stdlib/async/nested_cancel"
   ; "tests/stdlib/async/scope"
+  ; "tests/stdlib/async/skipped_call"
   ; "tests/stdlib/net/echo"
   ; "tests/stdlib/net/silent_peer"
   ; "tests/stdlib/net/fake_net"
@@ -805,7 +806,8 @@ let interpret path =
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out) converted with
      | Ok _ -> Ok (Buffer.contents buf)
-     | Error e -> Error (described path e))
+     | Error e -> Error (described path e)
+     | exception Stack_overflow -> Error "the stack overflowed")
 
 (* Why a fixture does not run yet. *)
 type blocker =
