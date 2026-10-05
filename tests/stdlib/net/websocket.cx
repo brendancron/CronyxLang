@@ -1,0 +1,104 @@
+import { async, race } from "std/async/Task";
+import { Throw } from "std/core/Error";
+import { IoError } from "std/io/Io";
+import { tcp_listen } from "std/net/Tcp";
+import { get, Request, Response } from "std/net/Http";
+import { connect, serve, Message, WebSocket } from "std/net/WebSocket";
+
+fn session(request: Request, socket: WebSocket): <async, Throw<IoError>> unit {
+    if (request.target == "/broken") { throw(IoError.Other("the session gave up")); }
+    for (message in socket.messages()) {
+        match message {
+            Message.Text(text) => {
+                if (text == "goodbye") {
+                    socket.close_with(4000, "as asked");
+                } else {
+                    socket.send_text(request.target + " " + text);
+                }
+            }
+            Message.Binary(bytes) => { socket.send_binary(bytes); }
+        }
+    }
+}
+
+fn page(request: Request): <async, Throw<IoError>> Response {
+    if (request.target == "/broken-page") { throw(IoError.Other("the page gave up")); }
+    return Response.text(200, "a page at " + request.target);
+}
+
+fn failure<E>(task: () -> <async, Throw<IoError>, E> unit): <async, E> string {
+    var said = "no failure";
+    run {
+        task();
+    } handle Throw {
+        final ctl throw(e) {
+            match e {
+                IoError.Other(message) => { said = message; }
+                _ => { said = "another failure"; }
+            }
+        }
+    }
+    return said;
+}
+
+fn matching(received: Option<Message>, sent: Array<byte>): string {
+    match received {
+        Option.Some(message) => {
+            match message {
+                Message.Binary(back) => {
+                    for (var i = 0; i < back.len(); i += 1) {
+                        if (back[i] != sent[i]) { return "differs at " + str(i); }
+                    }
+                    return str(back.len()) + " bytes back";
+                }
+                Message.Text(text) => { return "text " + text; }
+            }
+        }
+        Option.None => { return "closed"; }
+    }
+    return "";
+}
+
+var listener = tcp_listen("127.0.0.1", 0);
+var base = "ws://127.0.0.1:" + str(listener.local_port());
+
+race([
+    () => { serve(listener, page, session); },
+    () => {
+        var socket = connect(base + "/chat");
+        socket.send_text("hello");
+        socket.send(Message.Text("héllo again"));
+        print(socket.receive());
+        print(socket.receive());
+
+        var big = Array(70000, (0).to_byte());
+        for (var i = 0; i < big.len(); i += 1) { big[i] = (i % 251).to_byte(); }
+        socket.send_binary(big);
+        socket.send_binary(big[0:200]);
+        print(matching(socket.receive(), big));
+        print(matching(socket.receive(), big));
+
+        socket.send_text("goodbye");
+        print(socket.receive());
+        print(socket.close_status());
+        print(failure(() => { socket.send_text("too late"); }));
+
+        var mine = connect(base + "/mine");
+        mine.close();
+        print(mine.close_status());
+
+        var broken = connect(base + "/broken");
+        print(broken.receive());
+        print(broken.close_status());
+
+        var pages = "http://127.0.0.1:" + str(listener.local_port());
+        for (target in ["/chat", "/broken-page"]) {
+            var plain = get(pages + target);
+            print(str(plain.status) + " " + plain.reason + ": " + plain.body_text());
+        }
+    }
+]);
+listener.close();
+
+print(failure(() => { connect("wss://example.com/"); }));
+print(failure(() => { connect("http://example.com/"); }));

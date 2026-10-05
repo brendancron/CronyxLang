@@ -1,6 +1,6 @@
 # Networking
 
-Status: **built.** `std/net/Net`, `Tcp`, `Udp` and `Http` (`stdlib/net/`), the
+Status: **built.** `std/net/Net`, `Tcp`, `Udp`, `Http` and `WebSocket` (`stdlib/net/`), the
 socket natives in `lib/system.ml`, and `block_on`'s wait in `std/async/Task`; `tests/stdlib/net/` runs servers and clients over loopback
 and a faked `Net`. This is the design [Stdlib Plan](Stdlib%20Plan.md#10-networking) builds
 `std/net/` from.
@@ -198,11 +198,56 @@ Routing is not in it: a `@route` collector is the `meta` pattern
 [Testing](Testing.md#discovery-is-a-library) describes, and belongs to a
 framework built on this rather than to `std`.
 
+## A WebSocket is library over HTTP
+
+`net/WebSocket` is RFC 6455 over the same pieces: the handshake is an HTTP
+request read by `Http`'s reader, and a connection keeps that reader, so bytes
+that arrived behind the handshake are the first frame rather than lost.
+`connect(url)` and `connect_with(url, headers)` are the client;
+`serve(listener, respond, session)` hands each handshake's `Request` and its
+`WebSocket` to the session, and every other request to `respond` as
+`Http.serve` would, so a page and the socket it opens share a port.
+
+Both servers are `Http`'s one loop, which offers each request to an upgrade
+before answering it: `Http.serve`'s upgrade declines everything, and
+`WebSocket.serve`'s takes a handshake and runs the session on the
+connection. The connection stays `Http`'s to close, so a server's
+`WebSocket` lets go of it without closing it. The upgrade is not public: a
+handler returning one would put a variant in `Response` that every other
+handler has to ignore.
+
+A subprotocol is `serve_with`'s `choose`, given what the client offered in
+its order and returning one of those or `None`; the socket's `protocol()`
+says what was agreed, at both ends. A choice the client did not offer is the
+server's mistake, answered 500, and a client refuses a 101 naming one it did
+not offer.
+
+A message is `Message.Text` or `Message.Binary`, whole: fragments are joined
+before `receive` returns, a ping is answered with a pong as it is read, and
+a close is answered and ends the connection, after which `receive` is
+`None` and `close_status` says what it closed with. A peer that breaks the
+protocol — an unmasked frame from a client, a masked one from a server, text
+that is not UTF-8, a message over `max_message` — is sent the close code
+that names it (1002, 1007, 1009) and `receive` throws.
+
+A client's masks come from a generator seeded from `Random` once, when it
+connects, so `send` has no `Random` in its row at either end. Masking is
+there to stop a browser's script from shaping bytes a proxy reads as HTTP;
+a client that is not running someone else's script loses nothing to a mask
+it could predict.
+
+Frames are written one at a time. `write` suspends when the socket is full,
+and a second task's frame written then would land inside the first, so a
+`WebSocket` holds a writer's turn the way a `Channel` holds a waiting sender.
+One task receives; any number send.
+
 ## What is not in it
 
-- **TLS.** HTTPS needs a TLS implementation, which means linking one or writing
-  one, and either is a project of its own. Until then `get("https://…")` is an
-  error that says so.
+- **TLS.** HTTPS and `wss` need a TLS implementation, which means linking one or writing
+  one, and either is a project of its own. Until then `get("https://…")` and
+  `connect("wss://…")` are errors that say so.
+- **WebSocket extensions.** None is offered, and a server choosing one
+  fails the handshake; `permessage-deflate` needs a deflate.
 - **Multicast and broadcast.** Socket options on top of `bind`, when something
   needs them.
 - **Asynchronous files.** Above: threads, when something needs them.

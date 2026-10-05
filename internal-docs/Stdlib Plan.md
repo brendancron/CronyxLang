@@ -143,6 +143,7 @@ On the bitwise operators from 3.
 
 - `math/BigInt`, implementing the operator traits and `Display`.
 - `crypto/Sha256`, a `Writer`, printed through `encoding/Hex`.
+- `crypto/Sha1`, the same shape, for the protocols that name it.
 - `math/`'s `min`, `max` and `abs` get written types.
 
 **Done when**
@@ -200,6 +201,7 @@ Then the library:
 - `net/Tcp`: `TcpStream`, a `Reader`, `Writer` and `Closer<IoError>`, and `TcpListener`.
 - `net/Udp`: `UdpSocket`, sending and receiving `Datagram`s.
 - `net/Http`: HTTP/1.1 over `TcpStream`, a client in `get`, `post` and `send` and a server in `serve`, each connection a task in one scope.
+- `net/WebSocket`: RFC 6455 over `Http`'s handshake, a client in `connect` and a server in `serve`, which answers other requests as `Http.serve` does.
 - `async/Task` gains `scope`, whose body starts tasks into it while it runs, and `race`, which stops a server; a scope unwound while its tasks wait cancels them.
 
 **Done when**
