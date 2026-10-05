@@ -1,3 +1,8 @@
 (test
  (name test_bootstrap)
- (libraries bootstrap unix threads.posix))
+ (libraries bootstrap unix threads.posix)
+ ; A frame the interpreter leaves behind grows memory without changing what a
+ ; program prints. A system-sized stack turns it into an overflow instead of
+ ; letting OCaml 5 grow the stack to a gigabyte.
+ (action
+  (setenv OCAMLRUNPARAM l=1M (run %{test}))))

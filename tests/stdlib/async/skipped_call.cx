@@ -1,0 +1,17 @@
+import { async } from "std/async/Task";
+
+fn ready(): <async> int { return 1; }
+
+fn maybe(call: bool): int {
+    var held = [1, 2, 3];
+    if (call) { ready(); }
+    return held.len();
+}
+
+var total = 0;
+var i = 0;
+while (i < 100000) {
+    total = total + maybe(i == 0);
+    i = i + 1;
+}
+print(str(total));

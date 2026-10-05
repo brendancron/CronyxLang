@@ -371,14 +371,7 @@ and run_block env body =
     (* What this block defers runs when it is left, which has to be after the
        call rather than before it. *)
     | [ s ] when !deferred <> [] -> not_tail (fun () -> exec env s)
-    | [ { Ast.it = `Expr { Ast.it = `Call (callee, args); span; _ }; _ } ]
-      when !tail && not (discontinuing callee) ->
-      let f, args = not_tail (fun () -> eval env callee, eval_all env args) in
-      (match f with
-       | Fn f when (match f.arity with Some n -> n = List.length args | None -> true) ->
-         pending := Some (f, args, !tail_scopes)
-       | f -> ignore (call span f args))
-    | [ s ] -> exec env s
+    | [ s ] -> exec_last env s
     | s :: rest ->
       not_tail (fun () -> exec env s);
       walk rest
@@ -388,6 +381,20 @@ and run_block env body =
    | exception e ->
      run_deferred ();
      raise e)
+
+(* A branch of an `if` in tail position is in tail position too. Converted code
+   ends a function with one whose `else` is a bare call to the join, and making
+   that call leaves the function's frame, and every local it held, under the
+   rest of the program. *)
+and exec_last env (s : Ast.cps_stmt) =
+  match s.Ast.it with
+  | `Expr { Ast.it = `Call (callee, args); span; _ } when !tail && not (discontinuing callee) ->
+    let f, args = not_tail (fun () -> eval env callee, eval_all env args) in
+    (match f with
+     | Fn f when (match f.arity with Some n -> n = List.length args | None -> true) ->
+       pending := Some (f, args, !tail_scopes)
+     | f -> ignore (call span f args))
+  | _ -> exec env s
 
 and discontinuing (callee : Ast.cps_expr) =
   match callee.Ast.it with
@@ -432,10 +439,10 @@ and exec env (s : Ast.cps_stmt) : unit =
     | `Defer _ -> ()
   | `If (cond, then_branch, else_branch) ->
     if as_bool span (eval env cond)
-    then exec env then_branch
+    then exec_last env then_branch
     else (
       match else_branch with
-      | Some st -> exec env st
+      | Some st -> exec_last env st
       | None -> ())
   | `While (cond, body) ->
     (try
