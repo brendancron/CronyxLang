@@ -387,13 +387,23 @@ and run_block env body =
    that call leaves the function's frame, and every local it held, under the
    rest of the program. *)
 and exec_last env (s : Ast.cps_stmt) =
+  let hand_back span f args =
+    match f with
+    | Fn f when (match f.arity with Some n -> n = List.length args | None -> true) ->
+      pending := Some (f, args, !tail_scopes)
+    | f -> ignore (call span f args)
+  in
   match s.Ast.it with
   | `Expr { Ast.it = `Call (callee, args); span; _ } when !tail && not (discontinuing callee) ->
     let f, args = not_tail (fun () -> eval env callee, eval_all env args) in
-    (match f with
-     | Fn f when (match f.arity with Some n -> n = List.length args | None -> true) ->
-       pending := Some (f, args, !tail_scopes)
-     | f -> ignore (call span f args))
+    hand_back span f args
+  | `Expr { Ast.it = `Dyn_call (receiver, name, _, args); span; _ } when !tail ->
+    (match not_tail (fun () -> eval env receiver) with
+     | Object (data, _, vtable) ->
+       (match List.assoc_opt name vtable with
+        | Some f -> hand_back span f (data :: not_tail (fun () -> eval_all env args))
+        | None -> fail span "No '%s' in this object's methods." name)
+     | other -> fail span "Expected an object, got %s." (type_name other))
   | _ -> exec env s
 
 and discontinuing (callee : Ast.cps_expr) =

@@ -1,0 +1,25 @@
+import { async } from "std/async/Task";
+
+trait Asker {
+    fn ask(self): <async> int;
+}
+
+type Plain;
+
+impl Asker for Plain {
+    fn ask(self): <async> int { return 1; }
+}
+
+fn through(a: Asker): int {
+    var held = [1, 2, 3];
+    return a.ask() + held.len();
+}
+
+var a: Asker = Plain;
+var total = 0;
+var i = 0;
+while (i < 100000) {
+    total = total + through(a);
+    i = i + 1;
+}
+print(str(total));

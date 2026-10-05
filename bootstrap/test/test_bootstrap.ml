@@ -64,6 +64,7 @@ let cases =
   ; "tests/stdlib/async/nested_cancel"
   ; "tests/stdlib/async/scope"
   ; "tests/stdlib/async/skipped_call"
+  ; "tests/stdlib/async/trait_object_call"
   ; "tests/stdlib/net/echo"
   ; "tests/stdlib/net/silent_peer"
   ; "tests/stdlib/net/fake_net"
