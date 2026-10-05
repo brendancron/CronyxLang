@@ -1,0 +1,11 @@
+HEAD: 200, 0 bytes, length Some("11")
+204: 0 bytes, length None
+split: 500
+too large: HTTP/1.1 413 Content Too Large
+too many fields: HTTP/1.1 431 Request Header Fields Too Large
+too long: HTTP/1.1 414 URI Too Long
+silent: HTTP/1.1 408 Request Timeout
+expect: HTTP/1.1 100 Continue
+then: got 4 bytes
+refused to send: a header field's value holds a line break: X-Bad
+after 100: 200 final

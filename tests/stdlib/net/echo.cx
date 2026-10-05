@@ -1,0 +1,46 @@
+import { all, both } from "std/async/Task";
+import { tcp_listen, tcp_connect, TcpStream } from "std/net/Tcp";
+import { read_all } from "std/fs/File";
+import { decode } from "std/text/Utf8";
+import { Result } from "std/core/Error";
+
+fn echo(conn: TcpStream) {
+    var done = false;
+    while (!done) {
+        match conn.read(1024) {
+            Option.Some(data) => { conn.write(data); }
+            Option.None => { done = true; }
+        }
+    }
+    conn.close();
+}
+
+fn ask(port: int, message: string): string {
+    var conn = tcp_connect("127.0.0.1", port);
+    conn.write(message.bytes());
+    conn.shutdown_write();
+    var reply = read_all(conn);
+    conn.close();
+    match decode(reply) {
+        Result.Ok(text) => { return text; }
+        Result.Err(e) => { return "not text"; }
+    }
+    return "";
+}
+
+var listener = tcp_listen("127.0.0.1", 0);
+var port = listener.local_port();
+var served = both(
+    () => all([
+        () => { echo(listener.accept()); },
+        () => { echo(listener.accept()); },
+        () => { echo(listener.accept()); }
+    ]),
+    () => all([
+        () => ask(port, "one"),
+        () => ask(port, "two"),
+        () => ask(port, "three")
+    ])
+);
+listener.close();
+for (reply in served.1) { print(reply); }

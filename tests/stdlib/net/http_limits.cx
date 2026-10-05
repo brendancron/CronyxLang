@@ -1,0 +1,92 @@
+import { async, race, both } from "std/async/Task";
+import { Throw, Result, Failure } from "std/core/Error";
+import { IoError } from "std/io/Io";
+import { tcp_listen, tcp_connect } from "std/net/Tcp";
+import { send, serve_with, ServerLimits, Headers, Request, Response } from "std/net/Http";
+import { read_all } from "std/fs/File";
+import { decode } from "std/text/Utf8";
+import { repeat } from "std/text/String";
+import { Net } from "std/net/Net";
+import { Duration } from "std/os/Time";
+
+fn text(bytes: Array<byte>): string {
+    match decode(bytes) {
+        Result.Ok(t) => { return t; }
+        Result.Err(_) => { return "not text"; }
+    }
+    return "";
+}
+
+fn first_line(bytes: Array<byte>): string { return text(bytes).split('\r')[0]; }
+
+fn raw(port: int, request: string, finished: bool): <Net, async, Throw<IoError>> string {
+    var conn = tcp_connect("127.0.0.1", port);
+    conn.write(request.bytes());
+    if (finished) { conn.shutdown_write(); }
+    var reply = first_line(read_all(conn));
+    conn.close();
+    return reply;
+}
+
+fn route(request: Request): <async, Throw<IoError>> Response {
+    if (request.target == "/empty") { return Response.text(204, "dropped"); }
+    if (request.target == "/split") {
+        var r = Response.text(200, "fine");
+        r.headers.set("X-Echo", "a\r\nSet-Cookie: stolen=1");
+        return r;
+    }
+    return Response.text(200, "got " + str(request.body.len()) + " bytes");
+}
+
+var listener = tcp_listen("127.0.0.1", 0);
+var port = listener.local_port();
+var base = "http://127.0.0.1:" + str(port);
+var limits = ServerLimits { max_body: 10, max_headers: 5, max_line: 200, patience: Duration.milliseconds(200) };
+
+race([
+    () => { serve_with(listener, limits, route); },
+    () => {
+        var head = send("HEAD", base + "/", Headers.new(), []);
+        print("HEAD: " + str(head.status) + ", " + str(head.body.len()) + " bytes, length " + str(head.headers.get("Content-Length")));
+        var empty = send("GET", base + "/empty", Headers.new(), []);
+        print("204: " + str(empty.body.len()) + " bytes, length " + str(empty.headers.get("Content-Length")));
+        print("split: " + str(send("GET", base + "/split", Headers.new(), []).status));
+
+        print("too large: " + raw(port, "POST / HTTP/1.1\r\nContent-Length: 100\r\n\r\n", true));
+        print("too many fields: " + raw(port, "GET / HTTP/1.1\r\nA: 1\r\nB: 2\r\nC: 3\r\nD: 4\r\nE: 5\r\nF: 6\r\n\r\n", true));
+        print("too long: " + raw(port, "GET /" + repeat("x", 300) + " HTTP/1.1\r\n\r\n", true));
+        print("silent: " + raw(port, "", false));
+
+        var conn = tcp_connect("127.0.0.1", port);
+        conn.write("POST / HTTP/1.1\r\nContent-Length: 4\r\nExpect: 100-continue\r\n\r\n".bytes());
+        match conn.read(4096) {
+            Option.Some(interim) => { print("expect: " + first_line(interim)); }
+            Option.None => { print("expect: nothing"); }
+        }
+        conn.write("abcd".bytes());
+        conn.shutdown_write();
+        print("then: " + text(read_all(conn)).split('\n')[5]);
+        conn.close();
+
+        run {
+            send("GET", base + "/", Headers.new().set("X-Bad", "a\r\nHost: elsewhere"), []);
+            print("sent a bad header");
+        } handle Throw {
+            final ctl throw(e) { print("refused to send: " + e.message()); }
+        }
+    }
+]);
+listener.close();
+
+var interim = tcp_listen("127.0.0.1", 0);
+var (_, answered) = both(
+    () => {
+        var conn = interim.accept();
+        conn.read(4096);
+        conn.write("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nfinal".bytes());
+        conn.close();
+    },
+    () => send("GET", "http://127.0.0.1:" + str(interim.local_port()) + "/", Headers.new(), [])
+);
+interim.close();
+print("after 100: " + str(answered.status) + " " + answered.body_text());

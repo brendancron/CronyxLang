@@ -22,6 +22,9 @@ import { Time, Timestamp, Instant } from "std/os/Time";
 import { Random } from "std/random/Random";
 import { Process, Exit, __start_on_system } from "std/os/Process";
 import { Logger, __written_line } from "std/log/Logger";
+import { Net, __lookup_on_system } from "std/net/Net";
+import { __connect_on_system, __listen_on_system } from "std/net/Tcp";
+import { __bind_on_system } from "std/net/Udp";
 
 global import { Assertion, assert } from "std/core/Assert";
 global import { Iter, Iterable } from "std/core/Iter";
@@ -43,13 +46,13 @@ global import { print, printerr } from "std/io/Print";
 
 /**
  * Runs one top-level statement and hands back its value: under the terminal
- * and its input, with files on disk and programs the system runs, the
- * process's arguments and environment, the system's clocks and its entropy,
+ * and its input, with files on disk, programs the system runs and its network,
+ * the process's arguments and environment, the system's clocks and its entropy,
  * and under `block_on`, so a statement may wait, and a failure nothing catches
  * stops the program with its value.
  */
 fn __root<T, X, E>(
-    main: () -> <async, Throw<X>, Console, Stdin, Fs, Dirs, Process, Exit, Logger, Args, Env, Time, Random, E> T
+    main: () -> <async, Throw<X>, Console, Stdin, Fs, Dirs, Process, Net, Exit, Logger, Args, Env, Time, Random, E> T
 ): <E> T {
     var out: Option<T> = Option.None;
     run {
@@ -60,6 +63,11 @@ fn __root<T, X, E>(
                 ctl open(path, mode) { resume __open_on_disk(path, mode); }
             } handle Process {
                 ctl start(command) { resume __start_on_system(command); }
+            } handle Net {
+                ctl connect(host, port) { resume __connect_on_system(host, port); }
+                ctl listen(host, port) { resume __listen_on_system(host, port); }
+                ctl bind(host, port) { resume __bind_on_system(host, port); }
+                ctl lookup(host) { resume __lookup_on_system(host); }
             }
         };
     } handle Dirs {

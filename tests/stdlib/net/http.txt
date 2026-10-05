@@ -1,0 +1,6 @@
+200 OK: hello there
+200 OK: POST some words
+404 Not Found: nothing at /missing
+500 Internal Server Error: Internal Server Error
+Some("text/plain; charset=utf-8")
+server stopped

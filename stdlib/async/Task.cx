@@ -42,6 +42,12 @@ effect async {
      * A timer that is cancelled, or has fired, is not waited for.
      */
     fn after(delay: Duration, wake: () -> unit): () -> unit;
+
+    /**
+     * Calls `wake` once the socket can be read from without waiting, or
+     * written to when `writing`, and hands back what cancels that.
+     */
+    fn when_ready(socket: int, writing: bool, wake: () -> unit): () -> unit;
 }
 
 /** Lets every other task that is ready run before this one carries on. */
@@ -60,61 +66,194 @@ fn __once<T>(wake: (() -> unit) -> unit, k: (T) -> unit): (T) -> unit {
 }
 
 /**
+ * Runs the body, which may start tasks into this scope with the function it is
+ * handed, and returns what the body returned once the body and every task it
+ * started have finished.
+ *
+ * ```
+ * scope { start ->
+ *     while (true) {
+ *         var conn = listener.accept();
+ *         start(() => { answer(conn); });
+ *     }
+ * };
+ * ```
+ *
+ * The body is a task of the scope like the rest. If any fails, the others,
+ * the body among them, are cancelled where they are waiting, their `defer`s
+ * run, and once every one has stopped the failure is thrown from here; a task
+ * started after that never starts. A second failure is dropped with its task.
+ */
+fn scope<R, X, E>(body: ((() -> <async, Throw<X>, E> unit) -> <async, E> unit) -> <async, Throw<X>, E> R)
+    : <async, Throw<X>, E> R {
+    var result: Promise<R> = promise();
+    __scope((start, stop) => { resolve(result, body(start)); });
+    return await(result);
+}
+
+/**
  * Runs the tasks side by side and returns their results, in the order the
  * tasks were given.
  *
- * If one fails, the others are cancelled at their next suspension point, and
- * once every one has stopped the failure is thrown from here. A second failure
- * is dropped with its task.
+ * If one fails, the others are cancelled where they are waiting, and their
+ * `defer`s run; one not yet started never starts. Once every one has stopped,
+ * the failure is thrown from here. A second failure is dropped with its task.
  */
 fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E> List<T> {
     var slots: List<Promise<T>> = [];
-    var failure: Option<X> = Option.None;
-    var cancelled = false;
-    var remaining = tasks.len();
-    var settled: Promise<unit> = promise();
-
-    fn finish() {
-        remaining -= 1;
-        if (remaining == 0) { resolve(settled, ()); }
-    }
-
-    for (task in tasks) {
-        var slot: Promise<T> = promise();
-        slots.push(slot);
-        run {
-            run {
-                resolve(slot, task());
-            } handle Throw {
-                final ctl throw(e) {
-                    if (!cancelled) {
-                        failure = Option.Some(e);
-                        cancelled = true;
-                    }
-                }
-            }
-            finish();
-        } handle async {
-            ctl suspend(register) {
-                var wake = waker();
-                register(__once(wake, (value) => {
-                    if (!cancelled) { resume value; } else { finish(); }
-                }));
-            }
-            fn waker() { return waker(); }
-            fn after(delay, wake) { return after(delay, wake); }
+    __scope((start, stop) => {
+        for (task in tasks) {
+            var slot: Promise<T> = promise();
+            slots.push(slot);
+            start(() => { resolve(slot, task()); });
         }
-    }
-
-    if (tasks.len() > 0) { await(settled); }
-    match failure {
-        Option.Some(e) => { throw(e); }
-        Option.None => {}
-    }
+    });
     var results: List<T> = [];
     for (slot in slots) { results.push(await(slot)); }
     return results;
 }
+
+/**
+ * Runs the tasks side by side and returns the result of whichever finishes
+ * first. The others are cancelled where they are waiting, as a failure in
+ * `all` cancels them, and this returns once every one has stopped.
+ *
+ * A failure before any finishes is thrown from here. Panics if given no tasks.
+ */
+fn race<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E> T {
+    if (tasks.len() == 0) { panic("race needs a task to wait for"); }
+    var winner: Promise<T> = promise();
+    var won = false;
+    __scope((start, stop) => {
+        for (task in tasks) {
+            start(() => {
+                var value = task();
+                if (!won) {
+                    won = true;
+                    resolve(winner, value);
+                    stop();
+                }
+            });
+        }
+    });
+    return await(winner);
+}
+
+// The scope `scope`, `all` and `race` share. The body runs as its first task,
+// handed `start`, and `stop`, which cancels every task still running as a
+// failure does but throws nothing.
+fn __scope<X, E>(body: ((() -> <async, Throw<X>, E> unit) -> <async, E> unit, () -> unit) -> <async, Throw<X>, E> unit)
+    : <async, Throw<X>, E> unit {
+    var parked: List<__Parked> = [];
+    var failure: Option<X> = Option.None;
+    var cancelled = false;
+    var remaining = 0;
+    var over = false;
+    var settled: Promise<unit> = promise();
+
+    fn stop() {
+        cancelled = true;
+        var i = parked.len() - 1;
+        while (i >= 0) {
+            match parked[i].stop {
+                Option.Some(unwind) => { unwind(); }
+                Option.None => {}
+            }
+            i -= 1;
+        }
+    }
+
+    fn launch(task: () -> <async, Throw<X>, E> unit) {
+        // A scope that runs for as long as a server does would otherwise keep
+        // a record of every task it ever ran.
+        if (parked.len() >= 64 && parked.len() >= 2 * remaining) { parked = __running(parked); }
+        var here = __Parked { stop: Option.None, finished: false };
+        parked.push(here);
+        run {
+            defer {
+                here.finished = true;
+                remaining -= 1;
+                if (remaining == 0) {
+                    over = true;
+                    resolve(settled, ());
+                }
+            }
+            run {
+                task();
+            } handle Throw {
+                final ctl throw(e) {
+                    if (!cancelled) {
+                        failure = Option.Some(e);
+                        stop();
+                    }
+                }
+            }
+        } handle async {
+            ctl suspend(register) {
+                // Per wait, so a task unwound here can still wait in a `defer`,
+                // and a wake-up left behind by the wait it was unwound from
+                // finds it gone.
+                var live = true;
+                here.stop = Option.Some(() => {
+                    live = false;
+                    here.stop = Option.None;
+                    discontinue;
+                });
+                var wake = waker();
+                register(__once(wake, (value) => {
+                    if (live) {
+                        here.stop = Option.None;
+                        resume value;
+                    }
+                }));
+            }
+            fn waker() { return waker(); }
+            fn after(delay, wake) { return after(delay, wake); }
+            fn when_ready(socket, writing, wake) { return when_ready(socket, writing, wake); }
+        }
+    }
+
+    fn start(task: () -> <async, Throw<X>, E> unit) {
+        if (over) { panic("a task was started in a scope that had finished"); }
+        if (cancelled) { return; }
+        remaining += 1;
+        launch(task);
+    }
+
+    remaining += 1;
+    launch(() => { body(start, stop); });
+
+    // A task cancelled while it waits here is unwound past this scope, and its
+    // tasks with it: they are parked apart from it, so nothing else would reach
+    // them, and a scope never outlives its call.
+    var waited = false;
+    defer {
+        if (!waited) {
+            stop();
+            if (!over) { await(settled); }
+        }
+    }
+    if (!over) { await(settled); }
+    waited = true;
+    match failure {
+        Option.Some(e) => { throw(e); }
+        Option.None => {}
+    }
+}
+
+type __Parked {
+    stop: Option<() -> unit>,
+    finished: bool
+}
+
+fn __running(parked: List<__Parked>): List<__Parked> {
+    var kept: List<__Parked> = [];
+    for (p in parked) {
+        if (!p.finished) { kept.push(p); }
+    }
+    return kept;
+}
+
 
 /** Runs the actions side by side, as `all` does, for their effects alone. */
 fn interleaved<X, E>(actions: List<() -> <async, Throw<X>, E> unit>): <async, Throw<X>, E> unit {
@@ -138,10 +277,18 @@ type __Timer {
     cancelled: bool
 }
 
+type __Watch {
+    socket: int,
+    writing: bool,
+    wake: () -> unit,
+    cancelled: bool
+}
+
 /**
  * Runs `main` and every task it starts, and returns once they have all
- * finished. When every task is asleep, it waits for the first timer through
- * `Time`.
+ * finished. When every task is waiting, it waits for the first timer through
+ * `Time`, or, while a task waits on a socket, for that socket or the first
+ * timer, whichever comes first.
  *
  * Panics if every task is waiting and none is left to wake one, and with the
  * failure's value if one reaches here unhandled.
@@ -149,6 +296,7 @@ type __Timer {
 fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
     var ready: List<() -> unit> = [];
     var timers: List<__Timer> = [];
+    var watches: List<__Watch> = [];
     var finished = false;
     run {
         run {
@@ -167,6 +315,11 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
             timers.push(timer);
             return () => { timer.cancelled = true; };
         }
+        fn when_ready(socket, writing, wake) {
+            var watch = __Watch { socket: socket, writing: writing, wake: wake, cancelled: false };
+            watches.push(watch);
+            return () => { watch.cancelled = true; };
+        }
     }
     // Scopes hold the list `waker` handed out, so it is read with a cursor
     // rather than replaced by its tail.
@@ -178,17 +331,78 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
             at += 1;
             next();
         }
-        match __first_due(timers) {
-            Option.None => { waiting = false; }
-            Option.Some(timer) => {
-                timer.cancelled = true;
-                timers = __pending(timers);
-                if (instant() < timer.due) { wait_until(timer.due); }
-                timer.wake();
+        watches = __watching(watches);
+        var first = __first_due(timers);
+        if (watches.len() > 0) {
+            var limit = -1;
+            match first {
+                Option.Some(timer) => { limit = __at_least_zero((timer.due - instant()).nanos); }
+                Option.None => {}
+            }
+            __wake_ready(watches, limit);
+            match first {
+                Option.Some(timer) => {
+                    if (!(instant() < timer.due)) { __fire(timer); }
+                }
+                Option.None => {}
+            }
+            timers = __pending(timers);
+        } else {
+            match first {
+                Option.None => { waiting = false; }
+                Option.Some(timer) => {
+                    if (instant() < timer.due) { wait_until(timer.due); }
+                    __fire(timer);
+                    timers = __pending(timers);
+                }
             }
         }
     }
     if (!finished) { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
+}
+
+fn __fire(timer: __Timer) {
+    timer.cancelled = true;
+    timer.wake();
+}
+
+fn __at_least_zero(n: int): int {
+    if (n < 0) { return 0; }
+    return n;
+}
+
+fn __watching(watches: List<__Watch>): List<__Watch> {
+    var live: List<__Watch> = [];
+    for (watch in watches) {
+        if (!watch.cancelled) { live.push(watch); }
+    }
+    return live;
+}
+
+// In the order they were set, so tasks waiting on sockets that became ready
+// together carry on in the order they began waiting.
+fn __wake_ready(watches: List<__Watch>, limit: int) {
+    var reads: List<int> = [];
+    var writes: List<int> = [];
+    for (watch in watches) {
+        if (watch.writing) { writes.push(watch.socket); } else { reads.push(watch.socket); }
+    }
+    var (readable, writable) = __net_wait(reads.items[0:reads.len()], writes.items[0:writes.len()], limit);
+    for (watch in watches) {
+        var found = readable;
+        if (watch.writing) { found = writable; }
+        if (!watch.cancelled && __holds(found, watch.socket)) {
+            watch.cancelled = true;
+            watch.wake();
+        }
+    }
+}
+
+fn __holds(sockets: Array<int>, wanted: int): bool {
+    for (socket in sockets) {
+        if (socket == wanted) { return true; }
+    }
+    return false;
 }
 
 // The earliest, and of two due together the one set first, so tasks asleep

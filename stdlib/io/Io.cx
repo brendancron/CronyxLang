@@ -1,5 +1,5 @@
 /**
- * What files, the terminal's input and later sockets share: a `Reader` hands out
+ * What files, the terminal's input and sockets share: a `Reader` hands out
  * bytes, a `Writer` takes them, a `Closer` is let go of with `using`, and an
  * `IoError` says why one could not.
  *
@@ -12,13 +12,25 @@ import { Yield, iterator } from "../iter/Yield";
 import { Throw, Failure, Result, attempt } from "../core/Error";
 import { Utf8Error, decode } from "../text/Utf8";
 
-/** Why a file could not be read, written or opened. */
+/** Why a file or a connection could not be read, written or opened. */
 type IoError {
-    /** Nothing is at this path. */
+    /** Nothing is at this path, or no address has this name. */
     NotFound(string),
 
     /** Something is there, and this program may not have it. */
     Denied(string),
+
+    /** Nothing was listening at the address. */
+    Refused(string),
+
+    /** The peer dropped the connection. */
+    Reset(string),
+
+    /** Something else is already listening at the address. */
+    AddressInUse(string),
+
+    /** The connection took too long and the system gave up on it. */
+    TimedOut(string),
 
     /** Anything else, with what the system said. */
     Other(string)
@@ -29,6 +41,10 @@ impl Failure for IoError {
         match self {
             IoError.NotFound(path) => { return "no such file: " + path; }
             IoError.Denied(path) => { return "not allowed: " + path; }
+            IoError.Refused(address) => { return "connection refused: " + address; }
+            IoError.Reset(address) => { return "connection reset: " + address; }
+            IoError.AddressInUse(address) => { return "address in use: " + address; }
+            IoError.TimedOut(address) => { return "connection timed out: " + address; }
             IoError.Other(message) => { return message; }
         }
     }

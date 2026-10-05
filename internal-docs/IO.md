@@ -15,10 +15,12 @@ so an I/O function has `async` in its row from the first version:
 fn read_file(path: string): <async, Fs, Throw<IoError>> string { … }
 ```
 
-Until the scheduler polls the operating system, the native underneath blocks and
-calls back at once, so nothing overlaps yet. When `block_on` learns to poll for
-completions instead of declaring a deadlock, the native becomes a submission and
-no caller changes. The alternative, blocking functions now and async ones beside
+A socket overlaps: the scheduler waits on it in `select` while other tasks run
+([Net](Net.md#the-scheduler-waits-on-sockets)). A file, the terminal and a
+child's pipes do not yet — their natives block and call back at once — since
+`select` cannot wait on them on every platform, and threads are what would.
+When something needs that, the native becomes a submission and no caller
+changes. The alternative, blocking functions now and async ones beside
 them later, is Rust's `std::fs` next to `tokio::fs`: every I/O function twice, and
 the blocking one holding up every other task with nothing in its type to say so.
 
@@ -107,6 +109,7 @@ a seeded generator, a child process that prints what the test wants:
 |---|---|---|
 | `Dirs` | `std/fs/File` | the disk: `read_dir`, `stat`, `create_dir`, `remove`, `rename` |
 | `Process` | `std/os/Process` | a program the system starts, as a `Child` |
+| `Net` | `std/net/Net` | connections, listeners and datagram sockets over the system's |
 | `Args` | `std/os/Args` | what followed `--` on the command line |
 | `Env` | `std/os/Env` | a copy of the environment the program started with |
 | `Time` | `std/os/Time` | the wall clock and one that never goes backwards |

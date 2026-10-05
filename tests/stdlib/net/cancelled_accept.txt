@@ -1,0 +1,3 @@
+stopped listening
+scope failed: shutting down
+done

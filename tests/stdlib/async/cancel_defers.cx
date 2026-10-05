@@ -1,0 +1,39 @@
+import { async, block_on, all, pause } from "std/async/Task";
+import { Promise, promise, await } from "std/async/Promise";
+import { Throw } from "std/core/Error";
+
+effect Log { fn log(s: string): unit; }
+
+block_on {
+    run {
+        run {
+            var never: Promise<unit> = promise();
+            all([
+                () => { defer { log("A cleanup"); } log("A start"); await(never); log("A end"); },
+                () => { log("B start"); pause(); log("B fails"); throw("boom"); },
+                () => {
+                    defer { log("C closing"); pause(); log("C closed"); }
+                    log("C start");
+                    pause();
+                    pause();
+                    log("C end");
+                }
+            ]);
+            print("scope done");
+        } handle Log { fn log(s) { print("log: " + s); } }
+    } handle Throw {
+        final ctl throw(e) { print("scope failed: " + e); }
+    }
+
+    run {
+        run {
+            all([
+                () => { log("D fails"); throw("early"); },
+                () => { defer { log("E cleanup"); } log("E start"); }
+            ]);
+        } handle Log { fn log(s) { print("log: " + s); } }
+    } handle Throw {
+        final ctl throw(e) { print("scope failed: " + e); }
+    }
+    print("carrying on");
+};

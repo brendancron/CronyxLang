@@ -1,0 +1,63 @@
+import { async, race, both } from "std/async/Task";
+import { Throw, Result } from "std/core/Error";
+import { IoError } from "std/io/Io";
+import { tcp_listen, tcp_connect } from "std/net/Tcp";
+import { get, serve, Request, Response } from "std/net/Http";
+import { read_all } from "std/fs/File";
+import { decode } from "std/text/Utf8";
+
+fn text(bytes: Array<byte>): string {
+    match decode(bytes) {
+        Result.Ok(t) => { return t; }
+        Result.Err(_) => { return "not text"; }
+    }
+    return "";
+}
+
+var raw = tcp_listen("127.0.0.1", 0);
+var raw_url = "http://127.0.0.1:" + str(raw.local_port()) + "/stream";
+var (_, streamed) = both(
+    () => {
+        var conn = raw.accept();
+        var asked = conn.read(4096);
+        conn.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".bytes());
+        conn.write("5\r\nhello\r\n".bytes());
+        conn.write("7;note=x\r\n, world\r\n".bytes());
+        conn.write("0\r\nX-Trailer: done\r\n\r\n".bytes());
+        conn.close();
+    },
+    () => get(raw_url)
+);
+raw.close();
+print(str(streamed.status) + ": " + streamed.body_text());
+
+fn ok(request: Request): <async, Throw<IoError>> Response { return Response.text(200, "fine"); }
+
+var listener = tcp_listen("127.0.0.1", 0);
+var port = listener.local_port();
+race([
+    () => { serve(listener, ok); },
+    () => {
+        tcp_connect("127.0.0.1", port).close();
+        var conn = tcp_connect("127.0.0.1", port);
+        conn.write("NONSENSE\r\n\r\n".bytes());
+        conn.shutdown_write();
+        var reply = text(read_all(conn));
+        conn.close();
+        print(reply.split('\r')[0]);
+    }
+]);
+listener.close();
+
+var refused = "fetched";
+run {
+    get("https://example.com/");
+} handle Throw {
+    final ctl throw(e) {
+        match e {
+            IoError.Other(message) => { refused = message; }
+            _ => { refused = "another failure"; }
+        }
+    }
+}
+print(refused);

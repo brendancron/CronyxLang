@@ -187,6 +187,31 @@ Then the library:
 - A `Rational` is reduced after every operation, and `Complex.from_polar` of a number's `abs` and `arg` is that number.
 - `Stats.mean` takes a `List<float>` and an `Array<float>` through one declaration, is `None` for an empty list, and its `variance` of values near 1e9 matches the exact answer where the naive formula does not.
 
+## 10. Networking
+
+[Net](Net.md) is the design. It starts in `async`, with two changes:
+
+- A task a scope cancels is unwound with `discontinue`, as `timeout` unwinds the one it abandons, so its `defer`s run and a connection it held is closed ([Net](Net.md#a-cancelled-task-closes-what-it-held)).
+- `async` gains `when_ready`, and `block_on` waits in `select` on every socket a task is parked on, with the earliest timer as the limit, rather than only on the clock.
+
+Then the library:
+
+- `net/Net`: the `Net` effect — `connect`, `listen`, `bind` and `lookup` — handled at the root over non-blocking `Unix` sockets. `IoError` gains `Refused`, `Reset`, `AddressInUse` and `TimedOut`.
+- `net/Tcp`: `TcpStream`, a `Reader`, `Writer` and `Closer<IoError>`, and `TcpListener`.
+- `net/Udp`: `UdpSocket`, sending and receiving `Datagram`s.
+- `net/Http`: HTTP/1.1 over `TcpStream`, a client in `get`, `post` and `send` and a server in `serve`, each connection a task in one scope.
+- `async/Task` gains `scope`, whose body starts tasks into it while it runs, and `race`, which stops a server; a scope unwound while its tasks wait cancels them.
+
+**Done when**
+
+- A task cancelled by its scope's failure runs its `defer`s, while it is parked and before its scope's failure is thrown.
+- One program runs an echo server on a port the OS chose and several clients against it, as tasks, with the same output every run.
+- `timeout` abandons a read from a peer that never writes, and the other tasks keep running while it waits.
+- A test handles `Net` with in-memory peers and reaches no socket.
+- Two UDP sockets on loopback exchange datagrams as tasks, one waiting to receive before the other has sent, and each reply goes back to the port it came from.
+- `get` against a `serve` in the same program answers with what the handler wrote, a chunked body among the cases.
+- Each runs on Linux, macOS and Windows.
+
 ## What is not in the plan
 
-`net/` and HTTP over it, and `algo/graph`. `net/` is the next step after 5, since it shares the scheduler work.
+`algo/graph`; and in `net/`, TLS and multicast ([Net](Net.md#what-is-not-in-it)).

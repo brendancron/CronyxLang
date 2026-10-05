@@ -440,6 +440,30 @@ let where span =
     Printf.sprintf "%s:%d" tail l.Source_map.Span.line
   | Source_map.Span.Nowhere_in_source -> "elsewhere"
 
+(* The module a mangled name was declared in, for a message that has to say
+   where to import it from: [std#Error#Result] is Error, in std. A message
+   shows every mangled name by its last part, so two different declarations of
+   one name read the same without this. *)
+let declared_in name =
+  let is_number part = part <> "" && String.for_all (fun c -> c >= '0' && c <= '9') part in
+  match List.filter (fun part -> not (is_number part)) (String.split_on_char '#' name) with
+  | [ package; namespace; _ ] -> Some (Printf.sprintf "'%s', in %s" namespace package)
+  | [ namespace; _ ] -> Some (Printf.sprintf "'%s'" namespace)
+  | _ -> None
+
+(* Each declaration of the name, other than [except], by where it was declared. *)
+let declarations_of table ~except name =
+  Hashtbl.fold
+    (fun key _ acc ->
+      if (not (String.equal key except))
+         && (String.equal key name || String.ends_with ~suffix:("#" ^ name) key)
+      then key :: acc
+      else acc)
+    table
+    []
+  |> List.sort_uniq String.compare
+  |> List.filter_map declared_in
+
 let fail span fmt =
   Printf.ksprintf (fun message -> raise (Located { span; message })) fmt
 
@@ -919,6 +943,19 @@ and row_of_labels ~span entries =
         in
         (* Unwritten arguments are left to inference, each at its own variable,
            so `<Yield>` is every instantiation and `<Yield<int>>` is one. *)
+        if not (Hashtbl.mem ctx_effect_params label)
+        then
+          !current.unknown
+            (fun () ->
+              match declarations_of ctx_effect_params ~except:label label with
+              | [] -> fail span "Unknown effect '%s'." label
+              | where ->
+                fail
+                  span
+                  "'%s' is not an effect in scope here. One is declared in %s: import it from there."
+                  label
+                  (String.concat " and in " where))
+            ignore;
         let args =
           match written with
           | [] -> List.init declared (fun _ -> Types.fresh ())
@@ -926,7 +963,6 @@ and row_of_labels ~span entries =
             List.map infer_ty_of_annotation written
           (* Nothing declared it, which says more than a count of arguments. *)
           | written when not (Hashtbl.mem ctx_effect_params label) ->
-            !current.unknown (fun () -> fail span "Unknown effect '%s'." label) ignore;
             List.map (fun _ -> Types.fresh ()) written
           | written ->
             fail
@@ -4278,7 +4314,28 @@ and infer_match
             pattern, arm_body (new_env (Some env)) [] body
           | Ast.Pat_variant (ty, variant, payload) ->
             if not (String.equal ty sum)
-            then fail span "This matches a %s, not a %s." ty sum;
+            then (
+              let short n =
+                match List.rev (String.split_on_char '#' n) with
+                | last :: _ -> last
+                | [] -> n
+              in
+              match declared_in sum with
+              | Some where when not (Hashtbl.mem ctx_types ty) ->
+                fail
+                  span
+                  "'%s' is not a type in scope here. The value matched is the %s declared in %s: import it from there."
+                  (short ty)
+                  (short sum)
+                  where
+              | Some where when String.equal (short ty) (short sum) ->
+                fail
+                  span
+                  "This matches a %s, but the value is the %s declared in %s, which is a different type."
+                  ty
+                  (short sum)
+                  where
+              | _ -> fail span "This matches a %s, not a %s." ty sum);
             (match List.assoc_opt variant variants with
              | None -> fail span "Type '%s' has no variant '%s'." sum variant
              | Some declared ->

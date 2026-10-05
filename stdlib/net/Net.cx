@@ -1,0 +1,93 @@
+/**
+ * Reaching the network.
+ *
+ * ```
+ * import { lookup_host } from "std/net/Net";
+ *
+ * print(lookup_host("localhost"));
+ * ```
+ *
+ * Connecting, listening and binding are the `Net` effect, so a function's row
+ * says `<Net>` exactly when it reaches the network, and a test hands out
+ * peers of its own by handling it. The root answers it with the system's
+ * sockets, and a task waiting on one lets the others run. Connections are in
+ * `std/net/Tcp` and datagrams in `std/net/Udp`.
+ */
+
+import { async } from "../async/Task";
+import { Throw, Result } from "../core/Error";
+import { IoError } from "../io/Io";
+import { TcpStream, TcpListener } from "Tcp";
+import { UdpSocket } from "Udp";
+
+/** Reaching the network. */
+effect Net {
+    /**
+     * A connection to the host, or why there is none. A failure is a value
+     * here so it reaches the caller: `tcp_connect` throws it where it was
+     * asked.
+     */
+    ctl connect(host: string, port: int): Result<TcpStream, IoError>;
+
+    /** Listening at the address, or why it cannot. Port 0 lets the system choose. */
+    ctl listen(host: string, port: int): Result<TcpListener, IoError>;
+
+    /** A socket for datagrams at the address, or why there is none. Port 0 lets the system choose. */
+    ctl bind(host: string, port: int): Result<UdpSocket, IoError>;
+
+    /** The addresses the name stands for. */
+    ctl lookup(host: string): Result<List<string>, IoError>;
+}
+
+/** The addresses the name stands for, in the order the system gave them. */
+fn lookup_host(host: string): <Net, Throw<IoError>> List<string> {
+    return __thrown(lookup(host));
+}
+
+fn __thrown<T>(outcome: Result<T, IoError>): <Throw<IoError>> T {
+    match outcome {
+        Result.Ok(value) => { return value; }
+        Result.Err(e) => { return throw(e); }
+    }
+}
+
+// ---- sockets the system opens, which the root hands out ----
+
+fn __would_block(): int { return 4; }
+
+fn __failure(status: int, address: string, message: string): IoError {
+    if (status == 1) { return IoError.NotFound(address); }
+    if (status == 2) { return IoError.Denied(address); }
+    if (status == 5) { return IoError.Refused(address); }
+    if (status == 6) { return IoError.Reset(address); }
+    if (status == 7) { return IoError.AddressInUse(address); }
+    if (status == 8) { return IoError.TimedOut(address); }
+    return IoError.Other(message);
+}
+
+// Parks the task until the scheduler sees the socket ready. The watch is
+// cancelled however this is left, so a task unwound while waiting leaves the
+// scheduler nothing to watch for it.
+fn __ready(socket: int, writing: bool) {
+    var wake: Option<(unit) -> unit> = Option.None;
+    var cancel = when_ready(socket, writing, () => {
+        match wake {
+            Option.Some(it) => { it(()); }
+            Option.None => {}
+        }
+    });
+    defer { cancel(); }
+    suspend { wake = Option.Some(it); };
+}
+
+fn __where(host: string, port: int): string { return host + ":" + str(port); }
+
+/** How the root answers `lookup`: through the system's resolver. */
+fn __lookup_on_system(host: string): Result<List<string>, IoError> {
+    var (status, found, message) = __net_lookup(host);
+    if (status != 0) { return Result.Err(__failure(status, host, message)); }
+    var addresses: List<string> = [];
+    for (a in found) { addresses.push(a); }
+    return Result.Ok(addresses);
+}
+

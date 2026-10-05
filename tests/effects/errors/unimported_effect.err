@@ -1,0 +1,2 @@
+[1:1] 'async' is not an effect in scope here. One is declared in 'Task', in std: import it from there.
+[5:7] Unhandled effect 'async': no handler encloses this.

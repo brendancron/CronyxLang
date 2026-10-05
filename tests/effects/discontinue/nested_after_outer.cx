@@ -1,0 +1,35 @@
+import { Throw } from "std/core/Error";
+
+effect Park { ctl park(): unit; }
+
+var stops: List<() -> unit> = [];
+var wakes: List<() -> unit> = [];
+
+fn parked<E>(task: () -> <Park, Throw<string>, E> unit): <E> unit {
+    run {
+        run {
+            task();
+        } handle Throw {
+            final ctl throw(e) {
+                print("failed: " + e);
+                stops[2]();
+                stops[1]();
+            }
+        }
+    } handle Park {
+        ctl park() {
+            stops.push(() => { discontinue; });
+            wakes.push(() => { resume; });
+        }
+    }
+}
+
+parked(() => {
+    defer { print("outer cleans up"); }
+    parked(() => { park(); throw("boom"); });
+    parked(() => { defer { print("inner cleans up"); } park(); print("inner resumed"); });
+    park();
+    print("outer resumed");
+});
+wakes[0]();
+print("done");

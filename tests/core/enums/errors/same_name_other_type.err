@@ -1,0 +1,1 @@
+[5:1] This matches a Result, but the value is the Result declared in 'Error', in std, which is a different type.

@@ -5,21 +5,23 @@ Status: **built.** `std/async/Task` (`stdlib/async/Task.cx`), with
 `tests/stdlib/async/`. `tests/effects/async/` is the effect machinery on its
 own, with a hand-written scheduler.
 
-The effect has three operations:
+The effect has four operations:
 
 ```cronyx
 effect async {
     ctl suspend<T>(register: ((T) -> unit) -> unit): T;
     fn waker(): (() -> unit) -> unit;
     fn after(delay: Duration, wake: () -> unit): () -> unit;
+    fn when_ready(socket: int, writing: bool, wake: () -> unit): () -> unit;
 }
 ```
 
 `suspend` hands `register` a callback and parks. Whoever calls that callback
 supplies the value `suspend` returns. `waker` hands out the function that puts a
-wake-up in the scheduler's queue, and `after` puts one on the scheduler's clock.
+wake-up in the scheduler's queue, `after` puts one on the scheduler's clock, and
+`when_ready` one on a socket ([Net](Net.md#the-scheduler-waits-on-sockets)).
 Promises, `await`, channels, `select`, `sleep`, `timeout`, yielding and the
-scopes — `all`, `interleaved` and `both` — are ordinary code over the three.
+scopes — `all`, `interleaved`, `both` and `race` — are ordinary code over them.
 
 ## Why these operations
 
@@ -155,6 +157,12 @@ started it, and a task's failure has a scope to go to. The root takes only
 wake-ups, and a wake-up is `() -> unit`: it cannot suspend, so it cannot be an
 unstructured task either.
 
+`scope` is the one scope the others are built on. Its body runs as the scope's
+first task and is handed `start`, which adds a task to the scope while it runs
+— Trio's nursery, Eio's switch — so a server starts a task per connection and
+still cannot outlive its call. `all` is a body that starts each task it was
+given; `race` is one whose tasks stop the rest when the first finishes.
+
 ## A failure lands in its scope
 
 A failure ([Errors](Errors.md)) in a task is caught by `all`, which puts a `Throw`
@@ -162,20 +170,23 @@ handler around each task it starts:
 
 ```cronyx
 run {
+    defer { finish(); }
     run {
         resolve(slot, task());
     } handle Throw {
         final ctl throw(e) {
-            if (!cancelled) { failure = Option.Some(e); cancelled = true; }
+            if (!cancelled) {
+                failure = Option.Some(e);
+                cancelled = true;
+                …   // unwind every other task where it is parked
+            }
         }
     }
-    …   // count the task finished
 } handle async {
     ctl suspend(register) {
-        var wake = waker();
-        register(__once(wake, (v) => {
-            if (!cancelled) { resume v; } else { … }   // count it finished instead
-        }));
+        var live = true;
+        here.stop = Option.Some(() => { live = false; discontinue; });
+        register(__once(waker(), (v) => { if (live) { resume v; } }));
     }
     fn waker() { return waker(); }
 }
@@ -191,10 +202,34 @@ the failure's value, as an uncaught exception would. That is also what lets a
 scope be called with no `Throw` handler of its own: every scope carries
 `Throw<X>` in its row, and `block_on` discharges it.
 
-A task is cancelled at its next suspension point: when it is woken, the scope
-does not resume it. A task that never suspends runs to its end first, as it
-would in Trio or Eio. A task abandoned this way runs none of its `defer`s
-([TODO](TODO.md#defer-under-a-ctl-arm-that-does-not-resume)).
+A task is cancelled where it is parked: the scope keeps, for each task waiting,
+a closure that `discontinue`s it, and the failure calls each one, so the task
+unwinds and its `defer`s run — closing what it held, or cancelling the timer it
+slept on. A task not yet started never starts. One that never suspends runs to
+its end first, as it would in Trio or Eio.
+
+A scope cancels its tasks newest first. A task is only started by an older one,
+so each is unwound before the task that started it, as a stack unwinds, and a
+cleanup that depends on what its starter set up still finds it there.
+
+`race` is the same scope with one more way to end: the first task to finish
+cancels the rest, as a failure does, and its result is the scope's. It is how a
+task that would run forever is stopped — a server raced against its clients
+stops when they are done (`tests/stdlib/net/http`).
+
+Cancelling reaches into a scope. A task cancelled while it waits on a scope of
+its own — an `all` inside it, or a `timeout` — is parked at that scope's
+`await`, and its tasks are parked apart from it, where unwinding it would never
+reach them. So a scope cancels its tasks in a `defer` when it is left before
+they finished, and waits for their `defer`s before it lets go: a scope never
+outlives its call, cancelled or not (`tests/stdlib/async/nested_cancel`).
+
+`live` is per wait rather than per task. A `defer` an unwound task runs may
+itself wait, closing a connection, and is resumed like any other; a wake-up
+left over from the wait it was unwound from finds that wait dead and does
+nothing. The scope counts a task finished in a `defer` of its own, so it is
+finished once its unwinding is, not when the unwinding first parks
+(`tests/stdlib/async/cancel_defers`).
 
 ## Timers
 
@@ -213,9 +248,9 @@ clock forward, and an hour's sleep finishes at once with the same output every
 run (`tests/stdlib/async/fake_clock`). Waiting is the scheduler's alone: a task
 that called `wait_until` would hold every other task with it, so tasks `sleep`.
 
-This is the one place the root blocks on the OS, and `net/` will need it to
-block on sockets as well as the clock: the wait becomes "until the first timer
-or until a socket is ready", in the same position.
+This is the one place the root blocks on the OS. While a task waits on a socket
+the wait is "until the first timer or until a socket is ready", in the same
+position ([Net](Net.md#the-scheduler-waits-on-sockets)).
 
 ## A channel wakes to look again
 
@@ -233,8 +268,9 @@ again does nothing, because `select`'s wake-up runs once.
 timer. While the task is parked the handler keeps a closure that `discontinue`s
 it; if the timer fires first, that closure unwinds the task, so its `defer`s run
 — the sleeping timer's cancellation among them — and `timeout` returns `None`.
-If the task finishes first, its timer is cancelled. A scope's cancellation still
-drops the task instead ([A failure lands in its scope](#a-failure-lands-in-its-scope)).
+If the task finishes first, its timer is cancelled. A `defer` that waits while
+the task unwinds is resumed, and `timeout` returns once it has finished, as a
+scope's cancellation does ([A failure lands in its scope](#a-failure-lands-in-its-scope)).
 
 ## A task is woken once
 

@@ -283,6 +283,18 @@ let convert_cps
 let own_evidence info row f =
   with_bound info (List.map (fun op -> op, evidence_name op) (evidence_of_row info row)) f
 
+(* Deferred statements armed on the way here. Leaving disarms them, so a pass
+   that resumes past one would find nothing armed and release nothing. *)
+let open_defers : string list ref = ref []
+
+(* And the cleanups guarding them. An unwind reaching a later pass would pass
+   through nothing, since the frame it went through belonged to the first. *)
+let open_unwinds : Ast.cps_stmt list list ref = ref []
+
+(* A function's body is converted with no `defer` open: those open where it is
+   written belong to the function around it, and a continuation of this one
+   armed with them would run the outer function's cleanup when it is
+   discontinued — again, if that function was unwound first. *)
 let scoped info (params : Ast.param list) (body : Ast.reflected_stmt list) f =
   let declared = ref []
   and shadowed = ref (List.map (fun (p : Ast.param) -> p.Ast.name) params) in
@@ -304,8 +316,14 @@ let scoped info (params : Ast.param list) (body : Ast.reflected_stmt list) f =
   let saved = List.map (fun name -> name, Hashtbl.find_opt info.functions name) touched in
   List.iter (Hashtbl.remove info.functions) !shadowed;
   List.iter (fun (name, ty) -> Hashtbl.replace info.functions name ty) !declared;
+  let outer_defers = !open_defers
+  and outer_unwinds = !open_unwinds in
+  open_defers := [];
+  open_unwinds := [];
   Fun.protect
     ~finally:(fun () ->
+      open_defers := outer_defers;
+      open_unwinds := outer_unwinds;
       List.iter
         (fun (name, previous) ->
           match previous with
@@ -596,14 +614,6 @@ let leading_logic info (s : Ast.reflected_stmt) =
       logic, fun held -> { s with Ast.it = rebuild_stmt (rebuild_expr held) })
 
 let splits_logic info s = Option.is_some (leading_logic info s)
-
-(* Deferred statements armed on the way here. Leaving disarms them, so a pass
-   that resumes past one would find nothing armed and release nothing. *)
-let open_defers : string list ref = ref []
-
-(* And the cleanups guarding them. An unwind reaching a later pass would pass
-   through nothing, since the frame it went through belonged to the first. *)
-let open_unwinds : Ast.cps_stmt list list ref = ref []
 
 let delimited span body =
   let armed =

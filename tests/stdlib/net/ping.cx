@@ -1,0 +1,38 @@
+import { all } from "std/async/Task";
+import { Result } from "std/core/Error";
+import { udp_bind, Datagram } from "std/net/Udp";
+import { decode } from "std/text/Utf8";
+
+fn text(d: Datagram): string {
+    match decode(d.data) {
+        Result.Ok(t) => { return t; }
+        Result.Err(_) => { return "not text"; }
+    }
+    return "";
+}
+
+var server = udp_bind("127.0.0.1", 0);
+var client = udp_bind("127.0.0.1", 0);
+var server_port = server.local_port();
+var client_port = client.local_port();
+
+all([
+    () => {
+        print("server waiting");
+        for (var i = 1; i <= 3; i += 1) {
+            var d = server.receive();
+            print("server got " + text(d) + ", from the client: " + str(d.port == client_port));
+            server.send_to(("pong " + str(i)).bytes(), d.host, d.port);
+        }
+    },
+    () => {
+        print("client sending");
+        for (var i = 1; i <= 3; i += 1) {
+            client.send_to(("ping " + str(i)).bytes(), "127.0.0.1", server_port);
+            var reply = client.receive();
+            print("client got " + text(reply));
+        }
+    }
+]);
+server.close();
+client.close();
