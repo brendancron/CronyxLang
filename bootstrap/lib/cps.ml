@@ -947,15 +947,13 @@ and cps_stmts info ret k ~at (stmts : Ast.reflected_stmt list) : Ast.cps_stmt li
        when List.exists (fun b -> suspends_stmt info b || holds_return b) body ->
        let after = fresh "after" in
        let scope = fresh "scope" in
-       (* An abort skipped the body's own continuation. *)
-       let on_abort = [ call span after [ ignored span ] ] in
        let installed, arms = direct_arms info span ~scope handlers in
        frame_decl span after [ fresh "x" ] (cps info ret k ~at:span rest)
        :: (arms
            @ [ node
                  span
                  (`Scope
-                   (scope, with_bound info installed (fun () -> cps info ret after ~at:span body), on_abort))
+                   (scope, with_bound info installed (fun () -> cps info ret after ~at:span body), Some after))
              ])
      | _ ->
        (match stmt info s with
@@ -1307,7 +1305,7 @@ and stmt info (s : Ast.reflected_stmt) : Ast.cps_stmt option =
          (* The statements after the block are still statements. *)
          @ [ node
                s.Ast.span
-               (`Scope (scope, with_bound info installed (fun () -> sequence_body info body), []))
+               (`Scope (scope, with_bound info installed (fun () -> sequence_body info body), None))
            ]))
   | #Ast.stmts as st ->
     keep (Ast.map_stmts (expr info) (block info) st :> Ast.cps_stmt_kind)

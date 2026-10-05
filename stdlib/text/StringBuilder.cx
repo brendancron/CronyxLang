@@ -45,9 +45,7 @@ impl StringBuilder {
     }
     /** The pieces joined into one string. The builder is left as it was. */
     fn build(self): string {
-        var out = "";
-        for (part in self.parts) { out = out + part; }
-        return out;
+        return __str_join(self.parts.items, self.parts.count);
     }
     /** How long the built string will be. */
     fn len(self): int {

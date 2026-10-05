@@ -266,9 +266,7 @@ and stmt (s : Ast.cps_stmt) : unit =
   match s.Ast.it with
   | `Expr e -> expr e
   | `Var_tuple (_, init) -> expr init
-  | `Scope (_, body, on_abort) ->
-    List.iter stmt body;
-    List.iter stmt on_abort
+  | `Scope (_, body, _) -> List.iter stmt body
   | `Defer s -> stmt s
   | `Abort _ -> ()
   | `On_unwind (body, cleanup) ->

@@ -909,7 +909,13 @@ and unify (a : infer_ty) (b : infer_ty) : unit =
       p1
       p2;
     unify r1 r2;
-    unify_row e1 e2
+    (* Read before unifying, which may link part of either row. Nothing here is
+       code that could handle the effect, so the two rows are what to show. *)
+    let expected = String.trim (string_of_infer_row e1)
+    and got = String.trim (string_of_infer_row e2) in
+    (try unify_row e1 e2 with
+     | Type_error message when String.starts_with ~prefix:"This code does not handle" message ->
+       error "Expected a function performing %s, got one performing %s." expected got)
   | IRow a, IRow b -> unify_row a b
   | _ -> error "Expected %s, got %s." (string_of_infer_ty a) (string_of_infer_ty b)
 

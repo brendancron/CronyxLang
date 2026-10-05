@@ -230,20 +230,20 @@ fn __expr(e: Expr): string {
             return "(" + __each(params, ", ", __param) + ")" + __signature(sg) + " => { " + __inline(body) + "}";
         }
         ExprKind.Run(body, clauses, ret) => {
-            var text = "run { " + __valued(body) + " }";
+            var parts: List<string> = ["run { " + __valued(body) + " }"];
             for (c in clauses) {
                 match c {
-                    HandlerClause.Named(n) => { text = text + " with " + str(n) + ";"; }
+                    HandlerClause.Named(n) => { parts.push(" with " + str(n) + ";"); }
                     HandlerClause.Inline(h) => {
-                        text = text + " handle " + str(h.handles) + " { " + __each(h.arms, "", (a: Arm) => __arm(0, a)) + "}";
+                        parts.push(" handle " + str(h.handles) + " { " + __each(h.arms, "", (a: Arm) => __arm(0, a)) + "}");
                     }
                 }
             }
             match ret {
-                Option.Some(r) => { text = text + " return (" + str(r.param) + ") { " + __valued(r.body) + " }"; }
+                Option.Some(r) => { parts.push(" return (" + str(r.param) + ") { " + __valued(r.body) + " }"); }
                 Option.None => {}
             }
-            return text;
+            return __str_join(parts.items, parts.count);
         }
         ExprKind.Match(scrutinee, arms) => {
             return "match " + __expr(scrutinee) + " { " + __each(arms, " ", (a: ValuedArm) => {
@@ -259,9 +259,12 @@ fn __expr(e: Expr): string {
 }
 
 fn __inline(body: List<Stmt>): string {
-    var out = "";
-    for (s in body) { out = out + __stmt(0, s).trim() + " "; }
-    return out;
+    var parts: List<string> = [];
+    for (s in body) {
+        parts.push(__stmt(0, s).trim());
+        parts.push(" ");
+    }
+    return __str_join(parts.items, parts.count);
 }
 
 fn __valued(b: ValuedBlock): string {
@@ -317,9 +320,9 @@ fn __pattern(p: Pattern): string {
 }
 
 fn __block(depth: int, body: List<Stmt>): string {
-    var out = "";
-    for (s in body) { out = out + __stmt(depth, s); }
-    return out;
+    var parts: List<string> = [];
+    for (s in body) { parts.push(__stmt(depth, s)); }
+    return __str_join(parts.items, parts.count);
 }
 
 // The braces are the enclosing form's; only the contents are printed.
@@ -408,11 +411,14 @@ fn __stmt(depth: int, s: Stmt): string {
         StmtKind.Continue => { return __line(depth, "continue;"); }
         StmtKind.Defer(inner) => { return __line(depth, "defer {") + __nested(depth, inner) + __line(depth, "}"); }
         StmtKind.Match(scrutinee, arms) => {
-            var out = __line(depth, "match " + __expr(scrutinee) + " {");
+            var parts: List<string> = [__line(depth, "match " + __expr(scrutinee) + " {")];
             for (a in arms) {
-                out = out + __line(depth + 1, __pattern(a.pattern) + " => {") + __block(depth + 2, a.body) + __line(depth + 1, "}");
+                parts.push(__line(depth + 1, __pattern(a.pattern) + " => {"));
+                parts.push(__block(depth + 2, a.body));
+                parts.push(__line(depth + 1, "}"));
             }
-            return out + __line(depth, "}");
+            parts.push(__line(depth, "}"));
+            return __str_join(parts.items, parts.count);
         }
         StmtKind.Run(body, clauses) => {
             return __line(depth, "run {") + __block(depth + 1, body) + __handlers(depth, clauses);
@@ -436,22 +442,23 @@ fn __stmt(depth: int, s: Stmt): string {
 
 // Each clause reopens the brace the last one closed.
 fn __handlers(depth: int, clauses: List<HandlerClause>): string {
-    var out = "";
+    var parts: List<string> = [];
     var closed = true;
     for (c in clauses) {
         match c {
             HandlerClause.Named(n) => {
-                out = out + __line(depth, "} with " + str(n) + ";");
+                parts.push(__line(depth, "} with " + str(n) + ";"));
                 closed = true;
             }
             HandlerClause.Inline(h) => {
-                out = out + __line(depth, "} handle " + str(h.handles) + " {") + __each(h.arms, "", (a: Arm) => __arm(depth + 1, a));
+                parts.push(__line(depth, "} handle " + str(h.handles) + " {"));
+                parts.push(__each(h.arms, "", (a: Arm) => __arm(depth + 1, a)));
                 closed = false;
             }
         }
     }
-    if (!closed) { out = out + __line(depth, "}"); }
-    return out;
+    if (!closed) { parts.push(__line(depth, "}")); }
+    return __str_join(parts.items, parts.count);
 }
 
 fn __op_kind(k: OpKind): string {
@@ -492,11 +499,12 @@ fn __doc(a: Attribute): Option<string> {
 fn __doc_comment(depth: int, text: string): string {
     var lines = text.split('\n');
     if (lines.len() == 1) { return __line(depth, "/** " + text + " */"); }
-    var out = __line(depth, "/**");
+    var parts: List<string> = [__line(depth, "/**")];
     for (l in lines) {
-        if (l == "") { out = out + __line(depth, " *"); } else { out = out + __line(depth, " * " + l); }
+        if (l == "") { parts.push(__line(depth, " *")); } else { parts.push(__line(depth, " * " + l)); }
     }
-    return out + __line(depth, " */");
+    parts.push(__line(depth, " */"));
+    return __str_join(parts.items, parts.count);
 }
 
 fn __attribute(a: Attribute): string {
@@ -506,28 +514,31 @@ fn __attribute(a: Attribute): string {
 }
 
 fn __attrs(depth: int, attrs: List<Attribute>): string {
-    var out = "";
+    var parts: List<string> = [];
     for (a in attrs) {
         match __doc(a) {
-            Option.Some(text) => { out = out + __doc_comment(depth, text); }
-            Option.None => { out = out + __line(depth, __attribute(a)); }
+            Option.Some(text) => { parts.push(__doc_comment(depth, text)); }
+            Option.None => { parts.push(__line(depth, __attribute(a))); }
         }
     }
-    return out;
+    return __str_join(parts.items, parts.count);
 }
 
 // On the member's own line, so a doc comment goes above it and takes the
 // member's indent with it.
 fn __member_attrs(depth: int, attrs: List<Attribute>): string {
-    var above = "";
-    var inline = "";
+    var above: List<string> = [];
+    var inline: List<string> = [];
     for (a in attrs) {
         match __doc(a) {
-            Option.Some(text) => { above = above + __doc_comment(depth, text); }
-            Option.None => { inline = inline + __attribute(a) + " "; }
+            Option.Some(text) => { above.push(__doc_comment(depth, text)); }
+            Option.None => {
+                inline.push(__attribute(a));
+                inline.push(" ");
+            }
         }
     }
-    return above + __pad(depth) + inline;
+    return __str_join(above.items, above.count) + __pad(depth) + __str_join(inline.items, inline.count);
 }
 
 fn __decl(depth: int, d: Decl): string {
@@ -545,12 +556,13 @@ fn __decl(depth: int, d: Decl): string {
             if (t.params.len() > 0) { params = "<" + __names(t.params) + ">"; }
             var supers = "";
             if (t.supers.len() > 0) { supers = ": " + __each(t.supers, ", ", __applied); }
-            var out = head + __line(depth, "trait " + str(t.name) + params + supers + " {");
-            for (a in t.assoc) { out = out + __member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + ";\n"; }
+            var parts: List<string> = [head, __line(depth, "trait " + str(t.name) + params + supers + " {")];
+            for (a in t.assoc) { parts.push(__member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + ";\n"); }
             for (m in t.methods) {
-                out = out + __member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + ";\n";
+                parts.push(__member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + ";\n");
             }
-            return out + __line(depth, "}");
+            parts.push(__line(depth, "}"));
+            return __str_join(parts.items, parts.count);
         }
         DeclKind.Impl(i) => {
             var implements = "";
@@ -558,27 +570,29 @@ fn __decl(depth: int, d: Decl): string {
                 Option.Some(t) => { implements = __applied(t) + " for "; }
                 Option.None => {}
             }
-            var out = head + __line(depth, "impl " + implements + str(i.target) + __type_params(i.params) + " {");
+            var parts: List<string> = [head, __line(depth, "impl " + implements + str(i.target) + __type_params(i.params) + " {")];
             for (a in i.assoc) {
-                out = out + __member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + " = " + __type(a.ty) + ";\n";
+                parts.push(__member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + " = " + __type(a.ty) + ";\n");
             }
             for (m in i.methods) {
-                out = out + __member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + __static_params(m.signature.static_params) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + " {\n"
-                    + __block(depth + 2, m.body)
-                    + __line(depth + 1, "}");
+                parts.push(__member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + __static_params(m.signature.static_params) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + " {\n");
+                parts.push(__block(depth + 2, m.body));
+                parts.push(__line(depth + 1, "}"));
             }
-            return out + __line(depth, "}");
+            parts.push(__line(depth, "}"));
+            return __str_join(parts.items, parts.count);
         }
         DeclKind.Effect(ef) => {
             var params = "";
             if (ef.params.len() > 0) { params = "<" + __names(ef.params) + ">"; }
-            var out = head + __line(depth, "effect " + str(ef.name) + params + " {");
+            var parts: List<string> = [head, __line(depth, "effect " + str(ef.name) + params + " {")];
             for (o in ef.ops) {
                 var tparams = "";
                 if (o.type_params.len() > 0) { tparams = "<" + __names(o.type_params) + ">"; }
-                out = out + __member_attrs(depth + 1, o.attrs) + __op_kind(o.kind) + " " + str(o.name) + tparams + "(" + __each(o.params, ", ", __param) + ")" + __annotation(o.ret) + ";\n";
+                parts.push(__member_attrs(depth + 1, o.attrs) + __op_kind(o.kind) + " " + str(o.name) + tparams + "(" + __each(o.params, ", ", __param) + ")" + __annotation(o.ret) + ";\n");
             }
-            return out + __line(depth, "}");
+            parts.push(__line(depth, "}"));
+            return __str_join(parts.items, parts.count);
         }
         DeclKind.Handler(n, h) => {
             return head + __line(depth, "handler " + str(n) + " : " + str(h.handles) + " {")

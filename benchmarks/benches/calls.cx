@@ -1,8 +1,14 @@
 import { scratch } from "benchmarks";
-import { async } from "std/async/Task";
+import { async, pause } from "std/async/Task";
+import { Throw } from "std/core/Error";
 
 fn pure_step(): int { return 0; }
 fn async_step(): <async> int { return 0; }
+fn suspending_step(): <async> int {
+    var held = scratch(2000);
+    pause();
+    return held;
+}
 
 @bench(100)
 @time("linear")
@@ -19,6 +25,26 @@ fn pure_calls(n: int) {
 fn async_calls(n: int) {
     var total = 0;
     for (var i = 0; i < n; i += 1) { total += scratch(2000) + async_step(); }
+}
+
+// Issue #151: the scheduler kept every continuation it had run.
+@bench(100)
+@time("linear")
+@memory("constant")
+fn suspending_calls(n: int) {
+    var total = 0;
+    for (var i = 0; i < n; i += 1) { total += suspending_step(); }
+}
+
+// Issue #151: each call stayed inside every `run` the calls before it passed.
+@bench(100)
+@time("linear")
+@memory("constant")
+fn suspending_in_run(n: int) {
+    var total = 0;
+    for (var i = 0; i < n; i += 1) {
+        run { total += suspending_step(); } handle Throw { final ctl throw(e) {} }
+    }
 }
 
 @bench(100)

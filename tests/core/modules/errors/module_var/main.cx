@@ -1,0 +1,3 @@
+import { under } from "lib";
+
+print(str(under(2)) + " " + str(under(5)));

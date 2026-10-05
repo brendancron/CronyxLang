@@ -39,14 +39,15 @@ impl Set<T> {
 /** The values in insertion order: `{1, 2, 3}`. */
 impl Debug for Set<T> {
     fn debug(self): string {
-        var out = "{";
+        var parts: List<string> = ["{"];
         var i = 0;
         while (i < self.items.len()) {
-            if (i > 0) { out = out + ", "; }
-            out = out + debug(self.items[i]);
+            if (i > 0) { parts.push(", "); }
+            parts.push(debug(self.items[i]));
             i = i + 1;
         }
-        return out + "}";
+        parts.push("}");
+        return __str_join(parts.items, parts.count);
     }
 }
 

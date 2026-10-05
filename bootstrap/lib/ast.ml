@@ -499,9 +499,11 @@ type ('e, 's) match_expr = [ `Match_expr of 'e * (pattern * ('e, 's) valued_bloc
 
 (* `Abort` unwinds to the `Scope` its `run` block became, so an effect that only
    aborts needs no continuation. Both carry that scope's name: stopping at the
-   nearest would catch the wrong one. *)
+   nearest would catch the wrong one. A scope also names the frame its body ends
+   by calling, which an abort calls instead; a block whose body cannot suspend
+   ends where it is written, and has none. *)
 type 's aborts =
-  [ `Scope of string * 's list * 's list
+  [ `Scope of string * 's list * string option
   | `Abort of string
   (* The second list runs while an unwind passes through, and it carries on. *)
   | `On_unwind of 's list * 's list

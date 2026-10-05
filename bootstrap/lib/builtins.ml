@@ -136,6 +136,18 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () ->
         let t = Types.fresh () in
         [ Types.iarray t; Types.IInt; Types.IInt ], Types.iarray t )
+    (* Lets go of what a slot held. The slot is left holding unit whatever the
+       element type, so only one past a list's count may be cleared: nothing
+       reads it before a push writes it again. *)
+  ; ( "__array_clear"
+    , ""
+    , fun () ->
+        let t = Types.fresh () in
+        [ Types.iarray t; Types.IInt ], Types.IUnit )
+  ; "__str_copy", "", (fun () -> [ Types.IStr; Types.IInt; Types.IInt ], Types.IStr)
+    (* The first so many strings of an array, joined: a list's backing array
+       and its count. *)
+  ; "__str_join", "", (fun () -> [ Types.iarray Types.IStr; Types.IInt ], Types.IStr)
     (* A longer array holding the old one's slots, and the value in the rest. *)
   ; ( "__array_grow"
     , ""
@@ -309,6 +321,29 @@ let values ~out ~globals =
         then Value.fail span "__array_copy: %d to %d is outside an array of %d." start stop (Array.length items);
         Value.Array (if stop <= start then [||] else Array.sub items start (stop - start))
       | _ -> Value.fail span "__array_copy takes an array and two bounds.")
+  ; native "__array_clear" (Some 2) (fun span args ->
+      match args with
+      | [ Value.Array items; Value.Int at ] when at >= 0 && at < Array.length items ->
+        items.(at) <- Value.Unit;
+        Value.Unit
+      | _ -> Value.fail span "__array_clear takes an array and a slot inside it.")
+  ; native "__str_copy" (Some 3) (fun span args ->
+      match args with
+      | [ Value.Str text; Value.Int start; Value.Int stop ] ->
+        if start < 0 || stop > Array.length text
+        then Value.fail span "__str_copy: %d to %d is outside a string of %d." start stop (Array.length text);
+        Value.Str (if stop <= start then [||] else Array.sub text start (stop - start))
+      | _ -> Value.fail span "__str_copy takes a string and two bounds.")
+  ; native "__str_join" (Some 2) (fun span args ->
+      match args with
+      | [ Value.Array parts; Value.Int count ] when count >= 0 && count <= Array.length parts ->
+        Value.Str
+          (Array.concat
+             (List.init count (fun i ->
+                match parts.(i) with
+                | Value.Str text -> text
+                | v -> Value.fail span "__str_join: expected a string, got %s." (Value.type_name v))))
+      | _ -> Value.fail span "__str_join takes an array of strings and how many of them to join.")
   ; native "__array_grow" (Some 3) (fun span args ->
       match args with
       | [ Value.Array items; Value.Int length; fill ] ->

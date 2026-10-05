@@ -1,0 +1,28 @@
+import { Command, Stdio, spawn } from "std/os/Process";
+import { lines } from "std/io/Io";
+import { interleaved, pause } from "std/async/Task";
+
+fn reader() {
+    var child = spawn(Command.new("sh").args(["-c", "sleep 0.3; echo late"]).stdout(Stdio.Piped));
+    match child.stdout() {
+        Option.Some(out) => {
+            for (line in lines(out)) { print("read " + line); }
+        }
+        Option.None => {}
+    }
+    child.wait();
+}
+
+fn other() {
+    var i = 0;
+    while (i < 3) {
+        pause();
+        print("other " + str(i));
+        i = i + 1;
+    }
+}
+
+var tasks = [];
+tasks.push(() => reader());
+tasks.push(() => other());
+interleaved(tasks);

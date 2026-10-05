@@ -27,20 +27,20 @@ fn kebab_case(text: string): string { return __cased(text, "-"); }
 fn snake_case(text: string): string { return __cased(text, "_"); }
 
 fn __cased(text: string, separator: string): string {
-    var out = "";
+    var parts: List<string> = [];
     var previous_lower = false;
     for (c in text.chars()) {
         if (c == '_' || c == '-') {
-            out = out + separator;
+            parts.push(separator);
             previous_lower = false;
         } else if (c >= 'A' && c <= 'Z') {
-            if (previous_lower) { out = out + separator; }
-            out = out + str(chr(ord(c) + 32));
+            if (previous_lower) { parts.push(separator); }
+            parts.push(str(chr(ord(c) + 32)));
             previous_lower = false;
         } else {
-            out = out + str(c);
+            parts.push(str(c));
             previous_lower = c >= 'a' && c <= 'z';
         }
     }
-    return out;
+    return __str_join(parts.items, parts.count);
 }

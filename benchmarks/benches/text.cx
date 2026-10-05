@@ -1,0 +1,34 @@
+import { repeat } from "std/text/String";
+import { Data, Entry } from "std/encoding/Codec";
+import { write_json } from "std/encoding/Json";
+import { write_toml } from "std/encoding/Toml";
+
+@bench(20000)
+@time("linear")
+fn json_encode(n: int) {
+    var items: List<Data> = [];
+    for (var i = 0; i < n; i += 1) { items.push(Data.Int(i)); }
+    var fields: List<Entry> = [];
+    fields.push(Entry { key: "items", value: Data.Seq(items) });
+    fields.push(Entry { key: "text", value: Data.Str(repeat("a\"", n / 2)) });
+    var text = write_json(Data.Map(fields));
+}
+
+@bench(20000)
+@time("linear")
+fn toml_encode(n: int) {
+    var fields: List<Entry> = [];
+    for (var i = 0; i < n / 10; i += 1) {
+        fields.push(Entry { key: "key" + str(i), value: Data.Int(i) });
+    }
+    fields.push(Entry { key: "text", value: Data.Str(repeat("a\"", n / 2)) });
+    var text = write_toml(Data.Map(fields));
+}
+
+@bench(20000)
+@time("linear")
+fn list_display(n: int) {
+    var xs: List<int> = [];
+    for (var i = 0; i < n; i += 1) { xs.push(i); }
+    var text = str(xs);
+}

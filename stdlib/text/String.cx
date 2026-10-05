@@ -11,8 +11,8 @@
  * print("42".to_int());                   // Some(42)
  * ```
  *
- * Positions are byte offsets, not characters: `chars` is what takes a string
- * apart by character.
+ * Positions count characters, not bytes: `bytes` is what gives a string's
+ * encoding.
  *
  * The free functions are the ones that read better applied than received, and
  * the character predicates; they are imported by name.
@@ -34,13 +34,7 @@ fn __is_space(c: char): bool {
 }
 
 fn __slice(text: string, start: int, stop: int): string {
-    var out = "";
-    var i = start;
-    while (i < stop) {
-        out = out + str(text[i]);
-        i = i + 1;
-    }
-    return out;
+    return __str_copy(text, start, stop);
 }
 
 impl string {
@@ -168,7 +162,7 @@ impl string {
         if (suffix.len() > self.len()) { return false; }
         return __slice(self, self.len() - suffix.len(), self.len()) == suffix;
     }
-    /** The byte offset of the first occurrence of the needle, or `-1` if there is none. */
+    /** The character offset of the first occurrence of the needle, or `-1` if there is none. */
     fn index_of(self, needle: string): int {
         var last = self.len() - needle.len();
         var at = 0;
@@ -181,19 +175,21 @@ impl string {
     /** The string with every occurrence of the needle replaced. */
     fn replace(self, needle: string, replacement: string): string {
         if (needle.len() == 0) { return self; }
-        var out = "";
+        var parts: List<string> = [];
+        var kept = 0;
         var at = 0;
-        while (at < self.len()) {
-            if (at + needle.len() <= self.len()
-                && __slice(self, at, at + needle.len()) == needle) {
-                out = out + replacement;
+        while (at + needle.len() <= self.len()) {
+            if (__slice(self, at, at + needle.len()) == needle) {
+                parts.push(__slice(self, kept, at));
+                parts.push(replacement);
                 at = at + needle.len();
+                kept = at;
             } else {
-                out = out + str(self[at]);
                 at = at + 1;
             }
         }
-        return out;
+        parts.push(__slice(self, kept, self.len()));
+        return __str_join(parts.items, parts.count);
     }
 }
 
@@ -210,21 +206,19 @@ impl Index<Range> for string {
 }
 
 /**
- * The part of the text between two byte offsets, the second excluded.
+ * The part of the text between two character offsets, the second excluded.
  *
  * Offsets outside the text are pulled back to it, so this never fails.
  */
 fn substring(text: string, start: int, stop: int): string {
-    var out = StringBuilder.new();
-    var at = start;
-    while (at < stop) {
-        out.append(str(text[at]));
-        at = at + 1;
-    }
-    return out.build();
+    var from = start;
+    if (from < 0) { from = 0; }
+    var to = stop;
+    if (to > text.len()) { to = text.len(); }
+    return __str_copy(text, from, to);
 }
 
-/** The byte offset of the first occurrence of the needle, or `-1` if there is none. */
+/** The character offset of the first occurrence of the needle, or `-1` if there is none. */
 fn index_of(text: string, needle: string): int {
     return text.index_of(needle);
 }

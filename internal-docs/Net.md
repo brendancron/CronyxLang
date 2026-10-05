@@ -68,7 +68,10 @@ the clock answers it too, and one serving in-memory sockets never registers a
 waiter, so a test of either runs as it does today.
 
 `select` takes sockets and nothing else on Windows, which decides what joins
-it: sockets. Files, the terminal and a child's pipes stay as they are — a disk
+it there: sockets. Elsewhere a child's output pipe joins too, entered in the
+socket table but left blocking, so a task reading a slow child does not hold up
+the rest (`tests/stdlib/os/pipe_wait`). Files, the terminal and a pipe on
+Windows stay as they are — a disk
 read cannot be asked in advance whether it would be quick on any platform, so
 the runtimes that make them async (Node's pool, Tokio's `spawn_blocking`) do it
 with threads, as `System.drain` already does for a child's output. Nothing

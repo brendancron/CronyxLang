@@ -1,0 +1,2 @@
+var limit = 3;
+fn under(n: int): bool { return n < limit; }

@@ -105,7 +105,9 @@ impl List<T> {
      */
     fn pop(self): T {
         self.count = self.count - 1;
-        return self.items[self.count];
+        var popped = self.items[self.count];
+        __array_clear(self.items, self.count);
+        return popped;
     }
 
     /** Whether any of the values is equal to this one. */
@@ -126,14 +128,15 @@ impl List<T> {
 /** The values in order, each as `debug` writes it: `[1, 2, 3]`. */
 impl Debug for List<T> {
     fn debug(self): string {
-        var out = "[";
+        var parts: List<string> = ["["];
         var i = 0;
         while (i < self.count) {
-            if (i > 0) { out = out + ", "; }
-            out = out + debug(self.items[i]);
+            if (i > 0) { parts.push(", "); }
+            parts.push(debug(self.items[i]));
             i = i + 1;
         }
-        return out + "]";
+        parts.push("]");
+        return __str_join(parts.items, parts.count);
     }
 }
 
@@ -242,11 +245,12 @@ fn flat_map<T, U>(items: List<T>, f: (T) -> List<U>): List<U> {
 /** The strings run together with the separator between each pair. */
 fn join(items: List<string>, separator: string): string {
     if (items.len() == 0) { return ""; }
-    var out = items[0];
+    var parts: List<string> = [items[0]];
     var at = 1;
     while (at < items.len()) {
-        out = out + separator + items[at];
+        parts.push(separator);
+        parts.push(items[at]);
         at = at + 1;
     }
-    return out;
+    return __str_join(parts.items, parts.count);
 }

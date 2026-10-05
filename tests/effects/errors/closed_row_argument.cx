@@ -1,0 +1,11 @@
+effect Fail { fn fail(): unit; }
+effect Log { fn log(): unit; }
+
+fn quiet(): <Log> unit {}
+
+fn each<E>(f: () -> <Fail, E> unit): <Fail, E> unit { f(); }
+
+var g: () -> <Log> unit = quiet;
+run {
+    run { each(g); } handle Fail { fn fail() {} }
+} handle Log { fn log() {} }

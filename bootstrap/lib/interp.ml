@@ -14,7 +14,7 @@ exception Aborted of string * Ast.span
 (* A scope is a frame on the interpreter's own stack as well as OCaml's, because
    a continuation invoked after its `run` block returned has to put back what
    entering it installed. Innermost first. *)
-let active_scopes : (string * Ast.cps_stmt list * Value.env) list ref = ref []
+let active_scopes : (string * string option * Value.env) list ref = ref []
 
 (* Tail calls. Converted code ends every function by calling the next
    continuation, so without them each step of a loop that suspends runs inside
@@ -24,8 +24,11 @@ let active_scopes : (string * Ast.cps_stmt list * Value.env) list ref = ref []
    statement being run is in that position, and [pending] holds the call with
    the scopes the frame had re-entered, which the caller puts back around it. *)
 let tail = ref false
-let tail_scopes : (string * Ast.cps_stmt list * Value.env) list ref = ref []
-let pending : (Value.fn * Value.value list * (string * Ast.cps_stmt list * Value.env) list) option ref =
+let tail_scopes : (string * string option * Value.env) list ref = ref []
+let pending :
+  (Value.fn * Value.value list * (string * string option * Value.env) list * (string * string option * Value.env) list)
+  option
+  ref =
   ref None
 
 let not_tail f =
@@ -240,25 +243,45 @@ let rec eval env (e : Ast.cps_expr) : value =
 (* Outermost first, so an inner scope's catcher sits inside its outer one.
 
    Catching answers for the whole body rather than for the part the scope
-   covered, which is enough because a scope's [on_abort] calls the continuation
-   that follows it: what came after is reached through the catcher rather than
-   left behind it. *)
+   covered, which is enough because an abort calls the frame that follows the
+   scope: what came after is reached through the catcher rather than left
+   behind it. *)
 and under missing k =
   match missing with
   | [] -> k ()
-  | (name, on_abort, senv) :: inner ->
+  | (name, exit, senv) :: inner ->
     (match under inner k with
      | v -> v
-     | exception Aborted (caught, _) when String.equal caught name ->
-       not_tail (fun () -> List.iter (exec senv) on_abort);
+     | exception Aborted (caught, span) when String.equal caught name ->
+       carry_on span senv exit;
        Unit)
+
+and carry_on span env exit =
+  match exit with
+  | None -> ()
+  | Some exit ->
+    (match lookup env exit with
+     | Some r -> not_tail (fun () -> ignore (call span !r [ Bool false ]))
+     | None -> fail span "Undefined variable '%s'." exit)
 
 (* [returns] is false for a function the CPS pass cut out of another: a
    `return` reaching it belongs to the source function it came from, so it is
    let through rather than answered here. *)
 and closure ?(is_continuation = false) ?(returns = true) env name params body =
   let names = List.map (fun (p : Ast.param) -> p.Ast.name) params in
-  let captured = !active_scopes in
+  (* A function is inside the scopes it was written in, not every scope active
+     where it was made: a helper lambda made under an effect performed in a
+     `run` would otherwise re-enter that `run` each time it is called, long
+     after the block was left. *)
+  let captured =
+    if is_continuation
+    then !active_scopes
+    else (
+      let rec within (e : Value.env) senv =
+        e == senv || Option.fold ~none:false ~some:(fun p -> within p senv) e.parent
+      in
+      List.filter (fun (_, _, senv) -> within env senv) !active_scopes)
+  in
   Fn
     { name
     ; arity = Some (List.length names)
@@ -339,7 +362,9 @@ and call span f args =
 and bounce span installed v =
   match !pending with
   | None -> v
-  | Some (g, args, scopes) ->
+  (* Left for the bounce outside the scope the call leaves. *)
+  | Some (_, _, _, left) when List.exists (fun scope -> List.memq scope installed) left -> v
+  | Some (g, args, scopes, _) ->
     pending := None;
     if List.for_all (fun scope -> List.memq scope installed) scopes
     then bounce span installed (g.apply span args)
@@ -387,16 +412,16 @@ and run_block env body =
    that call leaves the function's frame, and every local it held, under the
    rest of the program. *)
 and exec_last env (s : Ast.cps_stmt) =
-  let hand_back span f args =
+  let hand_back ?(left = []) span f args =
     match f with
     | Fn f when (match f.arity with Some n -> n = List.length args | None -> true) ->
-      pending := Some (f, args, !tail_scopes)
+      pending := Some (f, args, List.filter (fun scope -> not (List.memq scope left)) !tail_scopes, left)
     | f -> ignore (call span f args)
   in
   match s.Ast.it with
   | `Expr { Ast.it = `Call (callee, args); span; _ } when !tail && not (discontinuing callee) ->
     let f, args = not_tail (fun () -> eval env callee, eval_all env args) in
-    hand_back span f args
+    hand_back ~left:(leaving callee !tail_scopes) span f args
   | `Expr { Ast.it = `Dyn_call (receiver, name, _, args); span; _ } when !tail ->
     (match not_tail (fun () -> eval env receiver) with
      | Object (data, _, vtable) ->
@@ -405,6 +430,21 @@ and exec_last env (s : Ast.cps_stmt) =
         | None -> fail span "No '%s' in this object's methods." name)
      | other -> fail span "Expected an object, got %s." (type_name other))
   | _ -> exec env s
+
+(* A `run` block's body ends by calling the frame its scope names, the one an
+   abort calls too. That call leaves the scope
+   and every scope inside it; made inside them instead, the rest of the program
+   runs under each `run` it has passed, one more on every turn of a loop. *)
+and leaving (callee : Ast.cps_expr) scopes =
+  match callee.Ast.it with
+  | `Var name ->
+    let rec upto inner = function
+      | [] -> []
+      | ((_, Some exit, _) as scope) :: _ when String.equal exit name -> List.rev (scope :: inner)
+      | scope :: rest -> upto (scope :: inner) rest
+    in
+    upto [] scopes
+  | _ -> []
 
 and discontinuing (callee : Ast.cps_expr) =
   match callee.Ast.it with
@@ -422,14 +462,13 @@ and exec env (s : Ast.cps_stmt) : unit =
      | v -> Value.fail s.Ast.span "Cannot take %s apart." (type_name v))
   (* Nothing catches this in between: a function's own handler is for
      `return`. *)
-  | `Scope (scope, body, on_abort) ->
+  | `Scope (scope, body, exit) ->
     let saved = !active_scopes in
-    active_scopes := (scope, on_abort, env) :: saved;
+    active_scopes := (scope, exit, env) :: saved;
     (match Fun.protect ~finally:(fun () -> active_scopes := saved) (fun () -> not_tail (fun () -> run_block env body))
      with
      | () -> ()
-     | exception Aborted (caught, _) when String.equal caught scope ->
-       not_tail (fun () -> List.iter (exec env) on_abort))
+     | exception Aborted (caught, span) when String.equal caught scope -> carry_on span env exit)
   | `Abort scope -> raise (Aborted (scope, s.Ast.span))
   | `On_unwind (body, cleanup) ->
     (try not_tail (fun () -> List.iter (exec env) body) with

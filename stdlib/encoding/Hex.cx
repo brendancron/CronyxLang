@@ -16,12 +16,13 @@ import { buffer } from "../io/Buffer";
 /** Two lower-case digits for each byte. */
 fn encode(bytes: Array<byte>): string {
     var digits = "0123456789abcdef";
-    var out = "";
+    var parts: List<string> = [];
     for (b in bytes) {
         var n = b.to_int();
-        out = out + str(digits[n >> 4]) + str(digits[n & 15]);
+        parts.push(str(digits[n >> 4]));
+        parts.push(str(digits[n & 15]));
     }
-    return out;
+    return __str_join(parts.items, parts.count);
 }
 
 /** The bytes two digits each spell. Either case is read. */
