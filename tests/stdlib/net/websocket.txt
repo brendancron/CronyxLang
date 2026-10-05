@@ -1,0 +1,14 @@
+Some(Text("/chat hello"))
+Some(Text("/chat héllo again"))
+70000 bytes back
+200 bytes back
+None
+Some((4000, "as asked"))
+the WebSocket is closed
+Some((1000, ""))
+None
+Some((1011, ""))
+200 OK: a page at /chat
+500 Internal Server Error: Internal Server Error
+wss needs TLS, which std/net/WebSocket does not have: wss://example.com/
+not a ws URL: http://example.com/

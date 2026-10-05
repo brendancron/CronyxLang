@@ -1,0 +1,49 @@
+-- fragments, with a ping between them
+HTTP/1.1 101 Switching Protocols
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+  opcode 10 are you there
+  opcode 1 Hello
+  opcode 8 status 1000
+-- an unmasked frame from a client
+HTTP/1.1 101 Switching Protocols
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+  opcode 8 status 1002
+-- text that is not UTF-8
+HTTP/1.1 101 Switching Protocols
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+  opcode 8 status 1007
+-- a message over the limit, in two frames under it
+HTTP/1.1 101 Switching Protocols
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+  opcode 8 status 1009
+-- a close code no end may send
+HTTP/1.1 101 Switching Protocols
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+  opcode 8 status 1002
+-- a close with no code
+HTTP/1.1 101 Switching Protocols
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+  opcode 8 with no status
+-- another version
+HTTP/1.1 426 Upgrade Required
+Sec-WebSocket-Version: 13
+  this server speaks WebSocket version 13
+-- a key that is not 16 bytes
+HTTP/1.1 400 Bad Request
+  a Sec-WebSocket-Key that is not 16 bytes
+-- subprotocols
+Some("chat.v2")
+None
+None
+-- a server that does not upgrade
+the server answered the WebSocket handshake with 200 OK
+-- a server whose accept is wrong
+the server's Sec-WebSocket-Accept does not match the key sent
+-- a server that chooses what was not offered
+the server chose the subprotocol chat.v9, which was not offered
+-- a server that masks, and one that goes away
+WebSocket: a masked frame from the server
+Some((1002, "a masked frame from the server"))
+Some(Text("last words"))
+None
+Some((1006, ""))

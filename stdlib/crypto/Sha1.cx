@@ -1,0 +1,136 @@
+/**
+ * SHA-1.
+ *
+ * ```
+ * import { sha1, Sha1 } from "std/crypto/Sha1";
+ * import { encode } from "std/encoding/Hex";
+ *
+ * print(encode(sha1("abc".bytes())));
+ * // a9993e364706816aba3e25717850c26c9cd0d89d
+ * ```
+ *
+ * Collisions in SHA-1 can be made, so it is not fit for signatures or for
+ * telling files apart when someone may have chosen them. It is here because
+ * protocols name it — the WebSocket handshake, Git's object names — and for
+ * those it is still the right one. Anything new wants `std/crypto/Sha256`.
+ */
+
+import { Writer, IoError } from "../io/Io";
+import { Throw } from "../core/Error";
+import { async } from "../async/Task";
+import { encode } from "../encoding/Hex";
+
+/** The digest of the bytes. */
+fn sha1(data: Array<byte>): Array<byte> {
+    var hash = Sha1.new();
+    hash.update(data);
+    return hash.digest();
+}
+
+/** A digest being computed, one block of 64 bytes at a time. */
+type Sha1 {
+    state: Array<int>,
+    // Bytes written since the last full block.
+    pending: List<byte>,
+    // Every byte written, for the length the padding ends with.
+    length: int,
+    finished: bool
+}
+
+impl Sha1 {
+    /** Nothing written yet. */
+    fn new(): Sha1 {
+        var state = [1732584193, 4023233417, 2562383102, 271733878, 3285377520];
+        return Sha1 { state: state, pending: [], length: 0, finished: false };
+    }
+
+    /** Takes in more of the message. Panics once the digest has been asked for. */
+    fn update(self, data: Array<byte>) {
+        if (self.finished) { panic("a Sha1 was written to after its digest was taken"); }
+        for (b in data) {
+            self.pending.push(b);
+            if (self.pending.len() == 64) {
+                __block(self.state, self.pending);
+                self.pending = [];
+            }
+        }
+        self.length += data.len();
+    }
+
+    /** The 20-byte digest of everything written. */
+    fn digest(self): Array<byte> {
+        if (!self.finished) {
+            var bits = self.length * 8;
+            self.update([(128).to_byte()]);
+            while (self.pending.len() != 56) { self.update([(0).to_byte()]); }
+            var tail: List<byte> = [];
+            for (var shift = 56; shift >= 0; shift -= 8) { tail.push((bits >> shift).to_byte()); }
+            self.update(tail.items[0:8]);
+            self.finished = true;
+        }
+        var out = Array(20, (0).to_byte());
+        for (var i = 0; i < 5; i += 1) {
+            for (var j = 0; j < 4; j += 1) {
+                out[i * 4 + j] = (self.state[i] >> (24 - j * 8)).to_byte();
+            }
+        }
+        return out;
+    }
+
+    /** The digest as lower-case hex digits. */
+    fn hex(self): string { return encode(self.digest()); }
+}
+
+impl Writer for Sha1 {
+    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit { self.update(data); }
+}
+
+// Every word is kept to 32 bits: an int has 63, so a sum of five words still
+// fits before it is masked.
+fn __word(n: int): int { return n & 4294967295; }
+
+fn __rotate_left(x: int, n: int): int { return __word((x << n) | (x >> (32 - n))); }
+
+fn __block(state: Array<int>, block: List<byte>) {
+    var w = Array(80, 0);
+    for (var i = 0; i < 16; i += 1) {
+        w[i] = (block[i * 4].to_int() << 24) | (block[i * 4 + 1].to_int() << 16)
+            | (block[i * 4 + 2].to_int() << 8) | block[i * 4 + 3].to_int();
+    }
+    for (var i = 16; i < 80; i += 1) {
+        w[i] = __rotate_left(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+    var a = state[0];
+    var b = state[1];
+    var c = state[2];
+    var d = state[3];
+    var e = state[4];
+    for (var i = 0; i < 80; i += 1) {
+        var f = 0;
+        var k = 0;
+        if (i < 20) {
+            f = (b & c) | (__word(~b) & d);
+            k = 1518500249;
+        } else if (i < 40) {
+            f = b ^ c ^ d;
+            k = 1859775393;
+        } else if (i < 60) {
+            f = (b & c) | (b & d) | (c & d);
+            k = 2400959708;
+        } else {
+            f = b ^ c ^ d;
+            k = 3395469782;
+        }
+        var t = __word(__rotate_left(a, 5) + f + e + k + w[i]);
+        e = d;
+        d = c;
+        c = __rotate_left(b, 30);
+        b = a;
+        a = t;
+    }
+    state[0] = __word(state[0] + a);
+    state[1] = __word(state[1] + b);
+    state[2] = __word(state[2] + c);
+    state[3] = __word(state[3] + d);
+    state[4] = __word(state[4] + e);
+}

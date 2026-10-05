@@ -1,0 +1,263 @@
+import { async, race, both } from "std/async/Task";
+import { Throw, Result } from "std/core/Error";
+import { IoError } from "std/io/Io";
+import { Net } from "std/net/Net";
+import { tcp_listen, tcp_connect, TcpStream } from "std/net/Tcp";
+import { Headers, Request, Response, ServerLimits } from "std/net/Http";
+import { connect, connect_with, serve_with, Message, WebSocket } from "std/net/WebSocket";
+import { read_all } from "std/fs/File";
+import { decode } from "std/text/Utf8";
+import { sha1 } from "std/crypto/Sha1";
+import { encode } from "std/encoding/Base64";
+
+fn bytes_of(numbers: List<int>): Array<byte> {
+    var out = Array(numbers.len(), (0).to_byte());
+    for (var i = 0; i < numbers.len(); i += 1) { out[i] = numbers[i].to_byte(); }
+    return out;
+}
+
+fn frame(first: int, payload: Array<byte>, masked: bool): Array<byte> {
+    var out: List<byte> = [first.to_byte()];
+    var key = [1, 2, 3, 4];
+    if (masked) { out.push((128 | payload.len()).to_byte()); } else { out.push(payload.len().to_byte()); }
+    if (masked) { for (k in key) { out.push(k.to_byte()); } }
+    for (var i = 0; i < payload.len(); i += 1) {
+        if (masked) { out.push((payload[i].to_int() ^ key[i % 4]).to_byte()); } else { out.push(payload[i]); }
+    }
+    return out.items[0:out.len()];
+}
+
+fn text(bytes: Array<byte>): string {
+    match decode(bytes) {
+        Result.Ok(t) => { return t; }
+        Result.Err(_) => { return "not text"; }
+    }
+    return "";
+}
+
+// The frames a server sent, one line each, after the head of its response.
+fn frames(bytes: Array<byte>): List<string> {
+    var lines: List<string> = [];
+    var at = 0;
+    while (at + 2 <= bytes.len()) {
+        var first = bytes[at].to_int();
+        var length = bytes[at + 1].to_int() & 127;
+        var payload = bytes[(at + 2):(at + 2 + length)];
+        var described = "opcode " + str(first & 15);
+        if ((first & 128) == 0) { described = described + " (more to come)"; }
+        if ((first & 15) == 8 && length >= 2) {
+            described = described + " status " + str((payload[0].to_int() << 8) | payload[1].to_int());
+        } else if ((first & 15) == 8) {
+            described = described + " with no status";
+        } else {
+            described = described + " " + text(payload);
+        }
+        lines.push(described);
+        at = at + 2 + length;
+    }
+    return lines;
+}
+
+fn handshake(port: int, key: string, version: string): TcpStream {
+    var conn = tcp_connect("127.0.0.1", port);
+    conn.write(("GET /wire HTTP/1.1\r\nHost: here\r\nUpgrade: websocket\r\nConnection: keep-alive, Upgrade\r\n"
+        + "Sec-WebSocket-Key: " + key + "\r\nSec-WebSocket-Version: " + version + "\r\n\r\n").bytes());
+    return conn;
+}
+
+fn exchange(conn: TcpStream) {
+    var all = read_all(conn);
+    conn.close();
+    var at = 0;
+    while (at + 4 <= all.len() && text(all[at:(at + 4)]) != "\r\n\r\n") { at += 1; }
+    for (line in text(all[0:at]).split('\n')) {
+        var trimmed = line.trim();
+        if (trimmed.starts_with("HTTP/") || trimmed.starts_with("Sec-WebSocket")) { print(trimmed); }
+    }
+    var rest = all[(at + 4):all.len()];
+    if (text(all[0:at]).starts_with("HTTP/1.1 101")) {
+        for (line in frames(rest)) { print("  " + line); }
+    } else {
+        print("  " + text(rest));
+    }
+}
+
+fn page(request: Request): <async, Throw<IoError>> Response {
+    return Response.text(404, "nothing here");
+}
+
+fn prefer_v2(offered: List<string>): Option<string> {
+    if (offered.contains("chat.v2")) { return Option.Some("chat.v2"); }
+    return Option.None;
+}
+
+fn echo(request: Request, socket: WebSocket): <async, Throw<IoError>> unit {
+    for (message in socket.messages()) { socket.send(message); }
+}
+
+var limits = ServerLimits.default();
+limits.max_body = 16;
+var listener = tcp_listen("127.0.0.1", 0);
+var port = listener.local_port();
+var sample = "dGhlIHNhbXBsZSBub25jZQ==";
+
+race([
+    () => { serve_with(listener, limits, page, echo, prefer_v2); },
+    () => {
+        print("-- fragments, with a ping between them");
+        var conn = handshake(port, sample, "13");
+        conn.write(frame(1, "Hel".bytes(), true));
+        conn.write(frame(137, "are you there".bytes(), true));
+        conn.write(frame(128, "lo".bytes(), true));
+        conn.write(frame(136, bytes_of([3, 232]), true));
+        exchange(conn);
+
+        print("-- an unmasked frame from a client");
+        conn = handshake(port, sample, "13");
+        conn.write(frame(129, "bare".bytes(), false));
+        exchange(conn);
+
+        print("-- text that is not UTF-8");
+        conn = handshake(port, sample, "13");
+        conn.write(frame(129, bytes_of([104, 255, 105]), true));
+        exchange(conn);
+
+        print("-- a message over the limit, in two frames under it");
+        conn = handshake(port, sample, "13");
+        conn.write(frame(2, Array(10, (7).to_byte()), true));
+        conn.write(frame(128, Array(10, (7).to_byte()), true));
+        exchange(conn);
+
+        print("-- a close code no end may send");
+        conn = handshake(port, sample, "13");
+        conn.write(frame(136, bytes_of([3, 237]), true));
+        exchange(conn);
+
+        print("-- a close with no code");
+        conn = handshake(port, sample, "13");
+        conn.write(frame(136, [], true));
+        exchange(conn);
+
+        print("-- another version");
+        conn = handshake(port, sample, "8");
+        exchange(conn);
+
+        print("-- a key that is not 16 bytes");
+        conn = handshake(port, "c2hvcnQ=", "13");
+        exchange(conn);
+
+        print("-- subprotocols");
+        var url = "ws://127.0.0.1:" + str(port) + "/";
+        var agreed = connect_with(url, Headers.new().set("Sec-WebSocket-Protocol", "chat.v1, chat.v2"));
+        print(agreed.protocol());
+        agreed.close();
+        var other = connect_with(url, Headers.new().set("Sec-WebSocket-Protocol", "chat.v1"));
+        print(other.protocol());
+        other.close();
+        var none = connect(url);
+        print(none.protocol());
+        none.close();
+    }
+]);
+listener.close();
+
+fn failure<E>(task: () -> <async, Throw<IoError>, E> unit): <async, E> string {
+    var said = "no failure";
+    run {
+        task();
+    } handle Throw {
+        final ctl throw(e) {
+            match e {
+                IoError.Other(message) => { said = message; }
+                IoError.Reset(message) => { said = "reset: " + message; }
+                _ => { said = "another failure"; }
+            }
+        }
+    }
+    return said;
+}
+
+fn head_of(conn: TcpStream): string {
+    var asked = "";
+    while (!asked.contains("\r\n\r\n")) {
+        match conn.read(4096) {
+            Option.Some(chunk) => { asked = asked + text(chunk); }
+            Option.None => { return asked; }
+        }
+    }
+    return asked;
+}
+
+// A server written by hand, answering each connection with what `reply`
+// writes once the handshake has arrived.
+fn against<E>(reply: (TcpStream, string) -> <async, Throw<IoError>, E> unit, client: (string) -> <async, Throw<IoError>, E> unit)
+    : <Net, async, Throw<IoError>, E> unit {
+    var raw = tcp_listen("127.0.0.1", 0);
+    var url = "ws://127.0.0.1:" + str(raw.local_port()) + "/";
+    both(
+        () => {
+            var conn = raw.accept();
+            var asked = head_of(conn);
+            var key = "";
+            for (line in asked.split('\n')) {
+                if (line.starts_with("Sec-WebSocket-Key: ")) { key = line[19:line.len()].trim(); }
+            }
+            reply(conn, key);
+            conn.close();
+        },
+        () => { client(url); }
+    );
+    raw.close();
+}
+
+fn accept_for(key: string): string {
+    return encode(sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").bytes()));
+}
+
+fn accepted(conn: TcpStream, extra: string): <async, Throw<IoError>> unit {
+    conn.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" + extra + "\r\n").bytes());
+}
+
+print("-- a server that does not upgrade");
+against(
+    (conn, key) => { conn.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".bytes()); },
+    (url) => { print(failure(() => { connect(url); })); }
+);
+
+print("-- a server whose accept is wrong");
+against(
+    (conn, key) => { accepted(conn, "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"); },
+    (url) => { print(failure(() => { connect(url); })); }
+);
+
+print("-- a server that chooses what was not offered");
+against(
+    (conn, key) => { accepted(conn, "Sec-WebSocket-Accept: " + accept_for(key) + "\r\nSec-WebSocket-Protocol: chat.v9\r\n"); },
+    (url) => { print(failure(() => { connect_with(url, Headers.new().set("Sec-WebSocket-Protocol", "chat.v1")); })); }
+);
+
+print("-- a server that masks, and one that goes away");
+against(
+    (conn, key) => {
+        accepted(conn, "Sec-WebSocket-Accept: " + accept_for(key) + "\r\n");
+        conn.write(frame(129, "masked".bytes(), true));
+        read_all(conn);
+    },
+    (url) => {
+        var socket = connect(url);
+        print(failure(() => { socket.receive(); }));
+        print(socket.close_status());
+    }
+);
+against(
+    (conn, key) => {
+        accepted(conn, "Sec-WebSocket-Accept: " + accept_for(key) + "\r\n");
+        conn.write(frame(129, "last words".bytes(), false));
+    },
+    (url) => {
+        var socket = connect(url);
+        print(socket.receive());
+        print(socket.receive());
+        print(socket.close_status());
+    }
+);

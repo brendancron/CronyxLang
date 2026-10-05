@@ -256,6 +256,27 @@ fn serve<E>(listener: TcpListener, respond: (Request) -> <async, Throw<IoError>,
 /** `serve`, within these limits. */
 fn serve_with<E>(listener: TcpListener, limits: ServerLimits, respond: (Request) -> <async, Throw<IoError>, E> Response)
     : <async, Throw<IoError>, E> unit {
+    __serve(listener, limits, respond, (conn, incoming, request) => { return __Upgrade.Declined; });
+}
+
+/**
+ * What an upgrade makes of a request: not its to take, taken — the
+ * connection used and done with — or refused with the response given.
+ */
+type __Upgrade {
+    Declined,
+    Taken,
+    Refused(Response)
+}
+
+// `serve_with`, offering each request to `upgrade` before `respond`. The
+// connection is closed here once `upgrade` returns, whatever it returned.
+fn __serve<E>(
+    listener: TcpListener,
+    limits: ServerLimits,
+    respond: (Request) -> <async, Throw<IoError>, E> Response,
+    upgrade: (TcpStream, __Incoming, Request) -> <async, Throw<IoError>, E> __Upgrade
+): <async, Throw<IoError>, E> unit {
     scope { start ->
         while (true) {
             var conn = listener.accept();
@@ -263,7 +284,7 @@ fn serve_with<E>(listener: TcpListener, limits: ServerLimits, respond: (Request)
             // connection's alone; thrown, it would cancel the server.
             start(() => {
                 run {
-                    __answer(conn, limits, respond);
+                    __answer(conn, limits, respond, upgrade);
                 } handle Throw {
                     final ctl throw(e) {}
                 }
@@ -272,8 +293,12 @@ fn serve_with<E>(listener: TcpListener, limits: ServerLimits, respond: (Request)
     };
 }
 
-fn __answer<E>(conn: TcpStream, limits: ServerLimits, respond: (Request) -> <async, Throw<IoError>, E> Response)
-    : <async, Throw<IoError>, E> unit {
+fn __answer<E>(
+    conn: TcpStream,
+    limits: ServerLimits,
+    respond: (Request) -> <async, Throw<IoError>, E> Response,
+    upgrade: (TcpStream, __Incoming, Request) -> <async, Throw<IoError>, E> __Upgrade
+): <async, Throw<IoError>, E> unit {
     var (result, failure) = __closing(conn, () => {
         var incoming = __Incoming.of(conn, limits.max_line);
         var request: Option<Request> = Option.None;
@@ -291,10 +316,16 @@ fn __answer<E>(conn: TcpStream, limits: ServerLimits, respond: (Request) -> <asy
                 match request {
                     Option.None => { response = Response.text(incoming.refusal, __reason(incoming.refusal)); }
                     Option.Some(r) => {
-                        run {
-                            response = respond(r);
-                        } handle Throw {
-                            final ctl throw(e) { response = Response.text(500, "Internal Server Error"); }
+                        match upgrade(conn, incoming, r) {
+                            __Upgrade.Taken => { return (); }
+                            __Upgrade.Refused(refusal) => { response = refusal; }
+                            __Upgrade.Declined => {
+                                run {
+                                    response = respond(r);
+                                } handle Throw {
+                                    final ctl throw(e) { response = Response.text(500, "Internal Server Error"); }
+                                }
+                            }
                         }
                         if (__invalid_field(response.headers) != Option.None || !__is_clean(response.reason)) {
                             response = Response.text(500, "Internal Server Error");

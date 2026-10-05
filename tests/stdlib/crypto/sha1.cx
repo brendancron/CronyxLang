@@ -1,0 +1,25 @@
+import { sha1, Sha1 } from "std/crypto/Sha1";
+import { encode } from "std/encoding/Hex";
+
+print(encode(sha1("".bytes())));
+print(encode(sha1("abc".bytes())));
+print(encode(sha1("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".bytes())));
+print(encode(sha1("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu".bytes())));
+
+var message = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+var pieces = Sha1.new();
+var at = 0;
+var size = 1;
+while (at < message.len()) {
+    var end = at + size;
+    if (end > message.len()) { end = message.len(); }
+    pieces.update(message[at:end].bytes());
+    at = end;
+    size += 7;
+}
+print(pieces.hex());
+
+print(encode(sha1(Array(55, (120).to_byte()))));
+print(encode(sha1(Array(56, (120).to_byte()))));
+print(encode(sha1(Array(64, (120).to_byte()))));
+print(encode(sha1(Array(1000, (97).to_byte()))));

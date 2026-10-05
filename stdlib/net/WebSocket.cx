@@ -1,0 +1,671 @@
+/**
+ * WebSockets: messages each way over one connection that stays open.
+ *
+ * ```
+ * import { connect, serve, Message } from "std/net/WebSocket";
+ * import { Response } from "std/net/Http";
+ * import { tcp_listen } from "std/net/Tcp";
+ *
+ * serve(tcp_listen("127.0.0.1", 8080),
+ *     (request) => Response.text(200, "connect to /chat"),
+ *     (request, socket) => {
+ *         for (message in socket.messages()) { socket.send(message); }
+ *     });
+ *
+ * var socket = connect("ws://127.0.0.1:8080/chat");
+ * socket.send_text("hello");
+ * print(socket.receive());   // Some(Text("hello"))
+ * socket.close();
+ * ```
+ *
+ * RFC 6455 over `std/net/Http`'s handshake. A message is text or bytes,
+ * whole: one sent in fragments is put back together before it is handed
+ * over. Pings are answered as they arrive, and a close is answered and ends
+ * the connection, after which `receive` gives `None`. `wss` needs TLS, which
+ * this does not have, and no extension — compression among them — is offered
+ * or accepted.
+ */
+
+import { async } from "../async/Task";
+import { timeout } from "../async/Timer";
+import { Duration } from "../os/Time";
+import { Throw, Result } from "../core/Error";
+import { IoError } from "../io/Io";
+import { Random, random_int, __mix } from "../random/Random";
+import { sha1 } from "../crypto/Sha1";
+import { encode, decode_with, Alphabet } from "../encoding/Base64";
+import { decode } from "../text/Utf8";
+import { Yield, iterator } from "../iter/Yield";
+import { Net } from "Net";
+import { TcpStream, TcpListener, tcp_connect } from "Tcp";
+import {
+    Headers, Request, Response, ServerLimits, __Upgrade, __serve,
+    __Incoming, __more, __status_line, __fields, __parsed_url, __host_header, __invalid_field
+} from "Http";
+
+/** What one end sends the other: text, or bytes. */
+type Message {
+    Text(string),
+    Binary(Array<byte>)
+}
+
+/** A connection that has finished its handshake, at either end. */
+type WebSocket {
+    stream: TcpStream,
+    incoming: __Incoming,
+    /** The largest message taken, in bytes. A larger one closes the connection with 1009. */
+    max_message: int,
+    // A client masks every frame it sends, and a server none.
+    client: bool,
+    // Drawn from `Random` once, on connecting, so that `send` is not a
+    // `Random` operation at either end.
+    mask_state: int,
+    sent_close: bool,
+    received_close: bool,
+    ended: bool,
+    // A server's connection is closed by `Http`, which accepted it.
+    owns_stream: bool,
+    status: Option<(int, string)>,
+    chosen: Option<string>,
+    // One frame is written at a time: `write` waits when the socket is full,
+    // and another task's frame written then would land inside this one.
+    writing: bool,
+    waiting: List<() -> unit>
+}
+
+impl WebSocket {
+    /** Sends the message whole, as one frame. Throws once the connection is closing. */
+    fn send(self, message: Message): <async, Throw<IoError>> unit {
+        match message {
+            Message.Text(text) => { self.__send(1, text.bytes()); }
+            Message.Binary(bytes) => { self.__send(2, bytes); }
+        }
+    }
+
+    /** Sends the text as one message. */
+    fn send_text(self, text: string): <async, Throw<IoError>> unit { self.__send(1, text.bytes()); }
+
+    /** Sends the bytes as one message. */
+    fn send_binary(self, bytes: Array<byte>): <async, Throw<IoError>> unit { self.__send(2, bytes); }
+
+    /**
+     * Sends a ping, which the peer answers with a pong that `receive` reads
+     * past. At most 125 bytes.
+     */
+    fn ping(self, data: Array<byte>): <async, Throw<IoError>> unit {
+        if (data.len() > 125) { throw(IoError.Other("a WebSocket ping holds at most 125 bytes")); }
+        self.__send(9, data);
+    }
+
+    /**
+     * The next message, once one has arrived whole, or `None` once the
+     * connection has closed. A peer that breaks the protocol is sent the
+     * close that says how, and this throws.
+     *
+     * One task receives at a time; any number may send while it waits.
+     */
+    fn receive(self): <async, Throw<IoError>> Option<Message> {
+        var parts: List<byte> = [];
+        var opcode = 0;
+        while (!self.ended) {
+            match self.__frame() {
+                Option.None => {
+                    self.__ended_abruptly();
+                    return Option.None;
+                }
+                Option.Some(frame) => {
+                    var op = frame.opcode;
+                    var fin = frame.fin;
+                    var payload = frame.payload;
+                    if (op == 8) {
+                        self.__answer_close(payload);
+                        return Option.None;
+                    }
+                    if (op == 9) {
+                        if (!self.sent_close) { self.__send(10, payload); }
+                    } else if (op == 1 || op == 2) {
+                        if (opcode != 0) { self.__fail(1002, "a new message began before the last one ended"); }
+                        opcode = op;
+                        __append(parts, payload, self);
+                        if (fin) { return Option.Some(self.__message(opcode, parts)); }
+                    } else if (op == 0) {
+                        if (opcode == 0) { self.__fail(1002, "a continuation with no message to continue"); }
+                        __append(parts, payload, self);
+                        if (fin) { return Option.Some(self.__message(opcode, parts)); }
+                    } else if (op != 10) {
+                        self.__fail(1002, "an unknown opcode " + str(op));
+                    }
+                }
+            }
+        }
+        return Option.None;
+    }
+
+    /** Every message until the connection closes. */
+    fn messages(self): Iter<Message, <async, Throw<IoError>>> {
+        return iterator {
+            var more = true;
+            while (more) {
+                match self.receive() {
+                    Option.Some(message) => { yield(message); }
+                    Option.None => { more = false; }
+                }
+            }
+        };
+    }
+
+    /** Closes with 1000, an ordinary close. */
+    fn close(self): <async, Throw<IoError>> unit { self.close_with(1000, ""); }
+
+    /**
+     * Closes with the code and the reason, waiting a few seconds for the
+     * peer's close before letting the connection go. The code is 1000 for an
+     * ordinary close, one of 1001–1003 or 1007–1011, or one of 3000–4999; the
+     * reason is at most 123 bytes.
+     */
+    fn close_with(self, number: int, reason: string): <async, Throw<IoError>> unit {
+        if (!__on_the_wire(number)) { throw(IoError.Other("not a WebSocket close code to send: " + str(number))); }
+        var said = reason.bytes();
+        if (said.len() > 123) { throw(IoError.Other("a WebSocket close reason holds at most 123 bytes")); }
+        if (self.ended) { return; }
+        if (!self.sent_close) {
+            run {
+                self.__send_close(__close_payload(number, said));
+            } handle Throw {
+                final ctl throw(e) {}
+            }
+        }
+        // What arrives in the meantime is dropped: the close has been sent,
+        // so nothing can answer it.
+        timeout(Duration.seconds(5), () => {
+            run {
+                while (!self.received_close && !self.ended) {
+                    match self.__frame() {
+                        Option.None => { self.ended = true; }
+                        Option.Some(frame) => {
+                            if (frame.opcode == 8) {
+                                self.received_close = true;
+                                self.status = __close_status(frame.payload);
+                            }
+                        }
+                    }
+                }
+            } handle Throw {
+                final ctl throw(e) {}
+            }
+        });
+        if (self.status == Option.None) { self.status = Option.Some((1006, "")); }
+        self.__release();
+    }
+
+    /**
+     * The code and reason the connection closed with, once it has: what the
+     * peer sent, what this end failed it with, or 1006 if the peer went away
+     * without a close.
+     */
+    fn close_status(self): Option<(int, string)> { return self.status; }
+
+    /** The subprotocol the handshake agreed on, if one was. */
+    fn protocol(self): Option<string> { return self.chosen; }
+
+    /** The address and port at the other end. */
+    fn peer(self): string { return self.stream.peer(); }
+
+    fn __over(stream: TcpStream, incoming: __Incoming, client: bool, max_message: int, seed: int): WebSocket {
+        return WebSocket {
+            stream: stream, incoming: incoming, max_message: max_message, client: client, mask_state: seed,
+            sent_close: false, received_close: false, ended: false, owns_stream: true, status: Option.None, chosen: Option.None,
+            writing: false, waiting: []
+        };
+    }
+
+    fn __send(self, opcode: int, payload: Array<byte>): <async, Throw<IoError>> unit {
+        if (self.sent_close || self.ended) { throw(IoError.Other("the WebSocket is closed")); }
+        self.__write(opcode, payload);
+    }
+
+    fn __send_close(self, payload: Array<byte>): <async, Throw<IoError>> unit {
+        if (self.sent_close || self.ended) { return; }
+        self.sent_close = true;
+        self.__write(8, payload);
+    }
+
+    fn __write(self, opcode: int, payload: Array<byte>): <async, Throw<IoError>> unit {
+        while (self.writing) {
+            suspend { self.waiting.push(() => { it(()); }); };
+        }
+        self.writing = true;
+        defer {
+            self.writing = false;
+            var waiting = self.waiting;
+            self.waiting = [];
+            for (wake in waiting) { wake(); }
+        }
+        var mask: Option<int> = Option.None;
+        if (self.client) {
+            self.mask_state += 0x1E3779B97F4A7C15;
+            mask = Option.Some(__mix(self.mask_state) & 4294967295);
+        }
+        self.stream.write(__encoded(opcode, payload, mask));
+    }
+
+    // The next frame, unmasked, or `None` if the connection ended between frames.
+    fn __frame(self): <async, Throw<IoError>> Option<__Frame> {
+        if (!__wait_for(self.incoming, 1)) { return Option.None; }
+        var head = self.__take(2);
+        var first = head[0].to_int();
+        var second = head[1].to_int();
+        var fin = (first & 128) != 0;
+        var opcode = first & 15;
+        if ((first & 112) != 0) { self.__fail(1002, "a reserved bit set with no extension agreed"); }
+        var masked = (second & 128) != 0;
+        if (masked == self.client) {
+            if (self.client) { self.__fail(1002, "a masked frame from the server"); }
+            self.__fail(1002, "an unmasked frame from the client");
+        }
+        var length = second & 127;
+        if (length == 126) {
+            var size = self.__take(2);
+            length = (size[0].to_int() << 8) | size[1].to_int();
+        } else if (length == 127) {
+            var size = self.__take(8);
+            // Past 2^62 an int has no room for the length, and no message
+            // that large is taken anyway.
+            if (size[0].to_int() >= 64) { self.__fail(1009, "a frame longer than this end takes"); }
+            length = 0;
+            for (b in size) { length = (length << 8) | b.to_int(); }
+        }
+        if (opcode >= 8) {
+            if (!fin) { self.__fail(1002, "a control frame in fragments"); }
+            if (length > 125) { self.__fail(1002, "a control frame over 125 bytes"); }
+        }
+        if (length > self.max_message) {
+            self.__fail(1009, "a frame of " + str(length) + " bytes, over the limit of " + str(self.max_message));
+        }
+        var key: Array<byte> = [];
+        if (masked) { key = self.__take(4); }
+        var payload = self.__take(length);
+        if (masked) {
+            for (var i = 0; i < length; i += 1) {
+                payload[i] = (payload[i].to_int() ^ key[i & 3].to_int()).to_byte();
+            }
+        }
+        return Option.Some(__Frame { fin: fin, opcode: opcode, payload: payload });
+    }
+
+    fn __take(self, count: int): <async, Throw<IoError>> Array<byte> {
+        if (!__wait_for(self.incoming, count)) {
+            self.__ended_abruptly();
+            throw(IoError.Reset("the WebSocket connection ended in the middle of a frame"));
+        }
+        var at = self.incoming.at;
+        self.incoming.at = at + count;
+        return self.incoming.pending.items[at:(at + count)];
+    }
+
+    fn __message(self, opcode: int, parts: List<byte>): <async, Throw<IoError>> Message {
+        var bytes = parts.items[0:parts.len()];
+        if (opcode == 2) { return Message.Binary(bytes); }
+        match decode(bytes) {
+            Result.Ok(text) => { return Message.Text(text); }
+            Result.Err(_) => { self.__fail(1007, "a text message that is not UTF-8"); }
+        }
+        return Message.Binary(bytes);
+    }
+
+    fn __answer_close(self, payload: Array<byte>): <async, Throw<IoError>> unit {
+        self.received_close = true;
+        if (payload.len() == 1) { self.__fail(1002, "a close frame of one byte"); }
+        if (payload.len() >= 2) {
+            var number = (payload[0].to_int() << 8) | payload[1].to_int();
+            if (!__on_the_wire(number)) { self.__fail(1002, "a close code no end may send: " + str(number)); }
+            match decode(payload[2:payload.len()]) {
+                Result.Ok(_) => {}
+                Result.Err(_) => { self.__fail(1007, "a close reason that is not UTF-8"); }
+            }
+        }
+        self.status = __close_status(payload);
+        // The code alone goes back, or nothing when none came: 1005 stands
+        // for that, and is never sent.
+        var echo: Array<byte> = [];
+        if (payload.len() >= 2) { echo = payload[0:2]; }
+        run {
+            self.__send_close(echo);
+        } handle Throw {
+            final ctl throw(e) {}
+        }
+        self.__release();
+    }
+
+    // Sends the close that says what the peer did wrong, lets the connection
+    // go, and throws.
+    fn __fail(self, number: int, why: string): <async, Throw<IoError>> unit {
+        run {
+            self.__send_close(__close_payload(number, []));
+        } handle Throw {
+            final ctl throw(e) {}
+        }
+        if (self.status == Option.None) { self.status = Option.Some((number, why)); }
+        self.__release();
+        throw(IoError.Other("WebSocket: " + why));
+    }
+
+    fn __ended_abruptly(self) {
+        if (self.status == Option.None) { self.status = Option.Some((1006, "")); }
+        self.__release();
+    }
+
+    fn __release(self) {
+        if (self.ended) { return; }
+        self.ended = true;
+        if (!self.owns_stream) { return; }
+        run {
+            self.stream.close();
+        } handle Throw {
+            final ctl throw(e) {}
+        }
+    }
+}
+
+type __Frame {
+    fin: bool,
+    opcode: int,
+    payload: Array<byte>
+}
+
+// ---- the client ----
+
+/** Opens a WebSocket to the `ws://` URL. */
+fn connect(url: string): <Net, Random, async, Throw<IoError>> WebSocket {
+    return connect_with(url, Headers.new());
+}
+
+/**
+ * Opens a WebSocket to the `ws://` URL, sending the header fields with the
+ * handshake: `Authorization`, or the `Sec-WebSocket-Protocol` a server asks
+ * for. Throws, before connecting, if a field would break the request apart.
+ */
+fn connect_with(url: string, headers: Headers): <Net, Random, async, Throw<IoError>> WebSocket {
+    if (url.starts_with("wss://")) {
+        throw(IoError.Other("wss needs TLS, which std/net/WebSocket does not have: " + url));
+    }
+    if (!url.starts_with("ws://")) { throw(IoError.Other("not a ws URL: " + url)); }
+    var (host, port, target) = __parsed_url("http://" + url[5:url.len()]);
+    var key_bytes = Array(16, (0).to_byte());
+    for (var i = 0; i < 16; i += 1) { key_bytes[i] = random_int(0, 256).to_byte(); }
+    var key = encode(key_bytes);
+    var named = Headers.new();
+    named.set("Host", __host_header(host, port));
+    named.set("Upgrade", "websocket");
+    named.set("Connection", "Upgrade");
+    named.set("Sec-WebSocket-Key", key);
+    named.set("Sec-WebSocket-Version", "13");
+    for ((n, v) in headers.fields) { named.add(n, v); }
+    match __invalid_field(named) {
+        Option.Some(why) => { throw(IoError.Other(why)); }
+        Option.None => {}
+    }
+    var seed = random_bits();
+    var conn = tcp_connect(host, port);
+    var opened = false;
+    defer {
+        if (!opened) {
+            run {
+                conn.close();
+            } handle Throw {
+                final ctl throw(e) {}
+            }
+        }
+    }
+    conn.write(__upgrade_head("GET " + target + " HTTP/1.1", named));
+    var incoming = __Incoming.of(conn, 65536);
+    var (status, reason) = __status_line(incoming);
+    var answered = __fields(incoming, -1);
+    if (status != 101) {
+        throw(IoError.Other("the server answered the WebSocket handshake with " + str(status) + " " + reason));
+    }
+    if (!__has_token(answered, "Upgrade", "websocket") || !__has_token(answered, "Connection", "upgrade")) {
+        throw(IoError.Other("the server's 101 did not upgrade to websocket"));
+    }
+    if (answered.get("Sec-WebSocket-Accept") != Option.Some(__accept(key))) {
+        throw(IoError.Other("the server's Sec-WebSocket-Accept does not match the key sent"));
+    }
+    if (answered.get("Sec-WebSocket-Extensions") != Option.None) {
+        throw(IoError.Other("the server chose an extension, and none was offered"));
+    }
+    var chosen = answered.get("Sec-WebSocket-Protocol");
+    match chosen {
+        Option.Some(name) => {
+            if (!__tokens(headers, "Sec-WebSocket-Protocol").contains(name)) {
+                throw(IoError.Other("the server chose the subprotocol " + name + ", which was not offered"));
+            }
+        }
+        Option.None => {}
+    }
+    opened = true;
+    var socket = WebSocket.__over(conn, incoming, true, 16 * 1024 * 1024, seed);
+    socket.chosen = chosen;
+    return socket;
+}
+
+// ---- the server ----
+
+/**
+ * Opens a WebSocket for each handshake that reaches the listener and hands it
+ * to the session with the request that opened it, and answers every other
+ * request with what `respond` returns, as `std/net/Http`'s `serve` does, until
+ * the task running it is cancelled, within `ServerLimits.default()`.
+ *
+ * A handshake gone wrong is answered 400, or 426 for another version. The
+ * connection closes when the session returns — with 1000, or 1011 if it threw
+ * — and each is a task of its own.
+ */
+fn serve<E>(
+    listener: TcpListener,
+    respond: (Request) -> <async, Throw<IoError>, E> Response,
+    session: (Request, WebSocket) -> <async, Throw<IoError>, E> unit
+): <async, Throw<IoError>, E> unit {
+    serve_with(listener, ServerLimits.default(), respond, session, (offered) => { return Option.None; });
+}
+
+/**
+ * `serve`, within these limits — a handshake is held to them as any request
+ * is, and `max_body` is also the largest message — and agreeing on a
+ * subprotocol: `choose` is given those the client offered, in its order of
+ * preference, and returns one of them or `None`. A connection that offered
+ * none is not asked about. What it chose is the socket's `protocol()`.
+ */
+fn serve_with<E>(
+    listener: TcpListener,
+    limits: ServerLimits,
+    respond: (Request) -> <async, Throw<IoError>, E> Response,
+    session: (Request, WebSocket) -> <async, Throw<IoError>, E> unit,
+    choose: (List<string>) -> Option<string>
+): <async, Throw<IoError>, E> unit {
+    __serve(listener, limits, respond, (conn, incoming, request) => {
+        return __upgraded(conn, incoming, limits, request, session, choose);
+    });
+}
+
+fn __upgraded<E>(
+    conn: TcpStream,
+    incoming: __Incoming,
+    limits: ServerLimits,
+    request: Request,
+    session: (Request, WebSocket) -> <async, Throw<IoError>, E> unit,
+    choose: (List<string>) -> Option<string>
+): <async, Throw<IoError>, E> __Upgrade {
+    if (!__has_token(request.headers, "Upgrade", "websocket")) { return __Upgrade.Declined; }
+    var accept = "";
+    match __handshake(request) {
+        Result.Ok(key) => { accept = key; }
+        Result.Err(refusal) => { return __Upgrade.Refused(refusal); }
+    }
+    var answered = Headers.new().set("Upgrade", "websocket").set("Connection", "Upgrade").set("Sec-WebSocket-Accept", accept);
+    var offered = __tokens(request.headers, "Sec-WebSocket-Protocol");
+    var chosen: Option<string> = Option.None;
+    if (offered.len() > 0) { chosen = choose(offered); }
+    match chosen {
+        Option.Some(name) => {
+            if (!offered.contains(name)) { return __Upgrade.Refused(Response.text(500, "Internal Server Error")); }
+            answered.set("Sec-WebSocket-Protocol", name);
+        }
+        Option.None => {}
+    }
+    var sent = timeout(limits.patience, () => {
+        conn.write(__upgrade_head("HTTP/1.1 101 Switching Protocols", answered));
+    });
+    if (sent == Option.None) { return __Upgrade.Taken; }
+    var socket = WebSocket.__over(conn, incoming, false, limits.max_body, 0);
+    socket.owns_stream = false;
+    socket.chosen = chosen;
+    var number = 1000;
+    run {
+        session(request, socket);
+    } handle Throw {
+        final ctl throw(e) { number = 1011; }
+    }
+    socket.close_with(number, "");
+    return __Upgrade.Taken;
+}
+
+// The accept key the handshake answers with, or the response that refuses it.
+fn __handshake(request: Request): Result<string, Response> {
+    if (request.method != "GET" || !__has_token(request.headers, "Connection", "upgrade")) {
+        return Result.Err(Response.text(400, "not a WebSocket handshake"));
+    }
+    if (request.headers.get("Sec-WebSocket-Version") != Option.Some("13")) {
+        var version = Response.text(426, "this server speaks WebSocket version 13");
+        version.reason = "Upgrade Required";
+        version.headers.set("Sec-WebSocket-Version", "13");
+        return Result.Err(version);
+    }
+    match request.headers.get("Sec-WebSocket-Key") {
+        Option.Some(key) => {
+            var length = -1;
+            run {
+                length = decode_with(key, Alphabet.Standard).len();
+            } handle Throw {
+                final ctl throw(e) {}
+            }
+            if (length != 16 || key.len() != 24) { return Result.Err(Response.text(400, "a Sec-WebSocket-Key that is not 16 bytes")); }
+            return Result.Ok(__accept(key));
+        }
+        Option.None => { return Result.Err(Response.text(400, "no Sec-WebSocket-Key")); }
+    }
+    return Result.Err(Response.text(400, "not a WebSocket handshake"));
+}
+
+// ---- the wire ----
+
+fn __accept(key: string): string {
+    return encode(sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").bytes()));
+}
+
+// Whether a comma-separated field holds the token, ignoring case.
+fn __has_token(headers: Headers, name: string, token: string): bool {
+    for (part in __tokens(headers, name)) {
+        if (part.to_lower() == token) { return true; }
+    }
+    return false;
+}
+
+// Every comma-separated item of every field with the name, in order.
+fn __tokens(headers: Headers, name: string): List<string> {
+    var found: List<string> = [];
+    for ((n, v) in headers.fields) {
+        if (n.to_lower() == name.to_lower()) {
+            for (part in v.split(',')) {
+                var item = part.trim();
+                if (item.len() > 0) { found.push(item); }
+            }
+        }
+    }
+    return found;
+}
+
+// A handshake's head: the start line and the fields, with no `Connection:
+// close`, since the connection is the point.
+fn __upgrade_head(start: string, headers: Headers): Array<byte> {
+    var parts: List<string> = [start, "\r\n"];
+    for ((n, v) in headers.fields) { parts.push(n + ": " + v + "\r\n"); }
+    parts.push("\r\n");
+    return __str_join(parts.items, parts.count).bytes();
+}
+
+fn __encoded(opcode: int, payload: Array<byte>, mask: Option<int>): Array<byte> {
+    var length = payload.len();
+    var out: List<byte> = [(128 | opcode).to_byte()];
+    var masked = 0;
+    if (mask != Option.None) { masked = 128; }
+    if (length < 126) {
+        out.push((masked | length).to_byte());
+    } else if (length < 65536) {
+        out.push((masked | 126).to_byte());
+        out.push((length >> 8).to_byte());
+        out.push(length.to_byte());
+    } else {
+        out.push((masked | 127).to_byte());
+        for (var shift = 56; shift >= 0; shift -= 8) { out.push((length >> shift).to_byte()); }
+    }
+    match mask {
+        Option.None => { for (b in payload) { out.push(b); } }
+        Option.Some(key) => {
+            var keys = [(key >> 24).to_byte(), (key >> 16).to_byte(), (key >> 8).to_byte(), key.to_byte()];
+            for (k in keys) { out.push(k); }
+            for (var i = 0; i < length; i += 1) {
+                out.push((payload[i].to_int() ^ keys[i & 3].to_int()).to_byte());
+            }
+        }
+    }
+    return out.items[0:out.len()];
+}
+
+// Reads until `count` bytes are waiting, or the connection ends first. The
+// bytes already taken are dropped before reading, once per wait, so a long
+// connection's buffer holds at most one frame and the read that ended it.
+fn __wait_for(incoming: __Incoming, count: int): <async, Throw<IoError>> bool {
+    var compacted = false;
+    while (incoming.pending.len() - incoming.at < count) {
+        if (!compacted && incoming.at > 0) {
+            var kept: List<byte> = [];
+            for (var i = incoming.at; i < incoming.pending.len(); i += 1) { kept.push(incoming.pending[i]); }
+            incoming.pending = kept;
+            incoming.at = 0;
+            compacted = true;
+        }
+        if (!__more(incoming)) { return false; }
+    }
+    return true;
+}
+
+fn __append(parts: List<byte>, payload: Array<byte>, socket: WebSocket): <async, Throw<IoError>> unit {
+    if (parts.len() + payload.len() > socket.max_message) {
+        socket.__fail(1009, "a message over the limit of " + str(socket.max_message) + " bytes");
+    }
+    for (b in payload) { parts.push(b); }
+}
+
+fn __close_payload(number: int, reason: Array<byte>): Array<byte> {
+    var payload: List<byte> = [(number >> 8).to_byte(), number.to_byte()];
+    for (b in reason) { payload.push(b); }
+    return payload.items[0:payload.len()];
+}
+
+fn __close_status(payload: Array<byte>): Option<(int, string)> {
+    if (payload.len() < 2) { return Option.Some((1005, "")); }
+    var number = (payload[0].to_int() << 8) | payload[1].to_int();
+    match decode(payload[2:payload.len()]) {
+        Result.Ok(reason) => { return Option.Some((number, reason)); }
+        Result.Err(_) => { return Option.Some((number, "")); }
+    }
+    return Option.None;
+}
+
+// The codes RFC 6455 lets an end put on the wire. 1005, 1006 and 1015 stand
+// for a close that had none, and are only ever reported.
+fn __on_the_wire(number: int): bool {
+    if (number >= 1000 && number <= 1003) { return true; }
+    if (number >= 1007 && number <= 1011) { return true; }
+    return number >= 3000 && number <= 4999;
+}
