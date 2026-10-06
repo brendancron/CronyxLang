@@ -8,7 +8,23 @@ var listener = tcp_listen("127.0.0.1", 0);
 var port = listener.local_port();
 var gave_up: Promise<unit> = promise();
 
+// Each tick is a task of its own, listed first, so every tick's deadline is
+// set before the reader's and a paused process still fires them in that
+// order. One task ticking in a loop sets each deadline only once the last has
+// fired, and a pause between two puts the next past the reader's.
 interleaved([
+    () => {
+        sleep(Duration.milliseconds(20));
+        print("tick 1");
+    },
+    () => {
+        sleep(Duration.milliseconds(40));
+        print("tick 2");
+    },
+    () => {
+        sleep(Duration.milliseconds(60));
+        print("tick 3");
+    },
     () => {
         var conn = listener.accept();
         await(gave_up);
@@ -22,12 +38,6 @@ interleaved([
         }
         resolve(gave_up, ());
         conn.close();
-    },
-    () => {
-        for (var i = 1; i <= 3; i += 1) {
-            sleep(Duration.milliseconds(20));
-            print("tick " + str(i));
-        }
     }
 ]);
 listener.close();
