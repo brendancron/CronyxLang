@@ -1,0 +1,17 @@
+effect flip { ctl flip(): bool; }
+
+fn counted() {
+    var count = 0;
+    var b = flip();
+    count += 1;
+    print(str(b) + " " + str(count));
+}
+
+run {
+    var count = 0;
+    var b = flip();
+    count += 1;
+    print(str(b) + " " + str(count));
+} handle flip { ctl flip() { resume false; resume true; } }
+
+run { counted(); } handle flip { ctl flip() { resume false; resume true; } }

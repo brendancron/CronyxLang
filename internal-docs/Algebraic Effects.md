@@ -307,7 +307,7 @@ Koka writes an effect in the same place, `(a) -> e b`, and for the same reason: 
 
 ## What each translation costs
 
-Two translations, chosen per effect. **Evidence passing** hands each operation's handler down as an extra parameter; the call is direct and the shape of the surrounding code is untouched. **CPS** rewrites control flow so a continuation can be captured. Only the second is expensive, and only the second restricts where an effect may appear.
+Two translations, chosen per effect. **Evidence passing** hands the handlers down in an evidence vector ([below](#evidence-is-one-vector)); the call is direct and the shape of the surrounding code is untouched. **CPS** rewrites control flow so a continuation can be captured. Only the second is expensive, and only the second restricts where an effect may appear.
 
 An effect takes the second only when some handler for it actually resumes out of tail position. So:
 
@@ -321,6 +321,24 @@ An effect takes the second only when some handler for it actually resumes out of
 **`final ctl` earns its place here.** It never resumes, so it needs no continuation — only a way out, which is an unwind: `Abort` in the converted tree, an exception in the interpreter, and a jump wherever this is eventually compiled. Costing nothing on the path that does not throw is the usual property of exceptions, and it means the most common effect in a real program — failing — keeps its function's control flow exactly as written.
 
 That is also why a `final ctl` reaches places a resuming handler cannot: inside a loop, inside a function value. Nothing was rewritten, so there is nothing that had to know the shape. `effects/final/in_loop` covers both.
+
+## Evidence is one vector
+
+A function receives its evidence as one vector of handlers rather than a parameter per operation, as Koka does (Xie and Leijen, *Generalized Evidence Passing for Effect Handlers*, ICFP 2021). A `run` extends the vector with its handlers, and an operation finds its handler in it by effect: at an offset fixed at compile time where the row is closed, by a search where it is open.
+
+Per-operation parameters are what `Cps` emits today (`ev#<op>`, sorted by `evidence_of_row`), and they make a function's arity depend on its row: `Type_mono` copies a function once per row it is used at, and `adapted` wraps a function passed where a wider row is expected. A vector removes both — one extra argument whatever the row — at the price of a lookup per operation, which the fixed offset makes an index in the common case. With `Alloc` in nearly every row, this is the calling convention of nearly every function, so the change is made in `Cps`, where the interpreter runs it and the suite checks it, before any backend relies on it.
+
+## Continuations are built by yielding
+
+A continuation is built only when an operation actually needs one, by bubbling the yield up the stack, as Koka's C backend does (`kklib/include/kklib.h`, `lib/std/core/inline/hnd.c` and `std/core/hnd` in the Koka source). A function receives a context holding a `yielding` flag, the evidence vector, and the continuation under construction:
+
+- An operation that needs its continuation sets `yielding`, records the handler it is for and the arm to run, and returns.
+- After each call that may yield, the caller checks the flag. Clear, it carries on; set, it appends a closure for the rest of its own body — with the locals that rest reads — to the continuation, and returns. A captured mutable local becomes a heap cell there, so every resumption shares it.
+- The `run` whose handler the yield is for composes what was appended into one continuation and runs the arm with it; a `run` for another handler keeps yielding.
+
+A function is translated this way when its row holds an effect with a `ctl` operation, or is open — with one evidence vector there is no copy per row, so `map` cannot know its callback does not yield (Koka's `isMonEffect`). Everything else is compiled as written, as today.
+
+`Cps` instead rewrites such a function into continuation-passing style ahead of time, with an explicit continuation parameter. Yield bubbling replaces it: the path that does not yield runs as ordinary calls and returns on the stack, nothing needs a guaranteed tail call, and every continuation has one signature — a boxed value and the context. Like the evidence vector, it is built in the front end, where the interpreter runs it and the suite checks it.
 
 ## A loop that suspends
 
@@ -354,6 +372,21 @@ The body's terminal continuation used to be the rest of the program, so `done` p
 What follows is a `Frame` the body's end calls, which is what lets a `return` among those statements return from the function it is in.
 
 **A `return` out of the block itself is rejected.** Once an operation suspends, the rest of the body is a continuation function, and returning from *that* is not returning from the enclosing function. Travelling back out through the handler that resumed into it is what a continuation is for, and the enclosing function has none — handling the effect discharged its row, so nothing converted it. Saying so beats the alternative, which was answering with whatever the code after the block returned.
+
+## Resumptions share locals
+
+A variable that already existed when an operation was performed is one variable however often the continuation runs, so each resumption sees what the ones before it wrote:
+
+```cronyx
+run {
+    var count = 0;
+    var b = flip();
+    count += 1;
+    print(count);
+} handle flip { ctl flip() { resume false; resume true; } }
+```
+
+This prints `1` then `2`, in a function as in a block (`effects/flip/shared_local`). A variable bound after the operation, `b` here, is bound again on each resumption. Sharing is what a closure-based continuation gives and what Koka does for mutable locals, and natively a captured mutable local is one heap cell read by every continuation that holds it ([Native Readiness](Native%20Readiness.md#4-memory-is-an-effect)); copying would cost a snapshot of the frame per `ctl` operation.
 
 ## A continuation puts back the frames it was inside
 

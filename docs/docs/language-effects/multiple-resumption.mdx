@@ -94,13 +94,14 @@ Two operations, eight lines of handler, and the block reads like the problem sta
 
 Swap the handler and the same block answers a different question: resume only the first option to get depth-first-with-no-backtracking, or stop after the first success to get "find one solution".
 
-## What is actually being copied
+## What is shared
 
 Multiple resumption is the feature that makes people ask what it costs. The honest answer:
 
 - The continuation is the rest of the `run` block, captured by the compiler. Resuming it twice runs that code twice, so a block that does IO does that IO twice.
-- Local variables are part of the captured computation. Each resumption gets its own copy of the block's locals, which is why `wants_tea` can be `false` on one branch and `true` on another.
-- Anything *outside* the block is not copied. `results` in the example is one list, mutated by every branch — which is exactly what makes it usable as an accumulator, and exactly what would bite you if you expected each branch to have its own.
+- Nothing is copied. A variable that already existed when the operation was performed is the same variable in every resumption, so a `count += 1` after a `flip()` counts across both branches.
+- A variable bound *by* the operation is bound again each time. That is why `wants_tea` can be `false` on one branch and `true` on another.
+- The same goes for anything outside the block. `results` in the example is one list, mutated by every branch — which is exactly what makes it usable as an accumulator, and exactly what would bite you if you expected each branch to have its own.
 
 That last point is the trap worth remembering: shared mutable state does not fork with the continuation.
 

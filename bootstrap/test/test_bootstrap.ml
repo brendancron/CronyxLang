@@ -145,6 +145,7 @@ let cases =
   ; "tests/effects/exception/exception"
   ; "tests/effects/delim/delim"
   ; "tests/effects/flip/flip"
+  ; "tests/effects/flip/shared_local"
   ; "tests/effects/recover/recover"
   ; "tests/effects/handler/handler"
   ; "tests/effects/handler/arm_reaches_outer"

@@ -195,7 +195,7 @@ Membership is `==`, which is structural — two records with equal fields are th
 
 ## How a value prints
 
-`str` and `print` write a value through its `Display` impl, then its `Debug` impl, and otherwise as its structure; `debug` writes it through `Debug` alone. The structure writes each part as `debug` does, so a string or a char inside a value is quoted and a byte is its number: `["a", ""]` and `[]` differ, and `print("hé".bytes())` is `[104, 195, 169]`. `List`, `Map` and `Set` implement both, as their elements rather than the record behind them: `[1, 2, 3]`, `{"a": 1}`, `{1, 2}`.
+`str` and `print` write a value through its `Display` impl and `debug` through its `Debug` impl, each a bound, so a type with neither is refused where it is printed. A derived impl writes the type's structure, each part as `debug` does, so a string or a char inside a value is quoted and a byte is its number: `["a", ""]` and `[]` differ, and `print("hé".bytes())` is `[104, 195, 169]`. `List`, `Map` and `Set` implement both, as their elements rather than the record behind them: `[1, 2, 3]`, `{"a": 1}`, `{1, 2}`.
 
-Which impl writes a value is decided when it is printed, by the type name the value carries: the printer looks for the function `Resolve` named the impl's method. Choosing when `str` is copied for a concrete type would miss a value printed as part of another, inside a lambda in a generic body, or in a function that calls itself at a new type, none of which `Type_mono` copies. A float writes the fewest digits that read back as the same float.
+Which impl writes a value is decided statically, by `Resolve`, like any bound. `Type_mono` has to copy every body that prints at the types it prints — a value printed as part of another, inside a lambda in a generic body, or in a function that calls itself at a new type — since there is no run-time lookup to fall back on. A float writes the fewest digits that read back as the same float.
 
