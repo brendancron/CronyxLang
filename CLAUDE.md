@@ -69,13 +69,16 @@ the work belongs in its working tree, uncommitted, until told otherwise. When
 work is finished and unasked-for, say what is in the working tree and let the
 user decide where it goes.
 
-**Questions go in a file, not in the summary.** After a piece of work, report
-what was done, but do not end on a list of open questions, loose ends, or
-things found and not fixed. Write each one to `scratch/questions.md` (gitignored)
-with enough context to answer it cold — what was found, a Cronyx example where
-one helps, and the options with a recommendation — then say how many there are
-and ask whether to go through them. Take them one at a time, and remove each
-from the file once it is answered.
+**Questions go in a file, and are asked exactly one at a time.** Whenever there
+is more than one question for the user — after a piece of work, in the middle
+of a design discussion, anywhere — write every one of them to
+`scratch/questions.md` (gitignored, never committed), creating it if it is
+missing. Give each enough context to answer it cold: what was found, a Cronyx
+example where one helps, and the options with a recommendation. Then ask
+exactly one question in the reply, the one the others depend on, and say how
+many more are in the file. Never put a second question in the same reply, and
+never end a summary on a list of open questions or loose ends. Remove each
+question from the file once it is answered.
 
 **Intel macOS lagging a release is known.** `x86_64-apple-darwin` is
 `"ci": false` in `targets.json` and is cut by hand from an Intel Mac, so its

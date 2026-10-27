@@ -87,32 +87,26 @@ The effect is what would let a program handle `Gen` itself, and so test a derive
 
 Promotion in `code(…)` waits on the same work. Inside a `gen`, the largest subexpression made of meta values is evaluated and written back; inside `code(…)` only a bare meta variable is, so `code(str(t) + " {")` keeps `str(t)` as syntax. Doing what `gen` does is unsafe while the walk sees only syntax: in `code(check && n > 0)`, `check` holds an `Expr`, and evaluating the whole expression early fails. With quotes typed as trees, the checker can say which subexpressions hold one, and promotion in `code` becomes as safe as in `gen`. Until then the way through is a meta variable: `var label = str(t); … code(label + " {")`.
 
+## Runtime safety as a static parameter
+
+Owner: [Static Params.md](Static%20Params.md)
+
+Decided: whether an index out of range, a division by zero and the other runtime errors are checked is a static value of the language, not a property of the backend's build mode. Zig makes it a build mode (checked in Debug and ReleaseSafe, undefined in ReleaseFast, `@setRuntimeSafety` per scope); Cronyx makes it a value its own code reads, so a check is Cronyx in the library guarded by it, and with safety off the walk drops the check and the emitter never sees one. The emitter emits no check of its own, and Zig's are off in every build.
+
+```cronyx
+var xs = [1, 2, 3];
+print(xs[5]);        // checked: the error a .rt fixture pins; unchecked: undefined
+```
+
+Open is everything about its shape: what the value is called and how library code reads it, where a program sets it (a `cx build` flag, the manifest, per scope as `@setRuntimeSafety` is), whether a package can set it for its own code, and what the interpreter does with safety off — check anyway, since it is the oracle, or report the read as the undefined behaviour it is natively.
+
+Memory checking is part of the same question. The interpreter reports a use after free, a double free and a free through the wrong allocator ([Native Readiness](Native%20Readiness.md#4-memory-is-an-effect)); natively, Zig's `DebugAllocator` catches the same mistakes. The proposal is that `__root` handles `Alloc` with `DebugAllocator` when safety is on and with a fast general-purpose allocator when it is off, so one value governs every run-time check; the alternative is a separate switch for memory.
+
 ## Runtime errors as an effect
 
 Owner: [Testing.md](Testing.md)
 
 An index out of range, a division by zero or a `panic` ends the program; nothing can handle it. Making it an effect, `Panic` say, would let a program recover from one the way it recovers from any other, and would let a test runner isolate a crashing test in-process. The cost is that indexing and division then carry it in their row everywhere, which needs a design for keeping it out of the way — Koka's `exn` is the precedent. Tests do not wait on this: each already runs in a process of its own.
-
-## Whether resumptions share locals
-
-Owner: [Algebraic Effects.md](Algebraic%20Effects.md)
-
-A `ctl` arm that resumes twice runs the rest of the block twice, and a variable that already existed when the operation was performed is shared by both runs:
-
-```cronyx
-effect flip { ctl flip(): bool; }
-
-run {
-    var count = 0;
-    var b = flip();
-    count += 1;
-    print(count);
-} handle flip { ctl flip() { resume false; resume true; } }
-```
-
-This prints `1` then `2`, and the same holds when the body is a function. A variable bound after the operation is bound again on each resumption, which is why the user docs' `wants_tea` differs per branch — `multiple-resumption.mdx` still says each resumption gets its own copy of the block's locals.
-
-Sharing is what a closure-based continuation gives, and what Koka does for mutable locals; copying would cost a snapshot of the frame per `ctl`. Deciding which is the semantics settles either the docs or a fixture.
 
 ## An operation resumed at most once
 
@@ -154,7 +148,7 @@ Owner: [Architecture.md](Architecture.md)
 
 The examples in `docs/` are static. Letting a reader run them needs no native backend: `meta` blocks already make the interpreter part of every compiler, so the whole pipeline built with `wasm_of_ocaml` (or `js_of_ocaml`) is the playground. The library's one tie to the OS is `Unix.realpath` in `toolchain.ml`, already guarded; the rest is a web entry point beside `bin/main.ml` that takes a source string and returns stdout, diagnostics and the exit code instead of calling `exit`, the standard library embedded in the bundle rather than read from disk, and a Docusaurus component that runs it in a Web Worker so a runaway program can be killed. A file a `meta` block or a program reads needs a virtual filesystem or an error.
 
-If Cronyx is later compiled natively, the browser is a target of its own rather than a side effect of LLVM: LLVM's `wasm32` backend emits linear memory only, so each program would ship its own collector, where emitting WasmGC directly — through Binaryen or a small emitter — leaves collection to the engine. Selective CPS already makes continuations heap closures, so effects need Wasm's tail calls but not its stack-switching proposal. Whether that backend is ever worth having is open; the interpreter playground does not wait on it.
+If Cronyx is later compiled natively, the browser is one more Zig target: `wasm32`, with the same runtime and `Alloc` handled over linear memory. Selective CPS already makes continuations heap closures, so effects need Wasm's tail calls but not its stack-switching proposal. Whether that backend is ever worth having is open; the interpreter playground does not wait on it.
 
 ## Registry dependencies from `tests/`
 

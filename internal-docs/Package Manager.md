@@ -12,8 +12,8 @@ Eight subcommands cover the whole model. Each one is small; extra flags earn the
 
 ```
 cx new <name>            create a package skeleton
-cx build                 resolve, fetch, check, cache
-cx run [-- args…]        build then execute the entry
+cx build                 resolve, fetch, check, compile to a native binary
+cx run [-- args…]        build then execute the binary (--interpret: run the interpreter)
 cx test [filter]         run the package's @test functions
 cx add <pkg>[@<req>]     record a dependency, resolve, lock
 cx update [pkg…]         move pins to the newest versions that fit
@@ -267,9 +267,11 @@ target/
 
 ## What `cx build` produces
 
-**Nothing executable, for now.** The pipeline ends at the interpreter; there is no code generator, so there is no binary to emit. `cx build` resolves the graph, fetches sources, runs the compiler over every package, populates the artifact cache, and prints what it checked. `cx run` is the path that actually executes anything, and it runs the entry through the interpreter.
+**A native binary.** `cx build` compiles the program through Zig ([Native Readiness](Native%20Readiness.md#the-target)) and writes `target/<profile>/<name>`; `cx run` builds that binary and executes it. Compiling is the default for both. `--interpret` runs the entry through the interpreter instead, which is what a program without a native toolchain, a quick check, or a comparison against the oracle asks for.
 
-This is a statement about today, not a design position. When a backend lands, `cx build` writes `target/<profile>/<name>` and nothing else in this document changes — which is the reason to say the current behavior plainly instead of describing an output that does not exist.
+With that default, `scripts/cx-parity.sh` — `cx run` against `bootstrap` on every fixture — is the check that native binaries agree with the interpreter.
+
+Today there is no code generator: `cx build` resolves the graph, fetches sources, runs the compiler over every package, populates the artifact cache, and prints what it checked, and `cx run` runs the entry through the interpreter.
 
 ## Profiles
 

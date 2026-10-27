@@ -54,7 +54,7 @@ print(BigInt.of(2).pow(100));    // 1267650600228229401496703205376
 
 ## `float`
 
-Each function below is a native that is one `libm` call. Natives are what a native backend implements as its C runtime ([Native Readiness](Native%20Readiness.md)), and one that is a single `libm` symbol costs that runtime nothing.
+Each function below is a native that is one `libm` call. Natives are what a native backend implements as its Zig runtime ([Native Readiness](Native%20Readiness.md)), and one that is a single `libm` symbol costs that runtime nothing.
 
 | Group | Functions | `libm` |
 | --- | --- | --- |
@@ -94,7 +94,7 @@ The natives are `__float_<name>` in `builtins.ml`, with an empty doc so the refe
 
 **`gcd` is never negative**, and `gcd(0, 0)` is `0`. `lcm` of anything with `0` is `0`. `isqrt(n)` is the largest `r` with `r * r <= n`, computed by Newton's method on integers rather than through `float`, which loses the answer above 2^53. A negative argument panics, as dividing by zero does: there is no `int` that is the answer.
 
-**`checked_*` means "outside `int`'s range", whatever that range is.** `int` is 63 bits under the interpreter and its native width is undecided ([Native Readiness](Native%20Readiness.md#3-representations-decided)). The checked, wrapping and saturating functions are defined against `int_max()` and `int_min()` rather than a bit count, so their meaning survives that decision: what bare `+` does at the edge of a native `int` is the open part, and a caller who uses these does not depend on it. A fixture that pins the boundary uses those functions rather than a literal.
+**`checked_*` means "outside `int`'s range", whatever that range is.** `int` is 63 bits under the interpreter and `i63` natively, with bare `+` wrapping on both ([Native Readiness](Native%20Readiness.md#3-representations-decided)). The checked, wrapping and saturating functions are still defined against `int_max()` and `int_min()` rather than a bit count, so a caller who uses them does not depend on the width. A fixture that pins the boundary uses those functions rather than a literal.
 
 ## Constants
 

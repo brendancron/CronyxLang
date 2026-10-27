@@ -36,11 +36,11 @@ A file's own declaration shadows a global import of the same name, as a local sh
 
 ## 1. Printing
 
-`text/Format`: the `Display` and `Debug` traits, a deriver for each, and `str` and `print` dispatching through `Display`, with the builtin written form as the fallback for a type with no impl. `List`, `Map` and `Set` implement `Display` by writing each element's `Debug`, which answers how values print: `[1, 2, 3]` rather than the record behind it, strings quoted inside a collection, a `byte` as its number.
+`text/Format`: the `Display` and `Debug` traits, a deriver for each, and `str` and `print` dispatching through `Display`. `List`, `Map` and `Set` implement `Display` by writing each element's `Debug`, which answers how values print: `[1, 2, 3]` rather than the record behind it, strings quoted inside a collection, a `byte` as its number.
 
-Two traits because a string has two forms: `print("a")` writes `a`, and `print(["a"])` has to write `["a"]`, or `[""]` and `[]` print the same. `Display` is the form a value is shown in; `Debug` is the one that tells values apart, and is what a collection uses for its parts and what `assert_eq` reports a mismatch with, so `"1"` and `1` differ there too. For a type with no `Debug`, the builtin form is the fallback, as it is for `Display`.
+Two traits because a string has two forms: `print("a")` writes `a`, and `print(["a"])` has to write `["a"]`, or `[""]` and `[]` print the same. `Display` is the form a value is shown in; `Debug` is the one that tells values apart, and is what a collection uses for its parts and what `assert_eq` reports a mismatch with, so `"1"` and `1` differ there too. A collection's impls are bounded by its element's `Debug`, so a `List<T>` prints only when `T` has one.
 
-`print` and `str` keep no bound. Which form they use is decided when the value is printed, by the type name it carries: the impl if the type has one, the builtin form if not, and the builtin form goes through `Debug` for each part that has one ([Data Structures](Data%20Structures.md#how-a-value-prints)).
+`print` and `str` are bounded: `fn str<T: Display>(value: T): string`, and `debug` by `Debug`. `Resolve` turns each call into a direct call to the impl, as it does every bound, so nothing is looked up when a value is printed and no native value carries its type. A type with no impl is a compile error and takes `derive Display`; the primitives, the collections, `Option` and tuples have impls in the library ([Data Structures](Data%20Structures.md#how-a-value-prints)).
 
 Number formatting — precision, padding, radix — is here too, since `Display for float` is where six significant digits gets replaced.
 
