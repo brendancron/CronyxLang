@@ -1,0 +1,9 @@
+{
+  "id": "cronyx-runner",
+  "name": "Cronyx Runner",
+  "version": "0.0.1",
+  "minAppVersion": "1.4.0",
+  "description": "Runs cronyx code blocks with cx and shows their output underneath.",
+  "author": "Brendan Cron",
+  "isDesktopOnly": true
+}
