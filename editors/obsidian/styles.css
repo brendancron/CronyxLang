@@ -1,0 +1,41 @@
+.cronyx-block pre.language-cronyx {
+  margin-bottom: 0;
+}
+
+.cronyx-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  padding: 0.3em 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.cronyx-bar button {
+  font-size: var(--font-ui-smaller);
+  padding: 0.1em 0.8em;
+  height: auto;
+}
+
+.cronyx-status.cronyx-failed {
+  color: var(--text-error);
+}
+
+.cronyx-output pre {
+  margin: 0;
+  padding: 0.5em 0.75em;
+  border-left: 3px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  font-family: var(--font-monospace);
+  font-size: var(--code-size);
+  white-space: pre-wrap;
+}
+
+.cronyx-output pre.cronyx-stderr {
+  border-left-color: var(--text-error);
+  color: var(--text-error);
+}
+
+.cronyx-output pre.cronyx-empty {
+  color: var(--text-faint);
+}
