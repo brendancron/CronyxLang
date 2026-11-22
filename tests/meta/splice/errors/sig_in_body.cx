@@ -5,7 +5,7 @@ fn getter(): MethodSig {
         name: "get".as_name(),
         params: [],
         signature: Signature {
-            ret: Option.Some(TypeExpr.of(TypeKind.Named("int".as_name()))),
+            ret: Option.Some(TypeExpr.of(TypeKind.Named("Int".as_name()))),
             row: Option.None,
             static_params: []
         },

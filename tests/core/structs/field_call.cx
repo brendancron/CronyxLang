@@ -1,7 +1,7 @@
 type Handler {
-    apply: (int) -> <Console> unit
+    apply: (Int) -> <Console> Unit
 }
 
-var h = Handler { apply: (n: int) => { print(n * 2); } };
+var h = Handler { apply: (n: Int) => { print(n * 2); } };
 
 h.apply(21);

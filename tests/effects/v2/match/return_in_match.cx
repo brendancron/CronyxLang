@@ -1,15 +1,15 @@
 type Choice { Yes, No }
 
-trait Ask { @ctl fn get(): int; }
+trait Ask { @ctl fn get(): Int; }
 
-fn pick(c: Choice): <Ask> int {
+fn pick(c: Choice): <Ask> Int {
     match c {
         Choice.Yes => { return get() + 10; }
         Choice.No => { return 0; }
     }
 }
 
-run {
+run<Unit> {
     print(pick(Choice.Yes));
     print(pick(Choice.No));
 } handle<Ask> {

@@ -1,5 +1,5 @@
 import { Point } from "geom";
 
 impl Eq for Point {
-    fn eq(self, rhs: Point): bool { return true; }
+    fn eq(self, rhs: Point): Bool { return true; }
 }

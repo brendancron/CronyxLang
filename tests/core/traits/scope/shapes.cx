@@ -1,11 +1,11 @@
 trait Area {
-    fn area(self): int;
+    fn area(self): Int;
 }
 
-type Square { side: int }
+type Square { side: Int }
 
 impl Area for Square {
-    fn area(self): int { return self.side * self.side; }
+    fn area(self): Int { return self.side * self.side; }
 }
 
-fn square(side: int): Square { return Square { side: side }; }
+fn square(side: Int): Square { return Square { side: side }; }

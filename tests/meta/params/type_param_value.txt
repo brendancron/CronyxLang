@@ -1,0 +1,3 @@
+named at Point
+a Int, named Int
+a Point, named Point

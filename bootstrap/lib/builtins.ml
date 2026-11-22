@@ -9,30 +9,30 @@ let types : (string * int) list = []
 let methods
   : (string * string * string * (unit -> Types.infer_ty list * Types.infer_ty)) list
   =
-  [ ( "string"
+  [ ( "String"
     , "bytes"
     , "The UTF-8 bytes of the string, which is what it is stored as."
     , fun () -> [ Types.IStr ], Types.iarray Types.IByte )
     (* The one way a string becomes an identifier, checked. *)
-  ; ( "string"
+  ; ( "String"
     , "as_name"
     , "The string as an identifier, for a meta block building a declaration. The \
        string must spell one."
     , fun () -> [ Types.IStr ], Types.iname )
-  ; "string", "to_upper", "The string in upper case.", (fun () -> [ Types.IStr ], Types.IStr)
-  ; "string", "to_lower", "The string in lower case.", (fun () -> [ Types.IStr ], Types.IStr)
-  ; "char", "to_upper", "The character in upper case.", (fun () -> [ Types.IChr ], Types.IChr)
-  ; "char", "to_lower", "The character in lower case.", (fun () -> [ Types.IChr ], Types.IChr)
-  ; ( "int"
+  ; "String", "to_upper", "The string in upper case.", (fun () -> [ Types.IStr ], Types.IStr)
+  ; "String", "to_lower", "The string in lower case.", (fun () -> [ Types.IStr ], Types.IStr)
+  ; "Char", "to_upper", "The character in upper case.", (fun () -> [ Types.IChr ], Types.IChr)
+  ; "Char", "to_lower", "The character in lower case.", (fun () -> [ Types.IChr ], Types.IChr)
+  ; ( "Int"
     , "to_float"
     , "The integer as a float. Exact up to the float's precision."
     , fun () -> [ Types.IInt ], Types.IFloat )
-  ; ( "float"
+  ; ( "Float"
     , "to_int"
     , "The float truncated towards zero."
     , fun () -> [ Types.IFloat ], Types.IInt )
-  ; "byte", "to_int", "The byte as a number from 0 to 255.", (fun () -> [ Types.IByte ], Types.IInt)
-  ; ( "int"
+  ; "Byte", "to_int", "The byte as a number from 0 to 255.", (fun () -> [ Types.IByte ], Types.IInt)
+  ; ( "Int"
     , "to_byte"
     , "The integer's lowest eight bits as a byte, so 256 is 0 and -1 is 255."
     , fun () -> [ Types.IInt ], Types.IByte )
@@ -126,6 +126,9 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () ->
         ( [ Types.iname; Types.ISum (Core.option, [ Types.INamed (Core.syntax "TypeExpr", []) ]); Types.ispan ]
         , Types.INamed (Core.syntax "Decl", []) ) )
+  ; ( "__named_method"
+    , ""
+    , fun () -> [ Types.iname; Types.iname ], Types.ISum (Core.option, [ Types.INamed (Core.syntax "Decl", []) ]) )
   ; ( "__remembered"
     , ""
     , fun () -> [ Types.INamed (Core.list, [ Types.iname ]) ], Types.ISum (Core.option, [ Types.iname ]) )
@@ -312,7 +315,7 @@ let written ~globals =
   let rec shown span mode (v : Value.value) =
     let declared =
       match v with
-      | Value.Record (Some name, _) | Value.Variant (Some name, _, _) -> Some name
+      | Value.Record (Some name, _) | Value.Variant (Some name, _, _) -> Some (Types.declaration name)
       | _ -> None
     in
     let impl =
@@ -333,8 +336,16 @@ let written ~globals =
       if mode = `Debug then quoted ~mark:'\'' (Buffer.contents buf) else Buffer.contents buf
     | None, Value.Object (data, _, _) -> shown span mode data
     | None, v -> form span v
-  (* The builtin form: the structure, each part as `debug` writes it. *)
   and form span (v : Value.value) =
+    (match Sys.getenv_opt "CX_PRINT_PROBE" with
+     | Some f ->
+       let kind = match v with
+         | Value.Array _ -> "array" | Value.Tuple _ -> "tuple"
+         | Value.Variant (Some n, _, _) -> "variant:" ^ n | Value.Variant (None, _, _) -> "variant?"
+         | Value.Record (Some n, _) -> "record:" ^ n | Value.Record (None, _) -> "anonrecord"
+         | Value.Byte _ -> "byte" | Value.Object _ -> "object" | Value.Fn _ -> "fn" | _ -> "prim" in
+       let oc = open_out_gen [Open_append; Open_creat] 0o644 f in output_string oc (kind ^ "\n"); close_out oc
+     | None -> ());
     let part = shown span `Debug in
     match v with
     | Value.Array items -> "[" ^ String.concat ", " (Array.to_list (Array.map part items)) ^ "]"
@@ -607,7 +618,7 @@ let values ~out ~globals =
       | other -> Value.fail span "discontinue takes a continuation, not %s." (Value.type_name other))
   ; one "__upcast" (fun _ v -> v)
   ; two "__structural_eq" (fun span a b -> Value.Bool (Value.values_equal span a b))
-  ; one (Ast.method_name "string" "as_name") (fun span v ->
+  ; one (Ast.method_name "String" "as_name") (fun span v ->
       match v with
       | Value.Str s ->
         let text = Utf8.encode s in
@@ -626,42 +637,42 @@ let values ~out ~globals =
         then Value.Name text
         else Value.fail span "'%s' cannot be a name." text
       | _ -> Value.fail span "Cannot apply as_name to these arguments.")
-  ; one (Ast.method_name "string" "to_upper") (fun span v ->
+  ; one (Ast.method_name "String" "to_upper") (fun span v ->
       match v with
       | Value.Str s -> Value.Str (Array.map upper s)
       | _ -> Value.fail span "Cannot apply to_upper to these arguments.")
-  ; one (Ast.method_name "string" "to_lower") (fun span v ->
+  ; one (Ast.method_name "String" "to_lower") (fun span v ->
       match v with
       | Value.Str s -> Value.Str (Array.map lower s)
       | _ -> Value.fail span "Cannot apply to_lower to these arguments.")
-  ; one (Ast.method_name "char" "to_upper") (fun span v ->
+  ; one (Ast.method_name "Char" "to_upper") (fun span v ->
       match v with
       | Value.Chr c -> Value.Chr (upper c)
       | _ -> Value.fail span "Cannot apply to_upper to these arguments.")
-  ; one (Ast.method_name "char" "to_lower") (fun span v ->
+  ; one (Ast.method_name "Char" "to_lower") (fun span v ->
       match v with
       | Value.Chr c -> Value.Chr (lower c)
       | _ -> Value.fail span "Cannot apply to_lower to these arguments.")
-  ; one (Ast.method_name "int" "to_float") (fun span v ->
+  ; one (Ast.method_name "Int" "to_float") (fun span v ->
       match v with
       | Value.Int n -> Value.Float (float_of_int n)
       | _ -> Value.fail span "Cannot apply to_float to these arguments.")
-  ; one (Ast.method_name "byte" "to_int") (fun span v ->
+  ; one (Ast.method_name "Byte" "to_int") (fun span v ->
       match v with
       | Value.Byte b -> Value.Int (Char.code b)
       | _ -> Value.fail span "Cannot apply to_int to these arguments.")
-  ; one (Ast.method_name "int" "to_byte") (fun span v ->
+  ; one (Ast.method_name "Int" "to_byte") (fun span v ->
       match v with
       | Value.Int n -> Value.Byte (Char.chr (n land 0xff))
       | _ -> Value.fail span "Cannot apply to_byte to these arguments.")
-  ; one (Ast.method_name "float" "to_int") (fun span v ->
+  ; one (Ast.method_name "Float" "to_int") (fun span v ->
       match v with
       | Value.Float x when Float.is_finite x && Float.abs x < 0x1p62 ->
         Value.Int (Float.to_int x)
       | Value.Float x ->
         Value.fail span "%s has no int value." (Token.float_to_string x)
       | _ -> Value.fail span "Cannot apply to_int to these arguments.")
-  ; one (Ast.method_name "string" "bytes") (fun span v ->
+  ; one (Ast.method_name "String" "bytes") (fun span v ->
       match v with
       | Value.Str s ->
         let bytes = Utf8.encode s in

@@ -1,8 +1,8 @@
-effect Log { fn log(msg: string): unit; }
+effect Log { fn log(msg: String): Unit; }
 
-type Job { work: () -> <Log> unit }
+type Job { work: () -> <Log> Unit }
 
-fn go(j: Job): <Log> unit { j.work(); }
+fn go(j: Job): <Log> Unit { j.work(); }
 
 run {
     go(Job { work: () => log("ran") });

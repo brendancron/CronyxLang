@@ -1,4 +1,4 @@
-fn doubled<n: int>(): int {
+fn doubled<n: Int>(): Int {
     return meta { gen code(n * 2); };
 }
 

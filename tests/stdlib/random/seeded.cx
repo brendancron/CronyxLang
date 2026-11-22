@@ -1,9 +1,9 @@
 import { Random, random_int, random_float, random_bool, choose, shuffle, seeded } from "std/random/Random";
 
-fn roll(): <Random> int { return random_int(1, 7); }
+fn roll(): <Random> Int { return random_int(1, 7); }
 
-fn rolls(): <Random> List<int> {
-    var out: List<int> = [];
+fn rolls(): <Random> List<Int> {
+    var out: List<Int> = [];
     for (var i = 0; i < 8; i += 1) { out.push(roll()); }
     return out;
 }
@@ -16,7 +16,7 @@ print(first == again);
 print(first == other);
 
 seeded(1) {
-    var deck: List<string> = ["a", "b", "c", "d", "e"];
+    var deck: List<String> = ["a", "b", "c", "d", "e"];
     shuffle(deck);
     print(deck);
     print(choose(["x", "y", "z"]));

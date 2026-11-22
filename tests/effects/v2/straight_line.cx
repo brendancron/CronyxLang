@@ -1,30 +1,30 @@
 trait Effect {
-    fn log(msg: string): unit;
-    @ctl fn choose(options: Array<int>): int;
+    fn log(msg: String): Unit;
+    @ctl fn choose(options: Array<Int>): Int;
 }
 
-fn noisy(tag: string): int {
+fn noisy(tag: String): Int {
     print("evaluated " + tag);
     return 100;
 }
 
-fn pick(): int {
+fn pick(): Int {
     log("picking");
     var n = choose([1, 2]);
     log("picked " + str(n));
     return n * 10;
 }
 
-fn outer(): int {
+fn outer(): Int {
     var a = pick();
     return a + 1;
 }
 
-fn pair(a: int, b: int, c: int): string {
+fn pair(a: Int, b: Int, c: Int): String {
     return str(a) + "/" + str(b) + "/" + str(c);
 }
 
-var answers = run<string> {
+var answers = run<String> {
     var total = noisy("first") + outer();
     print(pair(noisy("left"), choose([7, 8]), 3));
     str(total)

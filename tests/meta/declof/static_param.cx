@@ -1,9 +1,9 @@
 import { DeclKind } from "std/compiler/Ast";
 import { decl_source } from "std/compiler/Printer";
 
-type Dog { name: string }
+type Dog { name: String }
 
-trait Barks { fn bark(self): string; }
+trait Barks { fn bark(self): String; }
 
 fn describe<T>() {
     meta {

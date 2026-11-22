@@ -1,13 +1,13 @@
-effect Pause { ctl pause(): unit; }
+effect Pause { ctl pause(): Unit; }
 
-fn inner(): <Pause, Console> unit {
+fn inner(): <Pause, Console> Unit {
     defer print("inner cleaned up");
     print("inner before");
     pause();
     print("inner never");
 }
 
-fn outer(): <Pause, Console> unit {
+fn outer(): <Pause, Console> Unit {
     defer print("outer cleaned up");
     inner();
     print("outer never");
@@ -22,7 +22,7 @@ run { outer(); } handle Pause {
 }
 print("first done");
 
-var later: List<() -> <Console> unit> = [];
+var later: List<() -> <Console> Unit> = [];
 run { outer(); } handle Pause {
     ctl pause() { later.push(() => { discontinue; }); }
 }

@@ -1,10 +1,10 @@
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
 type Color { Red, Blue }
 
-fn use(): <Ask> int { return get(); }
+fn use(): <Ask> Int { return get(); }
 
-fn main(): unit {
+fn main(): Unit {
     var c = Color.Red;
     match c {
         Color.Red => {

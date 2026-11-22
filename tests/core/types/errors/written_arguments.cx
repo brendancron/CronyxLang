@@ -1,0 +1,4 @@
+type Box<T> { v: T }
+
+var b = Box<Int> { v: "one" };
+print(b.v);

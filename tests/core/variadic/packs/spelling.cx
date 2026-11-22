@@ -1,21 +1,21 @@
 type Slot<...Args> {
-    tag: string,
-    use: (...Args) -> <Console> unit
+    tag: String,
+    use: (...Args) -> <Console> Unit
 }
 
-fn any_arity<...Args>(s: Slot<...Args>): string {
+fn any_arity<...Args>(s: Slot<...Args>): String {
     return s.tag;
 }
 
-fn one_only<T>(s: Slot<T>): string {
+fn one_only<T>(s: Slot<T>): String {
     return s.tag;
 }
 
-fn pair(a: int, b: string) {
+fn pair(a: Int, b: String) {
     print(str(a) + b);
 }
 
-fn only(a: int) {
+fn only(a: Int) {
     print(a);
 }
 

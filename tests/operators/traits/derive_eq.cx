@@ -1,8 +1,8 @@
-type Point { x: int, y: int }
+type Point { x: Int, y: Int }
 
 derive Eq for Point;
 
-fn count_matches<T: Eq>(items: Array<T>, want: T): int {
+fn count_matches<T: Eq>(items: Array<T>, want: T): Int {
     var n = 0;
     for (i in items) {
         if (i == want) {

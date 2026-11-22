@@ -1,10 +1,10 @@
 type Slot<...Args> {
-    tag: string,
+    tag: String,
     intent: (...Args)
 }
 
 impl Slot<...Args> {
-    fn label(self): string { return self.tag; }
+    fn label(self): String { return self.tag; }
 }
 
 var two = Slot { tag: "two", intent: (1, "x") };

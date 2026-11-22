@@ -1,4 +1,4 @@
-type Foo { z: int }
+type Foo { z: Int }
 
 type Pair<T> { a: T, b: T }
 

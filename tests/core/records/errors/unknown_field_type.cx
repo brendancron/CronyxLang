@@ -1,5 +1,5 @@
-type R { a: int, b: Nope }
-type S { Good(int), Bad(Missing) }
+type R { a: Int, b: Nope }
+type S { Good(Int), Bad(Missing) }
 var r = R { a: 1, b: 2 };
 print(r.a);
 var s = S.Good(3);

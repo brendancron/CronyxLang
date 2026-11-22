@@ -1,7 +1,7 @@
 
 type fields = (string * ty) list
 
-(* `Yield<int>` and `Yield<string>` are different entries. [tail] is the
+(* `Yield<Int>` and `Yield<String>` are different entries. [tail] is the
    variable a call site settles, so a row still open here is one each caller
    may fill differently. *)
 and row =
@@ -28,7 +28,7 @@ and ty =
   | Sum of string * ty list
   | Fn of ty list * ty * row
   (* An effect row passed where a type's parameter stands in one: `E` in
-     `Iter<string, <async>>`. *)
+     `Iter<String, <Async>>`. *)
   | Row of row
   (* Quantified, not unresolved. Reaching codegen means a call site was missed. *)
   | Generic of int
@@ -176,6 +176,16 @@ let rec repr (t : infer_ty) : infer_ty =
     target
   | t -> t
 
+(* What a key settles a parameter at when only effect labels name it and
+   nothing performs them. A label holding it is no label, which every reading
+   of a row sees through [repr_row]. *)
+let absent_name = "type#absent"
+
+let is_absent (t : infer_ty) =
+  match repr t with
+  | INamed (n, []) -> String.equal n absent_name
+  | _ -> false
+
 let rec repr_row (r : infer_row) : infer_row =
   match r with
   | RVar ({ contents = RLink inner } as v) ->
@@ -183,6 +193,7 @@ let rec repr_row (r : infer_row) : infer_row =
     note v;
     v := RLink target;
     target
+  | RCons (_, args, rest) when List.exists is_absent args -> repr_row rest
   | r -> r
 
 let rec repr_fields (f : infer_fields) : infer_fields =
@@ -207,7 +218,7 @@ let span_name = "Span"
 let ispan = INamed (span_name, [])
 let span = Named (span_name, [])
 
-let string_name = "string"
+let string_name = "String"
 
 let array_len = "len"
 let array elem = Named (array_name, [ elem ])
@@ -283,13 +294,13 @@ and string_of_infer_ty seen (t : infer_ty) : string =
   let string_of_infer_row = string_of_infer_row seen in
   let string_of_infer_ty = string_of_infer_ty seen in
   match repr t with
-  | IInt -> "int"
-  | IFloat -> "float"
-  | IStr -> "string"
-  | IByte -> "byte"
-  | IChr -> "char"
-  | IBool -> "bool"
-  | IUnit -> "unit"
+  | IInt -> "Int"
+  | IFloat -> "Float"
+  | IStr -> "String"
+  | IByte -> "Byte"
+  | IChr -> "Char"
+  | IBool -> "Bool"
+  | IUnit -> "Unit"
   | ITuple items ->
     Printf.sprintf "(%s)" (String.concat ", " (List.map string_of_infer_ty items))
   | IPack items -> String.concat ", " (List.map string_of_infer_ty items)
@@ -348,13 +359,13 @@ and string_of_ty seen (t : ty) : string =
   let string_of_row = string_of_row seen in
   let string_of_ty = string_of_ty seen in
   match t with
-  | Int -> "int"
-  | Float -> "float"
-  | Str -> "string"
-  | Byte -> "byte"
-  | Chr -> "char"
-  | Bool -> "bool"
-  | Unit -> "unit"
+  | Int -> "Int"
+  | Float -> "Float"
+  | Str -> "String"
+  | Byte -> "Byte"
+  | Chr -> "Char"
+  | Bool -> "Bool"
+  | Unit -> "Unit"
   | Tuple items ->
     Printf.sprintf "(%s)" (String.concat ", " (List.map string_of_ty items))
   | Pack items -> String.concat ", " (List.map string_of_ty items)
@@ -385,13 +396,13 @@ let string_of_args args = string_of_args (Hashtbl.create 4) args
 
 let type_name (t : ty) : string option =
   match t with
-  | Int -> Some "int"
-  | Float -> Some "float"
-  | Str -> Some "string"
-  | Byte -> Some "byte"
-  | Chr -> Some "char"
-  | Bool -> Some "bool"
-  | Unit -> Some "unit"
+  | Int -> Some "Int"
+  | Float -> Some "Float"
+  | Str -> Some "String"
+  | Byte -> Some "Byte"
+  | Chr -> Some "Char"
+  | Bool -> Some "Bool"
+  | Unit -> Some "Unit"
   | Named (name, _) | Sum (name, _) -> Some name
   | Tuple _ | Pack _ | Spread _ | Record _ | Fn _ | Row _ | Generic _ -> None
 
@@ -593,13 +604,13 @@ let container_element (t : infer_ty) : (string * infer_ty) option =
 
 let infer_type_name (t : infer_ty) : string option =
   match repr t with
-  | IInt -> Some "int"
-  | IFloat -> Some "float"
-  | IStr -> Some "string"
-  | IByte -> Some "byte"
-  | IChr -> Some "char"
-  | IBool -> Some "bool"
-  | IUnit -> Some "unit"
+  | IInt -> Some "Int"
+  | IFloat -> Some "Float"
+  | IStr -> Some "String"
+  | IByte -> Some "Byte"
+  | IChr -> Some "Char"
+  | IBool -> Some "Bool"
+  | IUnit -> Some "Unit"
   | INamed (name, _) | ISum (name, _) -> Some name
   | ITuple _ | IPack _ | ISpread _ | IRecord _ | IFn _ | IRow _ | IVar _ -> None
 
@@ -870,7 +881,7 @@ and unify (a : infer_ty) (b : infer_ty) : unit =
       a
       b
   (* A pack that holds nothing spliced into a tuple leaves no elements, and a
-     product of none is what `unit` already is. *)
+     product of none is what `Unit` already is. *)
   | ITuple items, IUnit | IUnit, ITuple items ->
     unify_list
       ~mismatch:(fun m n -> error "Expected a tuple of %d element(s), got one of %d." m n)
@@ -1472,12 +1483,69 @@ let fields_of name args : infer_fields =
     substitute_fields (paired vars args @ rows) f
   | None -> FEmpty
 
+(* ---- copies ---- *)
+
+(* A generic type is monomorphized as a function is: each use at closed
+   arguments names a copy, spelled as the use prints, `Box<Int>`. The spelling
+   is what makes renaming invisible to a diagnostic or a dump, and it is also
+   the key: two uses printing alike are one copy. *)
+let generic_types : (string, unit) Hashtbl.t = Hashtbl.create 32
+
+(* Each copy by its name: the declaration it was made from and the arguments. *)
+let copies : (string, string * ty list) Hashtbl.t = Hashtbl.create 32
+
+let rec closed (t : ty) =
+  match t with
+  | Generic _ -> false
+  | Tuple ts | Pack ts | Named (_, ts) | Sum (_, ts) -> List.for_all closed ts
+  | Spread t -> closed t
+  | Record fields -> List.for_all (fun (_, t) -> closed t) fields
+  | Fn (ps, r, row) -> List.for_all closed (r :: ps) && closed_row row
+  | Row row -> closed_row row
+  | Int | Float | Str | Byte | Chr | Bool | Unit -> true
+
+and closed_row (row : row) = List.for_all (fun (_, args) -> List.for_all closed args) row.labels
+
+(* [copy] is told each copy a type names, at the arguments as the checker
+   settled them. A use still generic in something keeps its arguments: only a
+   parametric instance's own parameters can be left there. *)
+let rec copied ?(copy = fun _ _ -> ()) (t : ty) : ty =
+  let copied = copied ~copy in
+  match t with
+  | (Named (n, (_ :: _ as args)) | Sum (n, (_ :: _ as args))) when Hashtbl.mem generic_types n && closed t ->
+    copy n args;
+    let name = string_of_ty t in
+    (match t with
+     | Sum _ -> Sum (name, [])
+     | _ -> Named (name, []))
+  | Named (n, ts) -> Named (n, List.map copied ts)
+  | Sum (n, ts) -> Sum (n, List.map copied ts)
+  | Tuple ts -> Tuple (List.map copied ts)
+  | Pack ts -> Pack (List.map copied ts)
+  | Spread t -> Spread (copied t)
+  | Record fields -> Record (List.map (fun (l, t) -> l, copied t) fields)
+  | Fn (ps, r, row) -> Fn (List.map copied ps, copied r, copied_row ~copy row)
+  | Row row -> Row (copied_row ~copy row)
+  | t -> t
+
+and copied_row ?copy (row : row) =
+  { row with labels = List.map (fun (l, args) -> l, List.map (copied ?copy) args) row.labels }
+
+(* The declaration a value of this type was built from: a copy's is the
+   generic type it copies. *)
+let declaration name =
+  match Hashtbl.find_opt copies name with
+  | Some (base, _) -> base
+  | None -> name
+
 (* The rows first and [declared] after them: a field's function performs what
    its row argument says, which has to be known before it is widened. *)
-let named_fields ?(declared = Fun.id) name args : fields =
-  match Hashtbl.find_opt declarations name with
-  | None -> []
-  | Some (vars, f) ->
+let rec named_fields ?(declared = Fun.id) name args : fields =
+  match Hashtbl.find_opt declarations name, Hashtbl.find_opt copies name with
+  | None, Some (base, args) when args <> [] ->
+    List.map (fun (l, t) -> l, copied t) (named_fields ~declared base args)
+  | None, _ -> []
+  | Some (vars, f), _ ->
     let mapping = paired vars args in
     let rows =
       paired_rows name args (function

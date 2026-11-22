@@ -1,8 +1,8 @@
-effect stream {
-    ctl yield(i : int): unit;
+effect Stream {
+    ctl yield(i : Int): Unit;
 }
 
-handler print_stream : stream {
+handler print_stream : Stream {
     ctl yield(value) {
         print(value);
         resume;

@@ -1,16 +1,16 @@
-trait E { @ctl fn ask(): int; }
-trait Log { fn note(): unit; }
+trait E { @ctl fn ask(): Int; }
+trait Log { fn note(): Unit; }
 
-fn f(): <E, Console> int {
+fn f(): <E, Console> Int {
     var t = 0;
-    run {
+    run<Unit> {
         note();
         t = ask();
     } handle<Log> { fn note() { print("noted"); } }
     return t;
 }
 
-run {
+run<Unit> {
     print(f());
 } handle<E> {
     fn ask(resume) {

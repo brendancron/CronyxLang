@@ -1,8 +1,8 @@
-trait Log { fn log(s: string): unit; }
-trait Tick { fn tick(): unit; }
-trait Ask { fn ask(): int; }
+trait Log { fn log(s: String): Unit; }
+trait Tick { fn tick(): Unit; }
+trait Ask { fn ask(): Int; }
 
-fn call_it<E>(f: () -> <Log, Tick, E> unit): <Log, Tick, E> unit { f(); }
+fn call_it<E>(f: () -> <Log, Tick, E> Unit): <Log, Tick, E> Unit { f(); }
 
 fn first() {
     fn helper() { log("first's helper logs"); }
@@ -16,16 +16,16 @@ fn second() {
 
 fn only_logs() { log("top-level only_logs"); }
 
-fn passes(only_logs: () -> <Log, Tick> unit) {
+fn passes(only_logs: () -> <Log, Tick> Unit) {
     call_it(only_logs);
 }
 
-fn relay<E>(work: () -> <E> unit): <Log, Tick, E> unit {
+fn relay<E>(work: () -> <E> Unit): <Log, Tick, E> Unit {
     fn go() { work(); }
     call_it(go);
 }
 
-run {
+run<Unit> {
     first();
     second();
     passes(() => { tick(); log("the parameter, not the function"); });

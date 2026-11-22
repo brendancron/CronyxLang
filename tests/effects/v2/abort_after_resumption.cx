@@ -1,16 +1,16 @@
-trait Error { @ctl fn throw<T>(msg: string): T; }
-trait E { @ctl fn op(): unit; }
+trait Error { @ctl fn throw<T>(msg: String): T; }
+trait E { @ctl fn op(): Unit; }
 
-fn work(): <Error, E, Console> unit {
+fn work(): <Error, E, Console> Unit {
     print("w1");
     op();
     throw("boom");
     print("UNREACHABLE");
 }
 
-run {
-    var pending: List<() -> <Error, Console> unit> = [];
-    run {
+run<Unit> {
+    var pending: List<() -> <Error, Console> Unit> = [];
+    run<Unit> {
         work();
         print("UNREACHABLE TOO");
     } handle<E> {

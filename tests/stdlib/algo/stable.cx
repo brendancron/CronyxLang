@@ -1,6 +1,6 @@
 import { sort_by_key, sort_unstable_by, sort_array_by_key } from "std/algo/Sort";
 
-fn people(): List<(string, int)> {
+fn people(): List<(String, Int)> {
     return [("ada", 2), ("bo", 1), ("cy", 2), ("di", 1), ("ed", 2), ("fe", 1)];
 }
 
@@ -25,7 +25,7 @@ sort_by_key(both, (p) => { return p.0; });
 sort_by_key(both, (p) => { return p.1; });
 print(both);
 
-var arr = Array<(string, int)>(3, ("", 0));
+var arr = Array<(String, Int)>(3, ("", 0));
 arr[0] = ("x", 1);
 arr[1] = ("y", 0);
 arr[2] = ("z", 1);

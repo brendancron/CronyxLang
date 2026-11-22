@@ -1,9 +1,9 @@
-effect logic {
-    ctl choose(options: Array<int>): int;
-    ctl guard(cond: bool): unit;
+effect Logic {
+    ctl choose(options: Array<Int>): Int;
+    ctl guard(cond: Bool): Unit;
 }
 
-handler logic_handler : logic {
+handler logic_handler : Logic {
     ctl choose(options) {
         for (x in options) {
             resume x;
@@ -18,7 +18,7 @@ handler logic_handler : logic {
 }
 
 // Every value in the first list that also appears in the second.
-var results: List<int> = [];
+var results: List<Int> = [];
 run {
     var num1 = choose([1, 2, 3, 4, 5]);
     var num2 = choose([3, 5, 7]);

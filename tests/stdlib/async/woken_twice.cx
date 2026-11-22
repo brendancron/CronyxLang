@@ -1,11 +1,11 @@
-import { async, block_on, all } from "std/async/Task";
+import { Async, block_on, all } from "std/async/Task";
 
-var retry: List<(int) -> unit> = [];
+var retry: List<(Int) -> Unit> = [];
 
 block_on {
     all([
         () => {
-            var attempt: int = suspend { retry.push(it); };
+            var attempt: Int = suspend { retry.push(it); };
             print("attempt " + str(attempt));
         },
         () => {

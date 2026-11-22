@@ -1,8 +1,8 @@
 trait Ask {
-    @ctl fn ask(): int;
+    @ctl fn ask(): Int;
 }
 
-run {
+run<Unit> {
     for (c in "ab") {
         print(str(c) + str(ask()));
     }

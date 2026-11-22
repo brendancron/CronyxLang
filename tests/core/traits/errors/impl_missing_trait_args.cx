@@ -1,8 +1,8 @@
 trait Pair<A, B> {
     fn first(self): A;
 }
-type Holder { n: int }
+type Holder { n: Int }
 impl Pair for Holder {
-    fn first(self): int { return self.n; }
+    fn first(self): Int { return self.n; }
 }
 print(Holder { n: 1 });

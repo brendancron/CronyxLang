@@ -1,7 +1,7 @@
 import { first } from "reader";
 import { get } from "store";
 
-fn apply(f: (Array<int>, int) -> int, xs: Array<int>): int {
+fn apply(f: (Array<Int>, Int) -> Int, xs: Array<Int>): Int {
     return f(xs, 2);
 }
 

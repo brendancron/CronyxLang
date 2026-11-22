@@ -1,9 +1,9 @@
 // An operation called in a condition rather than in a statement. Hoisting it
 // into a `var` first is the same program and works today, so the two have to
 // agree.
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
-fn f(): <Ask> int {
+fn f(): <Ask> Int {
     if (get() > 3) { return 1; } else { return 0; }
 }
 

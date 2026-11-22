@@ -8,7 +8,7 @@
  * ```
  * print("a");          // a
  * print(debug("a"));   // "a"
- * var xs: List<string> = ["a", ""];
+ * var xs: List<String> = ["a", ""];
  * print(xs);           // ["a", ""]
  * ```
  *
@@ -17,7 +17,7 @@
  * structure under the type's name:
  *
  * ```
- * type Point { x: int, y: int }
+ * type Point { x: Int, y: Int }
  * derive Display for Point;
  * print(Point { x: 1, y: 2 });   // Point { x: 1, y: 2 }
  * ```
@@ -31,13 +31,13 @@ import { with_params } from "../meta/Derive";
 /** A value as a person reads it. */
 trait Display {
     /** The value, written for a person. */
-    fn fmt(self): string;
+    fn fmt(self): String;
 }
 
 /** A value written so that two different ones read differently. */
 trait Debug {
     /** The value, written to be told apart from any other. */
-    fn debug(self): string;
+    fn debug(self): String;
 }
 
 fn derive(shape: TypeShape) for Display {
@@ -46,12 +46,12 @@ fn derive(shape: TypeShape) for Display {
             var label = str(t);
             if (fields.len() == 0) {
                 var made = with_params(code impl Display for t {
-                    fn fmt(self): string { return label; }
+                    fn fmt(self): String { return label; }
                 }, params, false);
                 gen made;
             } else {
                 var made = with_params(code impl Display for t {
-                    fn fmt(self): string { return label + " " + __written(self); }
+                    fn fmt(self): String { return label + " " + __written(self); }
                 }, params, false);
                 gen made;
             }
@@ -59,7 +59,7 @@ fn derive(shape: TypeShape) for Display {
         TypeShape.Sum(t, params, variants) => {
             var label = str(t);
             var made = with_params(code impl Display for t {
-                fn fmt(self): string { return label + "." + __written(self); }
+                fn fmt(self): String { return label + "." + __written(self); }
             }, params, false);
             gen made;
         }
@@ -73,12 +73,12 @@ fn derive(shape: TypeShape) for Debug {
             var label = str(t);
             if (fields.len() == 0) {
                 var made = with_params(code impl Debug for t {
-                    fn debug(self): string { return label; }
+                    fn debug(self): String { return label; }
                 }, params, false);
                 gen made;
             } else {
                 var made = with_params(code impl Debug for t {
-                    fn debug(self): string { return label + " " + __written(self); }
+                    fn debug(self): String { return label + " " + __written(self); }
                 }, params, false);
                 gen made;
             }
@@ -86,7 +86,7 @@ fn derive(shape: TypeShape) for Debug {
         TypeShape.Sum(t, params, variants) => {
             var label = str(t);
             var made = with_params(code impl Debug for t {
-                fn debug(self): string { return label + "." + __written(self); }
+                fn debug(self): String { return label + "." + __written(self); }
             }, params, false);
             gen made;
         }
@@ -103,7 +103,7 @@ fn derive(shape: TypeShape) for Debug {
  * print(fixed(2.0, 0));       // 2
  * ```
  */
-fn fixed(x: float, digits: int): string {
+fn fixed(x: Float, digits: Int): String {
     return __fixed(x, digits);
 }
 
@@ -116,7 +116,7 @@ fn fixed(x: float, digits: int): string {
  * print(radix(-5, 2));     // -101
  * ```
  */
-fn radix(n: int, base: int): string {
+fn radix(n: Int, base: Int): String {
     if (base < 2 || base > 36) {
         panic("radix takes a base from 2 to 36, not " + str(base) + ".");
     }

@@ -1,16 +1,16 @@
 trait Shape {
-    fn area(self): int;
+    fn area(self): Int;
 }
 
-type Square { side: int }
-type Rect { w: int, h: int }
+type Square { side: Int }
+type Rect { w: Int, h: Int }
 
 impl Shape for Square {
-    fn area(self): int { return self.side * self.side; }
+    fn area(self): Int { return self.side * self.side; }
 }
 
 impl Shape for Rect {
-    fn area(self): int { return self.w * self.h; }
+    fn area(self): Int { return self.w * self.h; }
 }
 
 var shapes: List<Shape> = [Square { side: 2 }, Rect { w: 2, h: 3 }];

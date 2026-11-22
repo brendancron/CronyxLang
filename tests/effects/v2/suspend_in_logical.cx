@@ -1,18 +1,18 @@
-trait Ask { @ctl fn get(): bool; }
+trait Ask { @ctl fn get(): Bool; }
 
-fn any(): <Ask> bool {
+fn any(): <Ask> Bool {
     return false || get();
 }
 
-fn both(): <Ask> bool {
+fn both(): <Ask> Bool {
     return true && get();
 }
 
-fn short(): <Ask> bool {
+fn short(): <Ask> Bool {
     return true || get();
 }
 
-run {
+run<Unit> {
     print(any());
     print(both());
     print(short());

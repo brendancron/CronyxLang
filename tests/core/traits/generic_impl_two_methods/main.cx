@@ -15,8 +15,8 @@ var b = Box { v: "s" };
 print(str(a.get()) + " " + str(b.get()));
 print(str(a.same()) + " " + str(b.same()));
 
-var xs: List<int> = [1, 2];
-var ys: List<string> = ["x"];
+var xs: List<Int> = [1, 2];
+var ys: List<String> = ["x"];
 xs.push(3);
 ys.push("y");
 print(str(xs.len()) + " " + str(ys.len()));

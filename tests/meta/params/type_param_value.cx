@@ -1,0 +1,20 @@
+type Point { x: Int, y: Int }
+
+fn describe<T>(t: T): String {
+    return meta {
+        var said = "a " + str(T) + ", named " + T.name;
+        gen code(said);
+    };
+}
+
+trait Named<E> {
+    meta {
+        print("named at " + str(E));
+    }
+}
+
+type Tag {}
+impl Named<Point> for Tag {}
+
+print(describe(3));
+print(describe(Point { x: 1, y: 2 }));

@@ -9,27 +9,27 @@
  * `std/algo/automata/Dfa.subset_construction` turns one into a DFA.
  */
 
-fn epsilon(): int { return 0 - 1; }
+fn epsilon(): Int { return 0 - 1; }
 
 type Transition {
-    src: int,
-    on: int,
-    to: int
+    src: Int,
+    on: Int,
+    to: Int
 }
 
 type Nfa {
-    states: List<int>,
-    alphabet: List<int>,
+    states: List<Int>,
+    alphabet: List<Int>,
     transitions: List<Transition>,
-    start: int,
-    accept: List<int>
+    start: Int,
+    accept: List<Int>
 }
 
-fn new(start: int): Nfa {
-    var states: List<int> = [start];
-    var alphabet: List<int> = [];
+fn new(start: Int): Nfa {
+    var states: List<Int> = [start];
+    var alphabet: List<Int> = [];
     var transitions: List<Transition> = [];
-    var accept: List<int> = [];
+    var accept: List<Int> = [];
     return Nfa {
         states: states,
         alphabet: alphabet,
@@ -39,7 +39,7 @@ fn new(start: int): Nfa {
     };
 }
 
-fn set_contains(set: List<int>, val: int): bool {
+fn set_contains(set: List<Int>, val: Int): Bool {
     for (member in set) {
         if (member == val) { return true; }
     }
@@ -48,8 +48,8 @@ fn set_contains(set: List<int>, val: int): bool {
 
 // The states reachable from these without consuming anything. The worklist is
 // walked by index rather than being re-sliced, so it costs one pass.
-fn epsilon_closure(nfa: Nfa, states: List<int>): List<int> {
-    var closure: List<int> = [];
+fn epsilon_closure(nfa: Nfa, states: List<Int>): List<Int> {
+    var closure: List<Int> = [];
     for (state in states) { closure.push(state); }
     var at = 0;
     while (at < closure.len()) {
@@ -64,8 +64,8 @@ fn epsilon_closure(nfa: Nfa, states: List<int>): List<int> {
     return closure;
 }
 
-fn step(nfa: Nfa, states: List<int>, symbol: int): List<int> {
-    var reached: List<int> = [];
+fn step(nfa: Nfa, states: List<Int>, symbol: Int): List<Int> {
+    var reached: List<Int> = [];
     for (state in states) {
         for (t in nfa.transitions) {
             if (t.src == state && t.on != epsilon() && t.on == symbol
@@ -77,10 +77,10 @@ fn step(nfa: Nfa, states: List<int>, symbol: int): List<int> {
     return reached;
 }
 
-fn is_accept(nfa: Nfa, id: int): bool { return set_contains(nfa.accept, id); }
+fn is_accept(nfa: Nfa, id: Int): Bool { return set_contains(nfa.accept, id); }
 
-fn simulate(nfa: Nfa, input: List<int>): bool {
-    var start: List<int> = [nfa.start];
+fn simulate(nfa: Nfa, input: List<Int>): Bool {
+    var start: List<Int> = [nfa.start];
     var current = epsilon_closure(nfa, start);
     for (symbol in input) {
         current = epsilon_closure(nfa, step(nfa, current, symbol));
@@ -92,14 +92,14 @@ fn simulate(nfa: Nfa, input: List<int>): bool {
 }
 
 impl Nfa {
-    fn add_state(self, id: int) { self.states.push(id); }
-    fn add_symbol(self, symbol: int) { self.alphabet.push(symbol); }
-    fn add_transition(self, src: int, on: int, to: int) {
+    fn add_state(self, id: Int) { self.states.push(id); }
+    fn add_symbol(self, symbol: Int) { self.alphabet.push(symbol); }
+    fn add_transition(self, src: Int, on: Int, to: Int) {
         self.transitions.push(Transition { src: src, on: on, to: to });
     }
-    fn add_epsilon(self, src: int, to: int) {
+    fn add_epsilon(self, src: Int, to: Int) {
         self.transitions.push(Transition { src: src, on: epsilon(), to: to });
     }
-    fn add_accept(self, id: int) { self.accept.push(id); }
-    fn accepts(self, input: List<int>): bool { return simulate(self, input); }
+    fn add_accept(self, id: Int) { self.accept.push(id); }
+    fn accepts(self, input: List<Int>): Bool { return simulate(self, input); }
 }

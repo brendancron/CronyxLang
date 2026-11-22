@@ -8,10 +8,10 @@ fn quiet<X, T, E>(fallback: T, f: () -> <Throw<X>, E> T): <Console, E> T {
     return out;
 }
 
-fn a(): int { throw("a failed"); return 1; }
-fn b(): int { throw(42); return 2; }
+fn a(): Int { throw("a failed"); return 1; }
+fn b(): Int { throw(42); return 2; }
 
-fn one(): int { return quiet(0, a); }
-fn two(): int { return quiet(0, b); }
+fn one(): Int { return quiet(0, a); }
+fn two(): Int { return quiet(0, b); }
 
 print(one() + two());

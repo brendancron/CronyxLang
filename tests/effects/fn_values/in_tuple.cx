@@ -1,6 +1,6 @@
-effect E { ctl op(): int; }
+effect E { ctl op(): Int; }
 
-fn doubled(): <E> int { return op() * 2; }
+fn doubled(): <E> Int { return op() * 2; }
 
 run {
     var pair = (() => { return doubled(); }, 5);

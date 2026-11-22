@@ -2,7 +2,7 @@
  * What a type says about itself, which is what `typeof` answers with.
  *
  * ```
- * type Point { x: int, y: int }
+ * type Point { x: Int, y: Int }
  *
  * meta {
  *     match typeof(Point).shape {
@@ -23,16 +23,16 @@
 /** An argument written in an attribute, by the kind of literal it was. */
 type AttrArg {
     /** `@table("people")`. */
-    Str(string),
+    Str(String),
 
     /** `@width(4)`. */
-    Int(int),
+    Int(Int),
 
     /** `@scale(1.5)`. */
-    Float(float),
+    Float(Float),
 
     /** `@skip(true)`. */
-    Bool(bool),
+    Bool(Bool),
 }
 
 /** One attribute as it was written. A doc comment is never one of these. */
@@ -50,7 +50,7 @@ type Attr {
  * a deriver that needs to look inside one asks `typeof`.
  */
 type TypeRef {
-    /** A declared or a primitive type, with its arguments: `int`, `List<string>`. */
+    /** A declared or a primitive type, with its arguments: `Int`, `List<String>`. */
     Named(Name, Array<TypeRef>),
 
     /** One of the reflected type's own parameters. */
@@ -61,12 +61,12 @@ type TypeRef {
 }
 
 impl TypeRef {
-    /** The type as a program writes it: `Option<int>`, `T`, `?` for one with no name. */
-    fn text(self): string {
+    /** The type as a program writes it: `Option<Int>`, `T`, `?` for one with no name. */
+    fn text(self): String {
         match self {
             TypeRef.Named(name, args) => {
                 if (args.len() == 0) { return str(name); }
-                var parts: List<string> = [str(name), "<"];
+                var parts: List<String> = [str(name), "<"];
                 for (var i = 0; i < args.len(); i += 1) {
                     if (i > 0) { parts.push(", "); }
                     parts.push(args[i].text());
@@ -90,7 +90,7 @@ type TypeField {
     ty: TypeRef,
 
     /** Its doc comment, empty where there is none. */
-    doc: string,
+    doc: String,
 
     /** Its attributes, with the doc comment not among them. */
     attrs: Array<Attr>
@@ -102,7 +102,7 @@ type TypeVariant {
     name: Name,
 
     /** How many values it carries. */
-    arity: int,
+    arity: Int,
 
     /** The type of each value it carries, in order. */
     payload: Array<TypeRef>,
@@ -111,7 +111,7 @@ type TypeVariant {
     fields: Array<Name>,
 
     /** Its doc comment, empty where there is none. */
-    doc: string,
+    doc: String,
 
     /** Its attributes, with the doc comment not among them. */
     attrs: Array<Attr>
@@ -137,20 +137,20 @@ type TypeShape {
  * text of a doc comment, empty where there is none.
  */
 type Type {
-    /** As a program writes it: `int`, `List<string>`. */
-    name: string,
+    /** As a program writes it: `Int`, `List<String>`. */
+    name: String,
 
     shape: TypeShape,
 
     /** Its attributes, with the doc comment not among them. */
     attrs: Array<Attr>,
 
-    doc: string
+    doc: String
 }
 
 /** A type is written as its name. */
 impl Display for Type {
-    fn fmt(self): string { return self.name; }
+    fn fmt(self): String { return self.name; }
 }
 
 /**
@@ -188,7 +188,7 @@ type Declaration {
     kind: DeclarationKind,
 
     /** Its doc comment, empty where there is none. */
-    doc: string,
+    doc: String,
 
     /** Its attributes, with the doc comment not among them. */
     attrs: Array<Attr>,

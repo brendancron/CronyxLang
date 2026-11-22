@@ -1,6 +1,6 @@
-effect Log { fn log(msg: string): unit; }
+effect Log { fn log(msg: String): Unit; }
 
-fn main(): unit {
+fn main(): Unit {
     handler quiet : Log {
         fn log(msg) { print("handled " + msg); }
     }

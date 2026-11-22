@@ -11,9 +11,9 @@ type Result<T, X> {
 
 fn attempt<X, T, E>(f: () -> <Throw<X>, E> T): <E> Result<T, X> {
     var outcome: Option<Result<T, X>> = Option.None;
-    run {
+    run<Unit> {
         outcome = Option.Some(Result.Ok(f()));
-    } handle<Throw> {
+    } handle<Throw<X>> {
         fn throw(e, resume) { outcome = Option.Some(Result.Err(e)); }
     }
     match outcome {

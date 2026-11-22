@@ -10,20 +10,20 @@ import { Nfa, Transition, epsilon } from "../../algo/automata/Nfa";
 import { RegexAst, RegexNode } from "RegexAst";
 
 type Fragment {
-    start: int,
-    end: int
+    start: Int,
+    end: Int
 }
 
 // Thompson's construction. Symbols are code points, and `.` is expanded to
 // printable ASCII here rather than being a wildcard the simulator knows about.
 fn build(ast: RegexAst): Nfa {
-    var states: List<int> = [];
-    var alphabet: List<int> = [];
+    var states: List<Int> = [];
+    var alphabet: List<Int> = [];
     var transitions: List<Transition> = [];
-    var counter: List<int> = [0];
+    var counter: List<Int> = [0];
 
     var frag = build_node(states, alphabet, transitions, counter, ast, ast.root);
-    var accept: List<int> = [frag.end];
+    var accept: List<Int> = [frag.end];
 
     return Nfa {
         states: states,
@@ -34,35 +34,35 @@ fn build(ast: RegexAst): Nfa {
     };
 }
 
-fn fresh(states: List<int>, counter: List<int>): int {
+fn fresh(states: List<Int>, counter: List<Int>): Int {
     var id = counter[0];
     counter[0] = id + 1;
     states.push(id);
     return id;
 }
 
-fn add_symbol(alphabet: List<int>, cp: int) {
+fn add_symbol(alphabet: List<Int>, cp: Int) {
     for (known in alphabet) {
         if (known == cp) { return; }
     }
     alphabet.push(cp);
 }
 
-fn add_trans(transitions: List<Transition>, src: int, cp: int, to: int) {
+fn add_trans(transitions: List<Transition>, src: Int, cp: Int, to: Int) {
     transitions.push(Transition { src: src, on: cp, to: to });
 }
 
-fn add_eps(transitions: List<Transition>, src: int, to: int) {
+fn add_eps(transitions: List<Transition>, src: Int, to: Int) {
     transitions.push(Transition { src: src, on: epsilon(), to: to });
 }
 
 fn build_node(
-    states: List<int>,
-    alphabet: List<int>,
+    states: List<Int>,
+    alphabet: List<Int>,
     transitions: List<Transition>,
-    counter: List<int>,
+    counter: List<Int>,
     ast: RegexAst,
-    node_id: int
+    node_id: Int
 ): Fragment {
     match ast.nodes[node_id] {
         RegexNode.Literal(cp) => {
@@ -125,11 +125,11 @@ fn build_node(
 }
 
 fn build_literal(
-    states: List<int>,
-    alphabet: List<int>,
+    states: List<Int>,
+    alphabet: List<Int>,
     transitions: List<Transition>,
-    counter: List<int>,
-    cp: int
+    counter: List<Int>,
+    cp: Int
 ): Fragment {
     var s = fresh(states, counter);
     var e = fresh(states, counter);
@@ -139,10 +139,10 @@ fn build_literal(
 }
 
 fn build_range(
-    states: List<int>,
-    alphabet: List<int>,
+    states: List<Int>,
+    alphabet: List<Int>,
     transitions: List<Transition>,
-    counter: List<int>
+    counter: List<Int>
 ): Fragment {
     var s = fresh(states, counter);
     var e = fresh(states, counter);
@@ -156,12 +156,12 @@ fn build_range(
 }
 
 fn build_class(
-    states: List<int>,
-    alphabet: List<int>,
+    states: List<Int>,
+    alphabet: List<Int>,
     transitions: List<Transition>,
-    counter: List<int>,
-    chars: List<int>,
-    negated: bool
+    counter: List<Int>,
+    chars: List<Int>,
+    negated: Bool
 ): Fragment {
     var s = fresh(states, counter);
     var e = fresh(states, counter);
@@ -183,7 +183,7 @@ fn build_class(
     return Fragment { start: s, end: e };
 }
 
-fn contains(items: List<int>, val: int): bool {
+fn contains(items: List<Int>, val: Int): Bool {
     for (item in items) {
         if (item == val) { return true; }
     }

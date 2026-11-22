@@ -1,8 +1,8 @@
-effect Ask { ctl ask(): int; }
+effect Ask { ctl ask(): Int; }
 
-type Shape { Point, Circle(int) }
+type Shape { Point, Circle(Int) }
 
-fn size(s: Shape): int {
+fn size(s: Shape): Int {
     return match s {
         Shape.Point => ask(),
         Shape.Circle(r) => r * ask(),

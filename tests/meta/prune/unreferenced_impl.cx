@@ -1,24 +1,24 @@
 trait Area {
-    fn area(self): int;
+    fn area(self): Int;
 }
 
-type Square { side: int }
-type Circle { r: int }
+type Square { side: Int }
+type Circle { r: Int }
 
 impl Area for Square {
-    fn area(self): int { return self.side * self.side; }
+    fn area(self): Int { return self.side * self.side; }
 }
 
 impl Area for Circle {
-    fn area(self): int { return 3 * self.r * self.r; }
+    fn area(self): Int { return 3 * self.r * self.r; }
 }
 
 impl Display for Circle {
-    fn fmt(self): string { return "circle"; }
+    fn fmt(self): String { return "circle"; }
 }
 
 impl Display for Square {
-    fn fmt(self): string { return "square " + str(self.side); }
+    fn fmt(self): String { return "square " + str(self.side); }
 }
 
 var s = Square { side: 3 };

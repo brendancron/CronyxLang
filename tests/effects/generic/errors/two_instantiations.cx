@@ -1,5 +1,5 @@
 effect Yield<T> {
-    ctl yield(value: T): unit;
+    ctl yield(value: T): Unit;
 }
 
 // The first use fixes what the row carries, so the second has to agree with it.

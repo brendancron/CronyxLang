@@ -1,11 +1,11 @@
-trait Ask { @ctl fn ask(): int; }
+trait Ask { @ctl fn ask(): Int; }
 
-fn asker(scale: int): () -> <Ask> int {
+fn asker(scale: Int): () -> <Ask> Int {
     return () => { return ask() * scale; };
 }
 
-fn answer(f: () -> <Ask> int, n: int): int {
-    return run<int> {
+fn answer(f: () -> <Ask> Int, n: Int): Int {
+    return run<Int> {
         f() + f()
     } handle<Ask> {
         fn ask(resume) { return resume(n); }

@@ -1,10 +1,10 @@
 type Shape {
     Point,
-    Circle(int),
-    Rect(int, int),
+    Circle(Int),
+    Rect(Int, Int),
 }
 
-fn label(s: Shape): string {
+fn label(s: Shape): String {
     return match s {
         Shape.Rect(w, h) => {
             var area = w * h;

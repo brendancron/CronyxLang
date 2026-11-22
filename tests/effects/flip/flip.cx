@@ -1,5 +1,5 @@
-effect flip {
-    ctl flip(): bool;
+effect Flip {
+    ctl flip(): Bool;
 }
 
 run {
@@ -13,7 +13,7 @@ run {
     } else {
         print("I'm having water");
     }
-} handle flip {
+} handle Flip {
     ctl flip() {
         resume false;
         resume true;

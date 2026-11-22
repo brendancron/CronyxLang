@@ -1,13 +1,13 @@
 trait Ask {
-    @ctl fn ask(): int;
+    @ctl fn ask(): Int;
 }
 
-fn noted(): int {
+fn noted(): Int {
     defer print("left");
     return ask();
 }
 
-run {
+run<Unit> {
     print(noted());
 } handle<Ask> {
     fn ask(resume) { resume(1); }

@@ -2,14 +2,14 @@ trait To<T> {
     fn to(self): T;
 }
 
-type Flag { raw: int }
+type Flag { raw: Int }
 
-impl To<string> for Flag {
-    fn to(self): string { return "flag"; }
+impl To<String> for Flag {
+    fn to(self): String { return "flag"; }
 }
 
-impl To<bool> for Flag {
-    fn to(self): bool { return self.raw != 0; }
+impl To<Bool> for Flag {
+    fn to(self): Bool { return self.raw != 0; }
 }
 
 print(Flag { raw: 1 }.to());

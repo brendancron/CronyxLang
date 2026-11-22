@@ -1,16 +1,16 @@
 trait Log {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
 type Basic {}
 
 impl Log for Basic {
-    fn log(msg: string): unit {
+    fn log(msg: String): Unit {
         print(msg);
     }
 }
 
-run {
+run<Unit> {
     log("x");
 } handle<Log> {
     fn log(msg) { print(msg); }

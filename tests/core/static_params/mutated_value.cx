@@ -1,16 +1,16 @@
-type P { x: int, }
+type P { x: Int, }
 
-fn bump<p: P>(): int {
+fn bump<p: P>(): Int {
     p.x = p.x + 1;
     return p.x;
 }
 
-fn first<xs: Array<int>>(): int {
+fn first<xs: Array<Int>>(): Int {
     xs[0] = xs[0] * 10;
     return xs[0];
 }
 
-fn count<n: int>(): int {
+fn count<n: Int>(): Int {
     n = n + 1;
     return n;
 }

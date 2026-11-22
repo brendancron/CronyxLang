@@ -23,13 +23,13 @@
  */
 type Range {
     /** `a[i:j]`: from `i` up to but not including `j`. */
-    Between(int, int),
+    Between(Int, Int),
 
     /** `a[i:]`: from `i` to the end. */
-    From(int),
+    From(Int),
 
     /** `a[:j]`: from the start up to but not including `j`. */
-    To(int),
+    To(Int),
 
     /** `a[:]`: the whole of it. */
     All
@@ -37,7 +37,7 @@ type Range {
 
 // A bound counted from the end is resolved here, once, where the length is
 // known — which is why it is the entry's business and not the language's.
-fn __bound(at: int, length: int): int {
+fn __bound(at: Int, length: Int): Int {
     var resolved = at;
     if (resolved < 0) { resolved = length + resolved; }
     if (resolved < 0) { resolved = 0; }
@@ -45,7 +45,7 @@ fn __bound(at: int, length: int): int {
     return resolved;
 }
 
-fn __span(r: Range, length: int): (int, int) {
+fn __span(r: Range, length: Int): (Int, Int) {
     match r {
         Range.Between(from, to) => {
             return (__bound(from, length), __bound(to, length));

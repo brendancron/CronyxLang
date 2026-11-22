@@ -1,9 +1,9 @@
 type Counter {
-    n: int
+    n: Int
 }
 
 impl Counter {
-    fn add(self, a: int, b: int): int { return self.n + a + b; }
+    fn add(self, a: Int, b: Int): Int { return self.n + a + b; }
 }
 
 var c = Counter { n: 1 };

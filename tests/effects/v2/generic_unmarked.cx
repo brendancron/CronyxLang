@@ -1,5 +1,5 @@
 trait Emit<T> {
-    fn emit(x: T): unit;
+    fn emit(x: T): Unit;
 }
 
 fn each<T>(items: List<T>) {
@@ -7,17 +7,17 @@ fn each<T>(items: List<T>) {
 }
 
 var sum = 0;
-run {
+run<Unit> {
     each([1, 2, 3]);
-} handle<Emit> {
+} handle<Emit<Int>> {
     fn emit(x) { sum = sum + x; }
 }
 print(sum);
 
 var words = "";
-run {
+run<Unit> {
     each(["a", "b"]);
-} handle<Emit<string>> {
+} handle<Emit<String>> {
     fn emit(x) { words = words + x; }
 }
 print(words);

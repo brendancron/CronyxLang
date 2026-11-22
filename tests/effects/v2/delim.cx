@@ -1,14 +1,14 @@
-trait exception {
-    @ctl fn throw(msg: string): unit;
+trait Exception {
+    @ctl fn throw(msg: String): Unit;
 }
 
 fn main() {
     print("Start of Main");
-    run {
+    run<Unit> {
         print("Start of Run Block");
         throw("Some Exception");
         print("End of Run Block");
-    } handle<exception> {
+    } handle<Exception> {
         fn throw(msg, resume) {
             print(msg);
         }

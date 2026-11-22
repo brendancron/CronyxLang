@@ -1,8 +1,8 @@
 effect Yield<T> {
-    ctl yield(value: T): unit;
+    ctl yield(value: T): Unit;
 }
 
-fn spelled(text: string): <Yield<int>> unit {
+fn spelled(text: String): <Yield<Int>> Unit {
     yield(text);
 }
 

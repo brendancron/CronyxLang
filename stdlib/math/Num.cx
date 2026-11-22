@@ -10,7 +10,7 @@
  * print(BigInt.of(2).pow(100));    // 1267650600228229401496703205376
  * ```
  *
- * `int`, `float` and `BigInt` implement each of them but `Ord`, which `float`
+ * `Int`, `Float` and `BigInt` implement each of them but `Ord`, which `Float`
  * does not: NaN compares to nothing, so a total order over it would be a lie.
  */
 
@@ -53,42 +53,42 @@ trait Pow<E> {
     fn pow(self, exponent: E): Self;
 }
 
-impl Ord for int {
-    fn cmp(self, rhs: int): Ordering { return __ordering(self < rhs, self > rhs); }
+impl Ord for Int {
+    fn cmp(self, rhs: Int): Ordering { return __ordering(self < rhs, self > rhs); }
 }
 
-impl Ord for string {
-    fn cmp(self, rhs: string): Ordering { return __ordering(self < rhs, self > rhs); }
+impl Ord for String {
+    fn cmp(self, rhs: String): Ordering { return __ordering(self < rhs, self > rhs); }
 }
 
-impl Ord for char {
-    fn cmp(self, rhs: char): Ordering { return __ordering(self < rhs, self > rhs); }
+impl Ord for Char {
+    fn cmp(self, rhs: Char): Ordering { return __ordering(self < rhs, self > rhs); }
 }
 
 impl Ord for BigInt {
     fn cmp(self, rhs: BigInt): Ordering { return __ordering(self < rhs, self > rhs); }
 }
 
-impl Zero for int { fn zero(): int { return 0; } }
-impl One for int { fn one(): int { return 1; } }
-impl Num for int {}
+impl Zero for Int { fn zero(): Int { return 0; } }
+impl One for Int { fn one(): Int { return 1; } }
+impl Num for Int {}
 
-impl Signed for int {
-    fn abs(self): int {
+impl Signed for Int {
+    fn abs(self): Int {
         if (self < 0) { return -self; }
         return self;
     }
 
-    fn sign(self): int {
+    fn sign(self): Int {
         if (self < 0) { return -1; }
         if (self > 0) { return 1; }
         return 0;
     }
 }
 
-impl Pow<int> for int {
-    /** Panics if `exponent` is negative: no `int` is the answer. */
-    fn pow(self, exponent: int): int {
+impl Pow<Int> for Int {
+    /** Panics if `exponent` is negative: no `Int` is the answer. */
+    fn pow(self, exponent: Int): Int {
         if (exponent < 0) { panic("pow takes an exponent of 0 or more, not " + str(exponent) + "."); }
         var result = 1;
         var square = self;
@@ -102,22 +102,22 @@ impl Pow<int> for int {
     }
 }
 
-impl Zero for float { fn zero(): float { return 0.0; } }
-impl One for float { fn one(): float { return 1.0; } }
-impl Num for float {}
+impl Zero for Float { fn zero(): Float { return 0.0; } }
+impl One for Float { fn one(): Float { return 1.0; } }
+impl Num for Float {}
 
-impl Signed for float {
-    fn abs(self): float { return __float_copysign(self, 1.0); }
+impl Signed for Float {
+    fn abs(self): Float { return __float_copysign(self, 1.0); }
 
     /** A zero is itself, so `-0.0` keeps its sign, and NaN is NaN. */
-    fn sign(self): float {
+    fn sign(self): Float {
         if (__float_is_nan(self) || self == 0.0) { return self; }
         return __float_copysign(1.0, self);
     }
 }
 
-impl Pow<float> for float {
-    fn pow(self, exponent: float): float { return __float_pow(self, exponent); }
+impl Pow<Float> for Float {
+    fn pow(self, exponent: Float): Float { return __float_pow(self, exponent); }
 }
 
 impl Zero for BigInt { fn zero(): BigInt { return BigInt.of(0); } }
@@ -137,9 +137,9 @@ impl Signed for BigInt {
     }
 }
 
-impl Pow<int> for BigInt {
+impl Pow<Int> for BigInt {
     /** Panics if `exponent` is negative. */
-    fn pow(self, exponent: int): BigInt {
+    fn pow(self, exponent: Int): BigInt {
         if (exponent < 0) { panic("pow takes an exponent of 0 or more, not " + str(exponent) + "."); }
         var result = BigInt.of(1);
         var square = self;
@@ -153,7 +153,7 @@ impl Pow<int> for BigInt {
     }
 }
 
-fn __ordering(less: bool, greater: bool): Ordering {
+fn __ordering(less: Bool, greater: Bool): Ordering {
     if (less) { return Ordering.Less; }
     if (greater) { return Ordering.Greater; }
     return Ordering.Equal;

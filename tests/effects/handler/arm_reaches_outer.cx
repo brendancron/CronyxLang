@@ -1,6 +1,6 @@
-effect Log { fn log(s: string): unit; }
-effect Ask { ctl ask(): int; }
-effect Fail { final ctl fail(why: string); }
+effect Log { fn log(s: String): Unit; }
+effect Ask { ctl ask(): Int; }
+effect Fail { final ctl fail(why: String); }
 
 run {
     run { log("inner"); } handle Log { fn log(s) { log("wrapped " + s); } }

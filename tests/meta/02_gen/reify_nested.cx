@@ -1,4 +1,4 @@
-type P { x: int }
+type P { x: Int }
 type E { A, B(P) }
 meta {
     var es = [E.A, E.B(P { x: 7 })];

@@ -1,4 +1,4 @@
-Array<int>
-Array<bool>
-Array<string>
-Array<Array<int>>
+Array<Int>
+Array<Bool>
+Array<String>
+Array<Array<Int>>

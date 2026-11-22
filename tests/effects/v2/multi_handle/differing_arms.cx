@@ -1,8 +1,8 @@
-trait stream {
-    @ctl fn yield(value: int): unit;
+trait Stream {
+    @ctl fn yield(value: Int): Unit;
 }
 
-fn range(low: int, high: int) {
+fn range(low: Int, high: Int) {
     var i = low;
     while (i < high) {
         yield(i);
@@ -10,13 +10,13 @@ fn range(low: int, high: int) {
     }
 }
 
-run {
+run<Unit> {
     range(0, 3);
-} handle<stream> {
+} handle<Stream> {
     fn yield(value, resume) { print(value); resume(()); }
 }
 
-var first = run<int> { range(100, 103); -1 } handle<stream> {
+var first = run<Int> { range(100, 103); -1 } handle<Stream> {
     fn yield(value, resume) { return value; }
 };
 

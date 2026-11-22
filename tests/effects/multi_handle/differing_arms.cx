@@ -1,8 +1,8 @@
-effect stream {
-    ctl yield(value: int): unit;
+effect Stream {
+    ctl yield(value: Int): Unit;
 }
 
-fn range(low: int, high: int) {
+fn range(low: Int, high: Int) {
     var i = low;
     while (i < high) {
         yield(i);
@@ -12,11 +12,11 @@ fn range(low: int, high: int) {
 
 run {
     range(0, 3);
-} handle stream {
+} handle Stream {
     ctl yield(value) { print(value); resume; }
 }
 
-var first = run { range(100, 103) } handle stream {
+var first = run { range(100, 103) } handle Stream {
     ctl yield(value) { return value; }
 } return (nothing) { -1 };
 

@@ -1,6 +1,6 @@
-effect logger { fn log(msg: string): unit; }
+effect Logger { fn log(msg: String): Unit; }
 
 // A written row is closed, so `<>` is a promise of purity.
-fn pure_claim(): <> unit {
+fn pure_claim(): <> Unit {
     log("x");
 }

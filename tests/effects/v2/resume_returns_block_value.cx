@@ -1,8 +1,8 @@
 trait Choose {
-    @ctl fn choose(): bool;
+    @ctl fn choose(): Bool;
 }
 
-var both = run<string> {
+var both = run<String> {
     var picked = choose();
     print("picked " + str(picked));
     str(picked)

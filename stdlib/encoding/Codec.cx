@@ -5,7 +5,7 @@
  * import { Encode, Decode } from "std/encoding/Codec";
  * import { to_json, from_json } from "std/encoding/Json";
  *
- * type Server { host: string, port: int }
+ * type Server { host: String, port: Int }
  * derive Encode, Decode for Server;
  *
  * print(to_json(Server { host: "localhost", port: 8080 }));
@@ -39,23 +39,23 @@ import { numbered } from "../meta/Name";
 /** Why input does not decode. */
 type DecodeError {
     /** The input ended where more was needed. The offset is its length. */
-    Truncated(int),
+    Truncated(Int),
 
     /** The character at this offset means nothing where it stands. */
-    Unexpected(int, char),
+    Unexpected(Int, Char),
 
     /** The value at the path is not what the type needs: the path, what it needs, and what was there. */
-    Mismatch(string, string, string),
+    Mismatch(String, String, String),
 
     /** Nothing is at the path, and the type needs something there. */
-    Missing(string),
+    Missing(String),
 
     /** The key at the path is given a value twice. */
-    Duplicate(string)
+    Duplicate(String)
 }
 
 impl Failure for DecodeError {
-    fn message(self): string {
+    fn message(self): String {
         match self {
             DecodeError.Truncated(at) => { return "the input ends at offset " + str(at) + " where more was needed"; }
             DecodeError.Unexpected(at, c) => {
@@ -70,7 +70,7 @@ impl Failure for DecodeError {
     }
 }
 
-fn __where(path: string): string {
+fn __where(path: String): String {
     if (path == "") { return ""; }
     return path + ": ";
 }
@@ -78,10 +78,10 @@ fn __where(path: string): string {
 /** A value as a format sees it, before it is text. */
 type Data {
     Null,
-    Bool(bool),
-    Int(int),
-    Float(float),
-    Str(string),
+    Bool(Bool),
+    Int(Int),
+    Float(Float),
+    Str(String),
     /** Values in order. */
     Seq(List<Data>),
     /** Named values, in the order they were written. */
@@ -90,13 +90,13 @@ type Data {
 
 /** One named value of a `Data.Map`. */
 type Entry {
-    key: string,
+    key: String,
     value: Data
 }
 
 impl Data {
     /** What kind of value it is, for a message: `an int`, `a map`. */
-    fn kind(self): string {
+    fn kind(self): String {
         match self {
             Data.Null => { return "null"; }
             Data.Bool(_) => { return "a bool"; }
@@ -110,7 +110,7 @@ impl Data {
     }
 
     /** The value under the key, if this is a map holding one. */
-    fn get(self, key: string): Option<Data> {
+    fn get(self, key: String): Option<Data> {
         match self {
             Data.Map(entries) => {
                 for (e in entries) {
@@ -135,17 +135,17 @@ trait Decode {
 
 /** A text format: what writes `Data` and reads it back. */
 trait Format {
-    fn write(self, data: Data): string;
-    fn read(self, text: string): <Throw<DecodeError>> Data;
+    fn write(self, data: Data): String;
+    fn read(self, text: String): <Throw<DecodeError>> Data;
 }
 
 /** The value written in the format. */
-fn encode_as<F: Format, T: Encode>(format: F, value: T): string {
+fn encode_as<F: Format, T: Encode>(format: F, value: T): String {
     return format.write(value.encode());
 }
 
 /** A value read from text in the format. */
-fn decode_as<T: Decode, F: Format>(format: F, text: string): <Throw<DecodeError>> T {
+fn decode_as<T: Decode, F: Format>(format: F, text: String): <Throw<DecodeError>> T {
     return T.decode(Decoder.of(format.read(text)));
 }
 
@@ -160,8 +160,8 @@ fn decode_data<T: Decode>(data: Data): <Throw<DecodeError>> T {
  */
 type Decoder {
     data: Data,
-    present: bool,
-    path: string
+    present: Bool,
+    path: String
 }
 
 impl Decoder {
@@ -169,10 +169,10 @@ impl Decoder {
     fn of(data: Data): Decoder { return Decoder { data: data, present: true, path: "" }; }
 
     /** Whether anything is here. A missing map key is not. */
-    fn is_present(self): bool { return self.present; }
+    fn is_present(self): Bool { return self.present; }
 
     /** Whether nothing is here, or null is. */
-    fn is_empty(self): bool {
+    fn is_empty(self): Bool {
         if (!self.present) { return true; }
         match self.data {
             Data.Null => { return true; }
@@ -182,12 +182,12 @@ impl Decoder {
     }
 
     /** The value under the key, decoded. */
-    fn field<T: Decode>(self, key: string): <Throw<DecodeError>> T {
+    fn field<T: Decode>(self, key: String): <Throw<DecodeError>> T {
         return T.decode(self.at(key));
     }
 
     /** What decoding finds when the key is missing, whether or not it is there. */
-    fn absent<T: Decode>(self, key: string): <Throw<DecodeError>> T {
+    fn absent<T: Decode>(self, key: String): <Throw<DecodeError>> T {
         return T.decode(Decoder { data: Data.Null, present: false, path: self.__key_path(key) });
     }
 
@@ -195,7 +195,7 @@ impl Decoder {
     fn decoded<T: Decode>(self): <Throw<DecodeError>> T { return T.decode(self); }
 
     /** The value at the index of the list here, decoded. */
-    fn item<T: Decode>(self, index: int): <Throw<DecodeError>> T {
+    fn item<T: Decode>(self, index: Int): <Throw<DecodeError>> T {
         var items = self.items();
         if (index >= items.len()) {
             return throw(DecodeError.Missing(self.path + "[" + str(index) + "]"));
@@ -204,7 +204,7 @@ impl Decoder {
     }
 
     /** The place under the key. Missing is not a failure until something needs a value there. */
-    fn at(self, key: string): <Throw<DecodeError>> Decoder {
+    fn at(self, key: String): <Throw<DecodeError>> Decoder {
         var path = self.__key_path(key);
         if (!self.present) { return throw(DecodeError.Missing(self.path)); }
         match self.data {
@@ -237,10 +237,10 @@ impl Decoder {
     }
 
     /** Each key and the place under it, in order. */
-    fn entries(self): <Throw<DecodeError>> List<(string, Decoder)> {
+    fn entries(self): <Throw<DecodeError>> List<(String, Decoder)> {
         match self.__value() {
             Data.Map(entries) => {
-                var out: List<(string, Decoder)> = [];
+                var out: List<(String, Decoder)> = [];
                 for (e in entries) {
                     out.push((e.key, Decoder { data: e.value, present: true, path: self.__key_path(e.key) }));
                 }
@@ -255,7 +255,7 @@ impl Decoder {
      * The variant written here, and the place holding its payload: a name
      * alone, or a map from the name to the payload.
      */
-    fn variant(self): <Throw<DecodeError>> (string, Decoder) {
+    fn variant(self): <Throw<DecodeError>> (String, Decoder) {
         match self.__value() {
             Data.Str(name) => {
                 return (name, Decoder { data: Data.Null, present: false, path: self.__key_path(name) });
@@ -271,7 +271,7 @@ impl Decoder {
         return throw(self.mismatch("a variant"));
     }
 
-    fn int(self): <Throw<DecodeError>> int {
+    fn int(self): <Throw<DecodeError>> Int {
         match self.__value() {
             Data.Int(n) => { return n; }
             _ => {}
@@ -279,7 +279,7 @@ impl Decoder {
         return throw(self.mismatch("an int"));
     }
 
-    fn float(self): <Throw<DecodeError>> float {
+    fn float(self): <Throw<DecodeError>> Float {
         match self.__value() {
             Data.Float(f) => { return f; }
             Data.Int(n) => { return n.to_float(); }
@@ -288,7 +288,7 @@ impl Decoder {
         return throw(self.mismatch("a float"));
     }
 
-    fn string(self): <Throw<DecodeError>> string {
+    fn string(self): <Throw<DecodeError>> String {
         match self.__value() {
             Data.Str(s) => { return s; }
             _ => {}
@@ -296,7 +296,7 @@ impl Decoder {
         return throw(self.mismatch("a string"));
     }
 
-    fn bool(self): <Throw<DecodeError>> bool {
+    fn bool(self): <Throw<DecodeError>> Bool {
         match self.__value() {
             Data.Bool(b) => { return b; }
             _ => {}
@@ -305,12 +305,12 @@ impl Decoder {
     }
 
     /** The failure for finding something other than what was needed here. */
-    fn mismatch(self, expected: string): DecodeError {
+    fn mismatch(self, expected: String): DecodeError {
         return DecodeError.Mismatch(self.path, expected, self.data.kind());
     }
 
     /** The failure for a variant the type does not have. */
-    fn unknown_variant(self, name: string): DecodeError {
+    fn unknown_variant(self, name: String): DecodeError {
         return DecodeError.Mismatch(self.path, "a variant of this type", "'" + name + "'");
     }
 
@@ -319,16 +319,16 @@ impl Decoder {
         return self.data;
     }
 
-    fn __key_path(self, key: string): string {
+    fn __key_path(self, key: String): String {
         if (self.path == "") { return key; }
         return self.path + "." + key;
     }
 }
 
-impl Encode for int { fn encode(self): Data { return Data.Int(self); } }
-impl Encode for float { fn encode(self): Data { return Data.Float(self); } }
-impl Encode for string { fn encode(self): Data { return Data.Str(self); } }
-impl Encode for bool { fn encode(self): Data { return Data.Bool(self); } }
+impl Encode for Int { fn encode(self): Data { return Data.Int(self); } }
+impl Encode for Float { fn encode(self): Data { return Data.Float(self); } }
+impl Encode for String { fn encode(self): Data { return Data.Str(self); } }
+impl Encode for Bool { fn encode(self): Data { return Data.Bool(self); } }
 impl Encode for Data { fn encode(self): Data { return self; } }
 
 impl Encode for Option<T: Encode> {
@@ -349,10 +349,10 @@ impl Encode for List<T: Encode> {
     }
 }
 
-impl Decode for int { fn decode(input: Decoder): <Throw<DecodeError>> int { return input.int(); } }
-impl Decode for float { fn decode(input: Decoder): <Throw<DecodeError>> float { return input.float(); } }
-impl Decode for string { fn decode(input: Decoder): <Throw<DecodeError>> string { return input.string(); } }
-impl Decode for bool { fn decode(input: Decoder): <Throw<DecodeError>> bool { return input.bool(); } }
+impl Decode for Int { fn decode(input: Decoder): <Throw<DecodeError>> Int { return input.int(); } }
+impl Decode for Float { fn decode(input: Decoder): <Throw<DecodeError>> Float { return input.float(); } }
+impl Decode for String { fn decode(input: Decoder): <Throw<DecodeError>> String { return input.string(); } }
+impl Decode for Bool { fn decode(input: Decoder): <Throw<DecodeError>> Bool { return input.bool(); } }
 
 impl Decode for Data {
     fn decode(input: Decoder): <Throw<DecodeError>> Data {

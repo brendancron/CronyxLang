@@ -1,6 +1,6 @@
 import { Signal } from "signal";
 
-fn guarded(): string {
+fn guarded(): String {
     run {
         stop("selective");
     } handle Signal {

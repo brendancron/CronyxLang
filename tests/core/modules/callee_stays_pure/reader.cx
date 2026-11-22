@@ -1,5 +1,5 @@
 import { get } from "store";
 
-fn first(xs: Array<int>): int {
+fn first(xs: Array<Int>): Int {
     return get(xs, 0);
 }

@@ -1,4 +1,4 @@
-fn twice(n: int): int {
+fn twice(n: Int): Int {
     print("twice " + str(n));
     return n * 2;
 }

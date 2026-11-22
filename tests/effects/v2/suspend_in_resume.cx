@@ -1,19 +1,19 @@
-trait Ask { @ctl fn ask(): int; }
-trait Check { @ctl fn check(): bool; }
-trait Tick { @ctl fn tick(): unit; }
+trait Ask { @ctl fn ask(): Int; }
+trait Check { @ctl fn check(): Bool; }
+trait Tick { @ctl fn tick(): Unit; }
 
-fn counted(): <Tick> int {
+fn counted(): <Tick> Int {
     tick();
     return 5;
 }
 
-fn yes(): <Tick> bool {
+fn yes(): <Tick> Bool {
     tick();
     return true;
 }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         print(ask());
         print(ask() + ask());
         print(check());

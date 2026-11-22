@@ -1,2 +1,2 @@
-var xs: Set<int> = meta { gen code([1, 2, 2]); };
+var xs: Set<Int> = meta { gen code([1, 2, 2]); };
 print(xs.len());

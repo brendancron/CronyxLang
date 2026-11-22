@@ -3,7 +3,7 @@ type C { A, B }
 
 effect Ask { ctl pick(): C; }
 
-fn choose(): <Ask> int {
+fn choose(): <Ask> Int {
     match pick() {
         C.A => { return 1; }
         C.B => { return 2; }

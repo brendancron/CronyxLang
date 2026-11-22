@@ -1,16 +1,16 @@
 trait Log {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
-effect Stop { ctl stop(): unit; }
+effect Stop { ctl stop(): Unit; }
 
-fn greet(name: string): unit {
+fn greet(name: String): Unit {
     log("hello " + name);
     log("bye " + name);
 }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         greet("ada");
     } handle<Log> {
         fn log(msg) { print(msg); stop(); }

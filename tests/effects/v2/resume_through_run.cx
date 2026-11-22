@@ -1,19 +1,19 @@
-trait Flip { @ctl fn flip(): bool; }
-trait Other { @ctl fn other(): unit; }
-trait Log { fn log(s: string): unit; }
+trait Flip { @ctl fn flip(): Bool; }
+trait Other { @ctl fn other(): Unit; }
+trait Log { fn log(s: String): Unit; }
 trait Fail { @ctl fn fail<T>(): T; }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         var x = flip();
         print("inner body: " + str(x));
     } handle<Other> { fn other(resume) { resume(()); } }
     print("after inner run");
 } handle<Flip> { fn flip(resume) { resume(true); resume(false); } }
 
-run {
-    run {
-        run {
+run<Unit> {
+    run<Unit> {
+        run<Unit> {
             var y = flip();
             print("nested body: " + str(y));
         } handle<Log> { fn log(s) { print(s); } }

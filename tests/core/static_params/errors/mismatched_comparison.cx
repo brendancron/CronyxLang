@@ -1,10 +1,10 @@
 type Mode { Fast, Safe, }
 
-fn report<same: bool>(): bool {
+fn report<same: Bool>(): Bool {
     return same;
 }
 
-fn check<m: Mode>(): bool {
+fn check<m: Mode>(): Bool {
     return report<(m == 1)>();
 }
 

@@ -2,29 +2,29 @@ trait To<T> {
     fn to(self): T;
 }
 
-type Flag { raw: int }
+type Flag { raw: Int }
 
-impl To<string> for Flag {
-    fn to(self): string { return "flag " + str(self.raw); }
+impl To<String> for Flag {
+    fn to(self): String { return "flag " + str(self.raw); }
 }
 
-impl To<bool> for Flag {
-    fn to(self): bool { return self.raw != 0; }
+impl To<Bool> for Flag {
+    fn to(self): Bool { return self.raw != 0; }
 }
 
 var f = Flag { raw: 1 };
-print(f.to<string>());
-print(str(f.to<bool>()));
+print(f.to<String>());
+print(str(f.to<Bool>()));
 
-var flag: bool = f.to<bool>();
+var flag: Bool = f.to<Bool>();
 print(str(flag));
 
-type Plain { n: int }
+type Plain { n: Int }
 
-impl To<int> for Plain {
-    fn to(self): int { return self.n; }
+impl To<Int> for Plain {
+    fn to(self): Int { return self.n; }
 }
 
 var p = Plain { n: 7 };
 print(str(p.to()));
-print(str(p.to<int>()));
+print(str(p.to<Int>()));

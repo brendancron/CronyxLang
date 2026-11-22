@@ -2,7 +2,7 @@ import { block_on, both } from "std/async/Task";
 import { Channel, channel } from "std/async/Channel";
 
 block_on {
-    var numbers: Channel<int> = channel(2);
+    var numbers: Channel<Int> = channel(2);
     both(
         () => {
             for (var i = 1; i <= 4; i += 1) {

@@ -1,9 +1,9 @@
 // Mix of annotated and unannotated params
-fn wrap(prefix: string, suffix) {
+fn wrap(prefix: String, suffix) {
     return prefix + suffix;
 }
 
-fn triple(n: int) {
+fn triple(n: Int) {
     return n * 3;
 }
 

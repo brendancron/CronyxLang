@@ -1,4 +1,4 @@
-fn apply(f: (int) -> int): int {
+fn apply(f: (Int) -> Int): Int {
     return f(10);
 }
 print(apply() { it * 2 });

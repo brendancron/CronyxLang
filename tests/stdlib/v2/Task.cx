@@ -1,20 +1,20 @@
 import { Throw } from "Error";
 
-trait async {
-    @ctl fn pause(): unit;
+trait Async {
+    @ctl fn pause(): Unit;
 }
 
-fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Console, E> unit {
-    var ready: List<() -> <Console, E> unit> = [];
+fn block_on<X, E>(main: () -> <Async, Throw<X>, E> Unit): <Console, E> Unit {
+    var ready: List<() -> <Console, E> Unit> = [];
     var finished = false;
-    run {
-        run {
+    run<Unit> {
+        run<Unit> {
             main();
-        } handle<Throw> {
+        } handle<Throw<X>> {
             fn throw(e, resume) { panic("uncaught failure: " + str(e)); }
         }
         finished = true;
-    } handle<async> {
+    } handle<Async> {
         fn pause(resume) { ready.push { resume(()); }; }
     }
     var at = 0;

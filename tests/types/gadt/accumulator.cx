@@ -3,8 +3,8 @@
 // payload or the return type — which is the case a refinement that substitutes
 // only into those two would lose.
 type Expr<T> {
-    Lit(int)      -> Expr<int>,
-    BoolLit(bool) -> Expr<bool>,
+    Lit(Int)      -> Expr<Int>,
+    BoolLit(Bool) -> Expr<Bool>,
 }
 
 fn eval<T>(e: Expr<T>, acc: T): T {

@@ -1,4 +1,4 @@
-fn takes(s: Set<int>) {
+fn takes(s: Set<Int>) {
     print(typeof(s).name);
     print(s.len());
 }

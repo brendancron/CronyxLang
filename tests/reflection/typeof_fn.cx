@@ -1,6 +1,6 @@
-fn double(n: int) { return n * 2; }
-fn greet(name: string) { return "hello " + name; }
-fn is_positive(n: int) { return n > 0; }
+fn double(n: Int) { return n * 2; }
+fn greet(name: String) { return "hello " + name; }
+fn is_positive(n: Int) { return n > 0; }
 print(typeof(double).name);
 print(typeof(greet).name);
 print(typeof(is_positive).name);

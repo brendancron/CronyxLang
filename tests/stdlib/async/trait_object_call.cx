@@ -1,16 +1,16 @@
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
 trait Asker {
-    fn ask(self): <async> int;
+    fn ask(self): <Async> Int;
 }
 
 type Plain;
 
 impl Asker for Plain {
-    fn ask(self): <async> int { return 1; }
+    fn ask(self): <Async> Int { return 1; }
 }
 
-fn through(a: Asker): int {
+fn through(a: Asker): Int {
     var held = [1, 2, 3];
     return a.ask() + held.len();
 }

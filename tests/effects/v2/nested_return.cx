@@ -1,13 +1,13 @@
 trait E {
-    @ctl fn ask(): int;
+    @ctl fn ask(): Int;
 }
 
-fn pick(n: int): int {
+fn pick(n: Int): Int {
     if (n == 0) { return 42; }
     return ask();
 }
 
-run {
+run<Unit> {
     print(pick(0));
     print(pick(1));
 } handle<E> {

@@ -9,4 +9,4 @@ for (x in [1]) {
     run { break; } handle Never { fn never() {} }
 }
 
-effect Never { fn never(): unit; }
+effect Never { fn never(): Unit; }

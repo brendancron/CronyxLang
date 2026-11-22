@@ -1,12 +1,12 @@
-effect log {
-    fn emit(msg: string): unit;
+effect Log {
+    fn emit(msg: String): Unit;
 }
 
 effect Pick {
-    ctl pick(): int;
+    ctl pick(): Int;
 }
 
-fn counted<E>(f: () -> <E> int): () -> <E> int {
+fn counted<E>(f: () -> <E> Int): () -> <E> Int {
     var calls = 0;
     return () => {
         calls = calls + 1;
@@ -21,7 +21,7 @@ print(plain());
 var logged = counted(() => { emit("inner"); return 2; });
 run {
     print(logged());
-} handle log {
+} handle Log {
     fn emit(msg) { print("log: " + msg); }
 }
 

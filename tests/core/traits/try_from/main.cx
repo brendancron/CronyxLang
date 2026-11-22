@@ -1,13 +1,13 @@
 effect Fallible {
-    final ctl invalid(text: string);
+    final ctl invalid(text: String);
 }
 
 trait TryFrom<S> {
     fn from(source: S): <Fallible> Self;
 }
 
-impl TryFrom<string> for int {
-    fn from(source: string): <Fallible> int {
+impl TryFrom<String> for Int {
+    fn from(source: String): <Fallible> Int {
         if (source.len() == 0) { return invalid(source); }
         var total = 0;
         for (c in source.chars()) {
@@ -18,8 +18,8 @@ impl TryFrom<string> for int {
     }
 }
 
-impl TryFrom<string> for bool {
-    fn from(source: string): <Fallible> bool {
+impl TryFrom<String> for Bool {
+    fn from(source: String): <Fallible> Bool {
         if (source == "true") { return true; }
         if (source == "false") { return false; }
         return invalid(source);
@@ -31,13 +31,13 @@ fn do_work<S, T: TryFrom<S>>(source: S): <Fallible> T {
 }
 
 run {
-    var n: int = do_work("42");
+    var n: Int = do_work("42");
     print(n);
 
-    var flag: bool = do_work("true");
+    var flag: Bool = do_work("true");
     print(flag);
 
-    var bad: int = do_work("seven");
+    var bad: Int = do_work("seven");
     print(bad);
 } handle Fallible {
     final ctl invalid(text) { print("not a value: " + text); }

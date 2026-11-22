@@ -1,11 +1,11 @@
-trait Logic { @ctl fn choose(options: Array<int>): int; }
+trait Logic { @ctl fn choose(options: Array<Int>): Int; }
 
-fn pick(): int {
+fn pick(): Int {
     defer print("cleanup");
     var n = choose([1, 2]);
     print("saw " + str(n));
     return n;
 }
 
-run { print(pick()); }
+run<Unit> { print(pick()); }
 handle<Logic> { fn choose(options, resume) { for (x in options) { resume(x); } } }

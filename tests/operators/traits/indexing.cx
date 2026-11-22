@@ -1,15 +1,15 @@
-type Ring { items: Array<int>, head: int }
+type Ring { items: Array<Int>, head: Int }
 
-impl Index<int> for Ring {
-    type Output = int;
+impl Index<Int> for Ring {
+    type Output = Int;
 
-    fn get(self, at: int): int {
+    fn get(self, at: Int): Int {
         return self.items[(self.head + at) % self.items.len()];
     }
 }
 
-impl IndexSet<int> for Ring {
-    fn set(self, at: int, v: int): int {
+impl IndexSet<Int> for Ring {
+    fn set(self, at: Int, v: Int): Int {
         self.items[(self.head + at) % self.items.len()] = v;
         return v;
     }

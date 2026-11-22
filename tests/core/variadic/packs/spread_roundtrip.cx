@@ -1,12 +1,12 @@
-fn apply_all<...Args>(f: (...Args) -> <Console> unit, args: ...Args) {
+fn apply_all<...Args>(f: (...Args) -> <Console> Unit, args: ...Args) {
     f(...args);
 }
 
-fn pair(a: int, b: string) {
+fn pair(a: Int, b: String) {
     print(str(a) + b);
 }
 
-fn flag(a: bool) {
+fn flag(a: Bool) {
     print(a);
 }
 

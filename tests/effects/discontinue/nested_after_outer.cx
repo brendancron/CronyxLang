@@ -1,11 +1,11 @@
 import { Throw } from "std/core/Error";
 
-effect Park { ctl park(): unit; }
+effect Park { ctl park(): Unit; }
 
-var stops: List<() -> unit> = [];
-var wakes: List<() -> unit> = [];
+var stops: List<() -> Unit> = [];
+var wakes: List<() -> Unit> = [];
 
-fn parked<E>(task: () -> <Park, Throw<string>, E> unit): <Console, E> unit {
+fn parked<E>(task: () -> <Park, Throw<String>, E> Unit): <Console, E> Unit {
     run {
         run {
             task();

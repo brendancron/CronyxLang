@@ -1,0 +1,12 @@
+trait Ask { @ctl fn ask(): Int; }
+
+var r = run<String> {
+    var n = ask();
+    str(n)
+} handle<Ask> {
+    fn ask(resume) {
+        var wrong: Int = resume(5);
+        return "unused";
+    }
+};
+print(r);

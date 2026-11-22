@@ -1,8 +1,8 @@
-trait Ask { @ctl fn ask(): int; }
-trait L { @ctl fn l(): int; }
+trait Ask { @ctl fn ask(): Int; }
+trait L { @ctl fn l(): Int; }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         var total = 0;
         for (var i = 0; i < 3; i += 1) {
             total += ask() + l();

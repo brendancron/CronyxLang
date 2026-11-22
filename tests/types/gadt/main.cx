@@ -2,10 +2,10 @@
 // is what makes `eval` total and cast-free. `Add` cannot be built from a
 // `BoolLit`, so the ill-typed tree is not representable.
 type Expr<T> {
-    Lit(int)                            -> Expr<int>,
-    Add(Expr<int>, Expr<int>)           -> Expr<int>,
-    BoolLit(bool)                       -> Expr<bool>,
-    If<A>(Expr<bool>, Expr<A>, Expr<A>) -> Expr<A>,
+    Lit(Int)                            -> Expr<Int>,
+    Add(Expr<Int>, Expr<Int>)           -> Expr<Int>,
+    BoolLit(Bool)                       -> Expr<Bool>,
+    If<A>(Expr<Bool>, Expr<A>, Expr<A>) -> Expr<A>,
 }
 
 fn eval<T>(e: Expr<T>): T {

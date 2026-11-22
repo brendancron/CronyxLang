@@ -5,8 +5,8 @@
  * import { Encode, Decode } from "std/encoding/Codec";
  * import { to_toml, from_toml } from "std/encoding/Toml";
  *
- * type Package { name: string, version: string }
- * type Manifest { package: Package, features: List<string> }
+ * type Package { name: String, version: String }
+ * type Manifest { package: Package, features: List<String> }
  * derive Encode, Decode for Package;
  * derive Encode, Decode for Manifest;
  *
@@ -28,23 +28,23 @@ import { Data, Entry, Encode, Decode, DecodeError, Format, Decoder } from "Codec
 type Toml;
 
 impl Format for Toml {
-    fn write(self, data: Data): string { return write_toml(data); }
-    fn read(self, text: string): <Throw<DecodeError>> Data { return parse_toml(text); }
+    fn write(self, data: Data): String { return write_toml(data); }
+    fn read(self, text: String): <Throw<DecodeError>> Data { return parse_toml(text); }
 }
 
 /** The value as a TOML document. Panics unless it encodes as a map, since a document is a table. */
-fn to_toml<T: Encode>(value: T): string { return write_toml(value.encode()); }
+fn to_toml<T: Encode>(value: T): String { return write_toml(value.encode()); }
 
 /** A value read from a TOML document. */
-fn from_toml<T: Decode>(text: string): <Throw<DecodeError>> T {
+fn from_toml<T: Decode>(text: String): <Throw<DecodeError>> T {
     return T.decode(Decoder.of(parse_toml(text)));
 }
 
 /** The data as a TOML document. Panics unless it is a map. */
-fn write_toml(data: Data): string {
+fn write_toml(data: Data): String {
     match data {
         Data.Map(entries) => {
-            var out: List<string> = [];
+            var out: List<String> = [];
             __write_table(out, "", entries);
             return join(out, "");
         }
@@ -55,7 +55,7 @@ fn write_toml(data: Data): string {
 }
 
 /** The data a TOML document holds, as a map. Throws where the text is not TOML. */
-fn parse_toml(text: string): <Throw<DecodeError>> Data {
+fn parse_toml(text: String): <Throw<DecodeError>> Data {
     var reader = __Reader { chars: text.chars(), at: 0 };
     var root: List<Entry> = [];
     var current = root;
@@ -110,8 +110,8 @@ fn parse_toml(text: string): <Throw<DecodeError>> Data {
     return Data.Map(root);
 }
 
-fn __dotted(path: Array<string>): string {
-    var parts: List<string> = [];
+fn __dotted(path: Array<String>): String {
+    var parts: List<String> = [];
     for (key in path) {
         if (parts.len() > 0) { parts.push("."); }
         parts.push(key);
@@ -119,7 +119,7 @@ fn __dotted(path: Array<string>): string {
     return __str_join(parts.items, parts.count);
 }
 
-fn __find(entries: List<Entry>, key: string): Option<Entry> {
+fn __find(entries: List<Entry>, key: String): Option<Entry> {
     for (e in entries) {
         if (e.key == key) { return Option.Some(e); }
     }
@@ -128,7 +128,7 @@ fn __find(entries: List<Entry>, key: string): Option<Entry> {
 
 // The table a dotted path names, made where it is missing. A path through an
 // array of tables goes into its last table, as a `[a.b]` after `[[a]]` does.
-fn __table_at(reader: __Reader, from: List<Entry>, path: Array<string>): <Throw<DecodeError>> List<Entry> {
+fn __table_at(reader: __Reader, from: List<Entry>, path: Array<String>): <Throw<DecodeError>> List<Entry> {
     var here = from;
     for (key in path) {
         var next: List<Entry> = [];
@@ -153,7 +153,7 @@ fn __table_at(reader: __Reader, from: List<Entry>, path: Array<string>): <Throw<
     return here;
 }
 
-fn __write_table(out: List<string>, path: string, entries: List<Entry>): unit {
+fn __write_table(out: List<String>, path: String, entries: List<Entry>): Unit {
     for (e in entries) {
         if (!__is_table(e.value) && !__is_tables(e.value)) {
             match e.value {
@@ -188,7 +188,7 @@ fn __write_table(out: List<string>, path: string, entries: List<Entry>): unit {
 }
 
 // A table holding only tables is reached through their headers alone.
-fn __has_values(entries: List<Entry>): bool {
+fn __has_values(entries: List<Entry>): Bool {
     for (e in entries) {
         match e.value {
             Data.Null => {}
@@ -199,7 +199,7 @@ fn __has_values(entries: List<Entry>): bool {
     return false;
 }
 
-fn __is_table(data: Data): bool {
+fn __is_table(data: Data): Bool {
     match data {
         Data.Map(_) => { return true; }
         _ => {}
@@ -207,7 +207,7 @@ fn __is_table(data: Data): bool {
     return false;
 }
 
-fn __is_tables(data: Data): bool {
+fn __is_tables(data: Data): Bool {
     match data {
         Data.Seq(items) => {
             if (items.len() == 0) { return false; }
@@ -219,12 +219,12 @@ fn __is_tables(data: Data): bool {
     return false;
 }
 
-fn __joined(path: string, key: string): string {
+fn __joined(path: String, key: String): String {
     if (path == "") { return __key(key); }
     return path + "." + __key(key);
 }
 
-fn __key(key: string): string {
+fn __key(key: String): String {
     if (key == "") { return "\"\""; }
     for (c in key.chars()) {
         if (!__bare(c)) { return __quoted(key); }
@@ -232,11 +232,11 @@ fn __key(key: string): string {
     return key;
 }
 
-fn __bare(c: char): bool {
+fn __bare(c: Char): Bool {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
 }
 
-fn __inline(data: Data): string {
+fn __inline(data: Data): String {
     match data {
         Data.Null => { return "\"\""; }
         Data.Bool(b) => { return str(b); }
@@ -249,7 +249,7 @@ fn __inline(data: Data): string {
         }
         Data.Str(s) => { return __quoted(s); }
         Data.Seq(items) => {
-            var parts: List<string> = [];
+            var parts: List<String> = [];
             for (item in items) {
                 match item {
                     Data.Null => {}
@@ -259,7 +259,7 @@ fn __inline(data: Data): string {
             return "[" + join(parts, ", ") + "]";
         }
         Data.Map(entries) => {
-            var parts: List<string> = [];
+            var parts: List<String> = [];
             for (e in entries) {
                 match e.value {
                     Data.Null => {}
@@ -273,8 +273,8 @@ fn __inline(data: Data): string {
     return "";
 }
 
-fn __quoted(text: string): string {
-    var parts: List<string> = ["\""];
+fn __quoted(text: String): String {
+    var parts: List<String> = ["\""];
     for (c in text.chars()) {
         if (c == '"') { parts.push("\\\""); }
         else if (c == '\\') { parts.push("\\\\"); }
@@ -288,29 +288,29 @@ fn __quoted(text: string): string {
 }
 
 type __Reader {
-    chars: Array<char>,
-    at: int
+    chars: Array<Char>,
+    at: Int
 }
 
 impl __Reader {
-    fn done(self): bool { return self.at >= self.chars.len(); }
+    fn done(self): Bool { return self.at >= self.chars.len(); }
 
     fn unexpected(self): DecodeError {
         if (self.done()) { return DecodeError.Truncated(self.chars.len()); }
         return DecodeError.Unexpected(self.at, self.chars[self.at]);
     }
 
-    fn peek(self): <Throw<DecodeError>> char {
+    fn peek(self): <Throw<DecodeError>> Char {
         if (self.done()) { return throw(self.unexpected()); }
         return self.chars[self.at];
     }
 
-    fn expect(self, c: char): <Throw<DecodeError>> unit {
+    fn expect(self, c: Char): <Throw<DecodeError>> Unit {
         if (self.peek() != c) { throw(self.unexpected()); }
         self.at += 1;
     }
 
-    fn starts(self, text: string): bool {
+    fn starts(self, text: String): Bool {
         var cs = text.chars();
         if (self.at + cs.len() > self.chars.len()) { return false; }
         for (var i = 0; i < cs.len(); i += 1) {
@@ -340,7 +340,7 @@ impl __Reader {
         }
     }
 
-    fn line_end(self): <Throw<DecodeError>> unit {
+    fn line_end(self): <Throw<DecodeError>> Unit {
         self.inline_space();
         self.comment();
         if (self.done()) { return; }
@@ -348,15 +348,15 @@ impl __Reader {
         self.expect('\n');
     }
 
-    fn key(self): <Throw<DecodeError>> Array<string> {
-        var parts: List<string> = [];
+    fn key(self): <Throw<DecodeError>> Array<String> {
+        var parts: List<String> = [];
         while (true) {
             self.inline_space();
             var c = self.peek();
             if (c == '"') { parts.push(self.basic()); }
             else if (c == '\'') { parts.push(self.literal()); }
             else {
-                var bare: List<string> = [];
+                var bare: List<String> = [];
                 while (!self.done() && __bare(self.chars[self.at])) {
                     bare.push(str(self.chars[self.at]));
                     self.at += 1;
@@ -443,7 +443,7 @@ impl __Reader {
         return Data.Map(entries);
     }
 
-    fn escape(self): <Throw<DecodeError>> string {
+    fn escape(self): <Throw<DecodeError>> String {
         var e = self.peek();
         self.at += 1;
         if (e == 'n') { return "\n"; }
@@ -458,7 +458,7 @@ impl __Reader {
         return throw(self.unexpected());
     }
 
-    fn hex(self, count: int): <Throw<DecodeError>> int {
+    fn hex(self, count: Int): <Throw<DecodeError>> Int {
         var point = 0;
         for (var i = 0; i < count; i += 1) {
             var c = self.peek();
@@ -473,9 +473,9 @@ impl __Reader {
         return point;
     }
 
-    fn basic(self): <Throw<DecodeError>> string {
+    fn basic(self): <Throw<DecodeError>> String {
         self.expect('"');
-        var parts: List<string> = [];
+        var parts: List<String> = [];
         while (true) {
             var c = self.peek();
             if (c == '\n') { return throw(self.unexpected()); }
@@ -486,9 +486,9 @@ impl __Reader {
         return __str_join(parts.items, parts.count);
     }
 
-    fn literal(self): <Throw<DecodeError>> string {
+    fn literal(self): <Throw<DecodeError>> String {
         self.expect('\'');
-        var parts: List<string> = [];
+        var parts: List<String> = [];
         while (true) {
             var c = self.peek();
             if (c == '\n') { return throw(self.unexpected()); }
@@ -505,10 +505,10 @@ impl __Reader {
         else if (self.starts("\n")) { self.at += 1; }
     }
 
-    fn multiline_basic(self): <Throw<DecodeError>> string {
+    fn multiline_basic(self): <Throw<DecodeError>> String {
         self.at += 3;
         self.skip_first_newline();
-        var parts: List<string> = [];
+        var parts: List<String> = [];
         while (true) {
             if (self.starts("\"\"\"")) {
                 self.at += 3;
@@ -533,10 +533,10 @@ impl __Reader {
         return __str_join(parts.items, parts.count);
     }
 
-    fn multiline_literal(self): <Throw<DecodeError>> string {
+    fn multiline_literal(self): <Throw<DecodeError>> String {
         self.at += 3;
         self.skip_first_newline();
-        var parts: List<string> = [];
+        var parts: List<String> = [];
         while (true) {
             if (self.starts("'''")) {
                 self.at += 3;
@@ -550,7 +550,7 @@ impl __Reader {
 
     fn number(self): <Throw<DecodeError>> Data {
         var start = self.at;
-        var digits: List<string> = [];
+        var digits: List<String> = [];
         while (!self.done()) {
             var c = self.chars[self.at];
             if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '+' || c == '-' || c == '.' || c == '_') {

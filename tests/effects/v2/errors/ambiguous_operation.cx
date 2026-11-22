@@ -1,9 +1,9 @@
 trait Log {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
 trait Journal {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
 fn note() {

@@ -1,14 +1,14 @@
-effect deferred {
-    ctl todo(): unit;
+effect Deferred {
+    ctl todo(): Unit;
 }
 
-var pending: List<() -> unit> = [];
+var pending: List<() -> Unit> = [];
 
 run {
     print("before");
     todo();
     print("after");
-} handle deferred {
+} handle Deferred {
     ctl todo() { pending.push(() => { resume; }); }
 }
 

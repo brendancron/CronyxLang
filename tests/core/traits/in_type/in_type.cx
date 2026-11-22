@@ -1,0 +1,25 @@
+trait Area {
+    fn area(self): Int;
+}
+
+type Rect impl Area, Display {
+    w: Int,
+    h: Int,
+    fn area(self): Int { return self.w * self.h; }
+    fn fmt(self): String { return "rect " + str(self.w) + "x" + str(self.h); }
+    fn square(n: Int): Rect { return Rect { w: n, h: n }; }
+    fn wider(self): Bool { return self.w > self.h; }
+}
+
+type Wrapped<T> impl Display {
+    held: T,
+    fn fmt(self): String { return "wrapped"; }
+}
+
+var r = Rect { w: 3, h: 2 };
+print(r.area());
+print(r);
+print(r.wider());
+var s = Rect.square(4);
+print(s.area());
+print(Wrapped { held: 1 });

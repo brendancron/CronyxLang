@@ -1,6 +1,6 @@
 type Tree<T> { value: T, kids: Array<Tree<T>> }
 
-fn sum(t: Tree<int>): int {
+fn sum(t: Tree<Int>): Int {
     var total = t.value;
     for (k in t.kids) { total = total + sum(k); }
     return total;

@@ -1,9 +1,9 @@
-trait Describe { fn describe(self): string; }
+trait Describe { fn describe(self): String; }
 
-impl Describe for int { fn describe(self): string { return str(self); } }
+impl Describe for Int { fn describe(self): String { return str(self); } }
 
 impl Describe for List<T: Describe> {
-    fn describe(self): string {
+    fn describe(self): String {
         var out = "";
         for (x in self) { out = out + x.describe(); }
         return out;

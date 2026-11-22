@@ -2,10 +2,10 @@
 // while the body is being re-entered rather than on the way in. It leaves `f`,
 // which is outside the block `tick` was handled on, so the handler's own sequel
 // is unwound past along with the `ask` below.
-effect E { ctl ask(): int; }
-effect Inner { ctl tick(): int; }
+effect E { ctl ask(): Int; }
+effect Inner { ctl tick(): Int; }
 
-fn f(): <E, Console> int {
+fn f(): <E, Console> Int {
     run {
         var n = tick();
         return n + 1;

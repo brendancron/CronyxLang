@@ -6,7 +6,7 @@ import { Duration } from "std/os/Time";
 
 var listener = tcp_listen("127.0.0.1", 0);
 var port = listener.local_port();
-var gave_up: Promise<unit> = promise();
+var gave_up: Promise<Unit> = promise();
 
 // Each tick is a task of its own, listed first, so every tick's deadline is
 // set before the reader's and a paused process still fires them in that

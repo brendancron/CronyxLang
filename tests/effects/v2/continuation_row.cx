@@ -1,0 +1,19 @@
+trait Ask { @ctl fn ask(): Int; }
+
+var saved: List<(Int) -> <Console> String> = [];
+
+fn first(): <Console> String {
+    return run<String> {
+        var n = ask();
+        print("resumed with " + str(n));
+        "done " + str(n)
+    } handle<Ask> {
+        fn ask(resume) {
+            saved.push(resume);
+            return resume(1);
+        }
+    };
+}
+
+print(first());
+print(saved[0](2));

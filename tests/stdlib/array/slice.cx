@@ -1,4 +1,4 @@
-var empty: List<int> = [];
+var empty: List<Int> = [];
 print(empty.items[0:0].len());
 
 var letters = ['a', 'b', 'c', 'd'];

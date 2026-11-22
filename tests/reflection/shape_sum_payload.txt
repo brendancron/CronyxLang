@@ -1,4 +1,4 @@
-Started 2: int string
+Started 2: Int String
 Failed 1: Reason
-Batch 1: List<int>
+Batch 1: List<Int>
 Done 0:

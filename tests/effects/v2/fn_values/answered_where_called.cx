@@ -1,8 +1,8 @@
-trait Ask { @ctl fn ask(): int; }
+trait Ask { @ctl fn ask(): Int; }
 
-var saved: List<() -> <Ask> int> = [];
+var saved: List<() -> <Ask> Int> = [];
 
-run<unit> {
+run<Unit> {
     var first = ask();
     saved.push(() => { return ask() + first; });
     print("made under the first run, which answered " + str(first));
@@ -10,7 +10,7 @@ run<unit> {
     fn ask(resume) { return resume(1); }
 }
 
-var got = run<int> {
+var got = run<Int> {
     saved[0]()
 } handle<Ask> {
     fn ask(resume) {

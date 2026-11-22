@@ -1,8 +1,8 @@
 trait Ask {
-    @ctl fn ask(): int;
+    @ctl fn ask(): Int;
 }
 
-var ret = run<string> {
+var ret = run<String> {
     var n = ask();
     print(n);
     "hehe"

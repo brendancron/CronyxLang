@@ -1,9 +1,9 @@
 // An arm that abandons its own block abandons every block inside it too: the
 // unwind does not stop at the nearer one and carry on after it.
-effect Stop { ctl stop(): unit; }
-effect Other { ctl other(): unit; }
-effect Fail { final ctl fail(): unit; }
-effect Log { fn log(s: string): unit; }
+effect Stop { ctl stop(): Unit; }
+effect Other { ctl other(): Unit; }
+effect Fail { final ctl fail(): Unit; }
+effect Log { fn log(s: String): Unit; }
 
 run {
     run {

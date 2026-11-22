@@ -1,12 +1,12 @@
 import { Reader, IoError, using, lines } from "std/io/Io";
 import { Mode, open_file, write_text } from "std/fs/File";
 import { Throw } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
-type Given { data: Array<byte>, at: List<int> }
+type Given { data: Array<Byte>, at: List<Int> }
 
 impl Reader for Given {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         var start = self.at[0];
         if (start >= self.data.len()) { return Option.None; }
         var stop = start + max;

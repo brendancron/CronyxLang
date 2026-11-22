@@ -1,8 +1,8 @@
 // Each `run` installs its own handler, so the second's evidence may not stand
 // in for the first's just because both are in flight in one expression.
-effect Ask { ctl ask(): int; }
+effect Ask { ctl ask(): Int; }
 
-fn probe(): <Ask> int { return ask(); }
+fn probe(): <Ask> Int { return ask(); }
 
 print(run { probe() } handle Ask { ctl ask() { resume 5; print("a done"); } }
     + run { probe() } handle Ask { ctl ask() { resume 6; print("b done"); } });

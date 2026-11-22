@@ -1,19 +1,19 @@
 type Mode { Fast, Safe, }
-type P { x: int, y: int, }
+type P { x: Int, y: Int, }
 derive Eq for P;
 
-fn report<fast: bool>(): string {
+fn report<fast: Bool>(): String {
     meta if (fast) {
         gen return "skipping checks";
     }
     return "checking everything";
 }
 
-fn start<m: Mode>(): string {
+fn start<m: Mode>(): String {
     return report<(m == Mode.Fast)>();
 }
 
-fn moved<p: P>(): string {
+fn moved<p: P>(): String {
     return report<(p != P { y: 0, x: 0 })>();
 }
 

@@ -12,8 +12,8 @@
  * ```
  * import { Stream } from "std/io/Console";
  *
- * var said: List<string> = [];
- * run { print("hi"); } handle<Console> {
+ * var said: List<String> = [];
+ * run<Unit> { print("hi"); } handle<Console> {
  *     fn write(to, text) { said.push(text); }
  * }
  * ```
@@ -34,7 +34,7 @@ type Stream {
 /** The process's standard streams. */
 trait Console {
     /** Writes the text to the stream as it is, with nothing added. */
-    fn write(to: Stream, text: string): unit;
+    fn write(to: Stream, text: String): Unit;
 }
 
 /**
@@ -49,6 +49,6 @@ trait Console {
  * flush();
  * ```
  */
-fn flush(): <Console> unit {
+fn flush(): <Console> Unit {
     __flush_out();
 }

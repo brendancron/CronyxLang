@@ -1,8 +1,8 @@
-effect Log { fn log(s: string): unit; }
-effect Tick { fn tick(): unit; }
-effect Ask { ctl ask(): int; }
+effect Log { fn log(s: String): Unit; }
+effect Tick { fn tick(): Unit; }
+effect Ask { ctl ask(): Int; }
 
-fn call_it<E>(f: () -> <Log, Tick, E> unit): <Log, Tick, E> unit { f(); }
+fn call_it<E>(f: () -> <Log, Tick, E> Unit): <Log, Tick, E> Unit { f(); }
 
 fn only_logs() { log("only logs"); }
 fn nothing() { print("performs nothing"); }

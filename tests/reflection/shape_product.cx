@@ -1,6 +1,6 @@
-type Point { x: int, y: int }
+type Point { x: Int, y: Int }
 
-fn describe(shape: TypeShape): string {
+fn describe(shape: TypeShape): String {
     match shape {
         TypeShape.Scalar => { return "scalar"; }
         TypeShape.Product(name, _, fields) => {

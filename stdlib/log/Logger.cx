@@ -4,7 +4,7 @@
  * ```
  * import { Logger, Level, info, warn } from "std/log/Logger";
  *
- * fn serve(port: int) {
+ * fn serve(port: Int) {
  *     info("listening on " + str(port));
  *     warn("no certificate, serving plain HTTP");
  * }
@@ -27,7 +27,7 @@ type Level {
 
 impl Level {
     /** 0 for `Trace` up to 4 for `Error`, for comparing two levels. */
-    fn rank(self): int {
+    fn rank(self): Int {
         match self {
             Level.Trace => { return 0; }
             Level.Debug => { return 1; }
@@ -39,36 +39,36 @@ impl Level {
     }
 
     /** The level's name in lower case: `info`. */
-    fn label(self): string { return __label(self); }
+    fn label(self): String { return __label(self); }
 }
 
 /** Where log messages go. */
 trait Logger {
     /** Records the message at the level. */
-    fn record(level: Level, message: string): unit;
+    fn record(level: Level, message: String): Unit;
 }
 
 /** Logs at `Trace`: detail only worth seeing while chasing a problem. */
-fn trace(message: string): <Logger> unit { record(Level.Trace, message); }
+fn trace(message: String): <Logger> Unit { record(Level.Trace, message); }
 
 /** Logs at `Info`: what the program is doing. */
-fn info(message: string): <Logger> unit { record(Level.Info, message); }
+fn info(message: String): <Logger> Unit { record(Level.Info, message); }
 
 /** Logs at `Warn`: something is off, and the program carries on. */
-fn warn(message: string): <Logger> unit { record(Level.Warn, message); }
+fn warn(message: String): <Logger> Unit { record(Level.Warn, message); }
 
 /** Logs at `Error`: something failed. */
-fn error(message: string): <Logger> unit { record(Level.Error, message); }
+fn error(message: String): <Logger> Unit { record(Level.Error, message); }
 
 /** How the root writes a message: its level in brackets, then the message. */
-fn __written_line(level: Level, message: string): string {
+fn __written_line(level: Level, message: String): String {
     return "[" + __label(level) + "] " + message + "\n";
 }
 
 // A function rather than the method, for the root to call: a library's call
 // `level.label()` also names a bare `label`, which a program's own top-level
 // function of that name would answer to.
-fn __label(level: Level): string {
+fn __label(level: Level): String {
     match level {
         Level.Trace => { return "trace"; }
         Level.Debug => { return "debug"; }

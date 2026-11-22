@@ -1,25 +1,25 @@
-trait Log { fn log(s: string): unit; }
+trait Log { fn log(s: String): Unit; }
 trait Stop { @ctl fn stop<T>(): T; }
-trait Ask { @ctl fn ask(): int; }
+trait Ask { @ctl fn ask(): Int; }
 
-run {
+run<Unit> {
     defer { print("finished: cleanup"); }
     log("finished");
 } handle<Log> { fn log(s) { print(s); } }
 
-run {
+run<Unit> {
     defer { print("stopped: cleanup"); }
     stop();
     print("never");
 } handle<Stop> { fn stop(resume) { print("stopped"); } }
 
-run {
+run<Unit> {
     defer { print("discontinued: cleanup"); }
     var n = ask();
     print("never " + str(n));
 } handle<Ask> { fn ask(resume) { discontinue(resume); print("discontinued"); } }
 
-run {
+run<Unit> {
     defer { print("outer: cleanup"); }
     if (true) {
         defer { print("nested: cleanup"); }
@@ -29,13 +29,13 @@ run {
     print("never either");
 } handle<Ask> { fn ask(resume) { discontinue(resume); print("nested: discontinued"); } }
 
-run {
+run<Unit> {
     defer { print("resumed: cleanup"); }
     print("resumed with " + str(ask()));
 } handle<Ask> { fn ask(resume) { resume(5); print("resumed: arm's rest"); } }
 
-fn inside(): int {
-    run {
+fn inside(): Int {
+    run<Unit> {
         defer { print("in a function: cleanup"); }
         log("in a function");
     } handle<Log> { fn log(s) { print(s); } }

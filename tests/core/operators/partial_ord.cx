@@ -1,4 +1,4 @@
-type Money { cents: int }
+type Money { cents: Int }
 
 impl PartialOrd for Money {
     fn partial_cmp(self, rhs: Money): Option<Ordering> {

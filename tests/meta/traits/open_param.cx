@@ -1,6 +1,6 @@
 import { MethodSig, Param, Signature, TypeExpr, TypeKind } from "std/compiler/Ast";
 
-fn sig_named(name: string, ret: string): MethodSig {
+fn sig_named(name: String, ret: String): MethodSig {
     return MethodSig {
         name: name.as_name(),
         params: [Param { name: "self".as_name(), ty: Option.None, implicit: false }],
@@ -31,7 +31,7 @@ impl Getter<Q> for Holder<Q> {
     fn get(self): Q { return self.held; }
 }
 
-fn sig_taking(name: string, arg: string, ret: string): MethodSig {
+fn sig_taking(name: String, arg: String, ret: String): MethodSig {
     var s = sig_named(name, ret);
     s.params.push(Param {
         name: "x".as_name(),
@@ -47,8 +47,8 @@ trait Convert<From, To> {
     }
 }
 
-impl Convert<int, R> for Picker<R> {
-    fn convert(self, x: int): R { return self.value; }
+impl Convert<Int, R> for Picker<R> {
+    fn convert(self, x: Int): R { return self.value; }
 }
 
 print(Picker { value: 3 }.get() + 1);

@@ -21,22 +21,22 @@ trait TryInto<T>: Into<T> {
 }
 
 /** Numbers convert by widening. */
-impl Into<float> for int {
+impl Into<Float> for Int {
     /** Widening never loses the integer. */
-    type Output = float;
+    type Output = Float;
 
-    fn into(self): float { return self.to_float(); }
+    fn into(self): Float { return self.to_float(); }
 }
 
 /** A string is already written. */
-impl Into<string> for string {
-    type Output = string;
+impl Into<String> for String {
+    type Output = String;
 
-    fn into(self): string { return self; }
+    fn into(self): String { return self; }
 }
 
 /** Whichever of the two is written longer. */
-fn wordier<T: Into<string>>(a: T, b: T): string {
+fn wordier<T: Into<String>>(a: T, b: T): String {
     var left = a.into();
     var right = b.into();
     if (left.len() > right.len()) { return left; }
@@ -44,7 +44,7 @@ fn wordier<T: Into<string>>(a: T, b: T): string {
 }
 
 /** A tuple of `n` copies, which is `n` types rather than one value. */
-fn repeated<n: int, T>(value: T): Array<T> {
+fn repeated<n: Int, T>(value: T): Array<T> {
     return Array(n, value);
 }
 

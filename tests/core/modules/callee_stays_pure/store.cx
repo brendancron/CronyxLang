@@ -1,3 +1,3 @@
-fn get(xs: Array<int>, i: int): int {
+fn get(xs: Array<Int>, i: Int): Int {
     return xs[i];
 }

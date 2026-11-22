@@ -16,6 +16,6 @@
 /** The program's command-line arguments. */
 trait Args {
     /** Each argument, in the order given. */
-    fn args(): Array<string>;
+    fn args(): Array<String>;
 }
 

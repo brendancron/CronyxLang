@@ -9,19 +9,19 @@ fn renamed(d: Decl, name: Name): Decl {
     }
 }
 
-fn doubled(x: int): int {
+fn doubled(x: Int): Int {
     return meta {
         var a = fresh("double");
         var b = fresh("double");
         print(a == b);
         print(str(a));
-        declare(renamed(code fn double(n: int): int { return n * 2; }, a));
+        declare(renamed(code fn double(n: Int): Int { return n * 2; }, a));
         var call = Expr.of(ExprKind.Call(Expr.of(ExprKind.Var(a)), [code(x)]));
         gen call;
     };
 }
 
-fn double(n: int): int { return n + 1000; }
+fn double(n: Int): Int { return n + 1000; }
 
 print(doubled(21));
 print(double(1));

@@ -1,10 +1,10 @@
-trait logic { @ctl fn choose(options: Array<int>): int; }
+trait Logic { @ctl fn choose(options: Array<Int>): Int; }
 
-fn pick(): int {
-    run {
+fn pick(): Int {
+    run<Unit> {
         var n = choose([1, 2]);
         print("saw" + " " + str(n));
-    } handle<logic> {
+    } handle<Logic> {
         fn choose(options, resume) { for (x in options) { resume(x); } }
     }
     return 7;
@@ -12,11 +12,11 @@ fn pick(): int {
 
 print(pick());
 
-run {
+run<Unit> {
     var a = choose([1, 2]);
-    run {
+    run<Unit> {
         var b = choose([10, 20]);
         print(str(a) + " " + str(b));
-    } handle<logic> { fn choose(o, resume) { for (x in o) { resume(x); } } }
-} handle<logic> { fn choose(o, resume) { for (x in o) { resume(x); } } }
+    } handle<Logic> { fn choose(o, resume) { for (x in o) { resume(x); } } }
+} handle<Logic> { fn choose(o, resume) { for (x in o) { resume(x); } } }
 print("done");

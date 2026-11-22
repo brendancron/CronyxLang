@@ -1,9 +1,9 @@
 3
 hi
 none
-Option<int>
-Option<string>
+Option<Int>
+Option<String>
 7
-Box<int>
+Box<Int>
 5
 x

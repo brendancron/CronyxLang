@@ -1,15 +1,15 @@
 // A `final ctl` never resumes, so nothing is ever handed back and each call
 // site may read the result as whatever it needs.
 effect Error {
-    final ctl throw(msg: string);
+    final ctl throw(msg: String);
 }
 
-fn as_int(s: string): int {
+fn as_int(s: String): Int {
     if (s == "42") { return 42; }
     return throw("not an int: " + s);
 }
 
-fn as_word(n: int): string {
+fn as_word(n: Int): String {
     if (n == 0) { return "zero"; }
     return throw("not zero");
 }

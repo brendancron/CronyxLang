@@ -1,8 +1,8 @@
 trait Log {
-    @ctl fn note(msg: string): unit;
+    @ctl fn note(msg: String): Unit;
 }
 
-var count = run<int> {
+var count = run<Int> {
     note("first");
     note("second");
     7

@@ -6,12 +6,12 @@
  */
 
 type Bare {
-    x: int,
+    x: Int,
 }
 
 /** This one has its own. */
 type Own {
-    y: int,
+    y: Int,
 }
 
 meta {

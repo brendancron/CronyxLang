@@ -1,15 +1,15 @@
-trait Tick { @ctl fn tick(): int; }
+trait Tick { @ctl fn tick(): Int; }
 
 type Counter {
-    n: int
+    n: Int
 }
 
 impl Counter {
-    fn bump(self): <Tick> int { return self.n + tick(); }
-    fn twice(self): <Tick> int { return self.bump() + self.bump(); }
+    fn bump(self): <Tick> Int { return self.n + tick(); }
+    fn twice(self): <Tick> Int { return self.bump() + self.bump(); }
 }
 
-run {
+run<Unit> {
     var c = Counter { n: 10 };
     print(c.bump());
     print(c.twice());

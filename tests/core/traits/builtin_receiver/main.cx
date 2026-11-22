@@ -1,11 +1,11 @@
-impl int {
-    fn double(self): int {
+impl Int {
+    fn double(self): Int {
         return self * 2;
     }
 }
 
-impl string {
-    fn shout(self): string {
+impl String {
+    fn shout(self): String {
         return self + "!";
     }
 }

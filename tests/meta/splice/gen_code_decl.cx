@@ -1,4 +1,4 @@
 meta {
-    gen code fn answer(): int { return 42; };
+    gen code fn answer(): Int { return 42; };
 }
 print(answer());

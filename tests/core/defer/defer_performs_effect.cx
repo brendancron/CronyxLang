@@ -1,6 +1,6 @@
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
-fn use(): <Ask, Console> unit {
+fn use(): <Ask, Console> Unit {
     defer print(get());
     print("body");
 }

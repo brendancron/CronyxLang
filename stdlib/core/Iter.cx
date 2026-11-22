@@ -15,7 +15,7 @@
  * lets go of what the sequence still holds when nobody will ask again.
  *
  * `E` is what pulling a value performs, so reading a file line by line is an
- * `Iter<string, <async, Throw<IoError>>>`: the effects happen where it is
+ * `Iter<String, <Async, Throw<IoError>>>`: the effects happen where it is
  * pulled rather than where it was made.
  */
 type Iter<T, E> {
@@ -23,7 +23,7 @@ type Iter<T, E> {
     next: () -> <E> Option<T>,
 
     /** Finishes with the sequence. Asking for more afterwards answers `None`. */
-    close: () -> unit
+    close: () -> Unit
 }
 
 /**
@@ -31,7 +31,7 @@ type Iter<T, E> {
  * one function take a `List` or an `Array`:
  *
  * ```
- * fn total<C: Iterable<int>>(items: C): int {
+ * fn total<C: Iterable<Int>>(items: C): Int {
  *     var sum = 0;
  *     for (n in items.iter()) { sum += n; }
  *     return sum;

@@ -1,9 +1,9 @@
 type Move<...Args> {
-    name: string,
-    apply: (...Args) -> <Console> unit
+    name: String,
+    apply: (...Args) -> <Console> Unit
 }
 
-fn burn(a: int, b: int) {
+fn burn(a: Int, b: Int) {
     print(a + b);
 }
 
@@ -14,6 +14,8 @@ fn wait() {
 var fire = Move { name: "burn", apply: burn };
 var rest = Move { name: "wait", apply: wait };
 
-var queue = [() => { fire.apply(1, 2); }, () => { rest.apply(); }];
+var queue = [];
+queue.push(() => { fire.apply(1, 2); });
+queue.push(() => { rest.apply(); });
 
 for (step in queue) { step(); }

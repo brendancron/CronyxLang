@@ -1,4 +1,4 @@
-fn size<n: int>() {
+fn size<n: Int>() {
     print(n);
 }
 var runtime = 3;

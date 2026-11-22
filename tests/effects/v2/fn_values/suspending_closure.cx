@@ -1,14 +1,14 @@
-trait E { @ctl fn op(): unit; }
+trait E { @ctl fn op(): Unit; }
 
-fn work(): <E, Console> unit {
+fn work(): <E, Console> Unit {
     print("before");
     op();
     print("after");
 }
 
-var pending: List<() -> <Console> unit> = [];
+var pending: List<() -> <Console> Unit> = [];
 
-run {
+run<Unit> {
     var task = () => { work(); };
     task();
 } handle<E> {

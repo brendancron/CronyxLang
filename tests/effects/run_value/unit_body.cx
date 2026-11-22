@@ -1,4 +1,4 @@
-effect Log { ctl note(msg: string): unit; }
+effect Log { ctl note(msg: String): Unit; }
 
 var count = run {
     note("first");

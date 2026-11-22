@@ -1,8 +1,8 @@
-trait M { @ctl fn m(): int; }
-trait L { @ctl fn l(): unit; }
+trait M { @ctl fn m(): Int; }
+trait L { @ctl fn l(): Unit; }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         var a = m();
         l();
         var b = m();

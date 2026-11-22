@@ -2,10 +2,10 @@
 // the scope is entered and cleared when it is left. A resumption re-enters the
 // scope without re-executing the `defer`, so the flag stays clear and an unwind
 // on a later pass finds nothing armed.
-effect Logic { ctl choose(options: Array<int>): int; }
-effect Err { final ctl fail(msg: string); }
+effect Logic { ctl choose(options: Array<Int>): Int; }
+effect Err { final ctl fail(msg: String); }
 
-fn pick(): <Logic, Err, Console> int {
+fn pick(): <Logic, Err, Console> Int {
     defer print("cleanup");
     var n = choose([1, 2]);
     if (n == 2) { return fail("second"); }

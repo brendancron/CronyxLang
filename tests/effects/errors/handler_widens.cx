@@ -1,6 +1,6 @@
-effect task { fn yield(): unit; }
+effect Task { fn yield(): Unit; }
 
-fn work(items: Array<int>): <task> int {
+fn work(items: Array<Int>): <Task> Int {
     var total = 0;
     for (i in items) {
         yield();
@@ -11,7 +11,7 @@ fn work(items: Array<int>): <task> int {
 
 run {
     print(work([1, 2, 3]));
-} handle task {
+} handle Task {
     ctl yield() {
         resume;
         print("after");

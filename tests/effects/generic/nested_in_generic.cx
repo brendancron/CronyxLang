@@ -1,9 +1,9 @@
-effect Log { fn log(s: string): unit; }
+effect Log { fn log(s: String): Unit; }
 
-fn each<E>(actions: List<() -> <E> unit>): <Console, E> unit {
+fn each<E>(actions: List<() -> <E> Unit>): <Console, E> Unit {
     var count = 0;
 
-    fn one(action: () -> <E> unit): <E> unit {
+    fn one(action: () -> <E> Unit): <E> Unit {
         count = count + 1;
         action();
     }

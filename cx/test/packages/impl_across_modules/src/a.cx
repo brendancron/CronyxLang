@@ -1,5 +1,5 @@
-type Box { n: int }
+type Box { n: Int }
 
 impl Box {
-    fn get(self): int { return self.n; }
+    fn get(self): Int { return self.n; }
 }

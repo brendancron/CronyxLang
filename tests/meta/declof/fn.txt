@@ -1,4 +1,4 @@
-fn greet(name: string) {
+fn greet(name: String) {
     print(("Hello, " + name));
 }
 

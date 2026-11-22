@@ -1,10 +1,10 @@
-trait E { @ctl fn op(): int; }
+trait E { @ctl fn op(): Int; }
 
-fn doubled(): <E> int { return op() * 2; }
-fn tripled(): <E> int { return op() * 3; }
+fn doubled(): <E> Int { return op() * 2; }
+fn tripled(): <E> Int { return op() * 3; }
 
-run {
-    var tasks: List<() -> <E> int> = [];
+run<Unit> {
+    var tasks: List<() -> <E> Int> = [];
     tasks.push(() => { return doubled(); });
     tasks.push(() => { return tripled(); });
     for (task in tasks) {

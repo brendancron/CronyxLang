@@ -1,13 +1,13 @@
 trait Log {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
 type Quiet {}
 
 impl Log for Quiet {
-    fn log(msg: string): unit {}
+    fn log(msg: String): Unit {}
 }
 
-run {
+run<Unit> {
     print(1);
 } with Quiet;

@@ -2,9 +2,9 @@
 // function answers with a different type per arm — no cast, no sentinel, and
 // still exhaustive.
 type Query<T> {
-    Count  -> Query<int>,
-    Name   -> Query<string>,
-    Exists -> Query<bool>,
+    Count  -> Query<Int>,
+    Name   -> Query<String>,
+    Exists -> Query<Bool>,
 }
 
 fn run_query<T>(q: Query<T>): T {

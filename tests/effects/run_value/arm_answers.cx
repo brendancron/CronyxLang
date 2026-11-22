@@ -1,6 +1,6 @@
-effect Yield { ctl yield(v: int): unit; }
+effect Yield { ctl yield(v: Int): Unit; }
 
-fn each(): <Yield> unit {
+fn each(): <Yield> Unit {
     yield(1);
     yield(2);
     yield(3);

@@ -1,6 +1,6 @@
-trait Sched { @ctl fn yield_now(): unit; }
+trait Sched { @ctl fn yield_now(): Unit; }
 
-fn worker(name: string, steps: int): <Sched, Console> int {
+fn worker(name: String, steps: Int): <Sched, Console> Int {
     for (var i = 0; i < steps; i += 1) {
         print(name + " step " + str(i));
         yield_now();
@@ -8,11 +8,11 @@ fn worker(name: string, steps: int): <Sched, Console> int {
     return steps;
 }
 
-fn all(tasks: List<() -> <Sched, Console> int>): List<int> {
-    var results: List<int> = [];
-    var ready: List<() -> <Console> unit> = [];
+fn all(tasks: List<() -> <Sched, Console> Int>): List<Int> {
+    var results: List<Int> = [];
+    var ready: List<() -> <Console> Unit> = [];
     for (task in tasks) {
-        run<unit> {
+        run<Unit> {
             var r = task();
             results.push(r);
         } handle<Sched> {
@@ -27,7 +27,7 @@ fn all(tasks: List<() -> <Sched, Console> int>): List<int> {
     return results;
 }
 
-var tasks: List<() -> <Sched, Console> int> = [];
+var tasks: List<() -> <Sched, Console> Int> = [];
 tasks.push(() => { return worker("a", 2); });
 tasks.push(() => { return worker("b", 3); });
 tasks.push(() => { return 7; });

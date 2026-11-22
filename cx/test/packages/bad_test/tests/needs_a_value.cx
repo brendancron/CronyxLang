@@ -1,4 +1,4 @@
 @test
-fn needs_a_value(n: int) {
+fn needs_a_value(n: Int) {
     assert(n == 1, "n is 1");
 }

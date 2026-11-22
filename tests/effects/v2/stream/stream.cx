@@ -1,11 +1,11 @@
-trait stream {
-    @ctl fn yield(i : int): unit;
+trait Stream {
+    @ctl fn yield(i : Int): Unit;
 }
 
 type PrintStream {}
 
-impl EffectHandler<stream, unit> for PrintStream {
-    fn yield(value: int, resume: (unit) -> unit) {
+impl EffectHandler<Stream, Unit> for PrintStream {
+    fn yield(value: Int, resume: (Unit) -> Unit) {
         print(value);
         resume(());
     }
@@ -28,7 +28,7 @@ fn fibonacci(n) {
     }
 }
 
-run {
+run<Unit> {
     range(5, 15, 2);
     fibonacci(10);
 } with PrintStream;

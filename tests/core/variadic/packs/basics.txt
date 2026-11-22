@@ -1,4 +1,4 @@
 1x
 true
-Slot<int, string>
-Slot<bool>
+Slot<Int, String>
+Slot<Bool>

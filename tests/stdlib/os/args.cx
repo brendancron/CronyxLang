@@ -1,6 +1,6 @@
 import { Args } from "std/os/Args";
 
-fn greet(): <Args> string {
+fn greet(): <Args> String {
     var names = args();
     if (names.len() == 0) { return "hello, nobody"; }
     return "hello, " + names[0];

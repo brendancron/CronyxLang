@@ -1,12 +1,12 @@
 type Box {
-    measure: (string) -> int
+    measure: (String) -> Int
 }
 
-fn measurer(): (string) -> int {
+fn measurer(): (String) -> Int {
     return (s) => s.len() * 10;
 }
 
-var f: (string) -> int = (s) => s.len();
+var f: (String) -> Int = (s) => s.len();
 var b = Box { measure: (s) => s.len() + 100 };
 
 print(f("abc"));

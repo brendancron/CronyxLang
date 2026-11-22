@@ -1,7 +1,7 @@
-type Point { x: int, y: int }
-type Shape { Circle(int), Rect { w: int, h: int } }
+type Point { x: Int, y: Int }
+type Shape { Circle(Int), Rect { w: Int, h: Int } }
 
-fn apply(f: (int) -> int): int { return f(10); }
+fn apply(f: (Int) -> Int): Int { return f(10); }
 
 var ps = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
 print(apply { it + 1 });

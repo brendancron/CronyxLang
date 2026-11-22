@@ -1,24 +1,24 @@
 trait Describe {
-    fn describe(self): string;
+    fn describe(self): String;
 }
 
 type Circle {
-    radius: int
+    radius: Int
 }
 
 type Rectangle {
-    width: int,
-    height: int
+    width: Int,
+    height: Int
 }
 
 impl Describe for Circle {
-    fn describe(self): string {
+    fn describe(self): String {
         return "circle with radius " + str(self.radius);
     }
 }
 
 impl Describe for Rectangle {
-    fn describe(self): string {
+    fn describe(self): String {
         return "rectangle " + str(self.width) + "x" + str(self.height);
     }
 }

@@ -1,6 +1,6 @@
-effect Ask { ctl ask(): int; }
+effect Ask { ctl ask(): Int; }
 
-fn doubled(): <Ask> int { return ask() * 2; }
+fn doubled(): <Ask> Int { return ask() * 2; }
 
 var total = run { doubled() } handle Ask {
     ctl ask() { resume 21; }

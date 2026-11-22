@@ -1,12 +1,12 @@
 type Shape {
     Point,
-    Circle(int),
-    Rect { w: int, h: int },
+    Circle(Int),
+    Rect { w: Int, h: Int },
 }
 
 type Maybe<T> { Some(T), None }
 
-fn area(s: Shape): int {
+fn area(s: Shape): Int {
     return match s {
         Shape.Point => 0,
         Shape.Circle(r) => 3 * r * r,
@@ -18,7 +18,7 @@ fn or_else<T>(m: Maybe<T>, fallback: T): T {
     return match m { Maybe.Some(v) => v, Maybe.None => fallback };
 }
 
-fn check(s: Shape): string {
+fn check(s: Shape): String {
     var unused = match s {
         Shape.Circle(r) => {
             if (r < 0) { return "negative"; }

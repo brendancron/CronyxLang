@@ -1,6 +1,6 @@
-effect Tick { ctl tick(): int; }
+effect Tick { ctl tick(): Int; }
 
-fn stepped(): <Tick, Console> unit {
+fn stepped(): <Tick, Console> Unit {
     for (var i = 0; i < 4; i += 1) {
         var n = tick();
         if (i == 1) { continue; }
@@ -8,7 +8,7 @@ fn stepped(): <Tick, Console> unit {
     }
 }
 
-fn each(): <Tick, Console> unit {
+fn each(): <Tick, Console> Unit {
     for (x in [1, 2, 3]) {
         defer print("left " + str(x));
         var n = tick();
@@ -17,7 +17,7 @@ fn each(): <Tick, Console> unit {
     }
 }
 
-fn nested(): <Tick, Console> unit {
+fn nested(): <Tick, Console> Unit {
     var a = 0;
     while (a < 2) {
         a += 1;

@@ -5,8 +5,8 @@ type Color {
 }
 
 type Shape {
-    Circle(int),
-    Rectangle(int, int)
+    Circle(Int),
+    Rectangle(Int, Int)
 }
 
 var c = Color.Red;

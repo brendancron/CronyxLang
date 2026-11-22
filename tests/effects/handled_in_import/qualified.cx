@@ -1,6 +1,6 @@
 import "signal";
 
-fn guarded(): string {
+fn guarded(): String {
     run {
         signal.stop("qualified");
     } handle signal.Signal {

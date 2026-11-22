@@ -29,7 +29,7 @@ let derived_eq span target : Ast.stmt =
                   ; { Ast.name = "rhs"; ty = Some (ty target); implicit = false }
                   ]
               ; md_signature =
-                  { Ast.ret = Some (ty "bool"); row = Some []; static_params = [] }
+                  { Ast.ret = Some (ty "Bool"); row = Some []; static_params = [] }
               ; md_body =
                   [ at
                       (`Return
@@ -413,7 +413,7 @@ let emit_value context span args =
 (* Fresh across the whole program, so no two generated names meet. *)
 let fresh_names = ref 0
 
-let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~declare ~remembered ((shared, own) : Ast.resolved_stmt list * Ast.resolved_stmt list) =
+let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~named_method ~declare ~remembered ((shared, own) : Ast.resolved_stmt list * Ast.resolved_stmt list) =
   match Compile.back_sharing ~shared ~own with
   | Error [] -> fail Source_map.Span.nowhere "The meta block does not check."
   | Error (e :: _) -> fail e.Diagnostic.span "%s" e.Diagnostic.message
@@ -566,6 +566,13 @@ let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~de
       checked span (fun () ->
         try Syntax.decl (Lazy.force (fst (declof_call span ~at name ty))) with
         | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message })));
+    native "__named_method" (Some 2) (fun span args ->
+      match args with
+      | [ Value.Name handler; Value.Name short ] ->
+        checked span (fun () ->
+          try Syntax.option Syntax.decl (named_method span handler short) with
+          | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message }))
+      | _ -> Value.fail span "named_method takes a handler and a method.");
     native "__instance_of" (Some 3) (fun span args ->
       let name, ty, at = called span args in
       checked span (fun () ->
@@ -1357,6 +1364,10 @@ type world =
     mutable type_level : Ast.resolved_stmt list
   ; (* What one meta block left for a later one: a name, by a key of names. *)
     remembered : (string list, string) Hashtbl.t
+  ; (* A plain generic type, copied per key as processed code names it. *)
+    generic_decls : (string, comptime_type) Hashtbl.t
+  ; (* Each copy of one, newest first. *)
+    mutable copies_made : string list
   }
 
 and comptime_type =
@@ -1411,7 +1422,7 @@ let rec with_body (s : Ast.stmt) body =
   | `Attributed (attrs, inner) -> { s with Ast.it = `Attributed (attrs, with_body inner body) }
   | _ -> s
 
-(* `<T: Show>` and `<n: int>` are one syntax: only whether the annotation's head
+(* `<T: Show>` and `<n: Int>` are one syntax: only whether the annotation's head
    names a trait says a bound from a value. *)
 let value_param traits (p : Ast.static_param) =
   match p.Ast.sp_ty with
@@ -1533,7 +1544,7 @@ let rec key_of w (e : Ast.expr) : string option =
   | `New (name, fs) -> Option.map (fun k -> name ^ k) (fields fs)
   (* The parameter's type already fixes the type arguments, so only a value
      argument tells two of these apart, and `Pair { … }` shares a copy with
-     `Pair<int, string> { … }`. *)
+     `Pair<Int, String> { … }`. *)
   | `New_generic (name, static_args, fs) ->
     (match
        List.filter_map
@@ -2009,6 +2020,8 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
            | Types.Int | Types.Float | Types.Str | Types.Byte | Types.Chr | Types.Bool | Types.Unit ->
              Hashtbl.replace named param (Value.Name (Types.string_of_ty ty))
            | Types.Named (n, []) | Types.Sum (n, []) -> Hashtbl.replace named param (Value.Name n)
+           | (Types.Named (n, args) | Types.Sum (n, args)) when Hashtbl.mem w.generic_decls n && Types.closed ty ->
+             Hashtbl.replace named param (Value.Name (type_copy w n args))
            | _ -> ())
         | _ -> ())
       key;
@@ -2075,7 +2088,7 @@ and instance w span d key = view (made w span d key)
    declaration's own name: an instance's is mangled. Only a simple
    type name is written into the body, where a parameter may also stand as a
    value: `T.zero()`. *)
-and surface (i : instance) : Ast.stmt =
+and surface w (i : instance) : Ast.stmt =
   let d = i.decl in
   let span = d.Typecheck.wd_span in
   let written = Hashtbl.create 4
@@ -2086,8 +2099,10 @@ and surface (i : instance) : Ast.stmt =
       | Key.Type ty ->
         let t = Splice.type_expr_of span ty in
         Hashtbl.replace written param (Syntax.type_expr t);
-        (match t.Ast.it with
-         | Ast.Ty_name n -> Hashtbl.replace named param (Value.Name n)
+        (match t.Ast.it, ty with
+         | Ast.Ty_name n, _ -> Hashtbl.replace named param (Value.Name n)
+         | _, (Types.Named (n, args) | Types.Sum (n, args)) when Hashtbl.mem w.generic_decls n && Types.closed ty ->
+           Hashtbl.replace named param (Value.Name (type_copy w n args))
          | _ -> ())
       | Key.Value _ | Key.Row _ -> ())
     i.key;
@@ -2168,7 +2183,7 @@ and declared_instance w span (d : Typecheck.walk_decl) key =
       span
       "'%s' is still being metaprocessed, so declof cannot see it yet."
       (Typecheck.shown_name d.Typecheck.wd_name);
-  surface i
+  surface w i
 
 (* A type, trait or effect as written; a comptime one at arguments is the copy
    they make. *)
@@ -2190,8 +2205,12 @@ and declared_type w span name (static_args : Ast.expr Ast.static_arg list option
              args
          in
          fst (instantiate_trait w tr types ~open_params:[] span)
+       | None, None when Hashtbl.mem w.generic_decls name -> written_copy w span name args
        | None, None -> fail span "'%s' takes no static arguments here." (Typecheck.shown_name name))
   in
+  match Hashtbl.find_opt Types.copies name with
+  | Some _ -> Option.get (copy_decl w name)
+  | None ->
   match List.find_opt (fun s -> List.mem name (declared_of s)) w.types, Hashtbl.find_opt w.comptime_traits name with
   | Some s, _ -> s
   | None, Some tr ->
@@ -2220,6 +2239,30 @@ and declared_at w span ~at name ty =
   match Typecheck.instance_at span ~at name ty with
   | Some (d, key) -> lazy (declared_instance w span d key), d.Typecheck.wd_name ^ Key.show key
   | None -> lazy (declared_type w span name None), name
+
+(* A named handler's method as its impl writes it, for a transform to make
+   taking control as if it were written as an arm. *)
+and named_method w span handler short =
+  match Hashtbl.find_opt Typecheck.named_handlers handler with
+  | None -> None
+  | Some (name, label) ->
+    let entries = Registry.method_entries w.registry name short in
+    let entry =
+      match List.filter (fun (e : Registry.method_entry) -> e.Registry.trait = Some label) entries, entries with
+      | [ e ], _ | [], [ e ] -> Some e
+      | _ -> None
+    in
+    Option.bind entry (fun (e : Registry.method_entry) ->
+      Option.map
+        (fun (d : Typecheck.walk_decl) ->
+          Ast.at
+            span
+            (`Fn
+              ( short
+              , List.map (fun (p : Ast.param) -> { p with Ast.ty = None }) d.Typecheck.wd_params
+              , { d.Typecheck.wd_sig with Ast.static_params = [] }
+              , d.Typecheck.wd_body )))
+        (Option.bind !Typecheck.top_env (fun env -> Typecheck.decl_of env e.Registry.mangled)))
 
 (* A type declared in a body is renamed after its owner, and so after each
    instance of it: two instances at different keys declare two types. *)
@@ -2340,7 +2383,7 @@ and run_meta w ~span ~statics ~runtime ~outer body =
   let block =
     match w.root with
     | Some root when not root_walking ->
-      let main = at (`Lambda ([], { Ast.ret = None; row = None; static_params = [] }, bindings @ lowered)) in
+      let main = at (`Lambda ([], { Ast.ret = None; row = None; static_params = [] }, [ at (`Block (bindings @ lowered)) ])) in
       at (`Expr (at (`Call (at (`Var root), [ main ]))))
     | _ -> at (`Block (bindings @ lowered))
   in
@@ -2391,6 +2434,7 @@ and run_meta w ~span ~statics ~runtime ~outer body =
        ~reflect:(fun prefix shown -> !module_hook w prefix shown)
        ~declof:(declared_by_name w)
        ~declof_call:(declared_at w)
+       ~named_method:(named_method w)
        ~declare:(fun d -> !register_hook w d)
        ~remembered:w.remembered
        program
@@ -2485,7 +2529,9 @@ and generic_new w (e : Ast.expr) =
     wake w name;
     (match Hashtbl.find_opt w.comptime_types name with
      | Some tt -> { e with Ast.it = `New (instantiate_type w tt static_args e.Ast.span, fields) }
-     | None -> e)
+     | None ->
+       if Hashtbl.mem w.generic_decls name then ignore (written_copy ~strict:false w e.Ast.span name static_args);
+       e)
   | `New (name, _) ->
     (match Hashtbl.find_opt w.comptime_types name with
      | Some tt ->
@@ -2510,6 +2556,120 @@ and with_values values body =
       List.map (fun (n, (v : Ast.expr)) -> Ast.at v.Ast.span (`Var_decl (n, None, Some v))) values
     in
     tblock (meta_bodies (fun inner -> bound @ inner)) S.empty body
+
+(* A plain generic type at a key: the copy its uses name, made the first time
+   one reaches it. *)
+and type_copy w base (args : Types.ty list) =
+  let shown = Types.string_of_ty (Types.Named (base, args)) in
+  match Hashtbl.find_opt w.generic_decls base with
+  | None -> shown
+  | Some g ->
+    let key =
+      Key.show
+        (List.mapi
+           (fun i a ->
+             (match List.nth_opt g.tt_params i with
+              | Some p -> p.Ast.tp_name
+              | None -> string_of_int i),
+             Key.Type a)
+           args)
+    in
+    (match Hashtbl.find_opt w.cache (g.tt_id, key) with
+     | Some (Copy copy) -> copy
+     | Some (Function _) | None ->
+       Hashtbl.replace w.cache (g.tt_id, key) (Copy shown);
+       Hashtbl.replace Types.copies shown (base, args);
+       w.copies_made <- shown :: w.copies_made;
+       shown)
+
+(* A plain generic type at written arguments, as `Box<Int> { … }` or
+   `declof(Box<Int>)` names it. *)
+and written_copy ?(strict = true) w span name (static_args : Ast.expr Ast.static_arg list) =
+  let types =
+    List.map
+      (function
+        | Ast.St_type t -> t
+        | Ast.St_value { Ast.it = `Var n; span; _ } -> Ast.at span (Ast.Ty_name n)
+        | Ast.St_value v -> fail v.Ast.span "'%s' takes a type here, not a value." (Typecheck.shown_name name))
+      static_args
+  in
+  let written = Ast.at span (Ast.Ty_app (name, types)) in
+  let ty =
+    try Types.resolve (Typecheck.infer_ty_of_annotation written) with
+    | Typecheck.Located e -> fail e.Typecheck.span "%s" e.Typecheck.message
+  in
+  match ty with
+  | (Types.Named (n, args) | Types.Sum (n, args)) when Types.closed ty -> type_copy w n args
+  | _ when not strict -> name
+  | _ -> fail span "'%s' is not settled here." (Printer.string_of_type_expr written)
+
+(* A written type naming each closed use of a generic type by its copy. *)
+and renamed_type ?(reach = ignore) w (t : Ast.type_expr) : Ast.type_expr =
+  let renamed = renamed_type ~reach w in
+  let it =
+    match t.Ast.it with
+    | Ast.Ty_app (n, args) when Hashtbl.mem Types.generic_types n ->
+      let settled =
+        try Some (Types.resolve (Typecheck.infer_ty_of_annotation t)) with
+        | _ -> None
+      in
+      (match settled with
+       | Some ty when Types.closed ty ->
+         (match Types.copied ~copy:(fun n a -> reach (type_copy w n a)) ty with
+          | Types.Named (c, []) | Types.Sum (c, []) -> Ast.Ty_name c
+          | _ -> Ast.Ty_app (n, List.map renamed args))
+       | _ -> Ast.Ty_app (n, List.map renamed args))
+    | Ast.Ty_app (n, args) -> Ast.Ty_app (n, List.map renamed args)
+    | Ast.Ty_tuple items -> Ast.Ty_tuple (List.map renamed items)
+    | Ast.Ty_record fields -> Ast.Ty_record (List.map (fun (l, t) -> l, renamed t) fields)
+    | Ast.Ty_fn (ps, r, row) -> Ast.Ty_fn (List.map renamed ps, renamed r, row)
+    | Ast.Ty_variadic t -> Ast.Ty_variadic (renamed t)
+    | Ast.Ty_spread t -> Ast.Ty_spread (renamed t)
+    | it -> it
+  in
+  { t with Ast.it }
+
+(* A copy's declaration: the generic one at its arguments, every closed use of
+   a generic type in it naming that type's copy. *)
+and copy_decl ?(reach = ignore) w copy : Ast.stmt option =
+  match Hashtbl.find_opt Types.copies copy with
+  | None -> None
+  | Some (base, args) ->
+    Option.map
+      (fun g ->
+        let span = g.tt_decl.Ast.span in
+        let written = Hashtbl.create 4 in
+        List.iteri
+          (fun i (p : Ast.type_param) ->
+            match List.nth_opt args i with
+            | Some a ->
+              Hashtbl.replace written p.Ast.tp_name (Syntax.type_expr (Splice.type_expr_of span (Types.copied a)))
+            | None -> ())
+          g.tt_params;
+        let decl = substitute written g.tt_decl in
+        let renamed = renamed_type w ~reach in
+        match decl.Ast.it with
+        | `Type_decl (_, _, Ast.T_fields fields) ->
+          Ast.at
+            span
+            (`Type_decl
+              (copy, [], Ast.T_fields (List.map (fun (f : Ast.field) -> { f with Ast.f_ty = renamed f.Ast.f_ty }) fields)))
+        | `Type_decl (_, _, Ast.T_variants variants) ->
+          Ast.at
+            span
+            (`Type_decl
+              ( copy
+              , []
+              , Ast.T_variants
+                  (List.map
+                     (fun (v : Ast.variant) ->
+                       { v with
+                         Ast.v_payload = Ast.map_payload renamed v.Ast.v_payload
+                       ; v_result = Option.map renamed v.Ast.v_result
+                       })
+                     variants) ))
+        | _ -> decl)
+      (Hashtbl.find_opt w.generic_decls base)
 
 (* A copy is named by what it was made from, `Buf<4>`, which is how a
    diagnostic or `typeof` shows it. Its meta blocks run as it is made, with its
@@ -2699,11 +2859,11 @@ and instantiate_trait w (tr : comptime_trait) (args : Ast.type_expr list) ~open_
 and check_static w named (declared : Ast.type_expr) (v : Ast.expr) =
   let primitive =
     match declared.Ast.it, v.Ast.it with
-    | Ast.Ty_name "int", `Int _
-    | Ast.Ty_name "float", `Float _
-    | Ast.Ty_name "string", `Str _
-    | Ast.Ty_name "char", `Char _
-    | Ast.Ty_name "bool", `Bool _ -> true
+    | Ast.Ty_name "Int", `Int _
+    | Ast.Ty_name "Float", `Float _
+    | Ast.Ty_name "String", `Str _
+    | Ast.Ty_name "Char", `Char _
+    | Ast.Ty_name "Bool", `Bool _ -> true
     | _ -> false
   in
   if not primitive
@@ -2879,7 +3039,7 @@ let rec is_type_level (s : Ast.stmt) =
   | _ -> false
 
 (* A trait written with a doc comment or an attribute is an `Attributed` around
-   the declaration, and the trait table is what tells `<T: Ord>` from `<n: int>`
+   the declaration, and the trait table is what tells `<T: Ord>` from `<n: Int>`
    -- so missing one turns every bound naming it into a static value parameter
    and the walk starts demanding arguments nobody wrote. *)
 let rec trait_declared (s : Ast.stmt) =
@@ -3144,11 +3304,30 @@ let note_written w (s : Ast.stmt) =
   if is_type_level s then w.types <- s :: w.types;
   if Option.is_some (impl_parts s) then w.impls <- s :: w.impls
 
+let note_generic w (s : Ast.resolved_stmt) =
+  match s.Ast.it with
+  | `Type_decl (name, (_ :: _ as params), body) when not (Hashtbl.mem w.comptime_types name) ->
+    incr Typecheck.walk_decl_count;
+    Hashtbl.replace Types.generic_types name ();
+    Hashtbl.replace
+      w.generic_decls
+      name
+      { tt_id = !Typecheck.walk_decl_count
+      ; tt_name = name
+      ; tt_params = params
+      ; tt_decl = Ast.at s.Ast.span (`Type_decl (name, params, body))
+      ; tt_members = []
+      }
+  | _ -> ()
+
 let check_type_level w (s : Ast.stmt) =
   if is_type_level s
   then
     Option.iter
-      (fun checked -> w.type_level <- List.rev_append (Typecheck.processed_block w.registry checked) w.type_level)
+      (fun checked ->
+        let processed = Typecheck.processed_block w.registry checked in
+        List.iter (note_generic w) processed;
+        w.type_level <- List.rev_append processed w.type_level)
       (Typecheck.Walk.type_level (session w) s)
 
 (* A declaration a meta block generated, from the point it was generated. *)
@@ -3278,7 +3457,271 @@ let pruned w (roots : Ast.resolved_stmt list) =
       else [])
     (List.rev w.emitted)
 
+(* A named handler's `@abort` method is written without its continuation, and
+   is given one it never names: what it answers is handed back once the
+   continuation is discontinued, so what that unwinds runs its cleanups. *)
+let aborting_impls (p : Ast.program) : Ast.program =
+  let aborting = Hashtbl.create 8 in
+  let rec note (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Trait_decl (name, _, body) ->
+      List.iter
+        (fun (m : Ast.method_sig) -> if Ast.aborts m.Ast.ms_attrs then Hashtbl.replace aborting (name, m.Ast.ms_name) (List.length m.Ast.ms_params))
+        body.Ast.tb_methods
+    | `Attributed (_, inner) -> note inner
+    | _ -> ()
+  in
+  List.iter note p;
+  let given eff (m : (Ast.stmt, unit) Ast.method_def) =
+    match Hashtbl.find_opt aborting (eff, m.Ast.md_name) with
+    | Some arity when List.length m.Ast.md_params = arity ->
+      let span = match m.Ast.md_body with s :: _ -> s.Ast.span | [] -> Source_map.Span.nowhere in
+      let at it = Ast.at span it in
+      let k = Ast.generated [ "aborted"; m.Ast.md_name ]
+      and answer = Ast.generated [ "aborted"; "answer" ] in
+      let body =
+        at (`Lambda ([], { Ast.ret = m.Ast.md_signature.Ast.ret; row = None; static_params = [] }, m.Ast.md_body))
+      in
+      { m with
+        Ast.md_params = m.Ast.md_params @ [ { Ast.name = k; ty = None; implicit = false } ]
+      ; md_body =
+          [ at (`Var_decl (answer, None, Some (at (`Call (body, [])))))
+          ; at (`Expr (at (`Call (at (`Var "discontinue"), [ at (`Var k) ]))))
+          ; at (`Return (Some (at (`Var answer))))
+          ]
+      }
+    | _ -> m
+  in
+  let rec impl (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Impl_decl (Some (trait, ({ Ast.it = Ast.Ty_name eff | Ast.Ty_app (eff, _); _ } :: _ as args)), ty, params, body)
+      when String.equal trait Core.effect_handler ->
+      { s with
+        Ast.it = `Impl_decl (Some (trait, args), ty, params, { body with Ast.ib_methods = List.map (given eff) body.Ast.ib_methods })
+      }
+    | `Attributed (attrs, inner) -> { s with Ast.it = `Attributed (attrs, impl inner) }
+    | _ -> s
+  in
+  List.map impl p
+
+(* `type X impl A, B { … }`: each method goes to the trait that declares it, and
+   one no named trait declares is the type's own. A trait whose meta blocks
+   generate its methods declares nothing before an instance runs them, so it
+   takes every method the other named traits do not declare. *)
+let implemented_in_types (p : Ast.program) : Ast.program * (Ast.span * string) list =
+  let declared = Hashtbl.create 32 in
+  let rec note (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Trait_decl (name, _, body) ->
+      Hashtbl.replace declared name (Some (List.map (fun (m : Ast.method_sig) -> m.Ast.ms_name) body.Ast.tb_methods))
+    | `Trait_members ({ Ast.it = `Trait_decl (name, _, _); _ }, _) -> Hashtbl.replace declared name None
+    | `Attributed (_, inner) -> note inner
+    | _ -> ()
+  in
+  List.iter note p;
+  let errors = ref [] in
+  let rec split (s : Ast.stmt) : Ast.stmt list =
+    match s.Ast.it with
+    | `Attributed (attrs, inner) ->
+      (match split inner with
+       | first :: rest -> { s with Ast.it = `Attributed (attrs, first) } :: rest
+       | [] -> [])
+    | `Type_members (decl, members) ->
+      let named, members =
+        List.partition_map
+          (fun (m : Ast.stmt) ->
+            match m.Ast.it with
+            | `Impl_decl (Some (trait, args), ty, params, _) -> Either.Left (m.Ast.span, trait, args, ty, params)
+            | _ -> Either.Right m)
+          members
+      in
+      if named = []
+      then [ s ]
+      else (
+        let name_of (m : Ast.stmt) = Option.map (fun (name, _, _, _) -> name) (fn_parts m) in
+        let generating =
+          List.filter (fun (_, trait, _, _, _) -> Hashtbl.find_opt declared trait = Some None) named
+        in
+        (match generating with
+         | _ :: (at, trait, _, _, _) :: _ ->
+           errors
+             := ( at
+                , Printf.sprintf
+                    "'%s' generates its methods, as another trait named here does, so which takes each is \
+                     not known; write them as separate impls."
+                    trait )
+                :: !errors
+         | _ -> ());
+        let claims (m : Ast.stmt) =
+          match name_of m with
+          | None -> []
+          | Some method_ ->
+            List.filter
+              (fun (_, trait, _, _, _) ->
+                match Hashtbl.find_opt declared trait with
+                | Some (Some methods) -> List.mem method_ methods
+                | _ -> false)
+              named
+        in
+        let placed =
+          List.map
+            (fun (m : Ast.stmt) ->
+              match claims m, generating, name_of m with
+              | [ (_, trait, _, _, _) ], _, _ -> m, Some trait
+              | (_, first, _, _, _) :: (_, second, _, _, _) :: _, _, Some method_ ->
+                errors
+                  := ( m.Ast.span
+                     , Printf.sprintf
+                         "'%s' is declared by both '%s' and '%s'; write them as separate impls."
+                         method_
+                         first
+                         second )
+                     :: !errors;
+                m, Some first
+              | [], (_, trait, _, _, _) :: _, Some _ -> m, Some trait
+              | _ -> m, None)
+            members
+        in
+        let own = List.filter_map (fun (m, owner) -> if owner = None then Some m else None) placed in
+        let impls =
+          List.map
+            (fun (at, trait, args, ty, params) ->
+              let methods =
+                List.filter_map
+                  (fun (m, owner) ->
+                    match owner, fn_parts m with
+                    | Some t, Some (name, params, sg, body) when String.equal t trait ->
+                      Some
+                        { Ast.md_name = name
+                        ; md_params = params
+                        ; md_signature = sg
+                        ; md_body = body
+                        ; md_ann = ()
+                        ; md_attrs = fn_attrs m
+                        }
+                    | _ -> None)
+                  placed
+              in
+              Ast.at at (`Impl_decl (Some (trait, args), ty, params, { Ast.ib_assoc = []; ib_methods = methods })))
+            named
+        in
+        (match own with
+         | [] -> decl
+         | own -> { s with Ast.it = `Type_members (decl, own) })
+        :: impls)
+    | _ -> [ s ]
+  in
+  let p = List.concat_map split p in
+  p, List.rev !errors
+
+(* Processed code names each closed use of a plain generic type by its copy,
+   and the copies it reaches stand where their generic declaration stood. *)
+let monomorphized w (type_level : Ast.resolved_stmt list) (code : Ast.resolved_stmt list) =
+  let reached = Hashtbl.create 32 in
+  let reach copy = Hashtbl.replace reached copy () in
+  let ty t = Types.copied ~copy:(fun n a -> reach (type_copy w n a)) t in
+  let rec expr (e : Ast.resolved_expr) : Ast.resolved_expr =
+    let it : Ast.resolved_expr_kind =
+      match e.Ast.it with
+      | #Ast.lit as l -> l
+      | #Ast.arrays as a -> (Ast.map_arrays expr a :> Ast.resolved_expr_kind)
+      | #Ast.strings as a -> (Ast.map_strings expr a :> Ast.resolved_expr_kind)
+      | #Ast.vars as a -> (Ast.map_vars expr a :> Ast.resolved_expr_kind)
+      | #Ast.ops as a -> (Ast.map_ops expr a :> Ast.resolved_expr_kind)
+      | #Ast.logic as a -> (Ast.map_logic expr a :> Ast.resolved_expr_kind)
+      | #Ast.tuple as a -> (Ast.map_tuple expr a :> Ast.resolved_expr_kind)
+      | #Ast.record as a -> (Ast.map_record expr a :> Ast.resolved_expr_kind)
+      | #Ast.variant_lit as a -> (Ast.map_variant_lit expr a :> Ast.resolved_expr_kind)
+      | `Dyn_call (receiver, name, t, args) -> `Dyn_call (expr receiver, name, ty t, List.map expr args)
+      | #Ast.object_lit as a -> (Ast.map_object_lit expr a :> Ast.resolved_expr_kind)
+      | `Lambda (params, signature, body) -> `Lambda (params, signature, List.map stmt body)
+    in
+    { e with Ast.it; ann = ty e.Ast.ann }
+  and stmt (s : Ast.resolved_stmt) : Ast.resolved_stmt =
+    let it : Ast.resolved_stmt_kind =
+      match s.Ast.it with
+      | `Match (scrutinee, cases) ->
+        let scrutinee = expr scrutinee in
+        let pattern (p : Ast.pattern) =
+          match p, scrutinee.Ast.ann with
+          | Ast.Pat_variant (t, v, payload), Types.Sum (copy, [])
+            when String.equal (Types.declaration copy) t && not (String.equal copy t) ->
+            Ast.Pat_variant (copy, v, payload)
+          | p, _ -> p
+        in
+        `Match (scrutinee, List.map (fun (p, body) -> pattern p, List.map stmt body) cases)
+      | #Ast.stmts as st -> (Ast.map_stmts expr stmt st :> Ast.resolved_stmt_kind)
+      | #Ast.type_defs as t -> t
+    in
+    { s with Ast.it; ann = ty s.Ast.ann }
+  in
+  let code = List.map stmt code in
+  let declared (s : Ast.resolved_stmt) =
+    match s.Ast.it with
+    | `Type_decl (name, params, Ast.T_fields fields) ->
+      { s with
+        Ast.it =
+          `Type_decl
+            ( name
+            , params
+            , Ast.T_fields
+                (List.map (fun (f : Ast.field) -> { f with Ast.f_ty = renamed_type ~reach w f.Ast.f_ty }) fields) )
+      }
+    | `Type_decl (name, params, Ast.T_variants variants) ->
+      { s with
+        Ast.it =
+          `Type_decl
+            ( name
+            , params
+            , Ast.T_variants
+                (List.map
+                   (fun (v : Ast.variant) ->
+                     { v with
+                       Ast.v_payload = Ast.map_payload (renamed_type ~reach w) v.Ast.v_payload
+                     ; v_result = Option.map (renamed_type ~reach w) v.Ast.v_result
+                     })
+                   variants) )
+      }
+    | _ -> s
+  in
+  let plain, generic =
+    List.partition
+      (fun (s : Ast.resolved_stmt) ->
+        match s.Ast.it with
+        | `Type_decl (name, _ :: _, _) -> not (Hashtbl.mem w.generic_decls name)
+        | _ -> true)
+      type_level
+  in
+  let plain = List.map declared plain in
+  let made = Hashtbl.create 32 in
+  let rec settle () =
+    let waiting = Hashtbl.fold (fun c () acc -> if Hashtbl.mem made c then acc else c :: acc) reached [] in
+    if waiting <> []
+    then (
+      List.iter
+        (fun c ->
+          Hashtbl.replace made c (copy_decl ~reach w c))
+        waiting;
+      settle ())
+  in
+  settle ();
+  let copies_of (s : Ast.resolved_stmt) =
+    match s.Ast.it with
+    | `Type_decl (base, _, _) ->
+      List.filter_map
+        (fun c ->
+          match Hashtbl.find_opt made c, Hashtbl.find_opt Types.copies c with
+          | Some (Some ({ Ast.it = `Type_decl _ as it; _ } : Ast.stmt)), Some (b, _) when String.equal b base ->
+            Some { s with Ast.it }
+          | _ -> None)
+        (List.rev w.copies_made)
+    | _ -> []
+  in
+  plain @ List.concat_map copies_of generic, code
+
 let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error list) result =
+  let p, misplaced = implemented_in_types p in
+  let p = aborting_impls p in
   let context =
     { out
     ; table = Hashtbl.create 16
@@ -3318,8 +3761,12 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
     ; declared = []
     ; gens = Hashtbl.create 16
     ; type_level = []
+    ; generic_decls = Hashtbl.create 32
+    ; copies_made = []
     }
   in
+  Hashtbl.reset Types.generic_types;
+  Hashtbl.reset Types.copies;
   let roots = ref [] in
   let finish_root (checked : Typecheck.checked_stmt list option) =
     let s = session w in
@@ -3341,6 +3788,9 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
     List.map (fun (e : Typecheck.error) -> Diagnostic.at Diagnostic.Type e.Typecheck.span e.Typecheck.message)
   in
   let walk () =
+    (match misplaced with
+     | (span, message) :: _ -> raise (Typecheck.Rejected { Typecheck.span; message })
+     | [] -> ());
     Hashtbl.iter (fun name _ -> Hashtbl.replace w.known name ()) (Builtins.env ~out:ignore).Value.vars;
     let p = List.map implicit (rename_local_types (types_of w p)) in
     let p = List.filter (fun s -> not (note_trait w s)) p in
@@ -3433,6 +3883,7 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
             then Hashtbl.replace w.unknown_methods name span)
       ; static_value = static_value w
       ; generic_new = generic_new w
+      ; copies_of = (fun t -> ignore (Types.copied ~copy:(fun n a -> ignore (type_copy w n a)) t))
       ; performs_gen =
           (fun d -> performs_gen w d.Typecheck.wd_name d.Typecheck.wd_params d.Typecheck.wd_body)
       ; instances_of =
@@ -3471,16 +3922,32 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
         p
     in
     w.root <- Option.bind root_decl (fun s -> Option.map (fun (name, _, _, _) -> name) (fn_parts s));
-    let rooted s =
-      match root_decl with
-      | Some decl -> List.tl (Compile.under_root [ decl; s ])
-      | None -> [ s ]
-    in
     List.iter (register w) of_comptime_traits;
-    let walk_root s = finish_root (Typecheck.Walk.root session s) in
+    (* The statements since the last top-level meta block, which run as one
+       root call: a meta block stands between two, so it still runs after what
+       the statements above it reach, and its generated statements join the
+       ones below. Each `var` is declared at the top level ahead of the call,
+       once the call has settled its type. *)
+    let pending = ref [] in
+    let flush () =
+      let statements = List.rev !pending in
+      pending := [];
+      if statements <> []
+      then (
+        match w.root with
+        | Some name ->
+          let checked = Typecheck.Walk.root session (Compile.root_call name statements) in
+          let globals = List.concat_map Compile.globals statements in
+          let before = !roots in
+          finish_root checked;
+          let made = List.rev (List.filteri (fun i _ -> i < List.length !roots - List.length before) !roots) in
+          roots := List.rev_append (globals @ made) before
+        | None -> List.iter (fun s -> finish_root (Typecheck.Walk.root session s)) statements)
+    in
     let rec root (s : Ast.stmt) =
       match s.Ast.it with
       | `Meta _ | `Derive _ ->
+        flush ();
         let generated = Splice.fit Splice.Top s.Ast.span (meta_stmt w ~statics:[] ~runtime:S.empty ~outer:[] s) in
         (* Hoisted, since what generated it may stand below its use. *)
         let declarations, statements = List.partition Splice.is_visible_to_meta generated in
@@ -3488,7 +3955,7 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
         List.iter root (List.map implicit statements)
       | `Gen _ -> fail s.Ast.span "'gen' is only allowed inside a meta block."
       | _ when Loader.is_declaration s -> ()
-      | _ -> List.iter walk_root (rooted s)
+      | _ -> pending := s :: !pending
     in
     List.iter
       (fun (s : Ast.stmt) ->
@@ -3496,10 +3963,13 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
         | Some _ -> ()
         | None -> root s)
       p;
+    flush ();
     printed w;
     finish_root None;
     match type_errors (Typecheck.Walk.errors session) with
-    | [] -> Ok (List.rev w.type_level @ pruned w (List.rev !roots) @ List.rev !roots)
+    | [] ->
+      let type_level, code = monomorphized w (List.rev w.type_level) (pruned w (List.rev !roots) @ List.rev !roots) in
+      Ok (type_level @ code)
     | errors -> Error errors
   in
   try walk () with

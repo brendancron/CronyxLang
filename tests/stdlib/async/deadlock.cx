@@ -1,7 +1,7 @@
-import { async, block_on, all } from "std/async/Task";
+import { Async, block_on, all } from "std/async/Task";
 import { promise, await, Promise } from "std/async/Promise";
 
-var config: Promise<string> = promise();
+var config: Promise<String> = promise();
 
 block_on {
     all([

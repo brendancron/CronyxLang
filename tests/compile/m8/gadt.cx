@@ -1,10 +1,10 @@
 enum Expr<T> {
-    Lit(int): Expr<int>,
-    Add(Expr<int>, Expr<int>): Expr<int>,
-    BoolLit(bool): Expr<bool>,
+    Lit(Int): Expr<Int>,
+    Add(Expr<Int>, Expr<Int>): Expr<Int>,
+    BoolLit(Bool): Expr<Bool>,
 }
 
-fn eval_int(e: Expr<int>): int {
+fn eval_int(e: Expr<Int>): Int {
     match e {
         Expr.Lit(n)    => n,
         Expr.Add(l, r) => eval_int(l) + eval_int(r),

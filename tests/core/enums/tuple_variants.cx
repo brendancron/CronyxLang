@@ -1,7 +1,7 @@
 type Shape {
     Point,
-    Circle(int),
-    Rect(int, int),
+    Circle(Int),
+    Rect(Int, Int),
 }
 
 match Shape.Point {

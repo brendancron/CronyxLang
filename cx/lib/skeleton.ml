@@ -37,7 +37,7 @@ let create ~directory ~name =
       write (Filename.concat directory Manifest.file_name) (manifest name);
       write
         (Filename.concat directory (Filename.concat "src" "main.cx"))
-        "fn greeting(): string {\n\
+        "fn greeting(): String {\n\
         \    return \"Hello, World!\";\n\
          }\n\
          \n\

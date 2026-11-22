@@ -1,12 +1,12 @@
 type Slot<...Args> {
-    use: (...Args) -> <Console> unit
+    use: (...Args) -> <Console> Unit
 }
 
-fn pair(a: int, b: string) {
+fn pair(a: Int, b: String) {
     print(str(a) + b);
 }
 
-fn flag(a: bool) {
+fn flag(a: Bool) {
     print(a);
 }
 

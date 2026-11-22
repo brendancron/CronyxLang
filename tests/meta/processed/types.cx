@@ -2,22 +2,22 @@ import { Expr, ExprKind, Stmt, StmtKind, ValuedBlock, processed } from "std/comp
 import { expr_source, type_source } from "std/compiler/Printer";
 
 trait Fail {
-    @ctl fn throw<T>(msg: string): T;
+    @ctl fn throw<T>(msg: String): T;
 }
 
-fn number(ok: bool): int {
+fn number(ok: Bool): Int {
     if (ok) { return 1; }
     return throw("no number");
 }
 
-fn typed(e: Expr): string {
+fn typed(e: Expr): String {
     match e.ty {
         Option.Some(t) => { return expr_source(e) + " : " + type_source(t); }
         _ => { return expr_source(e) + " : ?"; }
     }
 }
 
-fn show(e: Expr): unit {
+fn show(e: Expr): Unit {
     print(typed(e));
     match e.kind {
         ExprKind.Call(f, args) => {
@@ -32,7 +32,7 @@ fn show(e: Expr): unit {
     }
 }
 
-fn go(y: int) {
+fn go(y: Int) {
     meta {
         var p = processed(ValuedBlock {
             stmts: code {

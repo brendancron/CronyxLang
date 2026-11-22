@@ -16,7 +16,7 @@
               "id": "builtin#byte#to_int",
               "package": "std",
               "unit": "builtins",
-              "name": "byte.to_int",
+              "name": "Byte.to_int",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -28,7 +28,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "byte",
+                    "name": "Byte",
                     "ref": null,
                     "param": false
                   }
@@ -36,7 +36,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "int",
+                "name": "Int",
                 "ref": null,
                 "param": false
               },
@@ -46,7 +46,7 @@
               "id": "builtin#char#to_lower",
               "package": "std",
               "unit": "builtins",
-              "name": "char.to_lower",
+              "name": "Char.to_lower",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -58,7 +58,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "char",
+                    "name": "Char",
                     "ref": null,
                     "param": false
                   }
@@ -66,7 +66,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "char",
+                "name": "Char",
                 "ref": null,
                 "param": false
               },
@@ -76,7 +76,7 @@
               "id": "builtin#char#to_upper",
               "package": "std",
               "unit": "builtins",
-              "name": "char.to_upper",
+              "name": "Char.to_upper",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -88,7 +88,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "char",
+                    "name": "Char",
                     "ref": null,
                     "param": false
                   }
@@ -96,7 +96,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "char",
+                "name": "Char",
                 "ref": null,
                 "param": false
               },
@@ -118,7 +118,7 @@
                   "name": "",
                   "type": {
                     "kind": "name",
-                    "name": "int",
+                    "name": "Int",
                     "ref": null,
                     "param": false
                   }
@@ -126,7 +126,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "char",
+                "name": "Char",
                 "ref": null,
                 "param": false
               },
@@ -157,7 +157,7 @@
                   "name": "",
                   "type": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   }
@@ -195,7 +195,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "string",
+                "name": "String",
                 "ref": null,
                 "param": false
               },
@@ -205,7 +205,7 @@
               "id": "builtin#float#to_int",
               "package": "std",
               "unit": "builtins",
-              "name": "float.to_int",
+              "name": "Float.to_int",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -217,7 +217,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "float",
+                    "name": "Float",
                     "ref": null,
                     "param": false
                   }
@@ -225,7 +225,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "int",
+                "name": "Int",
                 "ref": null,
                 "param": false
               },
@@ -235,7 +235,7 @@
               "id": "builtin#int#to_byte",
               "package": "std",
               "unit": "builtins",
-              "name": "int.to_byte",
+              "name": "Int.to_byte",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -247,7 +247,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "int",
+                    "name": "Int",
                     "ref": null,
                     "param": false
                   }
@@ -255,7 +255,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "byte",
+                "name": "Byte",
                 "ref": null,
                 "param": false
               },
@@ -265,7 +265,7 @@
               "id": "builtin#int#to_float",
               "package": "std",
               "unit": "builtins",
-              "name": "int.to_float",
+              "name": "Int.to_float",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -277,7 +277,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "int",
+                    "name": "Int",
                     "ref": null,
                     "param": false
                   }
@@ -285,7 +285,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "float",
+                "name": "Float",
                 "ref": null,
                 "param": false
               },
@@ -307,7 +307,7 @@
                   "name": "",
                   "type": {
                     "kind": "name",
-                    "name": "char",
+                    "name": "Char",
                     "ref": null,
                     "param": false
                   }
@@ -315,7 +315,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "int",
+                "name": "Int",
                 "ref": null,
                 "param": false
               },
@@ -337,7 +337,7 @@
                   "name": "",
                   "type": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   }
@@ -345,7 +345,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "unit",
+                "name": "Unit",
                 "ref": null,
                 "param": false
               },
@@ -384,7 +384,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "bool",
+                "name": "Bool",
                 "ref": null,
                 "param": false
               },
@@ -414,7 +414,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "string",
+                "name": "String",
                 "ref": null,
                 "param": false
               },
@@ -424,7 +424,7 @@
               "id": "builtin#string#as_name",
               "package": "std",
               "unit": "builtins",
-              "name": "string.as_name",
+              "name": "String.as_name",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -436,7 +436,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   }
@@ -454,7 +454,7 @@
               "id": "builtin#string#bytes",
               "package": "std",
               "unit": "builtins",
-              "name": "string.bytes",
+              "name": "String.bytes",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -466,7 +466,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   }
@@ -480,7 +480,7 @@
                 "args": [
                   {
                     "kind": "name",
-                    "name": "byte",
+                    "name": "Byte",
                     "ref": null,
                     "param": false
                   }
@@ -492,7 +492,7 @@
               "id": "builtin#string#to_lower",
               "package": "std",
               "unit": "builtins",
-              "name": "string.to_lower",
+              "name": "String.to_lower",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -504,7 +504,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   }
@@ -512,7 +512,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "string",
+                "name": "String",
                 "ref": null,
                 "param": false
               },
@@ -522,7 +522,7 @@
               "id": "builtin#string#to_upper",
               "package": "std",
               "unit": "builtins",
-              "name": "string.to_upper",
+              "name": "String.to_upper",
               "kind": "fn",
               "line": null,
               "exported": true,
@@ -534,7 +534,7 @@
                   "name": "self",
                   "type": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   }
@@ -542,7 +542,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "string",
+                "name": "String",
                 "ref": null,
                 "param": false
               },
@@ -694,7 +694,7 @@
                 "args": [
                   {
                     "kind": "name",
-                    "name": "float",
+                    "name": "Float",
                     "ref": null,
                     "param": false
                   }
@@ -702,7 +702,7 @@
               },
               "for": {
                 "kind": "name",
-                "name": "int",
+                "name": "Int",
                 "ref": null
               },
               "generics": [],
@@ -711,7 +711,7 @@
                   "name": "Output",
                   "type": {
                     "kind": "name",
-                    "name": "float",
+                    "name": "Float",
                     "ref": null,
                     "param": false
                   },
@@ -733,7 +733,7 @@
                   ],
                   "ret": {
                     "kind": "name",
-                    "name": "float",
+                    "name": "Float",
                     "ref": null,
                     "param": false
                   },
@@ -757,7 +757,7 @@
                 "args": [
                   {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   }
@@ -765,7 +765,7 @@
               },
               "for": {
                 "kind": "name",
-                "name": "string",
+                "name": "String",
                 "ref": null
               },
               "generics": [],
@@ -774,7 +774,7 @@
                   "name": "Output",
                   "type": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   },
@@ -796,7 +796,7 @@
                   ],
                   "ret": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   },
@@ -894,7 +894,7 @@
                   "form": "value",
                   "type": {
                     "kind": "name",
-                    "name": "int",
+                    "name": "Int",
                     "ref": null,
                     "param": false
                   },
@@ -955,7 +955,7 @@
                     "args": [
                       {
                         "kind": "name",
-                        "name": "string",
+                        "name": "String",
                         "ref": null,
                         "param": false
                       }
@@ -986,7 +986,7 @@
               ],
               "ret": {
                 "kind": "name",
-                "name": "string",
+                "name": "String",
                 "ref": null,
                 "param": false
               },
@@ -1017,7 +1017,7 @@
                     "name": "radius",
                     "type": {
                       "kind": "name",
-                      "name": "int",
+                      "name": "Int",
                       "ref": null,
                       "param": false
                     },

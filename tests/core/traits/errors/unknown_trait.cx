@@ -1,4 +1,4 @@
-type Circle { radius: int }
+type Circle { radius: Int }
 impl Shows for Circle {
-    fn describe(self): string { return "circle"; }
+    fn describe(self): String { return "circle"; }
 }

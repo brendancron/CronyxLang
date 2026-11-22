@@ -1,7 +1,7 @@
-import { async, block_on, all, pause } from "std/async/Task";
+import { Async, block_on, all, pause } from "std/async/Task";
 import { Throw } from "std/core/Error";
 
-effect Log { fn log(s: string): unit; }
+effect Log { fn log(s: String): Unit; }
 
 block_on {
     run {

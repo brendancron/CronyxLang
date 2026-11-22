@@ -1,14 +1,14 @@
 trait Yield {
-    @ctl fn yield(v: int): unit;
+    @ctl fn yield(v: Int): Unit;
 }
 
-fn each(): <Yield> unit {
+fn each(): <Yield> Unit {
     yield(1);
     yield(2);
     yield(3);
 }
 
-var first = run<int> { each(); 0 } handle<Yield> {
+var first = run<Int> { each(); 0 } handle<Yield> {
     fn yield(v, resume) { return v; }
 };
 

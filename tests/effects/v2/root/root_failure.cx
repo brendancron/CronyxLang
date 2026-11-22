@@ -1,13 +1,13 @@
-trait Out { fn emit(text: string): unit; }
+trait Out { fn emit(text: String): Unit; }
 
 trait Fails<X> { @ctl fn fails<T>(err: X): T; }
 
-trait Wait { @ctl fn pause(): unit; }
+trait Wait { @ctl fn pause(): Unit; }
 
-fn block_on<X, E>(main: () -> <Wait, Fails<X>, E> unit): <Console, E> unit {
-    var ready: List<() -> <Console, E> unit> = [];
-    run {
-        run {
+fn block_on<X, E>(main: () -> <Wait, Fails<X>, E> Unit): <Console, E> Unit {
+    var ready: List<() -> <Console, E> Unit> = [];
+    run<Unit> {
+        run<Unit> {
             main();
         } handle<Fails> {
             fn fails(e, resume) { panic("uncaught failure: " + str(e)); }
@@ -24,7 +24,7 @@ fn block_on<X, E>(main: () -> <Wait, Fails<X>, E> unit): <Console, E> unit {
 
 fn root<T, X, E>(main: () -> <Wait, Fails<X>, Out, Console, E> T): <Console, E> T {
     var out: Option<T> = Option.None;
-    run {
+    run<Unit> {
         block_on(() => { out = Option.Some(main()); });
     } handle<Out> {
         fn emit(text) { print("> " + text); }
@@ -35,7 +35,7 @@ fn root<T, X, E>(main: () -> <Wait, Fails<X>, Out, Console, E> T): <Console, E> 
     }
 }
 
-fn twice(name: string): <Wait, Out> unit {
+fn twice(name: String): <Wait, Out> Unit {
     emit(name + " 1");
     pause();
     emit(name + " 2");

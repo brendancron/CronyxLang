@@ -2,9 +2,9 @@
 // selecting the wrong one is wrong output rather than an error.
 type Choice { Yes, No }
 
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
-fn use(): <Ask> int {
+fn use(): <Ask> Int {
     return get();
 }
 

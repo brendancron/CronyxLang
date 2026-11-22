@@ -1,16 +1,16 @@
-trait Ask { @ctl fn ask(): int; }
-trait Note { fn note(s: string): unit; }
+trait Ask { @ctl fn ask(): Int; }
+trait Note { fn note(s: String): Unit; }
 
-fn quiet(): <Ask> int { return ask(); }
+fn quiet(): <Ask> Int { return ask(); }
 
-run {
+run<Unit> {
     var a = quiet();
     note("got " + str(a));
     var b = quiet();
     print(b);
 } handle<Ask> { fn ask(resume) { return resume(1); } } handle<Note> { fn note(s) { print(s); } }
 
-var r = run<int> {
+var r = run<Int> {
     var a = quiet();
     var b = quiet();
     a + b

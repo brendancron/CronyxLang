@@ -1,44 +1,44 @@
-type Board { cells: Array<int> }
+type Board { cells: Array<Int> }
 
-fn early(xs: Array<int>): int {
+fn early(xs: Array<Int>): Int {
     return get(xs, 0);
 }
 
-fn earlyOnBoard(b: Board): int {
+fn earlyOnBoard(b: Board): Int {
     return b.at(1);
 }
 
-fn isEven(n: int): bool {
+fn isEven(n: Int): Bool {
     if (n == 0) { return true; }
     return isOdd(n - 1);
 }
 
-fn get(xs: Array<int>, i: int): int {
+fn get(xs: Array<Int>, i: Int): Int {
     return xs[i];
 }
 
 impl Board {
-    fn at(self, i: int): int { return self.cells[i]; }
+    fn at(self, i: Int): Int { return self.cells[i]; }
 }
 
-fn isOdd(n: int): bool {
+fn isOdd(n: Int): Bool {
     if (n == 0) { return false; }
     return isEven(n - 1);
 }
 
-fn onBoard(b: Board, i: int): int {
+fn onBoard(b: Board, i: Int): Int {
     return b.at(i);
 }
 
-fn applyInt(f: (Array<int>, int) -> int, xs: Array<int>): int {
+fn applyInt(f: (Array<Int>, Int) -> Int, xs: Array<Int>): Int {
     return f(xs, 2);
 }
 
-fn applyBoard(f: (Board, int) -> int, b: Board): int {
+fn applyBoard(f: (Board, Int) -> Int, b: Board): Int {
     return f(b, 2);
 }
 
-fn applyBool(f: (int) -> bool, n: int): bool {
+fn applyBool(f: (Int) -> Bool, n: Int): Bool {
     return f(n);
 }
 

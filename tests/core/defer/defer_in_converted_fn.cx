@@ -1,9 +1,9 @@
 // The deferred statement runs when the function's scope is left, which is
 // before the caller sees the result — the same as in a function the CPS pass
 // left alone.
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
-fn f(): <Ask, Console> int {
+fn f(): <Ask, Console> Int {
     defer print("cleanup");
     print("body");
     return get();

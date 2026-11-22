@@ -1,12 +1,12 @@
-// A row names effects, not operations: `log` and `yield` are both `mixed`,
+// A row names effects, not operations: `log` and `yield` are both `Mixed`,
 // so calling either puts that one effect in the row.
 
-effect mixed {
-    fn log(msg: string): unit;
-    ctl yield(i: int): unit;
+effect Mixed {
+    fn log(msg: String): Unit;
+    ctl yield(i: Int): Unit;
 }
 
-fn produce(n: int) {
+fn produce(n: Int) {
     log("start");
     yield(n);
     log("end");

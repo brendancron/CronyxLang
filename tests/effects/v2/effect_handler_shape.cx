@@ -1,15 +1,15 @@
 import { decl_source } from "std/compiler/Printer";
 
 trait Effect {
-    fn log(msg: string): unit;
-    @ctl fn choose(options: Array<int>): int;
+    fn log(msg: String): Unit;
+    @ctl fn choose(options: Array<Int>): Int;
 }
 
 trait Fail {
-    @ctl fn throw<T>(msg: string): T;
+    @ctl fn throw<T>(msg: String): T;
 }
 
 meta {
-    print(decl_source(declof(EffectHandler<Effect, string>)));
-    print(decl_source(declof(EffectHandler<Fail, int>)));
+    print(decl_source(declof(EffectHandler<Effect, String>)));
+    print(decl_source(declof(EffectHandler<Fail, Int>)));
 }

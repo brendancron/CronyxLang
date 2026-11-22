@@ -2,23 +2,23 @@ import { step } from "benched";
 
 @bench(20)
 @memory("constant")
-fn steady(n: int) {
+fn steady(n: Int) {
     var total = 0;
     for (var i = 0; i < n; i += 1) { total += step(); }
 }
 
 @bench(20)
 @memory("constant")
-fn growing(n: int) {
-    var kept: List<List<int>> = [];
+fn growing(n: Int) {
+    var kept: List<List<Int>> = [];
     for (var i = 0; i < n; i += 1) {
-        var junk: List<int> = [];
+        var junk: List<Int> = [];
         for (var j = 0; j < 5000; j += 1) { junk.push(j); }
         kept.push(junk);
     }
 }
 
 @bench(20)
-fn unjudged(n: int) {
+fn unjudged(n: Int) {
     for (var i = 0; i < n; i += 1) { step(); }
 }

@@ -23,7 +23,7 @@ let escape text =
 (* `#` is in every id and must be percent-encoded in a fragment, which makes a
    link unreadable in a status bar. A dot reads as the path it is.
 
-   An impl's id also carries the trait's written arguments -- `Into<float>` --
+   An impl's id also carries the trait's written arguments -- `Into<Float>` --
    and those go the same way: an angle bracket in an anchor is an angle bracket
    in a URL. Folding them cannot collide, because what differed before the fold
    still differs after it. *)
@@ -261,7 +261,7 @@ let rec type_html ~from ~table node =
 
 (* An absent row was left to inference and says nothing; a written empty one
    says the function performs no effect, which is worth printing. It stands
-   before the type it decorates -- `-> <E> bool`, not `-> bool <E>` -- because
+   before the type it decorates -- `-> <E> Bool`, not `-> Bool <E>` -- because
    that is where it is written and `--dump-code` prints it there. *)
 and row_html ~from ~table row =
   if Json.is_null row
@@ -301,7 +301,7 @@ let params_html ~from ~table ps =
 
 (* `<>` parameters. A bound and a value are both written as a name with a type
    and mean different things -- `<T: Ord>` is a generic the checker constrains,
-   `<n: int>` is a value a copy is made for -- so each is styled as what it is
+   `<n: Int>` is a value a copy is made for -- so each is styled as what it is
    and neither is left for a reader to infer. *)
 let statics_html ~from ~table ps =
   match Json.items ps with
@@ -500,7 +500,7 @@ let signature_html ~from ~table entry =
   | "impl" ->
     let trait = Json.field "trait" entry in
     (* The parameters belong to the target, which is where they are written:
-       `impl Index<int> for List<T>`. *)
+       `impl Index<Int> for List<T>`. *)
     let target =
       type_html ~from ~table (Json.field "for" entry)
       ^ statics_html ~from ~table (Json.field "generics" entry)
@@ -524,7 +524,7 @@ let signature_html ~from ~table entry =
   | _ -> name
 
 (* The impls a type or a trait carries. A trait's are the only way to reach an
-   impl for a primitive: `int` has no declaration and so no page to list it on. *)
+   impl for a primitive: `Int` has no declaration and so no page to list it on. *)
 let impls_html ~from ~table ~label entry =
   match Json.items (Json.field "impls" entry) with
   | [] -> ""
@@ -545,7 +545,7 @@ let impls_html ~from ~table ~label entry =
               link ~from ~table id name)
             ids))
 
-(* `type Item;` in a trait, and `type Item = int;` in an impl that binds it. *)
+(* `type Item;` in a trait, and `type Item = Int;` in an impl that binds it. *)
 let assoc_html ~from ~table entry =
   String.concat
     ""

@@ -1,11 +1,11 @@
 import { Throw } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 import { Mode, Fs, open_file, write_text } from "std/fs/File";
 import { using, lines, IoError } from "std/io/Io";
 
 write_text("io_lines_to_end.txt", "one\ntwo\nthree\n");
 
-fn count_lines(): <Fs, async, Throw<IoError>, Console> int {
+fn count_lines(): <Fs, Async, Throw<IoError>, Console> Int {
     var n = 0;
     using(open_file("io_lines_to_end.txt", Mode.Read)) { f ->
         for (line in lines(f)) {

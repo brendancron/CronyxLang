@@ -1,8 +1,8 @@
-fn doubled(n: int): int {
+fn doubled(n: Int): Int {
     return n * 2;
 }
 
-fn shared(n: int): int {
+fn shared(n: Int): Int {
     return n + 1;
 }
 

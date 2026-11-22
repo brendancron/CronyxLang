@@ -1,22 +1,22 @@
 type Slot<...Args> {
-    use: (...Args) -> <Console> unit
+    use: (...Args) -> <Console> Unit
 }
 
 fn nothing() {
     print("none");
 }
 
-fn one_of(a: int) {
+fn one_of(a: Int) {
     print(a);
 }
 
-fn two_of(a: int, b: string) {
+fn two_of(a: Int, b: String) {
     print(str(a) + b);
 }
 
 var none: Slot<> = Slot { use: nothing };
-var one: Slot<int> = Slot { use: one_of };
-var two: Slot<int, string> = Slot { use: two_of };
+var one: Slot<Int> = Slot { use: one_of };
+var two: Slot<Int, String> = Slot { use: two_of };
 
 none.use();
 one.use(1);

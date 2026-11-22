@@ -1,4 +1,4 @@
 Dog Card
-int string
+Int String
 true
 Card 2

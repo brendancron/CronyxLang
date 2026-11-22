@@ -1,12 +1,12 @@
 // A function is in scope for the whole block it was written in, which is what
 // the checker already assumes when it accepts a call above the declaration.
-fn outer(): int {
+fn outer(): Int {
     var seed = helper(2);
-    fn helper(n: int): int { return n * 10; }
+    fn helper(n: Int): Int { return n * 10; }
     return seed;
 }
 print(outer());
 
 print(str(even(4)) + " " + str(odd(3)));
-fn even(n: int): bool { if (n == 0) { return true; } return odd(n - 1); }
-fn odd(n: int): bool { if (n == 0) { return false; } return even(n - 1); }
+fn even(n: Int): Bool { if (n == 0) { return true; } return odd(n - 1); }
+fn odd(n: Int): Bool { if (n == 0) { return false; } return even(n - 1); }

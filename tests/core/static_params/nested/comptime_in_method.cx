@@ -1,7 +1,7 @@
-trait Show { fn show(self): string; }
-impl Show for int {
-    fn show(self): string {
-        fn repeat<n: int>(s: string): string {
+trait Show { fn show(self): String; }
+impl Show for Int {
+    fn show(self): String {
+        fn repeat<n: Int>(s: String): String {
             var out = "";
             var i = 0;
             while (i < n) { out = out + s; i = i + 1; }

@@ -2,10 +2,10 @@
 // inside a converted function, "the rest" lives in continuation closures, and
 // the unwind has to stop at the same place it would otherwise — not escape
 // every continuation between here and the top.
-effect E { ctl ask(): int; }
-effect Fail { final ctl bail(): int; }
+effect E { ctl ask(): Int; }
+effect Fail { final ctl bail(): Int; }
 
-fn g(): <E, Fail, Console> unit {
+fn g(): <E, Fail, Console> Unit {
     var t = ask();
     bail();
     print("UNREACHABLE");

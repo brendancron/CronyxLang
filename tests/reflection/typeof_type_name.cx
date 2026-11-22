@@ -1,10 +1,10 @@
 // A bare name is a value's type if one answers to it, and the declared type
 // otherwise, so a type nothing holds can still be reflected on.
-type Dog { name: string, age: int }
-type Card { Damage(int), Skip }
+type Dog { name: String, age: Int }
+type Card { Damage(Int), Skip }
 
 print(str(typeof(Dog).name) + " " + str(typeof(Card).name));
-print(str(typeof(int).name) + " " + str(typeof(string).name));
+print(str(typeof(Int).name) + " " + str(typeof(String).name));
 
 var rex = Dog { name: "rex", age: 3 };
 print(typeof(rex).name == typeof(Dog).name);

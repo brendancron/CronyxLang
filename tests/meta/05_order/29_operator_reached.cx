@@ -1,4 +1,4 @@
-type Money { cents: int }
+type Money { cents: Int }
 
 impl Add<Money> for Money {
     type Output = Money;

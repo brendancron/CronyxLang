@@ -12,5 +12,5 @@ print(s.split(' '));
 print(s.contains("wör"));
 print("  héllo  ".trim());
 
-var raw: Array<byte> = "hé".bytes();
+var raw: Array<Byte> = "hé".bytes();
 print(str(raw.len()) + " " + str(typeof(raw).name));

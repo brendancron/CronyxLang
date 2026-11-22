@@ -1,18 +1,18 @@
 import { Throw, attempt } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
-fn quiet(): <Throw<string>> unit { }
-fn waits(): <async, Throw<string>> unit { }
+fn quiet(): <Throw<String>> Unit { }
+fn waits(): <Async, Throw<String>> Unit { }
 
-fn a(): <Throw<string>, Console> unit {
+fn a(): <Throw<String>, Console> Unit {
     defer { print("a plain"); }
     throw("x");
 }
-fn b(): <Throw<string>, Console> unit {
+fn b(): <Throw<String>, Console> Unit {
     defer { attempt { quiet() }; print("b after attempt"); }
     throw("x");
 }
-fn c(): <async, Throw<string>, Console> unit {
+fn c(): <Async, Throw<String>, Console> Unit {
     defer { attempt { waits() }; print("c after attempt async"); }
     throw("x");
 }

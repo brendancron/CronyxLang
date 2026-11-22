@@ -1,15 +1,15 @@
 // A `return` inside a loop of a function converted for an effect it may
 // perform still hands its value to the caller, whether or not it suspended.
-effect Tick { ctl tick(): unit; }
+effect Tick { ctl tick(): Unit; }
 
-fn find(xs: List<int>, v: int): <Tick> bool {
+fn find(xs: List<Int>, v: Int): <Tick> Bool {
     for (x in xs) {
         if (x == v) { return true; }
     }
     return false;
 }
 
-fn first_over(xs: List<int>, limit: int): <Tick> int {
+fn first_over(xs: List<Int>, limit: Int): <Tick> Int {
     var i = 0;
     while (i < xs.len()) {
         tick();

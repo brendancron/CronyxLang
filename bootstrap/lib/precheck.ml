@@ -193,7 +193,10 @@ let erase (p : Ast.program) : Ast.program =
     p
 
 let program (p : Ast.program) : Diagnostic.error list =
-  List.map
+  let p, misplaced = Metaprocess.implemented_in_types p in
+  let p = Metaprocess.aborting_impls p in
+  List.map (fun (span, message) -> Diagnostic.at Diagnostic.Type span message) misplaced
+  @ List.map
     (fun (e : Typecheck.error) -> Diagnostic.at Diagnostic.Type e.Typecheck.span e.Typecheck.message)
     (Typecheck.check
        ~policy:Typecheck.partial

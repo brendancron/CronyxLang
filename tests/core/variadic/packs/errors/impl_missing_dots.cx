@@ -3,5 +3,5 @@ type Slot<...Args> {
 }
 
 impl Slot<Args> {
-    fn count(self): int { return 1; }
+    fn count(self): Int { return 1; }
 }

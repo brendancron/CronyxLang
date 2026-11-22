@@ -1,8 +1,8 @@
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
-fn use(): <Ask> int { return get(); }
+fn use(): <Ask> Int { return get(); }
 
-fn main(): unit {
+fn main(): Unit {
     if (true) {
         run { print(use()); }
         handle Ask { ctl get() { resume 5; print("after"); } }

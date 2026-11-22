@@ -1,10 +1,10 @@
-type P { x: int, }
+type P { x: Int, }
 
 fn make(): P {
     return P { x: 1 };
 }
 
-fn f<p: P>(): int {
+fn f<p: P>(): Int {
     return p.x;
 }
 

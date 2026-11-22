@@ -29,14 +29,14 @@ type Alphabet {
 }
 
 /** In the standard alphabet, padded. */
-fn encode(bytes: Array<byte>): string {
+fn encode(bytes: Array<Byte>): String {
     return encode_with(bytes, Alphabet.Standard, true);
 }
 
 /** In the given alphabet, padded with `=` or not. */
-fn encode_with(bytes: Array<byte>, alphabet: Alphabet, padded: bool): string {
+fn encode_with(bytes: Array<Byte>, alphabet: Alphabet, padded: Bool): String {
     var chars = __alphabet(alphabet);
-    var parts: List<string> = [];
+    var parts: List<String> = [];
     var i = 0;
     while (i < bytes.len()) {
         var left = bytes.len() - i;
@@ -53,12 +53,12 @@ fn encode_with(bytes: Array<byte>, alphabet: Alphabet, padded: bool): string {
 }
 
 /** The bytes standard Base64 spells, padded or not. */
-fn decode(text: string): <Throw<DecodeError>> Array<byte> {
+fn decode(text: String): <Throw<DecodeError>> Array<Byte> {
     return decode_with(text, Alphabet.Standard);
 }
 
 /** The bytes the text spells in the given alphabet, padded or not. */
-fn decode_with(text: string, alphabet: Alphabet): <Throw<DecodeError>> Array<byte> {
+fn decode_with(text: String, alphabet: Alphabet): <Throw<DecodeError>> Array<Byte> {
     var stop = text.len();
     while (stop > 0 && text[stop - 1] == '=') { stop = stop - 1; }
     if (stop < text.len() && text.len() % 4 != 0) { throw(DecodeError.Truncated(text.len())); }
@@ -80,7 +80,7 @@ fn decode_with(text: string, alphabet: Alphabet): <Throw<DecodeError>> Array<byt
     return out.bytes();
 }
 
-fn __alphabet(alphabet: Alphabet): string {
+fn __alphabet(alphabet: Alphabet): String {
     var common = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     match alphabet {
         Alphabet.Standard => { return common + "+/"; }
@@ -88,7 +88,7 @@ fn __alphabet(alphabet: Alphabet): string {
     }
 }
 
-fn __value(text: string, at: int, alphabet: Alphabet): <Throw<DecodeError>> int {
+fn __value(text: String, at: Int, alphabet: Alphabet): <Throw<DecodeError>> Int {
     var c = text[at];
     if (c >= 'A' && c <= 'Z') { return ord(c) - ord('A'); }
     if (c >= 'a' && c <= 'z') { return ord(c) - ord('a') + 26; }

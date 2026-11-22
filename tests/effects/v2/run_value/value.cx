@@ -1,10 +1,10 @@
 trait Ask {
-    @ctl fn ask(): int;
+    @ctl fn ask(): Int;
 }
 
-fn doubled(): <Ask> int { return ask() * 2; }
+fn doubled(): <Ask> Int { return ask() * 2; }
 
-var total = run { doubled() } handle<Ask> {
+var total = run<Int> { doubled() } handle<Ask> {
     fn ask(resume) { return resume(21); }
 };
 

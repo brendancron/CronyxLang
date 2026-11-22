@@ -1,3 +1,3 @@
-trait Eq { fn eq(self, other: int): bool; }
+trait Eq { fn eq(self, other: Int): Bool; }
 fn derive(shape: TypeShape) for Eq {}
 fn derive(shape: TypeShape) for Eq {}

@@ -1,4 +1,4 @@
-effect Ask { ctl ask(): int; }
+effect Ask { ctl ask(): Int; }
 
 type Coin { Heads, Tails }
 

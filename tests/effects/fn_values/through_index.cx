@@ -1,9 +1,9 @@
-effect E { ctl op(): int; }
+effect E { ctl op(): Int; }
 
-fn work(base: int): <E> int { return base + op(); }
+fn work(base: Int): <E> Int { return base + op(); }
 
-var tasks: List<() -> <E> int> = [];
-var pending: List<() -> unit> = [];
+var tasks: List<() -> <E> Int> = [];
+var pending: List<() -> Unit> = [];
 
 run {
     tasks.push(() => { return work(10); });

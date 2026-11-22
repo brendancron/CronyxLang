@@ -1,6 +1,6 @@
 type Slot<...Args, T> {
     tag: T,
-    use: (...Args) -> unit
+    use: (...Args) -> Unit
 }
 
 print("unreachable");

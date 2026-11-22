@@ -1,0 +1,27 @@
+import { Throw } from "std/core/Error";
+
+fn checked(n: Int): <Throw<String>> Int {
+    if (n < 0) { throw("negative"); }
+    return n;
+}
+
+fn counted(n: Int): <Throw<Int>> Int {
+    if (n > 9) { throw(n); }
+    return n;
+}
+
+var seen = [];
+seen.push("first");
+
+var add = (a, b) => a + b;
+
+fn report() { print(seen.len()); }
+
+defer { print("the top level is done"); }
+
+var small = checked(2);
+var big = counted(3);
+var (low, high) = (small, big);
+seen.push("second");
+report();
+print(add(low, high));

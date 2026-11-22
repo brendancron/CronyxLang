@@ -1,11 +1,11 @@
-effect Ask { ctl ask(): int; }
+effect Ask { ctl ask(): Int; }
 
-trait Getter { fn get(self): <Ask> int; }
+trait Getter { fn get(self): <Ask> Int; }
 
-type Box { n: int }
+type Box { n: Int }
 
 impl Getter for Box {
-    fn get(self): <Ask> int { return self.n + ask(); }
+    fn get(self): <Ask> Int { return self.n + ask(); }
 }
 
 fn make(): <Ask> Getter {
@@ -13,6 +13,6 @@ fn make(): <Ask> Getter {
     return g;
 }
 
-fn total(): <Ask> int { return make().get(); }
+fn total(): <Ask> Int { return make().get(); }
 
 run { print(total()); } handle Ask { ctl ask() { resume 7; } }

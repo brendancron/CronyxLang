@@ -1,18 +1,18 @@
 type DisplayType { Ascii, Unicode, }
-type P { x: int, }
+type P { x: Int, }
 
-fn show<displayType: DisplayType>(p: P): string {
+fn show<displayType: DisplayType>(p: P): String {
     if (displayType == DisplayType.Unicode) {
         return "U" + str(p.x);
     }
     return "A" + str(p.x);
 }
 
-fn through<d: DisplayType>(): string {
+fn through<d: DisplayType>(): String {
     return show<d>(P { x: 7 });
 }
 
-fn label<d: DisplayType>(): string {
+fn label<d: DisplayType>(): String {
     meta if (d == DisplayType.Unicode) {
         gen return "unicode";
     }

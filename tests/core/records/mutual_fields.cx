@@ -1,5 +1,5 @@
-type Dept { name: string, staff: Array<Person> }
-type Person { name: string, dept: Option<Dept> }
+type Dept { name: String, staff: Array<Person> }
+type Person { name: String, dept: Option<Dept> }
 
 var d = Dept { name: "eng", staff: [Person { name: "ada", dept: Option.None }] };
 var p = Person { name: "bob", dept: Option.Some(d) };

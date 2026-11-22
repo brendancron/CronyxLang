@@ -1,8 +1,8 @@
 type Slot<...Args> {
-    use: (...Args) -> <Console> unit
+    use: (...Args) -> <Console> Unit
 }
 
-var two = Slot { use: (a: int, b: string) => { print(str(a) + b); } };
-var one = Slot { use: (a: int) => { print(a); } };
+var two = Slot { use: (a: Int, b: String) => { print(str(a) + b); } };
+var one = Slot { use: (a: Int) => { print(a); } };
 
 var both = [two, one];

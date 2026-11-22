@@ -1,6 +1,6 @@
 import { pair, swap } from "boxes";
 
-type Colour { name: string }
+type Colour { name: String }
 
 var numbers = swap(pair(1, 2));
 print(numbers.first);

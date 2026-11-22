@@ -51,7 +51,7 @@ Metaprocessing is a complex recursive task, so I am going to list true statement
 # Working Examples
 
 ```cronyx
-effect Ask { ctl ask(): int; }
+effect Ask { ctl ask(): Int; }
 
 var ret = run {
     var n = ask();
@@ -71,7 +71,7 @@ print(ret);
 lets say run evaluates to `<Run>` and ask resumes with type `<Ask>`:
 ```
 trait Ask {
-	fn ask(): int;
+	fn ask(): Int;
 }
 
 var ret = run<String> {
@@ -96,8 +96,8 @@ returns exactly once whatever handles it.
 
 ```cronyx
 trait Effect {
-    fn log(msg: string): unit;
-    @ctl fn choose(options: Array<int>): int;
+    fn log(msg: String): Unit;
+    @ctl fn choose(options: Array<Int>): Int;
 }
 ```
 
@@ -117,12 +117,12 @@ trait EffectHandler<E, R> {
                     gen handled(op);
                 }
             }
-            _ => { fail("not a trait, so it has no operations to handle"); }
+            _ => { fail(str(E) + " is not a trait, so it has no operations to handle"); }
         }
     }
 }
 
-fn takes_control(op: MethodSig): bool {
+fn takes_control(op: MethodSig): Bool {
     for (a in op.attrs) {
         if (str(a.name) == "ctl") { return true; }
     }
@@ -164,8 +164,8 @@ fn handled(op: MethodSig): MethodSig {
 
 ```cronyx
 trait EffectHandler<Effect, String> {
-    fn log(msg: string): unit;
-    fn choose(options: Array<int>, resume: (int) -> String): String;
+    fn log(msg: String): Unit;
+    fn choose(options: Array<Int>, resume: (Int) -> String): String;
 }
 ```
 
@@ -173,10 +173,10 @@ and a handler is an ordinary impl of it:
 
 ```cronyx
 type Picker impl EffectHandler<Effect, String> {
-    fn log(msg: string): unit {
+    fn log(msg: String): Unit {
         print(msg);
     }
-    fn choose(options: Array<int>, resume: (int) -> String): String {
+    fn choose(options: Array<Int>, resume: (Int) -> String): String {
         var last = "";
         for (x in options) { last = resume(x); }
         return last;
@@ -213,7 +213,7 @@ that type, and every instance under the key takes the value as a parameter. A
 handler that reads nothing has no fields, and the parameter disappears.
 
 ```cronyx
-var out: List<string> = [];
+var out: List<String> = [];
 run {
     greet("ada");
 } handle<Console> {
@@ -227,12 +227,12 @@ an effect with `@ctl` operations is generic over the run's type:
 
 ```cronyx
 type BasicLog impl Log {
-    fn log(msg: string) { print("From handler definition: " + msg); }
+    fn log(msg: String) { print("From handler definition: " + msg); }
 }
 
 type Picker<R> impl EffectHandler<Effect, R> {
-    fn log(msg: string) { print(msg); }
-    fn choose(options: Array<int>, k: (int) -> R): R {
+    fn log(msg: String) { print(msg); }
+    fn choose(options: Array<Int>, k: (Int) -> R): R {
         var last = "";
         for (x in options) { last = k(x); }
         return last;
@@ -307,7 +307,7 @@ in `tests/effects` are its specification:
   order (`suspend_in_field_assign`, `suspend_in_variant`).
 - A continuation's type carries the effects its run passes outward,
   `(A) -> <ρ> R`, so it is typed honestly where it is stored
-  (`List<() -> <Error> unit>`), and calling it outside the runs that handle
+  (`List<() -> <Error> Unit>`), and calling it outside the runs that handle
   those effects is an unhandled effect. `abort_after_resumption` drains its
   stored continuations inside the `Error` run.
 - A `defer` in an arm runs when the arm is unwound past, while the arm's code
@@ -352,9 +352,9 @@ against the expected type if it has one, and on its own otherwise.
 A child that gives the type is processed before the child that uses it:
 
 ```
-var xs: Set<int> = [1, 2];
-fn make(): Set<int> { return [1, 2]; }
-fn takes(s: Set<int>) { }
+var xs: Set<Int> = [1, 2];
+fn make(): Set<Int> { return [1, 2]; }
+fn takes(s: Set<Int>) { }
 takes([1, 2]);
 Box { items: [1, 2] }
 ```
@@ -374,8 +374,8 @@ key is not settled:
 
 ```
 fn helper<T>(t: T): T { return t; }
-var g: (int) -> int = helper;
-var h = helper<int>;
+var g: (Int) -> Int = helper;
+var h = helper<Int>;
 var f = helper;
 ```
 
@@ -396,8 +396,8 @@ its written signature. If the signature leaves a type to inference, inference
 fails there, and writing the type fixes it:
 
 ```
-fn is_even(n: int) { if (n == 0) { return true; } return is_odd(n - 1); }
-fn is_odd(n: int)  { if (n == 0) { return false; } return is_even(n - 1); }
+fn is_even(n: Int) { if (n == 0) { return true; } return is_odd(n - 1); }
+fn is_odd(n: Int)  { if (n == 0) { return false; } return is_even(n - 1); }
 is_even(4);
 ```
 
@@ -407,7 +407,7 @@ guard against it. A function that calls itself at a new key each time loops
 forever, because every instance needs the next one:
 
 ```
-fn nest<T>(t: T, n: int): int {
+fn nest<T>(t: T, n: Int): Int {
 	if (n == 0) { return 0; }
 	return nest([t], n - 1);   // {T = int} → {T = List<int>} → {T = List<List<int>>} → …
 }
@@ -478,4 +478,6 @@ type Picker<R> impl EffectHandler<Choose, R>, Display {
 
 Each method goes to the trait that declares it. A method no named trait declares belongs to the
 type itself. A method name two of the named traits both declare is an error; that pair is written
-as separate `impl` declarations.
+as separate `impl` declarations. A trait whose meta block generates its methods, as
+`EffectHandler` does, declares none until its instance runs, so it takes every method the other
+named traits do not declare; two such traits on one type are written as separate `impl`s.

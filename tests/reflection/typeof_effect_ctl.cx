@@ -1,11 +1,11 @@
 // A row is written between the arrow and the result, which is where the
 // effect an arrow carries belongs.
 
-effect stream {
-    ctl yield(i: int): unit;
+effect Stream {
+    ctl yield(i: Int): Unit;
 }
 
-fn range(low: int, high: int) {
+fn range(low: Int, high: Int) {
     var i = low;
     while (i < high) {
         yield(i);

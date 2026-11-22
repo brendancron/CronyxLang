@@ -1,4 +1,4 @@
-type Shape { Circle(int), Empty }
+type Shape { Circle(Int), Empty }
 var s = Shape.Circle(1);
 match s {
     Shape.Circle(r) => { print(r); }

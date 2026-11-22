@@ -1,9 +1,9 @@
 struct Point {
-    x: int;
-    y: int
+    x: Int;
+    y: Int
 }
 
-fn distance_sq(p: Point): int {
+fn distance_sq(p: Point): Int {
     return p.x * p.x + p.y * p.y;
 }
 

@@ -1,11 +1,11 @@
-trait Ask { @ctl fn ask(): int; }
+trait Ask { @ctl fn ask(): Int; }
 
-fn twice(f: () -> <Ask> int): <Ask> int {
+fn twice(f: () -> <Ask> Int): <Ask> Int {
     meta { print("twice is processed"); }
     return f() + f();
 }
 
-var total = run<int> {
+var total = run<Int> {
     var a = twice(() => { return ask(); });
     var b = twice(() => { return ask() * 10; });
     a + b

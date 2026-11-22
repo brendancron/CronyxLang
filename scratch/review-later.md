@@ -41,7 +41,7 @@ Review: what `H` is at run time (I105's record of closures, or an evidence vecto
 Koka); where the specialization fast path applies; the cost of passing `h` through every call in
 CPS form.
 
-### R28. Rewritten code keeps false rows (raised by the user 2026-11-22): open bug
+### R28. Rewritten code keeps false rows (raised by the user 2026-11-22): built for runs in S3 (I204), the call-site display left (I204)
 Processed `helper` from `twice`/step 2 (`--dump-code`):
 ```
 (fn helper#1 (hv#Ask k)
@@ -64,16 +64,17 @@ not a mechanical syntax migration. C7b is therefore a redesign pass over the std
 new model (R1's CPS form for function values, R28's accurate rows), not `rewrite.py` plus hand
 edits.
 
-### R30. Case convention (user, 2026-11-22): decided, convention only
+### R30. Case convention (user, 2026-11-22): decided, convention only; built in S5a (I226–I230)
 All types are uppercase, identifiers stay lowercase: `Int`, `String`, `Bool`, `Float`, `Byte`,
 `Char`, `Unit`, and every user type, trait and effect (`Async`, `Log`, `Sched`, `Logic`, `Stream`,
 `Ask`). Type params stay `T`/`R`/`E`; values (variables, functions, fields, value static params
 `<n: Int>`) stay lowercase; variants stay as they are. **Convention only:** the compiler does not
 check it and case never carries meaning. The built-in names are renamed in the compiler, and the
 stdlib and fixtures follow (about 4,000 uses of the built-in names, 76 lowercase declarations),
-as part of the stdlib rework. To build.
+as part of the stdlib rework. Built in S5a (I226–I230); review after: the runtime's own kind names, the CLI help's
+case, and the two `cx docs` JSON fixtures (I226, I228, I230).
 
-### R31. `type X impl A, B { … }` (user, 2026-11-22): decided, defaults to review
+### R31. `type X impl A, B { … }` (user, 2026-11-22): decided, defaults to review; built in S4 (I214)
 The doc's TODO is now the section "Implementing Traits in the Type": a type names the traits it
 implements in its declaration, Java/C# style. Defaults taken: several traits separated by commas;
 the body holds fields, then the methods of every named trait; each method goes to the trait that
@@ -99,7 +100,7 @@ it (`gen sig_named(…)`). Anything else is wrapped in code and spliced a layer 
 the param appears only inside an effect label's arguments, and is an error anywhere else.
 Review: redesigning `__root` so no default is needed.
 
-### R5. The `str(E)` fix in the doc: taken, REVIEWED 2026-11-22: user chose A (a static param is a value inside a meta block: a type param is a `Type`, so `str(E)` works); to build, then restore the doc's `str(E)` message
+### R5. The `str(E)` fix in the doc: taken, REVIEWED 2026-11-22: user chose A (a static param is a value inside a meta block: a type param is a `Type`, so `str(E)` works); to build, then restore the doc's `str(E)` message. Built in S4 (I213); the message is restored
 A type param is not a value inside a meta block, so the EffectHandler example's fallback arm
 now reads `fail("not a trait, so it has no operations to handle")`. Review: whether a meta
 block should be able to name a static param as a value (`str(E)`).
@@ -109,14 +110,14 @@ block should be able to name a static param as a value (`str(E)`).
 | # | Decision | Source | Review question |
 |---|---|---|---|
 | R6 | A key is settled strictly at the call, after its arguments. CONFIRMED by the user 2026-11-22 (strict) | 01 Q2 | Should a later statement be allowed to settle it (a queue at the end of the statement)? |
-| R7 | Plain generic types (`type Box<T>`) stay parametric; only functions and methods are instances. REVERSED by the user 2026-11-22: types are monomorphized exactly like functions (`Box$int`, `Box$string`); a use of a type reaches Check decl cache → Metaprocess decl (diagram diamond now "call, operator, method, type"). To build | 01 Q3/D1 | Literal "every declaration at a key": would `Box$int` records be worth it? |
+| R7 | Plain generic types (`type Box<T>`) stay parametric; only functions and methods are instances. REVERSED by the user 2026-11-22: types are monomorphized exactly like functions (`Box$int`, `Box$string`); a use of a type reaches Check decl cache → Metaprocess decl (diagram diamond now "call, operator, method, type"). To build; not built in S4 (I218). Built in S4b for the program the walk finishes (I220–I223); a meta block's program, local generic types and per-copy impls are left (I224) | 01 Q3/D1 | Literal "every declaration at a key": would `Box$int` records be worth it? |
 | R8 | A trait instance may keep a param open (`EffectHandler<Effect, _>`), so `Picker<R>` works. CONFIRMED by the user 2026-11-22 (`Picker<R>`, R settled by the run) | 02 Q2 | Fine as it is, or generic handlers another way? |
-| R9 | `run<R>` may omit `<R>`, which is inferred, or `unit` for a statement run. REVERSED by the user 2026-11-22: `<R>` is required on every run for now (`run<unit>` for a statement); inferred static params come later, once designed properly. To build | 04 A1, 03 D8 | Should `<R>` be required? |
-| R10 | `handle<E>` on a generic effect (`Throw<X>`) settles E's arguments from the body's row. REVERSED by the user 2026-11-22: written, `handle<Throw<IoError>>`; leaving them out is an error, until inferred static params are designed. To build | 04 A4 | Should they be written, as in `handle<Throw<IoError>>`? |
+| R9 | `run<R>` may omit `<R>`, which is inferred, or `unit` for a statement run. REVERSED by the user 2026-11-22: `<R>` is required on every run for now (`run<unit>` for a statement); inferred static params come later, once designed properly. Built in S4 (I209) | 04 A1, 03 D8 | Should `<R>` be required? |
+| R10 | `handle<E>` on a generic effect (`Throw<X>`) settles E's arguments from the body's row. REVERSED by the user 2026-11-22: written, `handle<Throw<IoError>>`; leaving them out is an error, until inferred static params are designed. Built in S4 (I210) | 04 A4 | Should they be written, as in `handle<Throw<IoError>>`? |
 | R11 | Untyped params of a handler or impl method take the trait's types (not implicit static params). CONFIRMED by the user 2026-11-22 (an expected type, not inference) | 04 A5 | Consistent with "an unannotated param is an implicit static param"? |
-| R12 | Lowercase effect names (`log`, `async`) are kept. REVERSED by the user 2026-11-22: renamed trait style (`Async`, `Log`, …), see R30 | 04 A8 | Rename to trait-style names? |
+| R12 | Lowercase effect names (`log`, `async`) are kept. REVERSED by the user 2026-11-22: renamed trait style (`Async`, `Log`, …), see R30; built in S5a (I227) | 04 A8 | Rename to trait-style names? |
 | R13 | Migrated code names the continuation `resume`. CONFIRMED by the user 2026-11-22 | 04 A2 | Fine, or `k`? |
-| R14 | `final ctl op` → `@ctl fn op<T>(…): T` (keeps the fresh result type at each call site, loses the cheap unwind). REVISED by the user 2026-11-22: add `@abort` (users may skip it). Defaults taken, to review: `@abort fn throw<T>(err: X): T` keeps the fresh `T`; EffectHandler gives an `@abort` arm no continuation param and it returns the run's `R`; the transform compiles the call as an early exit to the run, building no continuation; stdlib `throw`, `exit`, `failed` use it. To build | 03 D9, 04 A3 | Measure compile time (stop if over ~3x); is a cheap abort worth a mechanism? |
+| R14 | `final ctl op` → `@ctl fn op<T>(…): T` (keeps the fresh result type at each call site, loses the cheap unwind). REVISED by the user 2026-11-22: add `@abort` (users may skip it). Defaults taken, to review: `@abort fn throw<T>(err: X): T` keeps the fresh `T`; EffectHandler gives an `@abort` arm no continuation param and it returns the run's `R`; the transform compiles the call as an early exit to the run, building no continuation; stdlib `throw`, `exit`, `failed` use it. Built in S4 (I215); review after: the call still builds its continuation, which the arm discontinues | 03 D9, 04 A3 | Measure compile time (stop if over ~3x); is a cheap abort worth a mechanism? |
 | R15 | The `return (x) { … }` clause on `run` is deleted and folded into the run's tail (4 fixtures). CONFIRMED by the user 2026-11-22 (left out; may return later as an EffectHandler method) | 04 A6 vs 03 D3 | Was it worth keeping? |
 | R16 | A trait-object method that performs a bound `@ctl` effect is rejected (`methods/suspending_receiver`, `core/traits/dyn/effect_resumes` deferred). REVERSED by the user 2026-11-22: rejection dropped; trait-object methods take handler + continuation under the R1 function-value rule. To build | 03 D6 | How should dynamic dispatch meet the transform? |
 | R17 | Discontinue insertion is syntactic: an arm that never names its continuation gets `discontinue(k)`. CONFIRMED by the user 2026-11-22 (A: stored-then-dropped continuations are the programmer's to discontinue) | 03 D7 | Is syntactic enough, and what about an arm that stores `k` and drops it later? |
@@ -276,7 +277,7 @@ when it is zonked (T4), not when the instance completes. Before a key is read, t
 contained in the caller's, so a label the caller already carries settles the callee's argument
 to it (`Throw<IoError>` in `net/WebSocket.cx`).
 
-I25. **REVISED by the user 2026-11-22:** a param that defaults because nothing performs its effect makes the call contribute no such effect to the caller's row (the call never throws, so its type says so); replaces keeping the use open. To build. Was: U4 as built: a parameter standing only in effect labels defaults to `unit` in the key, but
+I25. **REVISED by the user 2026-11-22:** a param that defaults because nothing performs its effect makes the call contribute no such effect to the caller's row (the call never throws, so its type says so); replaces keeping the use open. Built in S3 (I206). Was: U4 as built: a parameter standing only in effect labels defaults to `unit` in the key, but
 the use keeps its own copy open and only the instance's return is unified back into the use. So
 `Throw<unit>` never enters the caller's row, where a later `Throw<IoError>` could not join it
 (`net/Http.cx` calling `timeout` with a task that never throws). A variable left open inside a
@@ -548,7 +549,7 @@ and `Key.Type` of the resolved annotation for a type parameter. The copy's name 
 into its body still use the written spelling (`Buf<4>`), so diagnostics are unchanged. Two
 spellings of one type now share a copy, and an unknown type argument is now a type error.
 
-I68. **REVIEWED 2026-11-22: delete the "named by the author" (handler leaves an effect param open) exemption when written `handle<Throw<X>>` is built; keep the others.** Unsettled at the processed stage. `processed_expr` fails with "This is not settled when its
+I68. **REVIEWED 2026-11-22: delete the "named by the author" (handler leaves an effect param open) exemption when written `handle<Throw<X>>` is built; keep the others. Built in S4 (I211).** Unsettled at the processed stage. `processed_expr` fails with "This is not settled when its
 statement ends: its type is T, and nothing fixes it. Write the type." when a node's type holds a
 free variable outside every effect label that is none of these:
 - collection-kinded (it defaults to an array);
@@ -748,7 +749,7 @@ only. A function with static params is the unkeyed error, raised while the block
 false by then), so it is an ordinary instance that run-time callers share. Errors are the block's,
 Meta stage, at the `declof`.
 
-I90. **REVIEWED 2026-11-22: B, a static param only in the return type, at a call whose value is discarded, defaults to `Unit` (unobservable, like R4); `effect`→removed with old syntax; `String` per R30. To build.** `traits/effect_handler` departs from the doc's code in three places:
+I90. **REVIEWED 2026-11-22: B, a static param only in the return type, at a call whose value is discarded, defaults to `Unit` (unobservable, like R4); `effect`→removed with old syntax; `String` per R30. Built in S4 (I212).** `traits/effect_handler` departs from the doc's code in three places:
 - `effect` is still a keyword, so the binding `DeclKind.Trait(effect)` is `eff` until C8 drops the old
   effect syntax.
 - `fail` comes from `std/core/Error` and is written `fail<unit>(…)`. Its `T` stands only in its return
@@ -1225,7 +1226,7 @@ I131. `Source` printed a run expression's `with T` with a `;` after it, so `var 
 with Picker;` printed as `… with Picker;;`, which does not parse (round trip of
 `v2/named_handler_generic`). The statement form, which prints its own `;`, is unchanged.
 
-I132. **REVISED by the user 2026-11-22: drop the first check of arms; errors and processed types come from checking the record (R28 rule); keep error spans on the arm as written. To build.** **C6: a run is lowered to a bound run** (`HandlerClause.Bound(label, handler, Option<Stmt>)`, OCaml
+I132. **REVISED by the user 2026-11-22: drop the first check of arms; errors and processed types come from checking the record (R28 rule); keep error spans on the arm as written. Built in S3 (I203).** **C6: a run is lowered to a bound run** (`HandlerClause.Bound(label, handler, Option<Stmt>)`, OCaml
 `Ast.Bound`). In the walk, every run with no old clause becomes `run { body } bound E = h { var hv = {…}; }`:
 the effect, the handler it is bound to, and the declaration of the handler's value. An inline handler's
 value is built from its method defs as a record of lambdas (`handler_record`); a parameter takes the
@@ -1329,7 +1330,7 @@ passes `(x) => k(x)`, since `k`'s row is closed by the copy's key, and a handler
 every call of the operation in the run. That was I113's limitation ("those continuations must perform the same
 effects"), now `v2/continuations_differ`.
 
-I143. **REVISED by the user 2026-11-22: B, EffectHandler generates each `@ctl` method generic in the row: `fn choose<ρ>(options: Array<Int>, k: (Int) -> <ρ> R): <ρ> R`; each run settles ρ when it binds the handler; named handlers write nothing extra; the core's per-op row becomes this per-run ρ. Also covers the `async.suspend` waker. To build.** **U2 as built.** Continuation types are honest: what a continuation performs is in its type, stored
+I143. **REVISED by the user 2026-11-22: B, EffectHandler generates each `@ctl` method generic in the row: `fn choose<ρ>(options: Array<Int>, k: (Int) -> <ρ> R): <ρ> R`; each run settles ρ when it binds the handler; named handlers write nothing extra; the core's per-op row becomes this per-run ρ. Also covers the `async.suspend` waker. Built in S3 for inline handlers and the trait (I201, I202); named handlers not tied to one ρ yet.** **U2 as built.** Continuation types are honest: what a continuation performs is in its type, stored
 continuations write it (`List<() -> <Console> unit>`, `List<() -> <Error, Console> unit>`), and calling one
 outside its runs is an unhandled effect. The core still types an operation's continuations through one row
 per operation per run (`given`/`resumes`, I113), which no longer limits anything a fixture does. Not built:
@@ -1757,7 +1758,7 @@ parameter takes the type the call settled for it: a static parameter written onl
 `stdlib/v2/rethrow` and `stdlib/throw/rethrow`. The copy's own parameters follow the same order (a written type naming
 a static parameter is dropped, then retyped from the call).
 
-I197. **What a prompt refuses** ("… is not supported yet."): a `return` that crosses it, since the flag (I140) has to
+I197. **What a prompt refuses** (the crossing `return` built in S4, I216; the named handler in S4b, I219) ("… is not supported yet."): a `return` that crosses it, since the flag (I140) has to
 be answered by the continuation of the function the run stands in, which only the transform around the prompt holds;
 and a named handler (`with T`) of a `@ctl` effect, whose impl method is a function of its own and is not made taking
 control outward. Known gap: when a prompt's methods perform its own effect outward, `LAM`'s handler parameter for the
@@ -1772,13 +1773,367 @@ every outward operation goes through one wrapper per prompt between it and its h
 Compile time (median of 5, compile and run, ms): `hello` 60 → 59, `working_example` 60 → 63; `root_shaped` 74,
 `stdlib/v2/block_on` 75.
 
-I200. **`stdlib/encoding/generic`, diagnosed, not fixed (types are monomorphized in a later step).** `from_json<T:
+I200. **`stdlib/encoding/generic`, diagnosed, not fixed (types are monomorphized in a later step). FIXED in S4b by (a) (I222).** `from_json<T:
 Decode>` performs `Throw`, so since S2 the top-level statement's function value splits at it and copies it. The copy
 comes from `declof_call`, whose `surface` substitutes a type parameter only where the key binds it to a plain name;
 here `T = Page<Item>`, so `T.decode(…)` keeps `T`: "Undefined variable 'T'". Options: (a) monomorphize types, the
 planned step; (b) a copy keeps the type parameters its body names and its call writes them (`copy<Page<Item>>(…)`);
 (c) substitute an applied type where it is a receiver, which needs an expression for `Page<Item>.decode`. Recommend
 (a).
+
+I201. **S3: `EffectHandler` makes each `@ctl` method generic in the row (I143), as built.** `handled` in
+`stdlib/core/EffectHandler.cx` adds a static parameter to the operation's own and writes it on the continuation and
+on the method: `EffectHandler<Fail, int>` is `@ctl fn throw<T, Rho>(msg: string, resume: (T) -> <Rho> int): <Rho>
+int`. **Review after:** the name. `as_name` takes identifiers only, so `ρ` cannot be written, and `E` and `R` are
+the trait's own; `Rho` is writable by a program and would collide with an operation's own parameter of that name. A
+native returning a `#` name, as `open_row()` does, is the alternative. Named handlers write nothing extra:
+conformance binds the trait's `Rho` to the impl's written row, and `open_continuation` still gives the impl's
+continuation a row of its own, so a named handler's method is not yet tied to one ρ per run (it still performs
+what it is written to). **Doc change proposed, not made:** the EffectHandler section's `handled` and the
+`EffectHandler<Effect, String>` expansion would read `@ctl fn choose<ρ>(options: Array<int>, resume: (int) -> <ρ>
+String): <ρ> String;`, and `Picker<R>`'s `choose` would say that the run settles ρ.
+
+I202. **S3: one row per handler per run (I143 in the core), as built.** `handler_signature` gives an inline
+handler's value its type from the effect's operations (or the `EffectHandler` instance's methods, with `R` the run's
+answer and `Rho` the handler's row ρ): a method that takes control is `(…, (A) -> <ρ> R) -> <ρ> R`, one ρ for every
+such method of the handler, an unmarked one keeps its operation's type with a row of its own, and an operation's own
+parameters are declared, so each call takes its own copy (`per_call`). ρ is declared and contained in the run's
+surroundings (`row_within`), not tied to them, so a continuation does not perform everything around the run. Gone:
+`given`, `resumes` and `seen_by_body` (the body's view of a continuation and the method's differed in their rows),
+`handler_built`, `handle_block ~apart`, and the arm types `handle_block` returned. `handler_type` (a handler a
+function taking control is handed) uses one ρ per method too.
+
+I203. **S3: arms are checked as the record (I132), as built.** In the walk `handle_block` no longer runs: each
+inline handler's value, the record `handler_record` builds from its methods, is checked by `run_value` against its
+signature, rows included, and is what the body's calls through it are typed by. An error in an arm's body is
+reported at the arm's own statement (`v2/errors/arm_body_error`, `arm_resumes_wrong_type`, `arm_unmarked_error`, new);
+a missing method, a wrong count of parameters, a written type the operation contradicts, or an operation's own
+parameter the arm settles is reported at the run, as before (`final/errors/resumes` unchanged). With a transform
+the record as written is checked before the transform, because the transform reads what the methods perform
+(`arms_row()`) and `processed` reads the value's type; the record the transform returns (discontinue inserted, stop
+flags, a prompt's unmarked rest) is then checked from scratch as the rewritten code it is (R28), and nothing of the
+first check is kept. Without a transform the record is checked once. `handle_block` survives for Precheck, where
+nothing is lowered. `check_bound` (a bound run an outer transform or a prompt made) reads a run's own value through
+`run_value` too, and contains its ρ. **Review after:** checking arms once with a transform means the transform
+taking what the methods perform from somewhere other than a check of them.
+
+I204. **S3: rewritten code keeps no type from the code it replaced (R28), as built for runs.** Two causes, both
+fixed. (a) Discharging a run's bindings used `rewrite_row`, which on an open row adds the label it was asked to
+remove: that is how `Ask` reached the continuation's row in R28's dump. `discharged` removes a label where the row
+has it and leaves an open row alone. (b) `handler_call` typed `hv.op(…)` through the body's view of the handler
+(`handler_values` with `given` rows) rather than the value's own type; it reads the target's type now. `--dump-code`
+of `v2/working_example`, before: `(field hv#8:{ ask: ((int) -> <Ask, Console> string) -> string } ask)` and the
+continuation `(fn (n: int) …):(int) -> <Ask, Console> string`; after: `((int) -> <Console> string) -> string` and
+`(int) -> <Console> string`, matching the declaration `{ ask: ((int) -> <Console> string) -> <Console> string }`.
+**Still false, to review:** a call through a handler's value shows the target as a record of that one field with the
+method's row emptied (`answered`), because the backend hands evidence to any callee whose type has a row and a
+handler's methods are plain closures that take none (I133). The declaration keeps the honest row; the call site
+does not. Making it honest needs a calling convention that does not read evidence from the row.
+
+I205. **S3: `with` sees what it binds without a false row (I189's named-handler patch removed).** In the walk an
+operation answered through a named handler's value no longer keeps its label in the caller's row; `used_handlers`
+records the handler, and `with H` binds an effect the body's row shows, one answered through `H`, or one that takes
+control under a transform. Outside the walk (no values) the label still stays in the row, as before.
+
+I206. **S3: a defaulted effect parameter contributes nothing (I25), as built.** A key defaults a parameter standing
+only in labels to `type#absent` (`Ast.absent_type`), not `unit`, and the use's copy is unified with it. A label
+holding it is no label: `Types.repr_row` skips it, so every reading of a row sees the call perform nothing of it,
+and the instance's signature drops it (`guarded<X, T>(f: () -> <Throw<X>> T)` at a lambda that never throws is
+`guarded#0(f: () -> int)`). For the key to be read before the label reaches the caller, `reached` settles the
+callee's labels from those the caller already carries and adds the rest after the key; a call with a use does the
+same settling before its arguments are read, so a function value among them is made taking the handlers it will be
+handed. A lambda takes the handler of a label its expected type names only if the label's arguments are settled or
+its body performs it (otherwise the key may find it absent). Precheck has no keys: `undefaulted` leaves out of what
+a call admits each label only an unsettled parameter of the callee names that the caller does not carry. A handler
+of an effect nothing in its run's body performs has nothing to settle its arguments with, and is a handler at `unit`
+(the pre-read in `check_bindings`); `root/root_shaped` and `stdlib/v2/block_on` needed it, because `block_on`'s
+`Fails<X>` is absent under a root whose statement never fails. Consequence: a top-level statement that never throws
+takes no `Throw` handler from `__root` (`(fn (ev#h) …):() -> <Args, Console, Env, Logger, Random, Time> string`;
+before, `(fn (hv#Throw k#wrapped ev#h) …)` at `Throw<X>`). New: `v2/defaulted/never_throws` (a call in a `<>`
+function to a function generic in `Throw<X>` with a lambda that never throws; before: "This code does not handle the
+effect 'Throw'"), `v2/defaulted/joins_later_throw` (passed before too; kept as the I25 case of a later
+`Throw<IoError>` in the same caller). **Review after:** R4 says the parameter defaults to `unit`; the key now holds
+`absent`, and a body naming such a parameter outside a label would meet a type no program declares (none does
+today). A key shows it as `type#absent`. Revisit with R4 and A5-Q1 (one `__root`).
+
+I207. **S3: the plumbing a call in the convention hands is checked (I181, I194).** `cps_call` checks each handler
+argument against `handler_type` of the label the callee takes control of at that position, its operation's own
+parameters and its answer taken afresh for the call (`per_call`); before, handler arguments were checked against
+nothing. **Still loose, to review:** `Verify` accepts a call or lambda of the surface arity plus the convention's
+without checking what the extra arguments are, and a handler's answer is not tied to the continuation's.
+
+I208. **S3: what stays.** A5-Q2 (rows as keys are closed, a function written `<E>` writes its own effects) is
+unchanged. Compile time (median of 5, compile and run, ms, S2b → S3, this machine): `hello` 160 → 163,
+`working_example` 172 → 175, `nested_deep` 211 → 218, `root_shaped` 198 → 198.
+
+I209. **S4: `run<R>` is required (R9), as built.** The parser reports "Expected '<' after 'run': a run writes the type it
+answers, as in 'run<unit> { … }'." at the token after `run`, records it and parses on, so one missing `<R>` is one
+error (`v2/errors/run_without_answer`, new). `Run_expr` keeps `type_expr option`: a run the checker or a transform
+builds (`shell`, `__tx_prompt_methods`, `Transform.cx`'s `ExprKind.Run(Option.None, …)`) still infers its answer;
+only written code must say it. Every run in `tests/effects/v2`, `tests/stdlib/v2`, `tests/core/defer/v2`,
+`tests/core/traits/dyn/v2`, `tests/effects/methods/v2`, `tests/meta/syntax/round_trip` and the stdlib the v2
+fixtures use was annotated with the answer the checker had inferred for it (an instrumented build printed it per
+run: 182 `unit`, 5 `int`), the rest of them (a statement run nothing reached) `run<unit>` by hand. The red old-syntax
+stdlib (`net/`, `async/`, `iter/Yield.cx`, `test/Test.cx`) is left for step 5. **Doc change proposed, not made:**
+the EffectHandler section's `run { greet("ada"); } handle<Console> { … }` should read `run<unit> { … }`.
+
+I210. **S4: a generic effect's handler writes its arguments (R10), as built.** `handle<Yield>` for `trait Yield<T>`
+is "Trait 'Yield' takes 1 type argument(s), which a handler writes: 'handle<Yield<…>>'." at the handled type
+(`v2/errors/handle_unwritten_arguments`, new). With nothing left to infer, the body's pre-read in `check_bindings`
+(read once unbound for its row, to settle the arguments; I206's "a handler at `unit`") is deleted. `__root` and
+`attempt` write `handle<Throw<X>>`. A key that defaulted `X` to `type#absent` (I206) writes it into the instance's
+`handle<Fails<X>>`, so `named_type` reads `type#absent` as the absent type rather than "Unknown type 'absent'"
+(`root/root_shaped`, `stdlib/v2/block_on`). **Review after:** a handler at `absent` is checked and built though no
+call reaches it; its arms see `e: type#absent`.
+
+I211. **S4: the "named by the author" exemption is gone (I68), as built.** `unsettled` and `Verify.monomorphic` no
+longer accept a variable because `Types.param_names` names it. It was covering two things, each now said directly:
+(a) `per_call`'s copy of an operation's own parameter, left open where a call discards it (`throw("odd");` through a
+handler's value, `throw<T>`'s `T`), is unobservable, as the result of a direct call to an operation already was;
+(b) a copy's handler parameter is read in its body as a handler of the effect at fresh arguments (`handler_type
+label []`), which only the name exempted: those arguments are now declared, the copy's own as a parametric
+instance's parameters are (`stdlib/v2/rethrow`: `cx30#rethrow#0`'s `hv#Throw: { throw: (X, …) }`). No fixture
+changed. **Review after:** (b) lets the body's view of a handed handler stay generic in its arguments however the
+body uses it; tying it to the caller's (I207) would make it exact.
+
+I212. **S4: a return-type-only parameter of a discarded call is `Unit` (I90), as built.** `infer_stmt` marks the
+call an `Expr` statement holds (`discarded`, by its offsets), and `key_of_use` settles a parameter still open there
+that the scheme mentions only in its result (`only_returned`: not in a parameter, not in the row) to `unit`, keyed
+`Key.Type Unit` (`types/expected/discarded_return_param`, new: `empty();` and `fn sizes() { empty(); … }`). Only a
+call standing as the whole statement: `var _ = f();`, an argument, and a method call `x.f();` are not discarded
+calls. **Found, not fixed:** in a meta block, any call to a function that performs an effect taking control (`fail`,
+which throws) fails when the meta program runs ("Undefined variable 'fail'"; `fn g(): int { return fail("x"); }`
+then `meta { if (false) { g(); } }` is "Undefined variable 'g'"), discarded or not; `fail<unit>(…)` does not. So
+`meta/traits/effect_handler` keeps `fail<unit>(…)`, and the doc's `fail(…)` line checks but would not run.
+Looks like the meta program not emitting the copies its split calls name; not chased, out of step 4.
+
+I213. **S4: a type standing as a value in a meta block is its `Type` (R5), as built.** A static parameter is written
+by name in its instance (`E` is `Effect` there), so the rule is on the name: inside a meta block, a `Var` no value
+answers to that names a type, a trait, a static parameter or a primitive is checked as `typeof` of it, so `str(E)`
+and `T.name` work (`meta/params/type_param_value`, new: a function's `str(T)` and a trait's `str(E)` at `Point`). A
+type with no fields keeps its meaning as its one value. The doc's message is restored as `fail(str(E) + " is not a
+trait, so it has no operations to handle")`; `stdlib/core/EffectHandler.cx` panics with the same message;
+`meta/traits/effect_handler` uses `str(E)` (with `fail<unit>`, I212).
+
+I214. **S4: `type X impl A, B { … }` (R31), as built.** The parser reads `impl` and a comma list of traits with their
+arguments after the type's parameters, and stands each among the type's members as an `Impl_decl` with no methods.
+`Metaprocess.implemented_in_types`, run first by both `Precheck.program` and `Metaprocess.program` over the loaded
+program, hands each method to the named trait whose declaration lists it, the rest to the type's own impl
+(`Type_members` as before), and emits one `impl` per named trait. A trait whose meta blocks generate its methods
+(`Trait_members`: `EffectHandler`) declares nothing before an instance runs, so it takes every method no other named
+trait declares; two such traits on one type are an error. A method two named traits declare is "'size' is declared by
+both 'Area' and 'Volume'; write them as separate impls." at the method, and goes to the first (the second then
+reports its missing method). Fixtures: `core/traits/in_type/in_type` (fields, `Area`, `Display`, an associated and a
+`self` method of the type's own, a generic type), `core/traits/in_type/errors/declared_twice`, `v2/handler/in_type`
+(the doc's `Five` and `Picker<R> impl EffectHandler<Choose, R>, Display` under `with`). The doc section gains that
+sentence about generating traits. **Review after:** a generating trait named beside methods of the type's own takes
+them too; a type with value parameters or meta members and an `impl` list is not tried; `Syntax` reflects the
+markers as members. **Found, not fixed (R11):** a named handler's untyped parameters do not take the
+`EffectHandler` instance's types, in a separate `impl` as in a type's body: the doc's `type Five impl
+EffectHandler<Ask, String> { fn ask(resume) { var s = resume(5); print(s); … } }` is "The static params of 'print'
+are not settled here", so the fixture writes the types.
+
+I215. **S4: `@abort` (R14), as built.** `@abort fn throw<T>(err: X): T` is an operation that takes control and never
+resumes (`Ast.aborts`; `Ast.takes_control` holds for it; its kind is `Op_final`, as an inferred never-resuming `@ctl`
+one still is). `EffectHandler` gives it no continuation and answers `R`: `@abort fn stop<T, Rho>(why: string): <Rho>
+int;` (`v2/abort/shape`, new). An inline arm is written without the continuation, and `aborting_arms` gives it one
+it never names before anything reads the run, so R17's insertion discontinues it on the way out of the arm and the
+`defer`s between the call and the run run (`v2/abort/abort`: cleanups in `parse` and in `total`'s loop run after the
+arm, in order). A named handler's method (`v2/abort/named`) is given one by `aborting_impls` (before Precheck and the
+walk), its body run as a lambda whose answer is handed back after `discontinue(k)`; conformance accepts the extra
+parameter. Stdlib `Throw.throw` and `Assertion.failed` are `@abort`, and `__root`'s and `attempt`'s arms drop
+`resume`; `exit` is not in the stdlib's current prelude, so nothing to change. **Departure from R14's default,
+review after:** the call still builds its continuation and the arm discontinues it, rather than "an early exit to
+the run building no continuation": the `defer`s in the frames between the call and the run unwind through their
+continuations (I140's discontinue signal), and an exit that built none would skip them. The cheap unwind needs each
+frame's cleanups reachable without a continuation. An arm written with the continuation anyway is accepted. Compile
+and run, median of 5, ms: `hello` 162, `working_example` 179, `v2/abort/abort` 191, `v2/final/abort` 176 (S3:
+163/175 on this machine; no change from `@abort` itself).
+
+I216. **S4: a `return` crossing a prompt (I197, first refusal), as built.** A prompt now does what an ordinary run
+does with I140's flag: `left` is declared by a bound clause before the run's handlers (and before its methods are
+checked, so the stopping tests see it), the run's methods stop once their continuation comes back with the flag set
+(`__tx_stopping`, before `__tx_prompt_methods`), and the run's body holds the prompt's call, then tests the flag
+(`__tx_left_run`). Inside the prompt a crossing `return v` is `left = v;`, the run's cleanups, then the signal
+answered through `answer`, the prompt's current answer continuation (`__tx_leaving` reads `cx.ret`; `__tx_return`
+and `__tx_exiting` take `cx.leave` before `cx.ret`, which only a prompt has both of). The outer transform splits at
+the prompt's call, so the flag test lands in a continuation, whose discontinue test would take the signal for a
+discontinue: `__tx_continued` puts a flag test that starts the continuation before it (`__tx_is_flag_test`), and
+`__tx_is_prompt` reads the held form as a prompt. `v2/prompt/return_crossing` (new): a return after the outer
+effect resumed, one before any of the run's own operations, and one after two resumptions (the arm's code after
+`resume` stops). **Review after:** the hoisted test is recognized by its shape (`!__is_discontinued(x)` first).
+
+I217. **S4: a named handler of a `@ctl` effect in a prompt (I197, second refusal): NOT built, to build. BUILT in S4b as (a) (I219).** The
+refusal stays. A prompt makes each of the run's methods taking control outward by rewriting its body
+(`__tx_prompt_method`), but a named handler's method is its impl's, a function of its own: the record's lambda is
+`return Ask#op#ask(arg0)`, resolved to the impl by the checker. Passing the prompt's continuation (a function value
+taking control outward) to the impl method as written does not fit its `(int) -> R`, and instantiating `R` as the
+outer answer is wrong for a method that returns without resuming. Options: (a) the record's lambda calls the impl's
+entry directly, and the prompt inlines the instance's body (`declof_call`) as if it were an inline arm; (b) copy the
+impl method made taking control outward, as a function copy is. Recommend (a). `v2/prompt/named_handler` is in
+`expected_failing` (`Waiting`).
+
+I218. **S4: types monomorphized like functions (R7): NOT built. Partly built in S4b (I220–I223; what is left, I224).** Left for its own step. What it touches: every
+generic type use, inferred or written (`Box { v: 1 }`, `Option.None`, `List<T>`, annotations inside generic
+functions), reaching Check decl cache with a key strict at the node (R6) — the `comptime_type` path (`Buf<4>`, I67)
+already copies at written arguments (`New_generic`) and would become the only path; every generic impl of a type
+copied per instance; values, patterns and `typeof` naming the copy (I67 spells a copy as written, `Box<int>`, so
+output keeps its form); Prune and Verify on copies; the stdlib's `Option`, `List`, `Map` and `Result` at every key.
+Done halfway it would regress the v2 and meta suites, which this step must not. The diagram's diamond already reads
+"call, operator, method, type", so no doc change was needed. I200 (`stdlib/encoding/generic`) waits on it.
+
+I219. **S4b: a named handler of a `@ctl` effect in a prompt (I217, recommendation (a)), as built.** A named
+handler's record holds one lambda per operation whose body is `return ask(arg0)`, the checker reaching the impl
+through it. `__tx_prompt_method` now recognizes that shape (`__tx_calls_operation`, the old `__tx_named_method`)
+and takes the impl's method instead, through a new native `named_method(handler, method): Option<Decl>`
+(`std/compiler/Ast.cx`; `Metaprocess.named_method`: `Typecheck.named_handlers` gives the impl type and effect of the
+run's handler name, `Registry.method_entries` the impl's method), then makes it taking control outward exactly as it
+does an inline arm. The method's parameters lose their written types and take the record field's, as an inline
+arm's do, so I214's untyped-parameter gap does not arise here. The refusal "A named handler of … is not supported
+yet." is gone; an impl with no such method is "The named handler of 'Ask' has no method 'ask' to make taking control
+outward." `v2/prompt/named_handler` is out of `expected_failing`; `v2/prompt/named_handler_resumes` (new) resumes
+twice, calls an unmarked method of the same handler, and performs the outer effect from each continuation.
+**Review after:** the body is the method as its impl writes it, not its instance at a key, read outside the impl: a
+type parameter of the impl named in the body (`fn ask(k: (int) -> R): R { var r: R = k(5); return r; }`) is
+"Unknown type 'R'". Substituting the run's answer for the parameter the impl writes as `EffectHandler`'s `R` would
+fix it. A meta block in such a method is not run there; none is tried.
+
+I220. **S4b: a plain generic type is copied through the decl cache (R7), as built.** A type declared with type
+parameters and neither a value parameter nor a meta block (`type Box<T> { v: T }`) is noted when its declaration is
+checked (`note_generic`, which also fills `Types.generic_types`) and given a declaration id, as a comptime type is
+(I67). `type_copy w base args` is its Check decl cache: keyed `(id, Key.show {T = int})` in the one `w.cache`
+comptime types and functions use (`Copy of string`), it names the copy, records it in `Types.copies` (copy name →
+generic name and arguments) and in `w.copies_made`. A copy is spelled as the use prints, `Types.string_of_ty
+(Named (base, args))`: `Box<int>`, `std#Option#Option<int>`, `Job<int, <std#Console#Console>>`, which is I67's
+spelling of a comptime copy and is also the key, so renaming changes no diagnostic and no `--dump-code` text. Its
+declaration (`copy_decl`) is the generic one with each parameter written as its argument and every closed use of a
+generic type in it naming that type's copy (`renamed_type`), which makes the copies it names. No stdlib type
+changed: `Option`, `List`, `Map` and `Result` are copied at every key like any other.
+
+I221. **S4b: where a use of a type reaches the cache.** Written arguments reach it at the node: `Box<int> { … }`
+(`generic_new`), `declof(Box<int>)` (`declared_type`, which now answers a plain generic type at arguments rather
+than "'Box' takes no static arguments here."), `typeof(Box<int>)` (new: `reflected_type` reads a `Static_ref` of a
+type, which was "Undefined variable 'Box'"; `copies_of`, a new walk op), and a key binding a static parameter to a
+closed applied type, wherever an instance writes the parameter into its meta blocks (`made`) or `declof` shows its
+body (`surface`). Inferred uses (`Box { v: 1 }`, `Option.None`) reach it when the walk's program is finished, by
+the pass of I223, when every type of every statement is settled. `Box<int> { v: "one" }` is now checked against
+what is written (`core/types/errors/written_arguments`, new: "Expected int, got string."); before, the written
+arguments were dropped and it built a `Box<string>`. **Review after (R6):** an inferred use is not read strictly at
+its node. For a plain type nothing a copy holds feeds back into inference, so the copy made at the node and the one
+made at the end are the same declaration; reading the key at the node would only reject what the end of the
+statement settles (`var x = Option.None; x = Option.Some(1);`, about every `Option.None` and `[]` with no annotation).
+
+I222. **S4b: inference never sees a copy, and a copy's name is the generic type at its arguments.** The checker
+keeps `INamed ("Box", [int])`: a generic signature `fn unbox<T>(b: Box<T>)` has to unify with a use, which a separate
+nominal type (as `Buf<4>` is) cannot. Where a copy's name reaches the checker, as a key writes it into a meta block
+or a `declof` surface, `named_type` reads it as the generic type at its arguments, and a method call on it as a
+receiver (`Page<Item>.decode(…)`) reaches the generic impl at those arguments. That fixes I200:
+`stdlib/encoding/generic` passes (`T = Page<Item>`, `T.decode(…)` in `from_json`'s copy). It was already in a
+passing list, so nothing in `test_bootstrap.ml` moved. **Consequence:** the comptime path and this one share the
+cache and the spelling but not the representation; a comptime copy is a type of its own to the checker, a plain
+copy never is.
+
+I223. **S4b: the finished program names copies (`Metaprocess.monomorphized`).** After Prune, every annotation of
+the processed program, a trait object call's type and a variant pattern's type name a copy wherever the type is
+closed (`Types.copied`); a type still generic in a parametric instance's own parameters keeps its arguments. So a
+value names its copy (the interpreter reads the declared name off the annotation), and so does `typeof` (it did
+already, as printed). The type-level section holds, where each generic declaration stood, its copies the program
+reaches, from code or from another emitted declaration's fields; the generic declaration itself is gone, and a copy
+only a meta block's `declof` or `typeof` made is not emitted. Type-level declarations' own fields name copies too.
+`Verify.program ~monomorphized:true` (only `Compile.back`, the finished program) rejects a closed use of a generic
+type ("This is annotated List<string>, which names the generic type rather than its copy."; checked by disabling the
+renaming), and reads a copy's fields as its generic type's at its arguments, renamed (`Types.named_fields`). The
+printer finds `Display` and `Debug` by the declaration a value's copy was made from (`Types.declaration`).
+**Review after:** written types inside processed code (a parameter's, a `var`'s, a lambda's signature) are left as
+written: they print the same and nothing after the walk reads them. The printer's instance is still the one keyed
+first under the declaration's name (`is_printer`), which `core/types/copies` shows as a `Box<unit>` copy no value
+has; R19's static `Display` removes it.
+
+I224. **S4b: what R7 still leaves (not built).** (a) A meta block's program is compiled as the walk leaves it: its
+code is not renamed, its types are not copies, `Verify` checks it without `~monomorphized`. Renaming it needs the
+readers of meta values that compare a declaration's name, `Core.list` in `Syntax.kind_of`, `Splice.of_value` and
+`Metaprocess` (line 249), and `Splice.reify` writing `New (name, …)`, to go through `Types.declaration`, and a memo
+per instance so the `shared` part is not renamed once per block. (b) A generic type declared in a function body is
+not copied (local types are renamed after their owner and checked with its body, not by `check_type_level`). (c) No
+per-copy impl: a generic impl's methods were already instances per key, and a static call on a copy's name reaches
+the generic impl through I222; the registry holds no entry under a copy's name. (d) `internal-docs/Metaprocessing.md`
+still says a function generic only over types is "checked once, generically, and `Type_mono` copies it", and
+"Not built: … a value argument in a type annotation"; listed for the user, not edited (step 3 of the handoff).
+
+I225. **S4b: cost.** Compile and run, median of 11, ms, this machine, S4 → S4b: `hello` 161 → 165,
+`working_example` 179 → 181, `core/types/copies` 209 → 198; `stdlib/encoding/generic` 401 (failed before). The
+renaming is one pass over the finished program; nothing runs per meta block.
+
+I226. **S5a: the built-in type names are `Int`, `Float`, `String`, `Byte`, `Char`, `Bool`, `Unit` in the compiler (R30).**
+The old names are gone, not aliased: `Typecheck.primitive` reads only the new spellings, and every printer of a type
+(`Types.string_of_ty`, `string_of_infer_ty`, `type_name`, `infer_type_name`, `string_name`) writes them, so diagnostics,
+`typeof(…).name`, `str(T)`, keys (`Box$Int`) and mangled method names follow. Also renamed: the owners in
+`Builtins.methods` and their natives (`String.to_upper`, `Int.to_float`, …, which `Types.type_name` must agree with), the
+derived `Eq`'s `Bool` and a static param's literal check in `Metaprocess`, an effect operation's default `Unit` return
+in `Typecheck`, the parser's `run<Unit> { … }` hint, `cx docs`' names for the primitives (`cx/lib/docs.ml`), `cx new`'s
+skeleton, the Cronyx in `test_bootstrap.ml`'s rendering and prelude-walk probes and `test_cx.ml`, and Cronyx examples in
+backticks in OCaml comments. No other built-in type name was lowercase: `Type`, `Span`, `Array`, `List` already were.
+**Kept, review after:** `Value.type_name`, the interpreter's runtime kinds in its own failures ("Expected a bool
+condition, got int."), which sit beside `tuple`, `record`, `array`, `fn` and read as prose; the generated prefixes
+`unit$meta` and `type$open` in `Ast` (a unit there is a compilation unit); English in messages ("A string literal",
+"A string cannot be assigned into", "A char literal holds exactly one character").
+
+I227. **S5a: how the sources were renamed.** A script over a Cronyx lexer that follows `scanner.ml` (strings, chars,
+nested block comments), so nothing inside a literal or comment is matched by accident. An identifier token is renamed
+unless it is preceded by `.`, `fn`, `var`, `ctl`, `@` or `handler`, or followed by `:`: those are methods (`input.int()`,
+`fn int(self)` in `Codec`), variables, parameters and fields, which stay lowercase. A file that also binds the name as a
+value (`var unit` in `Transform.cx`, the parameter `unit` in `Time.cx`) renames it there only in a plain type position.
+A string literal whose whole text is a built-in name is renamed, because each one names a type the compiler now prints
+(`__tx_named("unit")` in `Transform.cx`, `TypeKind.Named("unit")` in `EffectHandler.cx`, `Cli.cx`'s comparisons of a
+field's written type, four meta fixtures); a literal that merely contains one is user text and is left. In comments,
+only code in backticks and fences is renamed, never prose, and not after `a`/`an` or beside a `/` (`std/async/Timer`).
+User types: the 75 lowercase declarations (25 `trait`, 50 old-syntax `effect`; R30's 76 was a rough count) are
+renamed in their own file, CamelCase (`parse_error` → `ParseError`), only where the name stands as a type: an operation
+of the same name (`fn log`, `log("x")`, `ask()`) stays. The stdlib's `effect async` is `Async` everywhere it is imported
+(`import { Async } from "std/async/Task"`); the module path keeps its directory name. A `handler h : Log` keeps its
+lowercase name, since a handler is a value. `benchmarks/` (5 `.cx`) was renamed as well, being Cronyx the toolchain
+runs; `examples/` holds no `.cx`.
+
+I228. **S5a: expected outputs.** For each fixture passing before and failing after, the expected file was rewritten
+from the program's actual output only when the two agreed word for word up to case (97 files); the one other change is
+`core/traits/errors/ambiguous_receiver`, whose list of declaring types is now `Array, String, List, Map, Set and
+StringBuilder` (was `Array, List, Map, Set, StringBuilder and string`: the owners' order follows their names). The 24 red fixtures whose
+expected output names a type were edited by hand: types in diagnostics, printed signatures and printed code renamed
+(`meta/syntax/printer`, `round_trip`, `reflection/typeof_effect_*`, `effects/rows/inferred_rows`, the
+`effects/errors/*` names of user effects such as `'Logger'`, `'One'`); text the program prints from its own strings
+left (`not an int: nope`, `c after attempt async`). **Review after:** `stdlib/os/Cli`'s help now shows `--port <Int>`
+and `--host <String>`, because it prints the field's written type; its prose (" takes an int, not '…'", "it takes a
+bool, an int, a float or a string") and `Codec`'s messages ("expected an int, found a string") are user text and
+stay lowercase, so the two now disagree in case. Say if the CLI help should print lowercase words instead.
+
+I229. **S5a: left for after step 5 (docs, editors).** Not edited, per the handoff: `docs/docs` (27 pages: most uses in
+`language-metaprogramming/static-params.mdx`, `language-basics/operators.mdx`, `traits.mdx`, `strings.mdx`,
+`functions.mdx`, `language-metaprogramming/compile-time-functions.mdx`, `reflection.mdx`, and every page under
+`language-effects/`), `docs/src/components/HomepageFeatures/index.tsx`, `README.md`, `CLAUDE.md` (one example), every
+`internal-docs/*.md` but the code of `CPS Migration.md` (45 files with a built-in name, most in `Math.md`, `Generated
+Documentation.md`, `Elaboration.md`, `Algebraic Effects.md`, `Inlining.md`, `Data Structures.md`, `Type System.md`,
+`Static Params.md`, `GADT Refinement.md`, `Metaprocessing.md`), and the editor keyword lists:
+`editors/nvim/syntax/cronyx.vim` (`syn keyword cronyxType int float bool string char byte unit never any`) and
+`editors/vscode/syntaxes/cronyx.tmLanguage.json` (the same list as a regex). `legacy-bootstrap/` is untouched.
+`CPS Migration.md`: 31 built-in names renamed inside code fences and backticks, no prose changed.
+
+I230. **S5a: `cx` fixtures I could not check (review after).** `cx/test/library/expected.json` and
+`cx/test/packages/documented/app/expected.json` were edited by hand (`"name": "Int"` for each primitive, and the
+built-in methods' `"Byte.to_int"`, `"String.to_upper"`, …), because both cases are red on old syntax (`library/Ops.cx`,
+`ink.cx`). If `cx docs` sorts entries by name, the built-in methods may now come in a different order. Trap found:
+`dune test cx` deletes `cx/test/registry/app/cronyx.lock` (the registry case removes the lock first, and its build,
+red for now, never writes it back); it was restored from `HEAD` after the run, and a later step should check
+`git status` for it after running the suite.
+
+### Fixture changes in S5a
+
+Every fixture's source follows R30, red old-syntax fixtures included: 781 `.cx` under `tests/` (3,318 built-in
+names, 285 uses of the lowercase user types and `Async`), 73 under `stdlib/` (1,791 and 138), 32 under `cx/test`
+(78). Expected output: 97 files taken from the actual output plus `ambiguous_receiver`'s new order (I228), 24 red
+fixtures' files edited by hand, the two
+`cx docs` JSON files (I230). No fixture changed pass/fail state: `scratch/tools/fixtures.py` gives the same passing
+set before and after (734/969); the bootstrap suite run directly (`test_bootstrap.exe`, round trips and probes
+included) the same list, 1361/1740; and `dune test cx` the same list (102/131).
 
 ### Fixture changes in B1-B3
 
@@ -2128,6 +2483,45 @@ No existing fixture changed. New, both in `cases` and in the `pruned` probe (I72
 `meta/prune/meta_only_function` (`doubled`, called only from a meta block, is absent; `shared`,
 called from both, is present) and `meta/prune/unreferenced_impl` (`Area for Circle` and `Display for
 Circle` are absent; `Square`'s are present, and `print(s)` still prints through its `Display`).
+
+### Fixture changes in S3
+
+`tests/effects/v2/effect_handler_shape.txt`: the instance prints each `@ctl` method generic in its row (I201),
+`@ctl fn choose<Rho>(options: Array<int>, resume: (int) -> <Rho> string): <Rho> string;`. New:
+`v2/continuation_row` (a stored continuation typed `(int) -> <Console> string`, called after its run),
+`v2/errors/arm_body_error`, `v2/errors/arm_resumes_wrong_type`, `v2/errors/arm_unmarked_error` (I203),
+`v2/defaulted/never_throws`, `v2/defaulted/joins_later_throw` (I206).
+
+### Fixture changes in S4
+
+No expected output (`.txt`, `.err`) changed. Sources changed, to the step's syntax:
+- `run<R>` written on every run (I209): 117 files under `tests/effects/v2`, `tests/stdlib/v2`,
+  `tests/core/defer/v2`, `tests/core/traits/dyn/v2/effect_resumes`, `tests/effects/methods/v2/suspending_receiver`,
+  `tests/meta/syntax/round_trip`; stdlib `prelude.cx`, `core/Error.cx`, `random/Random.cx`, `io/Console.cx` (a doc
+  comment).
+- A generic effect's handler writes its arguments (I210): `v2/discontinue/nested_after_outer` (`Throw<string>`),
+  `v2/fn_values/captures_assigned` and `v2/root/root_shaped` (`Fails<X>`), `v2/generic/generic`, `nested`,
+  `nested_relay`, `nested_relay_fn`, `written_row` (`Yield<int>`, `Yield<string>`), `v2/generic/shared_param`
+  (`Store<int>`), `v2/generic_unmarked` (`Emit<int>`), `stdlib/v2/Error.cx` and `Task.cx` (`Throw<X>`),
+  `stdlib/v2/Yield.cx` (`Yield<T>`); stdlib `prelude.cx` and `core/Error.cx` (`Throw<X>`).
+- `@abort` (I215): stdlib `core/Error.cx` (`Throw.throw`), `core/Assert.cx` (`Assertion.failed`); the arms of
+  `__root` and `attempt` drop `resume`.
+- `meta/traits/effect_handler.cx`: `fail<unit>(str(E) + " is not a trait, so it has no operations to handle")`
+  (I212, I213).
+
+New: `v2/errors/run_without_answer`, `v2/errors/handle_unwritten_arguments`, `types/expected/discarded_return_param`,
+`meta/params/type_param_value`, `core/traits/in_type/in_type`, `core/traits/in_type/errors/declared_twice`,
+`v2/handler/in_type`, `v2/abort/abort`, `v2/abort/shape`, `v2/abort/named`, `v2/prompt/return_crossing`; and
+`v2/prompt/named_handler` in `expected_failing` (I217).
+
+### Fixture changes in S4b
+
+No expected output (`.txt`, `.err`) changed, and no existing fixture's source. `v2/prompt/named_handler` left
+`expected_failing` (I219). New: `v2/prompt/named_handler_resumes` (I219), `meta/declof/generic_type` (`declof` of a
+plain generic type at arguments and through a key, `typeof(Box<string>)`, written `Box<int> { … }`; I221),
+`core/types/copies` (two keys of one type with a `Display` impl, a nested copy, a generic function over `Box<T>`, a
+generic enum matched at two keys, a type with a row parameter; I223), `core/types/errors/written_arguments` (I221).
+`stdlib/encoding/generic` now passes (I222). Stdlib: `core/Transform.cx` (I219), `compiler/Ast.cx` (`named_method`).
 
 ## Plan-order changes made during implementation
 - **P1 (after A7):** A10 (meta blocks processed by the walk) now runs before A8 (deleting Type_mono) and A9 (Prune). Type_mono, `resolve.ml`, `bound_calls`, `coercions` and `dp_instance` are now reached only by `Compile.program` for meta programs, so they can't be deleted until meta programs are on the walk (I52).

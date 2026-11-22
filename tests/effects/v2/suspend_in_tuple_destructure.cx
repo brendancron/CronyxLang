@@ -1,10 +1,10 @@
-trait Tick { @ctl fn tick(): int; }
+trait Tick { @ctl fn tick(): Int; }
 
-fn two(): (int, int) {
+fn two(): (Int, Int) {
     return (tick(), 2);
 }
 
-run {
+run<Unit> {
     var (a, b) = two();
     print(a + b);
     var (c, d) = (tick(), tick());
@@ -13,9 +13,9 @@ run {
     fn tick(resume) { resume(1); }
 }
 
-trait Pick { @ctl fn pick(): (int, string); }
+trait Pick { @ctl fn pick(): (Int, String); }
 
-run {
+run<Unit> {
     var (n, word) = pick();
     print(word + " " + str(n));
 } handle<Pick> {

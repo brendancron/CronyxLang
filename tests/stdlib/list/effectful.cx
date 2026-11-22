@@ -1,15 +1,15 @@
 import { map, filter, fold } from "std/collections/List";
 
-effect log {
-    fn emit(msg: string): unit;
+effect Log {
+    fn emit(msg: String): Unit;
 }
 
-fn doubled(x: int): <log> int {
+fn doubled(x: Int): <Log> Int {
     emit("doubling " + str(x));
     return x * 2;
 }
 
-fn big(x: int): <log> bool {
+fn big(x: Int): <Log> Bool {
     emit("testing " + str(x));
     return x > 2;
 }
@@ -22,6 +22,6 @@ run {
     print(str(kept.len()));
 
     print(str(fold([1, 2, 3], 0, (acc, x) => { return acc + x; })));
-} handle log {
+} handle Log {
     fn emit(msg) { print("log: " + msg); }
 }

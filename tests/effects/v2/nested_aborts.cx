@@ -1,15 +1,15 @@
 trait Inner { @ctl fn stop<T>(): T; }
 trait Outer { @ctl fn halt<T>(): T; }
 
-fn f(which: bool): <Outer, Console> unit {
-    run {
+fn f(which: Bool): <Outer, Console> Unit {
+    run<Unit> {
         if (which) { stop(); } else { halt(); }
         print("body done");
     } handle<Inner> { fn stop(resume) { print("inner stopped"); } }
     print("after inner run");
 }
 
-run {
+run<Unit> {
     f(true);
     print("---");
     f(false);

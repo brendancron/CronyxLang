@@ -1,19 +1,19 @@
-type Point { x: int, y: int }
+type Point { x: Int, y: Int }
 
-type Shape { Circle(int), Square(int), Rect { w: int, h: int } }
+type Shape { Circle(Int), Square(Int), Rect { w: Int, h: Int } }
 
 trait Area {
-    fn area(self): int;
+    fn area(self): Int;
 }
 
 impl Area for Point {
-    fn area(self): int {
+    fn area(self): Int {
         return self.x * self.y;
     }
 }
 
 impl Point {
-    fn shifted(self, by: int): Point {
+    fn shifted(self, by: Int): Point {
         return Point { x: self.x + by, y: self.y + by };
     }
 }
@@ -22,7 +22,7 @@ fn origin(): Point {
     return Point { x: 0, y: 0 };
 }
 
-fn describe(s: Shape): string {
+fn describe(s: Shape): String {
     match s {
         Shape.Circle(r) => { return "circle " + str(r); }
         Shape.Square(w) => { return "square " + str(w); }

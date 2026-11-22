@@ -1,10 +1,10 @@
-trait Flip { @ctl fn coin(): bool; }
+trait Flip { @ctl fn coin(): Bool; }
 
-fn trial(): <Flip, Console> unit {
+fn trial(): <Flip, Console> Unit {
     if (coin()) { print("heads"); } else { print("tails"); }
 }
 
-run {
+run<Unit> {
     var task = () => { trial(); };
     task();
 } handle<Flip> {

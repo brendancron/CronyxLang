@@ -1,14 +1,14 @@
-trait Ask { @ctl fn next(): int; }
+trait Ask { @ctl fn next(): Int; }
 
 var count = 3;
 
-fn drain(): <Ask, Console> unit {
+fn drain(): <Ask, Console> Unit {
     while (next() > 0) {
         print("tick");
     }
 }
 
-run {
+run<Unit> {
     drain();
 } handle<Ask> {
     fn next(resume) {

@@ -1,9 +1,9 @@
 // However the block is left, including an aborting handler unwinding through
 // it. The arm runs where the operation was performed, and the unwind — and so
 // the deferred statement — comes after it.
-effect Error { final ctl throw(msg: string); }
+effect Error { final ctl throw(msg: String); }
 
-fn risky(bad: bool): int {
+fn risky(bad: Bool): Int {
     defer print("cleanup");
     if (bad) { return throw("failed"); }
     return 1;

@@ -1,12 +1,12 @@
 trait Log {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
-fn greet(name: string): unit {
+fn greet(name: String): Unit {
     log("hello " + name);
 }
 
-run {
+run<Unit> {
     var g = greet;
     g("ada");
 } handle<Log> {

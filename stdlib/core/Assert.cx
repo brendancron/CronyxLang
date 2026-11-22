@@ -21,11 +21,11 @@
  */
 trait Assertion {
     /** Reports the message and abandons the test. */
-    @ctl fn failed<T>(msg: string): T;
+    @abort fn failed<T>(msg: String): T;
 }
 
 /** Performs `Assertion.failed` with the message unless the condition holds. */
-fn assert(cond: bool, msg: string) {
+fn assert(cond: Bool, msg: String) {
     if (!cond) {
         failed(msg);
     }

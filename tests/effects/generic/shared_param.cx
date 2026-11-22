@@ -5,7 +5,7 @@ effect Store<T> {
     fn take(): T;
 }
 
-fn round_trip(v: int): int {
+fn round_trip(v: Int): Int {
     put(v);
     return take();
 }

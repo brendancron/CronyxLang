@@ -2,8 +2,8 @@ import { block_on, both } from "std/async/Task";
 import { Channel, Case, channel, select } from "std/async/Channel";
 
 block_on {
-    var numbers: Channel<int> = channel(1);
-    var words: Channel<string> = channel(1);
+    var numbers: Channel<Int> = channel(1);
+    var words: Channel<String> = channel(1);
     both(
         () => {
             numbers.send(1);
@@ -17,7 +17,7 @@ block_on {
             var numbers_open = true;
             var words_open = true;
             while (numbers_open || words_open) {
-                var cases: List<Case<string>> = [];
+                var cases: List<Case<String>> = [];
                 if (numbers_open) {
                     cases.push(numbers.receiving((n) => {
                         match n {
@@ -41,8 +41,8 @@ block_on {
 };
 
 block_on {
-    var out: Channel<int> = channel(1);
-    var into: Channel<int> = channel(1);
+    var out: Channel<Int> = channel(1);
+    var into: Channel<Int> = channel(1);
     into.send(7);
     print(select([ out.sending(1, () => "sent to out"), into.receiving((n) => "took from into") ]));
     print(select([ out.sending(2, () => "sent to out"), into.receiving((n) => "took from into") ]));

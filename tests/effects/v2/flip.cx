@@ -1,8 +1,8 @@
-trait flip {
-    @ctl fn flip(): bool;
+trait Flip {
+    @ctl fn flip(): Bool;
 }
 
-run {
+run<Unit> {
     print("I'm thirsty");
     var wants_tea = flip();
     var wants_coffee = flip();
@@ -13,7 +13,7 @@ run {
     } else {
         print("I'm having water");
     }
-} handle<flip> {
+} handle<Flip> {
     fn flip(resume) {
         resume(false);
         resume(true);

@@ -3,7 +3,7 @@ effect Store<T> {
     fn take(): T;
 }
 
-fn mixed(): string {
+fn mixed(): String {
     put(1);
     return take();
 }

@@ -1,4 +1,4 @@
-effect Stop { final ctl stop(): unit; }
+effect Stop { final ctl stop(): Unit; }
 
 fn f() {
     discontinue;

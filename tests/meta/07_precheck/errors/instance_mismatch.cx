@@ -1,4 +1,4 @@
-fn f<n: int>(): int {
+fn f<n: Int>(): Int {
     meta if (n % 2 == 0) {
         gen return 5;
     } else {

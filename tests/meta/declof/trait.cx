@@ -2,8 +2,8 @@ import { DeclKind } from "std/compiler/Ast";
 import { decl_source } from "std/compiler/Printer";
 
 trait Shape {
-    fn area(self): int;
-    fn name(self): string;
+    fn area(self): Int;
+    fn name(self): String;
 }
 
 meta {

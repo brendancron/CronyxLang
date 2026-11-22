@@ -1,10 +1,10 @@
 /** Counted by `bump`. */
 var count = 0;
-var names: List<string> = ["a"];
+var names: List<String> = ["a"];
 var (left, right) = (1, 2);
 
 fn bump() { count = count + 1; }
-fn add(name: string) { names.push(name); }
+fn add(name: String) { names.push(name); }
 
 bump();
 bump();

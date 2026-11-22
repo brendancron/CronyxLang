@@ -1,4 +1,4 @@
-fn ready(): <async> int {
+fn ready(): <Async> Int {
     return 1;
 }
 

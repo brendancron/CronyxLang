@@ -1,17 +1,17 @@
-effect Log { fn log(s: string): unit; }
+effect Log { fn log(s: String): Unit; }
 
-fn each<E>(actions: List<() -> <E> unit>): <E> unit {
+fn each<E>(actions: List<() -> <E> Unit>): <E> Unit {
     for (action in actions) { action(); }
 }
 
-fn apply<E>(actions: Array<(int) -> <E> unit>, n: int): <E> unit {
+fn apply<E>(actions: Array<(Int) -> <E> Unit>, n: Int): <E> Unit {
     for (action in actions) { action(n); }
 }
 
 fn task() { log("task"); }
 
 run {
-    var actions: List<() -> <Log> unit> = [];
+    var actions: List<() -> <Log> Unit> = [];
     actions.push(task);
     actions.push(task);
     each(actions);

@@ -1,20 +1,20 @@
-effect sched {
-    ctl tick(): unit;
+effect Sched {
+    ctl tick(): Unit;
 }
 
-var queue: List<() -> unit> = [];
+var queue: List<() -> Unit> = [];
 
-fn counter(name: string): <sched, Console> unit {
+fn counter(name: String): <Sched, Console> Unit {
     for (var i = 0; i < 3; i += 1) {
         print(name + ": " + str(i));
         tick();
     }
 }
 
-fn spawn(task: () -> <sched, Console> unit) {
+fn spawn(task: () -> <Sched, Console> Unit) {
     run {
         task();
-    } handle sched {
+    } handle Sched {
         ctl tick() { queue.push { resume; }; }
     }
 }

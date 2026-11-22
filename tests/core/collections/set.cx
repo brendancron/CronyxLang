@@ -1,4 +1,4 @@
-var seen: Set<int> = [1, 2, 2, 3];
+var seen: Set<Int> = [1, 2, 2, 3];
 
 seen.insert(4);
 seen.insert(2);
@@ -7,13 +7,13 @@ print(seen.contains(2));
 print(seen.contains(9));
 print(seen.len());
 
-var words: Set<string> = ["a", "b", "a"];
+var words: Set<String> = ["a", "b", "a"];
 print(str(words.len()) + " " + str(words.contains("b")) + " " + str(typeof(words).name));
 
-var letters: Set<char> = ['x', 'y', 'x'];
+var letters: Set<Char> = ['x', 'y', 'x'];
 print(str(letters.len()) + " " + str(letters.contains('y')));
 
-var empty: Set<int> = [];
+var empty: Set<Int> = [];
 print(str(empty.len()) + " " + str(empty.contains(1)));
 empty.insert(7);
 print(str(empty.len()) + " " + str(empty.contains(7)));

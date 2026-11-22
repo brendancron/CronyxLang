@@ -1,4 +1,4 @@
-fn greet(name: string): unit {
+fn greet(name: String): Unit {
     defer print("goodbye");
     print(name);
     return;

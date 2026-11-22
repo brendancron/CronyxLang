@@ -1,26 +1,26 @@
 trait Log {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
 trait Ask {
-    fn ask(): int;
+    fn ask(): Int;
 }
 
 type Both {}
 
 impl Log for Both {
-    fn log(msg: string): unit {
+    fn log(msg: String): Unit {
         print("log: " + msg);
     }
 }
 
 impl Ask for Both {
-    fn ask(): int {
+    fn ask(): Int {
         return 42;
     }
 }
 
-run {
+run<Unit> {
     log("start");
     print(ask());
 } with Both;

@@ -1,10 +1,10 @@
 // What the arm loses by being unwound past, and what it keeps: the sequel after
 // `resume` never runs, while a `defer` armed before it does — the same division
 // Koka draws between a clause's own code and a `finally`.
-effect E { ctl ask(): int; }
-effect Inner { ctl tick(): int; }
+effect E { ctl ask(): Int; }
+effect Inner { ctl tick(): Int; }
 
-fn f(): <E, Console> int {
+fn f(): <E, Console> Int {
     run {
         var n = tick();
         return n + 1;

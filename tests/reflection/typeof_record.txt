@@ -1,2 +1,2 @@
-{ x: int, y: int }
-{ active: bool, age: int, name: string }
+{ x: Int, y: Int }
+{ active: Bool, age: Int, name: String }

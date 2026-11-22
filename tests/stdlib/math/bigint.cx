@@ -40,11 +40,11 @@ print((BigInt.of(4611686018427387903) + 1).to_int());
 // Agreement with int wherever int does not overflow, over pairs from a fixed
 // sequence, so the run is the same every time.
 var seed = 12345;
-fn next(): int {
+fn next(): Int {
     seed = (seed * 1103515245 + 12345) % 2147483648;
     return seed;
 }
-fn sample(bound: int): int {
+fn sample(bound: Int): Int {
     var n = next() % bound;
     if (next() % 2 == 0) { return -n; }
     return n;
@@ -52,7 +52,7 @@ fn sample(bound: int): int {
 
 var checks = 0;
 var mismatches = 0;
-fn agree(label: string, expected: int, actual: BigInt) {
+fn agree(label: String, expected: Int, actual: BigInt) {
     checks += 1;
     if (actual != BigInt.of(expected)) {
         mismatches += 1;

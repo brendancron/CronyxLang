@@ -2,11 +2,11 @@ var xs = [1, 2, 3];
 print(xs.len());
 print(str(xs.contains(2)) + " " + str(xs.contains(9)));
 
-var zeros = Array<int>(3, 0);
+var zeros = Array<Int>(3, 0);
 zeros[1] = 5;
 print(str(zeros) + " " + str(zeros.len()));
 
-fn widest(rows: Array<Array<int>>): int {
+fn widest(rows: Array<Array<Int>>): Int {
     var best = 0;
     var i = 0;
     while (i < rows.len()) {

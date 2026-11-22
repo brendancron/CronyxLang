@@ -1,21 +1,17 @@
-type Stack { n: int }
+type Stack { n: Int }
 
 impl Stack {
-    fn push(self, v: int) {
+    fn push(self, v: Int) {
         self.n = self.n + v;
     }
 }
 
-fn literals() {
-    var xs = [1, 2, 3];
-    xs.push(4);
-    print(str(xs.len()) + " " + str(xs[3]) + " " + str(typeof(xs).name));
+var xs = [1, 2, 3];
+xs.push(4);
+print(str(xs.len()) + " " + str(xs[3]) + " " + str(typeof(xs).name));
 
-    var ys = [1, 2];
-    print(str(ys.len()) + " " + str(typeof(ys).name));
-}
-
-literals();
+var ys = [1, 2];
+print(str(ys.len()) + " " + str(typeof(ys).name));
 
 var s = Stack { n: 0 };
 s.push(5);

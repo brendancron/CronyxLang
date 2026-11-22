@@ -1,4 +1,4 @@
-type Point { x: int }
-type Pixel { x: int }
-fn f(a: Point): int { return a.x; }
+type Point { x: Int }
+type Pixel { x: Int }
+fn f(a: Point): Int { return a.x; }
 print(f(Pixel { x: 1 }));

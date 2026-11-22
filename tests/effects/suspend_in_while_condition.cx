@@ -1,11 +1,11 @@
 // The condition is re-evaluated every iteration, so the operation in it is
 // performed every iteration too — hoisting it out of the loop would be a
 // different program, and hoisting it into the body is the same one.
-effect Ask { ctl next(): int; }
+effect Ask { ctl next(): Int; }
 
 var count = 3;
 
-fn drain(): <Ask, Console> unit {
+fn drain(): <Ask, Console> Unit {
     while (next() > 0) {
         print("tick");
     }

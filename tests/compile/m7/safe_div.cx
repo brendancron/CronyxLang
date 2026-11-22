@@ -1,9 +1,9 @@
 enum Option {
-  Some(int),
+  Some(Int),
   None
 }
 
-fn safe_div(a: int, b: int): Option {
+fn safe_div(a: Int, b: Int): Option {
   if (b == 0) {
     return Option.None;
   }

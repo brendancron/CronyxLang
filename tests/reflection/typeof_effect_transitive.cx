@@ -1,11 +1,11 @@
 // An effect propagates up the call chain: a caller performs whatever its
 // callee does, until something handles it.
 
-effect stream {
-    ctl yield(i: int): unit;
+effect Stream {
+    ctl yield(i: Int): Unit;
 }
 
-fn range(low: int, high: int) {
+fn range(low: Int, high: Int) {
     var i = low;
     while (i < high) {
         yield(i);
@@ -13,7 +13,7 @@ fn range(low: int, high: int) {
     }
 }
 
-fn double_range(n: int) {
+fn double_range(n: Int) {
     range(0, n);
     range(n, n * 2);
 }

@@ -3,12 +3,12 @@ print(str(c) + " " + str(typeof(c).name));
 print(str(c == 'a') + " " + str(c == 'b'));
 print(str(c));
 
-var letters: Array<char> = ['x', 'y'];
+var letters: Array<Char> = ['x', 'y'];
 letters[0] = 'z';
 print(str(letters) + " " + str(letters.len()) + " " + str(letters.contains('y')));
 
-fn repeat(c: char, times: int): Array<char> {
-    var out = Array<char>(times, c);
+fn repeat(c: Char, times: Int): Array<Char> {
+    var out = Array<Char>(times, c);
     return out;
 }
 print(str(repeat('!', 3)) + " " + str(typeof(repeat).name));

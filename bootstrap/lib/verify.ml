@@ -26,6 +26,10 @@ let expect span what expected actual =
         expected'
     else fail span "%s should be %s but is annotated %s." what expected' actual')
 
+(* Set for the program the walk finished, whose types name copies; a meta
+   block's is checked as the walk left it. *)
+let copies = ref false
+
 let listed names =
   match names with
   | [] -> "nothing"
@@ -37,25 +41,27 @@ let element span (t : Types.ty) =
   | other -> fail span "An array is annotated %s." (Types.string_of_ty other)
 
 let fields_of (t : Types.ty) =
+  let named t = if !copies then Types.copied t else t in
   match t with
   | Types.Record fields -> Some fields
-  | Types.Named (name, args) -> Some (Types.named_fields name args)
+  | Types.Named (name, args) -> Some (List.map (fun (l, t) -> l, named t) (Types.named_fields name args))
   | _ -> None
 
 (* Processed code is monomorphic, but for what the walk keeps generic on
-   purpose: a parametric instance's own parameters, one an author named that a
-   handler leaves open, what nothing reads, and anything inside an effect's
-   arguments. *)
+   purpose: a parametric instance's own parameters, what nothing reads, and
+   anything inside an effect's arguments. *)
 let monomorphic span (t : Types.ty) =
   let allowed id =
     Hashtbl.mem Types.declared_params id
-    || Hashtbl.mem Types.param_names id
     || Hashtbl.mem Typecheck.unobservable id
   in
   let rec ty (t : Types.ty) =
     match t with
     | Types.Generic id when not (allowed id) ->
       fail span "This is annotated %s, which is still generic." (Types.string_of_ty t)
+    | (Types.Named (n, _ :: _) | Types.Sum (n, _ :: _))
+      when !copies && Hashtbl.mem Types.generic_types n && Types.closed t ->
+      fail span "This is annotated %s, which names the generic type rather than its copy." (Types.string_of_ty t)
     | Types.Tuple ts | Types.Pack ts | Types.Named (_, ts) | Types.Sum (_, ts) -> List.iter ty ts
     | Types.Spread t -> ty t
     | Types.Record fields -> List.iter (fun (_, t) -> ty t) fields
@@ -324,7 +330,9 @@ and stmt (s : Ast.resolved_stmt) : unit =
     expr scrutinee;
     List.iter (fun (_, body) -> List.iter stmt body) cases
 
-let program (p : Ast.resolved_stmt list) : (unit, error) result =
+let program ?(monomorphized = false) (p : Ast.resolved_stmt list) : (unit, error) result =
+  copies := monomorphized;
+  Fun.protect ~finally:(fun () -> copies := false) @@ fun () ->
   try
     List.iter stmt p;
     Ok ()

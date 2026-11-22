@@ -1,6 +1,6 @@
-float
-int
-bool
-string
+Float
+Int
+Bool
+String
 Type
-((int) -> int, int) -> int
+((Int) -> Int, Int) -> Int

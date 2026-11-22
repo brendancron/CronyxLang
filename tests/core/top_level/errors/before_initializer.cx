@@ -1,0 +1,4 @@
+fn show() { print(late); }
+
+show();
+var late = 1;

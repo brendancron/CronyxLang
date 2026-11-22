@@ -1,7 +1,7 @@
 import { DeclKind } from "std/compiler/Ast";
 import { decl_source } from "std/compiler/Printer";
 
-fn greet(name: string) {
+fn greet(name: String) {
     print("Hello, " + name);
 }
 

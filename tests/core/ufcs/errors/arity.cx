@@ -1,4 +1,4 @@
-type Dog { name: string }
-fn pair(d: Dog, a: int, b: int): int { return a + b; }
+type Dog { name: String }
+fn pair(d: Dog, a: Int, b: Int): Int { return a + b; }
 var rex = Dog { name: "r" };
 print(rex.pair(1));

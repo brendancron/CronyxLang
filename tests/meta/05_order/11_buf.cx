@@ -1,5 +1,5 @@
-type Buf<n: int> {
-    items: Array<int>,
+type Buf<n: Int> {
+    items: Array<Int>,
 
     meta print("Buf<" + str(n) + ">");
 }

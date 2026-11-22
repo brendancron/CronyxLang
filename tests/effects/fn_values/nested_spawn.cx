@@ -1,22 +1,22 @@
-effect sched {
-    ctl tick(): unit;
-    ctl spawn(t: () -> <sched, Console> unit): unit;
+effect Sched {
+    ctl tick(): Unit;
+    ctl spawn(t: () -> <Sched, Console> Unit): Unit;
 }
 
-var queue: List<() -> <Console> unit> = [];
+var queue: List<() -> <Console> Unit> = [];
 
-fn run_one(task: () -> <sched, Console> unit): unit {
+fn run_one(task: () -> <Sched, Console> Unit): Unit {
     run {
         task();
-    } handle sched {
+    } handle Sched {
         ctl tick() { queue.push { resume; }; }
         ctl spawn(t) { queue.push { run_one(t); }; resume; }
     }
 }
 
-fn child(): <sched, Console> unit { print("child a"); tick(); print("child b"); }
+fn child(): <Sched, Console> Unit { print("child a"); tick(); print("child b"); }
 
-fn parent(): <sched, Console> unit {
+fn parent(): <Sched, Console> Unit {
     print("parent a");
     spawn(child);
     tick();

@@ -1,13 +1,13 @@
-fn early<k: int>(x: int): int {
+fn early<k: Int>(x: Int): Int {
     return loud(x + k);
 }
 
-fn loud(x: int): int {
+fn loud(x: Int): Int {
     print(x);
     return x;
 }
 
-fn consoleOnly(f: (int) -> <Console> int, x: int): int {
+fn consoleOnly(f: (Int) -> <Console> Int, x: Int): Int {
     return f(x);
 }
 

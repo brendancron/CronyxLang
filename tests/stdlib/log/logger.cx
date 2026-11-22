@@ -8,7 +8,7 @@ fn work() {
 }
 
 // Only what is at least a warning, as a program quieting its logs would.
-var kept: List<string> = [];
+var kept: List<String> = [];
 run {
     work();
 } handle Logger {

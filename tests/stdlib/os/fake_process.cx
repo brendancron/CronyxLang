@@ -1,26 +1,26 @@
 import { Command, Child, Output, Process, output } from "std/os/Process";
 import { Reader, Writer, IoError } from "std/io/Io";
 import { Throw, Result } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
-type Canned { text: string }
+type Canned { text: String }
 
 impl Child for Canned {
     fn stdin(self): Option<Writer> { return Option.None; }
     fn stdout(self): Option<Reader> { return Option.None; }
     fn stderr(self): Option<Reader> { return Option.None; }
-    fn close_stdin(self): <async, Throw<IoError>> unit { }
-    fn wait(self): <async, Throw<IoError>> int { return 0; }
-    fn wait_with_output(self): <async, Throw<IoError>> Output {
+    fn close_stdin(self): <Async, Throw<IoError>> Unit { }
+    fn wait(self): <Async, Throw<IoError>> Int { return 0; }
+    fn wait_with_output(self): <Async, Throw<IoError>> Output {
         return Output { exit_code: 0, stdout: self.text.bytes(), stderr: [] };
     }
 }
 
-fn branch(): <Process, async, Throw<IoError>> string {
+fn branch(): <Process, Async, Throw<IoError>> String {
     return output(Command.new("git").args(["branch", "--show-current"])).stdout_text();
 }
 
-var asked: List<string> = [];
+var asked: List<String> = [];
 run {
     print(branch());
 } handle Process {

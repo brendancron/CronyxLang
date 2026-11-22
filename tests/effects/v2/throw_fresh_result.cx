@@ -1,18 +1,18 @@
 trait Fail {
-    @ctl fn throw<T>(msg: string): T;
+    @ctl fn throw<T>(msg: String): T;
 }
 
-fn number(ok: bool): int {
+fn number(ok: Bool): Int {
     if (ok) { return 1; }
     return throw("no number");
 }
 
-fn word(ok: bool): string {
+fn word(ok: Bool): String {
     if (ok) { return "w"; }
     return throw("no word");
 }
 
-run {
+run<Unit> {
     print(number(true));
     print(word(true));
     print(number(false));
@@ -21,7 +21,7 @@ run {
     fn throw(msg, k) { print("caught: " + msg); }
 }
 
-run {
+run<Unit> {
     print(word(false));
 } handle<Fail> {
     fn throw(msg, k) { print("caught: " + msg); }

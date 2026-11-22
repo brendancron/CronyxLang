@@ -3,7 +3,7 @@ import "std/io/Console";
 var write = 2;
 print(write + 1);
 
-fn twice(): int {
+fn twice(): Int {
     return write * 2;
 }
 print(twice());

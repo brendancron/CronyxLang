@@ -1,8 +1,8 @@
-fn f<n: int>() {
+fn f<n: Int>() {
     meta print("f<" + str(n) + ">");
 }
 
-fn g<k: int>() {
+fn g<k: Int>() {
     f<k + 1>();
 }
 

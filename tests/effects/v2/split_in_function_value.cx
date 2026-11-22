@@ -1,8 +1,8 @@
 trait Ask {
-    @ctl fn ask(): int;
+    @ctl fn ask(): Int;
 }
 
-run {
+run<Unit> {
     var later = () => { print(ask()); };
     later();
 } handle<Ask> {

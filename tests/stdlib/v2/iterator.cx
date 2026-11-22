@@ -1,6 +1,6 @@
 import { Yield, iterator } from "Yield";
 
-fn count(upto: int): <Yield<int>, Console> unit {
+fn count(upto: Int): <Yield<Int>, Console> Unit {
     defer print("count cleaned up");
     var i = 0;
     while (i < upto) {

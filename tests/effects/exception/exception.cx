@@ -1,5 +1,5 @@
-effect exception {
-    ctl throw(msg: string): unit;
+effect Exception {
+    ctl throw(msg: String): Unit;
 }
 
 fn divide(n, d) {
@@ -13,7 +13,7 @@ run {
     print(divide(10, 2));
     print(divide(5, 0));
     print("unreachable");
-} handle exception {
+} handle Exception {
     ctl throw(msg) {
         print(msg);
     }

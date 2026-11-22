@@ -1,7 +1,7 @@
 type A { X, Y, }
 type B { X, Z, }
 
-fn f<a: A>(): int {
+fn f<a: A>(): Int {
     return 1;
 }
 

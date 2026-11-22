@@ -1,12 +1,12 @@
 // A handler that resumes twice runs the block's body twice — and what follows
 // the block once, after the handler is done.
-effect logic { ctl choose(options: Array<int>): int; }
+effect Logic { ctl choose(options: Array<Int>): Int; }
 
-fn pick(): int {
+fn pick(): Int {
     run {
         var n = choose([1, 2]);
         print("saw" + " " + str(n));
-    } handle logic {
+    } handle Logic {
         ctl choose(options) { for (x in options) { resume x; } }
     }
     return 7;
@@ -19,6 +19,6 @@ run {
     run {
         var b = choose([10, 20]);
         print(str(a) + " " + str(b));
-    } handle logic { ctl choose(o) { for (x in o) { resume x; } } }
-} handle logic { ctl choose(o) { for (x in o) { resume x; } } }
+    } handle Logic { ctl choose(o) { for (x in o) { resume x; } } }
+} handle Logic { ctl choose(o) { for (x in o) { resume x; } } }
 print("done");

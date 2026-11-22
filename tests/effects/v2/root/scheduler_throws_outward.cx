@@ -1,10 +1,10 @@
-trait Fail { @ctl fn fail<T>(why: string): T; }
-trait Wait { @ctl fn pause(): unit; }
+trait Fail { @ctl fn fail<T>(why: String): T; }
+trait Wait { @ctl fn pause(): Unit; }
 
-fn block_on(tasks: List<() -> <Wait, Fail, Console> unit>): <Fail, Console> unit {
-    var ready: List<() -> <Fail, Console> unit> = [];
+fn block_on(tasks: List<() -> <Wait, Fail, Console> Unit>): <Fail, Console> Unit {
+    var ready: List<() -> <Fail, Console> Unit> = [];
     for (task in tasks) {
-        run {
+        run<Unit> {
             task();
         } handle<Wait> {
             fn pause(resume) { ready.push { resume(()); }; }
@@ -17,7 +17,7 @@ fn block_on(tasks: List<() -> <Wait, Fail, Console> unit>): <Fail, Console> unit
     }
 }
 
-fn worker(name: string, steps: int): <Wait, Fail, Console> unit {
+fn worker(name: String, steps: Int): <Wait, Fail, Console> Unit {
     for (var i = 0; i < steps; i += 1) {
         print(name + " " + str(i));
         pause();
@@ -26,7 +26,7 @@ fn worker(name: string, steps: int): <Wait, Fail, Console> unit {
     print(name + " done");
 }
 
-run {
+run<Unit> {
     block_on([
         () => { worker("a", 1); },
         () => { worker("b", 2); },
@@ -37,7 +37,7 @@ run {
     fn fail(why, resume) { print("caught: " + why); }
 }
 
-run {
+run<Unit> {
     block_on([() => { worker("d", 2); }]);
     print("all done");
 } handle<Fail> {

@@ -1,6 +1,6 @@
 import { MethodSig, Param, Signature, TypeExpr, TypeKind } from "std/compiler/Ast";
 
-fn sig_named(name: string, ret: string): MethodSig {
+fn sig_named(name: String, ret: String): MethodSig {
     return MethodSig {
         name: name.as_name(),
         params: [Param { name: "self".as_name(), ty: Option.None, implicit: false }],
@@ -16,7 +16,7 @@ fn sig_named(name: string, ret: string): MethodSig {
 trait Shown<T> {
     meta {
         print("making Shown<" + typeof(T).name + ">");
-        gen sig_named("show", "string");
+        gen sig_named("show", "String");
     }
 }
 
@@ -24,16 +24,16 @@ type A {}
 type B {}
 type C {}
 
-impl Shown<int> for A {
-    fn show(self): string { return "an A"; }
+impl Shown<Int> for A {
+    fn show(self): String { return "an A"; }
 }
 
-impl Shown<string> for B {
-    fn show(self): string { return "a B"; }
+impl Shown<String> for B {
+    fn show(self): String { return "a B"; }
 }
 
-impl Shown<int> for C {
-    fn show(self): string { return "a C"; }
+impl Shown<Int> for C {
+    fn show(self): String { return "a C"; }
 }
 
 print(A {}.show());

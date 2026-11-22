@@ -1,6 +1,6 @@
 import "helpers";
 
-fn names(m: Module): string {
+fn names(m: Module): String {
     match m {
         Module.File(_, declarations) => {
             var out = "";

@@ -1,5 +1,5 @@
 trait Named {
-    fn type_name(self): string;
+    fn type_name(self): String;
 }
 
 fn derive(shape: TypeShape) for Named {
@@ -7,7 +7,7 @@ fn derive(shape: TypeShape) for Named {
         TypeShape.Product(t, _, fields) => {
             var label = str(t);
             gen impl Named for t {
-                fn type_name(self): string { return label; }
+                fn type_name(self): String { return label; }
             }
         }
         _ => {}

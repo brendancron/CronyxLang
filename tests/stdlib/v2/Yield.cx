@@ -1,17 +1,17 @@
 trait Yield<T> {
-    @ctl fn yield(value: T): unit;
+    @ctl fn yield(value: T): Unit;
 }
 
 type Pulled<T, E> {
     next: () -> <E> Option<T>,
-    close: () -> <E> unit
+    close: () -> <E> Unit
 }
 
-fn iterator<T, E>(producer: () -> <Yield<T>, E> unit): Pulled<T, E> {
+fn iterator<T, E>(producer: () -> <Yield<T>, E> Unit): Pulled<T, E> {
     var out: Option<T> = Option.None;
     var started = false;
-    var rest: Option<() -> <E> unit> = Option.None;
-    var abandon: Option<() -> <E> unit> = Option.None;
+    var rest: Option<() -> <E> Unit> = Option.None;
+    var abandon: Option<() -> <E> Unit> = Option.None;
     var next = () => {
         out = Option.None;
         match rest {
@@ -23,7 +23,7 @@ fn iterator<T, E>(producer: () -> <Yield<T>, E> unit): Pulled<T, E> {
             Option.None => {
                 if (!started) {
                     started = true;
-                    run { producer(); } handle<Yield> {
+                    run<Unit> { producer(); } handle<Yield<T>> {
                         fn yield(v, resume) {
                             out = Option.Some(v);
                             rest = Option.Some(() => { resume(()); });

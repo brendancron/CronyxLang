@@ -1,6 +1,6 @@
 type Switch { On, Off }
 
-fn noisy(): bool {
+fn noisy(): Bool {
     print("evaluated");
     return true;
 }

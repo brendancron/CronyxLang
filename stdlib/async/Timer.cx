@@ -20,7 +20,7 @@
  * sleep takes.
  */
 
-import { async, __once } from "Task";
+import { Async, __once } from "Task";
 import { Throw } from "../core/Error";
 import { Duration } from "../os/Time";
 import { Promise, promise, resolve, await } from "Promise";
@@ -30,7 +30,7 @@ fn sleep(delay: Duration) {
     // `suspend`'s callback cannot set a timer itself, so the timer is set first
     // and handed the wake-up once there is one. It cannot fire before then: the
     // scheduler runs timers only once this task has parked.
-    var wake: Option<(unit) -> unit> = Option.None;
+    var wake: Option<(Unit) -> Unit> = Option.None;
     var cancel = after(delay, () => {
         match wake {
             Option.Some(it) => { it(()); }
@@ -50,12 +50,12 @@ fn sleep(delay: Duration) {
  * `defer`s run before this returns. One that never waits cannot be stopped,
  * and finishes however long it takes.
  */
-fn timeout<T, X, E>(limit: Duration, task: () -> <async, Throw<X>, E> T): <async, Throw<X>, E> Option<T> {
+fn timeout<T, X, E>(limit: Duration, task: () -> <Async, Throw<X>, E> T): <Async, Throw<X>, E> Option<T> {
     var result: Option<T> = Option.None;
     var failure: Option<X> = Option.None;
     var over = false;
-    var stop: Option<() -> unit> = Option.None;
-    var stopped: Promise<unit> = promise();
+    var stop: Option<() -> Unit> = Option.None;
+    var stopped: Promise<Unit> = promise();
 
     var cancel_timer = after(limit, () => {
         match stop {
@@ -74,7 +74,7 @@ fn timeout<T, X, E>(limit: Duration, task: () -> <async, Throw<X>, E> T): <async
         } handle Throw {
             final ctl throw(e) { failure = Option.Some(e); }
         }
-    } handle async {
+    } handle Async {
         ctl suspend(register) {
             // Per wait, as in `all`: an unwound task may still wait in a `defer`.
             var live = true;

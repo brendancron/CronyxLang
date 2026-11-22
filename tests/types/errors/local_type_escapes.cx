@@ -1,5 +1,5 @@
-fn f(): unit {
-    type Hidden { a: int }
+fn f(): Unit {
+    type Hidden { a: Int }
     print(Hidden { a: 1 }.a);
 }
 

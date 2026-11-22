@@ -1,16 +1,16 @@
-"n" : string
-print((label + str(number((y > 1))))) : unit
-print : (string) -> <Console> unit
-(label + str(number((y > 1)))) : string
-label : string
-str(number((y > 1))) : string
-str : (int) -> string
-number((y > 1)) : int
-number : (bool) -> <Fail> int
-(y > 1) : bool
-y : int
-1 : int
-(y * 2) : int
-y : int
-2 : int
+"n" : String
+print((label + str(number((y > 1))))) : Unit
+print : (String) -> <Console> Unit
+(label + str(number((y > 1)))) : String
+label : String
+str(number((y > 1))) : String
+str : (Int) -> String
+number((y > 1)) : Int
+number : (Bool) -> <Fail> Int
+(y > 1) : Bool
+y : Int
+1 : Int
+(y * 2) : Int
+y : Int
+2 : Int
 y : ?

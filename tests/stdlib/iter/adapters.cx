@@ -10,6 +10,6 @@ print(collect(zip(a, b)));
 print(collect(enumerate(iterator { yield('p'); yield('q'); })));
 print(collect(chain(iterator { yield(1); }, iterator { yield(2); yield(3); })));
 
-var none: Iter<int, <>> = iterator { };
+var none: Iter<Int, <>> = iterator { };
 print(collect(map(none, (n) => { return n + 1; })));
 print(collect(take(iterator { yield(1); yield(2); }, 0)));

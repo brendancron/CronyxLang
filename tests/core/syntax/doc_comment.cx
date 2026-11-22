@@ -9,8 +9,8 @@ fn bump() {
 /** Two numbers side by side. */
 type Pair {
     /** The left one. */
-    left: int,
-    right: int,
+    left: Int,
+    right: Int,
 }
 
 /** Anything with a written form. */
@@ -28,10 +28,10 @@ trait Show {
 impl Show for Pair {
     /** A string, like everything else that shows. */
     @cheap
-    type Written = string;
+    type Written = String;
 
     /** Adds the two and writes that. */
-    fn show(self): string {
+    fn show(self): String {
         return str(self.left + self.right);
     }
 }
@@ -40,7 +40,7 @@ impl Show for Pair {
 effect Feed {
     /** Hands the next one over, and waits to be resumed. */
     @cheap
-    ctl next(): int;
+    ctl next(): Int;
 }
 
 /** Answers every `next` with the same number. */
@@ -51,7 +51,7 @@ handler steady : Feed {
 impl Pair {
     /** The larger of the two. */
     @cheap
-    fn wider(self): int {
+    fn wider(self): Int {
         if (self.left > self.right) { return self.left; }
         return self.right;
     }

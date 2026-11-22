@@ -3,7 +3,7 @@ fn never() {
 }
 
 meta {
-    gen fn greet(name): string { return "Hello, " + name; }
+    gen fn greet(name): String { return "Hello, " + name; }
 }
 
 print("done");

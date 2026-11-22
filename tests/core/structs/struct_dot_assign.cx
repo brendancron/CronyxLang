@@ -1,5 +1,5 @@
 type Counter {
-    value: int
+    value: Int
 }
 
 var c = Counter { value: 0 };
@@ -9,8 +9,8 @@ c.value = c.value + 1;
 print(c.value);
 
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 var p = Point { x: 10, y: 20 };

@@ -1,5 +1,5 @@
 type Slot<...Args> {
-    use: (...Args) -> <Console> unit
+    use: (...Args) -> <Console> Unit
 }
 
 fn nothing() {

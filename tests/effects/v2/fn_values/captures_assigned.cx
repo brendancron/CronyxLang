@@ -9,9 +9,9 @@ type Outcome<T, X> {
 
 fn attempt<X, T, E>(f: () -> <Fails<X>, E> T): <E> Outcome<T, X> {
     var outcome: Option<Outcome<T, X>> = Option.None;
-    run {
+    run<Unit> {
         outcome = Option.Some(Outcome.Ok(f()));
-    } handle<Fails> {
+    } handle<Fails<X>> {
         fn fails(e, resume) { outcome = Option.Some(Outcome.Err(e)); }
     }
     match outcome {
@@ -20,19 +20,19 @@ fn attempt<X, T, E>(f: () -> <Fails<X>, E> T): <E> Outcome<T, X> {
     }
 }
 
-fn parse(text: string): <Fails<string>> int {
+fn parse(text: String): <Fails<String>> Int {
     if (text == "") { return fails("empty"); }
     return text.len();
 }
 
-fn report(o: Outcome<int, string>) {
+fn report(o: Outcome<Int, String>) {
     match o {
         Outcome.Ok(n) => { print("ok " + str(n)); }
         Outcome.Err(e) => { print("err " + e); }
     }
 }
 
-fn counted(words: List<string>): int {
+fn counted(words: List<String>): Int {
     var total = 0;
     var last = "";
     for (w in words) {

@@ -22,11 +22,11 @@ import { Result, Failure } from "../core/Error";
 /** Why bytes are not UTF-8 text. */
 type Utf8Error {
     /** The byte at this offset begins no character, or ends one too soon. */
-    Invalid(int)
+    Invalid(Int)
 }
 
 impl Failure for Utf8Error {
-    fn message(self): string {
+    fn message(self): String {
         match self {
             Utf8Error.Invalid(at) => {
                 return "the byte at offset " + str(at) + " is not part of a UTF-8 character";
@@ -36,13 +36,13 @@ impl Failure for Utf8Error {
 }
 
 /** The text the bytes encode, or where they stop being UTF-8. */
-fn decode(bytes: Array<byte>): Result<string, Utf8Error> {
+fn decode(bytes: Array<Byte>): Result<String, Utf8Error> {
     var (bad, text) = __utf8(bytes);
     if (bad >= 0) { return Result.Err(Utf8Error.Invalid(bad)); }
     return Result.Ok(text);
 }
 
 /** The text's bytes, which is how it is stored. */
-fn encode(text: string): Array<byte> {
+fn encode(text: String): Array<Byte> {
     return text.bytes();
 }

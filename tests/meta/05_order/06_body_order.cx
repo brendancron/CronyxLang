@@ -1,9 +1,9 @@
-fn f<a: int>() {
+fn f<a: Int>() {
     g<a>();
     meta print("f<" + str(a) + ">");
 }
 
-fn g<a: int>() {
+fn g<a: Int>() {
     print(a);
     meta print("g<" + str(a) + ">");
 }

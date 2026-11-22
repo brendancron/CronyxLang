@@ -1,5 +1,5 @@
 type State {
-    turn: int
+    turn: Int
 }
 
 trait Action<S> {

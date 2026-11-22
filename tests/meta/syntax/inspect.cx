@@ -1,6 +1,6 @@
 import { Expr, ExprKind, BinOp } from "std/compiler/Ast";
 
-fn operator(op: BinOp): string {
+fn operator(op: BinOp): String {
     match op {
         BinOp.Add => { return "plus"; }
         BinOp.Mul => { return "times"; }
@@ -8,7 +8,7 @@ fn operator(op: BinOp): string {
     }
 }
 
-fn describe(e: Expr): string {
+fn describe(e: Expr): String {
     match e.kind {
         ExprKind.Int(n) => { return "the number " + str(n); }
         ExprKind.Var(n) => { return "the variable " + str(n); }

@@ -1,13 +1,13 @@
-effect E { ctl op(): int; }
+effect E { ctl op(): Int; }
 
-fn doubled(): <E> int { return op() * 2; }
-fn tripled(): <E> int { return op() * 3; }
+fn doubled(): <E> Int { return op() * 2; }
+fn tripled(): <E> Int { return op() * 3; }
 
-fn call_it(task: () -> <E> int): <E> int { return task(); }
+fn call_it(task: () -> <E> Int): <E> Int { return task(); }
 
 run {
     print(call_it(doubled));
-    var fns: List<() -> <E> int> = [];
+    var fns: List<() -> <E> Int> = [];
     fns.push(doubled);
     fns.push(tripled);
     print(fns[0]());

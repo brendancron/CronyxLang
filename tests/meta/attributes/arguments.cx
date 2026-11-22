@@ -3,11 +3,11 @@ type Config {
     @scale(0.5)
     @required(true)
     @unit("ms")
-    timeout: int,
+    timeout: Int,
 }
 
 trait Describe {
-    fn describe(self): string;
+    fn describe(self): String;
 }
 
 fn derive(shape: TypeShape) for Describe {
@@ -31,7 +31,7 @@ fn derive(shape: TypeShape) for Describe {
                 }
             }
             gen impl Describe for t {
-                fn describe(self): string { return text; }
+                fn describe(self): String { return text; }
             }
         }
         _ => {}

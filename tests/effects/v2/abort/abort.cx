@@ -1,0 +1,35 @@
+trait Fail<X> {
+    @abort fn fail<T>(err: X): T;
+}
+
+fn parse(text: String): <Fail<String>, Console> Int {
+    defer { print("parsed " + text); }
+    if (text == "") { return fail("empty"); }
+    return text.len();
+}
+
+fn total(words: List<String>): <Fail<String>, Console> Int {
+    var sum = 0;
+    for (w in words) {
+        defer { print("left " + w); }
+        sum += parse(w);
+    }
+    return sum;
+}
+
+var ok = run<Int> {
+    total(["ab", "cde"])
+} handle<Fail<String>> {
+    fn fail(err) { print("failed: " + err); return 0 - 1; }
+};
+print(ok);
+
+var bad = run<Int> {
+    print("before");
+    var n = total(["ab", "", "cde"]);
+    print("unreachable");
+    n
+} handle<Fail<String>> {
+    fn fail(err) { print("failed: " + err); return 0 - 1; }
+};
+print(bad);

@@ -1,2 +1,2 @@
-type Shape { Circle(int) }
+type Shape { Circle(Int) }
 var s = Shape.Circle("a");

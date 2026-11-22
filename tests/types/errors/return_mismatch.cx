@@ -1,3 +1,3 @@
-fn label(n: int): string {
+fn label(n: Int): String {
   return n;
 }

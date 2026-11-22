@@ -1,13 +1,13 @@
-trait Show { fn show(self): string; }
-type A { n: int }
-impl Show for A { fn show(self): string { return "A" + str(self.n); } }
-impl Show for int { fn show(self): string { return "#" + str(self); } }
+trait Show { fn show(self): String; }
+type A { n: Int }
+impl Show for A { fn show(self): String { return "A" + str(self.n); } }
+impl Show for Int { fn show(self): String { return "#" + str(self); } }
 
-fn later<T: Show>(x: T): () -> string {
+fn later<T: Show>(x: T): () -> String {
     return () => { return x.show(); };
 }
 
-fn twice<T: Show>(x: T): string {
+fn twice<T: Show>(x: T): String {
     var g = () => { return x.show() + x.show(); };
     return g();
 }

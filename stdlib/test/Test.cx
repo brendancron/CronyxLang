@@ -69,15 +69,15 @@ fn collect(m: Module) {
         for (s in code { if (selected == index) { call; } }) { chain.push(s); }
     }
     var all = Expr.of(ExprKind.Collection(names));
-    gen fn __test_names(): List<string> { return all; }
-    gen fn __test_run(selected: int) { chain; }
+    gen fn __test_names(): List<String> { return all; }
+    gen fn __test_run(selected: Int) { chain; }
 }
 
 /**
  * Runs the test `cx test` chose for this process, reporting how it went, or
  * lists every test's name when none was chosen.
  */
-fn run_tests<E>(names: List<string>, body: (int) -> <Assertion, E> unit): <Console, E> unit {
+fn run_tests<E>(names: List<String>, body: (Int) -> <Assertion, E> Unit): <Console, E> Unit {
     var mark = str(chr(30));
     var selected = __test_selected();
     if (selected < 0) {

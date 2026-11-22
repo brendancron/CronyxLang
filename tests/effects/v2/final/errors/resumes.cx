@@ -1,3 +1,3 @@
-trait Error { @ctl fn throw<T>(msg: string): T; }
-fn f(): int { return throw("x"); }
-run { print(f()); } handle<Error> { fn throw(msg, resume) { resume(0); } }
+trait Error { @ctl fn throw<T>(msg: String): T; }
+fn f(): Int { return throw("x"); }
+run<Unit> { print(f()); } handle<Error> { fn throw(msg, resume) { resume(0); } }

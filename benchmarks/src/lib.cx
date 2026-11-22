@@ -1,6 +1,6 @@
 /** Work a benchmark repeats: a list it builds and lets go of. */
-fn scratch(size: int): int {
-    var junk: List<int> = [];
+fn scratch(size: Int): Int {
+    var junk: List<Int> = [];
     for (var i = 0; i < size; i += 1) { junk.push(i); }
     return junk.len();
 }

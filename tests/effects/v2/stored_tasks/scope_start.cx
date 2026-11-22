@@ -1,20 +1,20 @@
-trait sched { @ctl fn tick(): unit; }
+trait Sched { @ctl fn tick(): Unit; }
 
-var queue: List<() -> <Console> unit> = [];
+var queue: List<() -> <Console> Unit> = [];
 
-fn run_one(task: () -> <sched, Console> unit) {
-    run { task(); } handle<sched> {
+fn run_one(task: () -> <Sched, Console> Unit) {
+    run<Unit> { task(); } handle<Sched> {
         fn tick(resume) { queue.push { resume(()); }; }
     }
 }
 
-fn scope(body: ((() -> <sched, Console> unit) -> <Console> unit) -> <sched, Console> unit) {
+fn scope(body: ((() -> <Sched, Console> Unit) -> <Console> Unit) -> <Sched, Console> Unit) {
     run_one(() => {
         body((task) => { run_one(task); });
     });
 }
 
-fn counter(name: string): <sched, Console> unit {
+fn counter(name: String): <Sched, Console> Unit {
     print(name + " starts");
     tick();
     print(name + " ends");

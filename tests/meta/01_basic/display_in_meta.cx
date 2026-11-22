@@ -1,6 +1,6 @@
-type P { x: int }
+type P { x: Int }
 impl Display for P {
-    fn fmt(self): string { return "P(" + str(self.x) + ")"; }
+    fn fmt(self): String { return "P(" + str(self.x) + ")"; }
 }
 meta {
     print(P { x: 4 });

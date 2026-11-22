@@ -1,1 +1,1 @@
-fn one(): int { return 1; }
+fn one(): Int { return 1; }

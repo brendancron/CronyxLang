@@ -2,12 +2,12 @@ type Bag<T> {
     items: Array<T>
 }
 
-fn ints(): int {
+fn ints(): Int {
     var b = Bag { items: [1, 2] };
     return b.first();
 }
 
-fn strings(): string {
+fn strings(): String {
     var b = Bag { items: ["a", "b"] };
     return b.first();
 }
@@ -17,7 +17,7 @@ impl Bag<T> {
         return self.items[0];
     }
 
-    fn sizes(self): int {
+    fn sizes(self): Int {
         return ints() + strings().len() + self.items.len();
     }
 }

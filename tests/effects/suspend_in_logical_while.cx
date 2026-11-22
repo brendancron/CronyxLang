@@ -1,6 +1,6 @@
 // The operand is reached once per iteration, so the branch it was split into
 // has to sit inside the loop rather than in front of it.
-effect Ask { ctl get(): bool; }
+effect Ask { ctl get(): Bool; }
 
 run {
     var i = 0;

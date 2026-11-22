@@ -1,13 +1,13 @@
 type Coin { Heads, Tails }
 
-type Pair { left: int, right: int }
+type Pair { left: Int, right: Int }
 
-fn at(label: string, value: int): int {
+fn at(label: String, value: Int): Int {
     print(label);
     return value;
 }
 
-fn add(a: int, b: int, c: int): int { return a + b + c; }
+fn add(a: Int, b: Int, c: Int): Int { return a + b + c; }
 
 print(at("left", 1) + match Coin.Heads { Coin.Heads => at("match", 2), _ => 0 });
 print(add(at("first", 1), match Coin.Tails { Coin.Tails => at("match", 2), _ => 0 }, at("last", 3)));

@@ -1,4 +1,4 @@
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 import { Throw, Result, Failure } from "std/core/Error";
 import { Reader, Writer, Closer, IoError } from "std/io/Io";
 import { Net, lookup_host } from "std/net/Net";
@@ -8,13 +8,13 @@ import { read_all } from "std/fs/File";
 import { decode } from "std/text/Utf8";
 
 type Canned {
-    reply: string,
-    heard: List<byte>,
-    answered: bool
+    reply: String,
+    heard: List<Byte>,
+    answered: Bool
 }
 
 impl Reader for Canned {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         if (self.answered) { return Option.None; }
         self.answered = true;
         return Option.Some(self.reply.bytes());
@@ -22,21 +22,21 @@ impl Reader for Canned {
 }
 
 impl Writer for Canned {
-    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+    fn write(self, data: Array<Byte>): <Async, Throw<IoError>> Unit {
         for (b in data) { self.heard.push(b); }
     }
 }
 
 impl Closer<IoError> for Canned {
-    fn close(self): <async, Throw<IoError>> unit {}
+    fn close(self): <Async, Throw<IoError>> Unit {}
 }
 
 impl TcpStream for Canned {
-    fn peer(self): string { return "canned"; }
-    fn shutdown_write(self): <async, Throw<IoError>> unit {}
+    fn peer(self): String { return "canned"; }
+    fn shutdown_write(self): <Async, Throw<IoError>> Unit {}
 }
 
-fn fetch(host: string): <Net, async, Throw<IoError>> string {
+fn fetch(host: String): <Net, Async, Throw<IoError>> String {
     var conn = tcp_connect(host, 80);
     conn.write(("GET " + host).bytes());
     conn.shutdown_write();

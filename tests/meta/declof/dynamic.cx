@@ -1,9 +1,9 @@
 import { Expr, ExprKind, Stmt, StmtKind } from "std/compiler/Ast";
 import { decl_source } from "std/compiler/Printer";
 
-fn ask(): int { return 5; }
+fn ask(): Int { return 5; }
 
-fn tell(n: int) { print(n); }
+fn tell(n: Int) { print(n); }
 
 fn callee(e: Expr): Option<Name> {
     match e.kind {

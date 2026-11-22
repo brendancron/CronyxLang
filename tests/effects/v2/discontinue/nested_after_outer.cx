@@ -1,15 +1,15 @@
 trait Throw<X> { @ctl fn throw<T>(err: X): T; }
 
-trait Park { @ctl fn park(): unit; }
+trait Park { @ctl fn park(): Unit; }
 
-var stops: List<() -> <Console> unit> = [];
-var wakes: List<() -> <Console> unit> = [];
+var stops: List<() -> <Console> Unit> = [];
+var wakes: List<() -> <Console> Unit> = [];
 
-fn parked<E>(task: () -> <Park, Throw<string>, E> unit): <Console, E> unit {
-    run {
-        run {
+fn parked<E>(task: () -> <Park, Throw<String>, E> Unit): <Console, E> Unit {
+    run<Unit> {
+        run<Unit> {
             task();
-        } handle<Throw> {
+        } handle<Throw<String>> {
             fn throw(e, resume) {
                 print("failed: " + e);
                 stops[2]();

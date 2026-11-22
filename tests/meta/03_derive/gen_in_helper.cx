@@ -1,12 +1,12 @@
 trait Named {
-    fn type_name(self): string;
+    fn type_name(self): String;
 }
 
 type Cat;
 
-fn named(t: Name, label: string) {
+fn named(t: Name, label: String) {
     gen impl Named for t {
-        fn type_name(self): string { return label; }
+        fn type_name(self): String { return label; }
     }
 }
 

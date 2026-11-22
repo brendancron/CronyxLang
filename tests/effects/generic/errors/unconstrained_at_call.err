@@ -1,1 +1,1 @@
-[17:15] The static params of 'caught' are not settled here: {X = ?, T = int, E = <>}.
+[17:15] The static params of 'caught' are not settled here: {X = ?, T = Int, E = <>}.

@@ -1,9 +1,9 @@
 trait Effect {
-    fn log(msg: string): unit;
-    @ctl fn choose(options: Array<int>): int;
+    fn log(msg: String): Unit;
+    @ctl fn choose(options: Array<Int>): Int;
 }
 
-var ret = run<string> {
+var ret = run<String> {
     log("picking");
     var n = choose([1, 2]);
     log("chose " + str(n));

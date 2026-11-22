@@ -4,8 +4,8 @@ fn unit_x(): Line {
     return Line { from: Point { x: 0, y: 0 }, to: Point { x: 1, y: 0 }, tag: Option.Some(Label { text: "x" }) };
 }
 
-type Point { x: int, y: int }
-type Label { text: string }
+type Point { x: Int, y: Int }
+type Label { text: String }
 
 var l = unit_x();
 print(l.to.x - l.from.x);

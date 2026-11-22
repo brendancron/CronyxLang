@@ -1,0 +1,17 @@
+type Box<Int> {
+    v: Int,
+    all: List<Int>
+}
+
+type Pair<String, Box<Int>> {
+    Both(String, Box<Int>),
+    Left(String)
+}
+
+Box<String>
+type Box<Bool> {
+    v: Bool,
+    all: List<Bool>
+}
+
+1

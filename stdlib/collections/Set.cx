@@ -2,7 +2,7 @@
  * A collection with no duplicates, which is what a set literal builds.
  *
  * ```
- * var seen: Set<string> = {"ada", "grace", "ada"};
+ * var seen: Set<String> = {"ada", "grace", "ada"};
  * print(seen.len());            // 2
  * print(seen.contains("ada"));  // true
  * ```
@@ -19,12 +19,12 @@ type Set<T> {
 
 impl Set<T> {
     /** How many values the set holds. */
-    fn len(self): int {
+    fn len(self): Int {
         return self.items.len();
     }
 
     /** Whether the set holds a value equal to this one. */
-    fn contains(self, v: T): bool {
+    fn contains(self, v: T): Bool {
         return self.items.contains(v);
     }
 
@@ -38,8 +38,8 @@ impl Set<T> {
 
 /** The values in insertion order: `{1, 2, 3}`. */
 impl Debug for Set<T> {
-    fn debug(self): string {
-        var parts: List<string> = ["{"];
+    fn debug(self): String {
+        var parts: List<String> = ["{"];
         var i = 0;
         while (i < self.items.len()) {
             if (i > 0) { parts.push(", "); }
@@ -53,7 +53,7 @@ impl Debug for Set<T> {
 
 /** As `Debug` writes it. */
 impl Display for Set<T> {
-    fn fmt(self): string { return debug(self); }
+    fn fmt(self): String { return debug(self); }
 }
 
 impl FromArray<T> for Set<T> {

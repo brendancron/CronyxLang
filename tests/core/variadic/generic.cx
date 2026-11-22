@@ -1,12 +1,12 @@
 // Homogeneous: every collected argument is the same T, so the array needs no
 // top type and nothing is boxed to build it.
-fn count<T>(tag: string, items: ...T): int {
+fn count<T>(tag: String, items: ...T): Int {
     return items.len();
 }
 
 print(count("ints", 1, 2, 3));
 print(count("strings", "x", "y"));
-print(count<int>("none"));
+print(count<Int>("none"));
 
 fn first_or<T>(fallback: T, items: ...T): T {
     if (items.len() == 0) { return fallback; }

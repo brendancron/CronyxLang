@@ -1,5 +1,5 @@
-making Shown<int>
-making Shown<string>
+making Shown<Int>
+making Shown<String>
 an A
 a B
 a C

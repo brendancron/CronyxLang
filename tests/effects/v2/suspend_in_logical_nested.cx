@@ -1,11 +1,11 @@
-trait Flip { @ctl fn flip(): bool; }
+trait Flip { @ctl fn flip(): Bool; }
 
-fn choose(): <Flip> string {
+fn choose(): <Flip> String {
     if (flip() && (flip() || flip())) { return "yes"; }
     return "no";
 }
 
-run {
+run<Unit> {
     print(choose());
 } handle<Flip> {
     fn flip(resume) {

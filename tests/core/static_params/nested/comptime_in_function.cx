@@ -1,5 +1,5 @@
-fn main(): unit {
-    fn repeat<n: int>(s: string): string {
+fn main(): Unit {
+    fn repeat<n: Int>(s: String): String {
         var out = "";
         var i = 0;
         while (i < n) { out = out + s; i = i + 1; }

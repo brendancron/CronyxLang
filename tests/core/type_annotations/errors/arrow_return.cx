@@ -1,4 +1,4 @@
-fn double(n: int) -> int {
+fn double(n: Int) -> Int {
     return n * 2;
 }
 

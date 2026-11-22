@@ -1,0 +1,21 @@
+trait Stop {
+    @abort fn stop<T>(why: String): T;
+}
+
+type Quit impl EffectHandler<Stop, Int> {
+    fn stop(why: String): Int {
+        print("quit: " + why);
+        return 0;
+    }
+}
+
+fn guarded(n: Int): <Stop, Console> Int {
+    defer { print("guard " + str(n)); }
+    if (n > 2) { return stop("big"); }
+    return n;
+}
+
+var r = run<Int> {
+    guarded(1) + guarded(5)
+} with Quit;
+print(r);

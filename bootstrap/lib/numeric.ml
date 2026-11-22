@@ -1,4 +1,4 @@
-(* What `std/math` asks of the machine: each `float` native is one `libm` call,
+(* What `std/math` asks of the machine: each `Float` native is one `libm` call,
    so a native backend's runtime implements it as that symbol. *)
 
 (* `rint` under the default rounding mode, which OCaml does not expose. Only a

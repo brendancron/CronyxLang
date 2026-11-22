@@ -1,0 +1,10 @@
+import { Throw } from "std/core/Error";
+
+fn checked(n: Int): <Throw<String>> Int {
+    if (n < 0) { throw("negative"); }
+    return n;
+}
+
+print(checked(1));
+print(checked(-1));
+print("not reached");

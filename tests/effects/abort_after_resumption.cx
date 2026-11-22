@@ -1,14 +1,14 @@
-effect Error { final ctl throw(msg: string); }
-effect E { ctl op(): unit; }
+effect Error { final ctl throw(msg: String); }
+effect E { ctl op(): Unit; }
 
-fn work(): <Error, E, Console> unit {
+fn work(): <Error, E, Console> Unit {
     print("w1");
     op();
     throw("boom");
     print("UNREACHABLE");
 }
 
-var pending: List<() -> unit> = [];
+var pending: List<() -> Unit> = [];
 
 run {
     run {

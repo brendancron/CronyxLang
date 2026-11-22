@@ -1,8 +1,8 @@
 effect Yield<T> {
-    ctl yield(value: T): unit;
+    ctl yield(value: T): Unit;
 }
 
-fn counted(high: int): <Yield<int>> unit {
+fn counted(high: Int): <Yield<Int>> Unit {
     var i = 0;
     while (i < high) {
         yield(i);
@@ -10,15 +10,15 @@ fn counted(high: int): <Yield<int>> unit {
     }
 }
 
-fn spelled(text: string): <Yield<string>> unit {
+fn spelled(text: String): <Yield<String>> Unit {
     for (word in text.split(' ')) {
         yield(word);
     }
 }
 
 // Unwritten, so the argument is inferred rather than pinned: this one is
-// `Yield<int>` because that is what it yields.
-fn doubled(n: int): <Yield> unit {
+// `Yield<Int>` because that is what it yields.
+fn doubled(n: Int): <Yield> Unit {
     yield(n);
     yield(n * 2);
 }

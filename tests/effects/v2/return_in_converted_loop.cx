@@ -1,13 +1,13 @@
-trait Tick { @ctl fn tick(): unit; }
+trait Tick { @ctl fn tick(): Unit; }
 
-fn find(xs: List<int>, v: int): <Tick> bool {
+fn find(xs: List<Int>, v: Int): <Tick> Bool {
     for (x in xs) {
         if (x == v) { return true; }
     }
     return false;
 }
 
-fn first_over(xs: List<int>, limit: int): <Tick> int {
+fn first_over(xs: List<Int>, limit: Int): <Tick> Int {
     var i = 0;
     while (i < xs.len()) {
         tick();
@@ -17,7 +17,7 @@ fn first_over(xs: List<int>, limit: int): <Tick> int {
     return 0;
 }
 
-run {
+run<Unit> {
     print(find([1, 2], 2));
     print(find([1, 2], 3));
     print(first_over([1, 5, 9], 4));

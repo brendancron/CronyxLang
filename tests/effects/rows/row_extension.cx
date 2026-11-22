@@ -1,31 +1,31 @@
-effect log {
-    fn emit(msg: string): unit;
+effect Log {
+    fn emit(msg: String): Unit;
 }
 
-effect ask {
-    fn base(): int;
+effect Ask {
+    fn base(): Int;
 }
 
-fn traced<T, E>(label: string, f: () -> <E> T): <log, E> T {
+fn traced<T, E>(label: String, f: () -> <E> T): <Log, E> T {
     emit("enter " + label);
     var result = f();
     emit("leave " + label);
     return result;
 }
 
-fn quiet(): int {
+fn quiet(): Int {
     return 7;
 }
 
-fn asks(): <ask> int {
+fn asks(): <Ask> Int {
     return base() + 1;
 }
 
 run {
     print(str(traced("quiet", quiet)));
     print(str(traced("asks", asks)));
-} handle log {
+} handle Log {
     fn emit(msg) { print("log: " + msg); }
-} handle ask {
+} handle Ask {
     fn base() { return 41; }
 }

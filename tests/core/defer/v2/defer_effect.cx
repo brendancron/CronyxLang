@@ -1,10 +1,10 @@
-trait Error { @ctl fn throw<T>(msg: string): T; }
+trait Error { @ctl fn throw<T>(msg: String): T; }
 
-fn risky(bad: bool): int {
+fn risky(bad: Bool): Int {
     defer print("cleanup");
     if (bad) { return throw("failed"); }
     return 1;
 }
 
-run { print(risky(false)); } handle<Error> { fn throw(m, resume) { print("caught" + " " + str(m)); } }
-run { print(risky(true)); } handle<Error> { fn throw(m, resume) { print("caught" + " " + str(m)); } }
+run<Unit> { print(risky(false)); } handle<Error> { fn throw(m, resume) { print("caught" + " " + str(m)); } }
+run<Unit> { print(risky(true)); } handle<Error> { fn throw(m, resume) { print("caught" + " " + str(m)); } }

@@ -1,8 +1,8 @@
-effect log {
-    fn log(msg: string): unit;
+effect Log {
+    fn log(msg: String): Unit;
 }
 
-fn greet(name: string): unit {
+fn greet(name: String): Unit {
     log("Hello, " + name);
 }
 
@@ -10,16 +10,16 @@ fn greet(name: string): unit {
 
 run {
     greet("Brendan");
-} handle log {
-    fn log(msg: string) {
+} handle Log {
+    fn log(msg: String) {
         print("From inline handler: " + msg);
     }
 }
 
 // a more reusable way is to define a handler and reuse it at runblocks
 
-handler basic_log_handler : log {
-    fn log(msg: string) {
+handler basic_log_handler : Log {
+    fn log(msg: String) {
         print("From handler definition: " + msg);
     }
 }

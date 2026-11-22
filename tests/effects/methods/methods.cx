@@ -1,7 +1,7 @@
-effect log { fn emit(message: string): unit; }
+effect Log { fn emit(message: String): Unit; }
 
 type Order {
-    note: string
+    note: String
 }
 
 impl Order {
@@ -13,7 +13,7 @@ impl Order {
 run {
     var o = Order { note: "boots" };
     o.audit();
-} handle log {
+} handle Log {
     fn emit(message) {
         print("[log] " + message);
     }

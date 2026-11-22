@@ -5,25 +5,25 @@ import { Stream } from "std/io/Console";
 
 type Options {
     /** The address to listen on. */
-    host: string,
+    host: String,
     /** The port to listen on, 8080 if not given. */
-    port: Option<int>,
+    port: Option<Int>,
     /** Print every request. */
-    verbose: bool,
+    verbose: Bool,
     /**
      * A header to add to every response.
      * Give it more than once for several.
      */
-    header: List<string>,
+    header: List<String>,
     /** How many connections at once. */
-    max_connections: int,
-    @skip cache: Option<string>
+    max_connections: Int,
+    @skip cache: Option<String>
 }
 derive Cli for Options;
 
-fn launch(arguments: Array<string>) {
+fn launch(arguments: Array<String>) {
     print("$ serve " + str(arguments));
-    var written: List<string> = [];
+    var written: List<String> = [];
     run {
         var o: Options = from_args();
         print(o.host + " " + str(o.port) + " " + str(o.verbose) + " " + str(o.header) + " " + str(o.max_connections) + " " + str(o.cache));

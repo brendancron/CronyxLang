@@ -1,14 +1,14 @@
-trait E { @ctl fn ask(): int; }
+trait E { @ctl fn ask(): Int; }
 trait Fail { @ctl fn bail<T>(): T; }
 
-fn g(): <E, Fail, Console> unit {
+fn g(): <E, Fail, Console> Unit {
     var t = ask();
     bail();
     print("UNREACHABLE");
 }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         g();
         print("UNREACHABLE-2");
     } handle<Fail> { fn bail(resume) { print("bailed"); } }

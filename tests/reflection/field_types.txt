@@ -1,13 +1,13 @@
 Config takes:
-  name: string
-  port: int
-  tags: List<string>
-  limit: Option<int>
-  verbose: bool
+  name: String
+  port: Int
+  tags: List<String>
+  limit: Option<Int>
+  verbose: Bool
   retry: ?
 Box takes T:
   value: T
-  count: int
+  count: Int
 Box takes T:
-  value: string
-  count: int
+  value: String
+  count: Int

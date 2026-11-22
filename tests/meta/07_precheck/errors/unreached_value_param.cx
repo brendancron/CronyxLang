@@ -1,4 +1,4 @@
-fn label<a: int>(b: string): string {
+fn label<a: Int>(b: String): String {
     return a + b;
 }
 

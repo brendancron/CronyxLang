@@ -1,11 +1,11 @@
 trait Shape {
-    fn area(self): int;
+    fn area(self): Int;
 }
 
-type Square { side: int }
+type Square { side: Int }
 
 impl Shape for Square {
-    fn area(self): int { return self.side * self.side; }
+    fn area(self): Int { return self.side * self.side; }
 }
 
 type Holder { shape: Shape }

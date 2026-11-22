@@ -1,5 +1,5 @@
 type Reason { Timeout }
-type Event { Started(int, string), Failed(Reason), Batch(List<int>), Done }
+type Event { Started(Int, String), Failed(Reason), Batch(List<Int>), Done }
 
 match typeof(Event.Done).shape {
     TypeShape.Sum(name, _, variants) => {

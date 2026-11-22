@@ -2,7 +2,7 @@
  * Keys with values, which is what a map literal builds.
  *
  * ```
- * var ages: Map<string, int> = {"ada": 36, "grace": 45};
+ * var ages: Map<String, Int> = {"ada": 36, "grace": 45};
  * ages.insert("alan", 41);
  * print(ages.get_or("ada", 0));    // 36
  * print(ages.get_or("nobody", 0)); // 0
@@ -20,12 +20,12 @@ type Map<K, V> {
 
 impl Map<K, V> {
     /** How many keys the map holds. */
-    fn len(self): int {
+    fn len(self): Int {
         return self.entries.len();
     }
 
     /** Whether the map holds this key. */
-    fn contains(self, key: K): bool {
+    fn contains(self, key: K): Bool {
         var i = 0;
         while (i < self.entries.len()) {
             if (self.entries[i].0 == key) {
@@ -69,8 +69,8 @@ impl Map<K, V> {
 
 /** Each key and its value, in insertion order: `{"a": 1, "b": 2}`. */
 impl Debug for Map<K, V> {
-    fn debug(self): string {
-        var parts: List<string> = ["{"];
+    fn debug(self): String {
+        var parts: List<String> = ["{"];
         var i = 0;
         while (i < self.entries.len()) {
             if (i > 0) { parts.push(", "); }
@@ -86,7 +86,7 @@ impl Debug for Map<K, V> {
 
 /** As `Debug` writes it. */
 impl Display for Map<K, V> {
-    fn fmt(self): string { return debug(self); }
+    fn fmt(self): String { return debug(self); }
 }
 
 impl FromArray<(K, V)> for Map<K, V> {

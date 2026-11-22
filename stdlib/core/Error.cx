@@ -4,22 +4,22 @@
  * ```
  * import { Throw, Result, attempt, rethrow, Wraps } from "std/core/Error";
  *
- * type IoError { NotFound(string) }
- * type ParseError { BadLine(int) }
+ * type IoError { NotFound(String) }
+ * type ParseError { BadLine(Int) }
  * type LoadError { Io(IoError), Parse(ParseError) }
  * derive Wraps for LoadError;
  *
- * fn read(path: string): string {
+ * fn read(path: String): String {
  *     if (path == "missing.toml") { throw(IoError.NotFound(path)); }
  *     return "port = x";
  * }
  *
- * fn parse(text: string): int {
+ * fn parse(text: String): Int {
  *     throw(ParseError.BadLine(1));
  *     return 0;
  * }
  *
- * fn load(path: string): <Throw<LoadError>> int {
+ * fn load(path: String): <Throw<LoadError>> Int {
  *     var text = rethrow { read(path) };
  *     return rethrow { parse(text) };
  * }
@@ -43,7 +43,7 @@ import { To } from "../ops/To";
 /** A failure, abandoning the work that raised it. */
 trait Throw<X> {
     /** Abandons the work and hands the handler what went wrong. Never resumed. */
-    @ctl fn throw<T>(err: X): T;
+    @abort fn throw<T>(err: X): T;
 }
 
 /** A value, or the failure in its place. */
@@ -58,10 +58,10 @@ type Result<T, X> {
 /** The work's value, or the failure it threw, kept rather than handled. */
 fn attempt<X, T, E>(f: () -> <Throw<X>, E> T): <E> Result<T, X> {
     var outcome: Option<Result<T, X>> = Option.None;
-    run {
+    run<Unit> {
         outcome = Option.Some(Result.Ok(f()));
-    } handle<Throw> {
-        fn throw(e, resume) { outcome = Option.Some(Result.Err(e)); }
+    } handle<Throw<X>> {
+        fn throw(e) { outcome = Option.Some(Result.Err(e)); }
     }
     match outcome {
         Option.Some(r) => { return r; }
@@ -113,12 +113,12 @@ fn derive(shape: TypeShape) for Wraps {
 /** Any failure, for code that reports one rather than telling them apart. */
 trait Failure {
     /** What went wrong, for a person to read. */
-    fn message(self): string;
+    fn message(self): String;
 }
 
 /** A message on its own is a failure. */
-impl Failure for string {
-    fn message(self): string { return self; }
+impl Failure for String {
+    fn message(self): String { return self; }
 }
 
 /**
@@ -141,5 +141,5 @@ fn fail<T>(err: Failure): <Throw<Failure>> T {
  */
 trait Fallible<T> {
     /** Reports the failure and answers with whatever the handler gives back. */
-    fn raise(msg: string): T;
+    fn raise(msg: String): T;
 }

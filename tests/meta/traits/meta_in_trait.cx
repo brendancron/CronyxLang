@@ -1,6 +1,6 @@
 import { MethodSig, Param, Signature, TypeExpr, TypeKind } from "std/compiler/Ast";
 
-fn sig_named(name: string, ret: string): MethodSig {
+fn sig_named(name: String, ret: String): MethodSig {
     return MethodSig {
         name: name.as_name(),
         params: [Param { name: "self".as_name(), ty: Option.None, implicit: false }],
@@ -14,17 +14,17 @@ fn sig_named(name: string, ret: string): MethodSig {
 }
 
 trait Getter<T> {
-    fn describe(self): string;
+    fn describe(self): String;
     meta {
         gen sig_named("get", "T");
     }
 }
 
-type Box { value: int }
+type Box { value: Int }
 
-impl Getter<int> for Box {
-    fn describe(self): string { return "a box"; }
-    fn get(self): int { return self.value; }
+impl Getter<Int> for Box {
+    fn describe(self): String { return "a box"; }
+    fn get(self): Int { return self.value; }
 }
 
 var b = Box { value: 7 };

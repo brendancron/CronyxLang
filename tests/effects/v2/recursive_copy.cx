@@ -1,30 +1,30 @@
-trait Tick { @ctl fn tick(): int; }
+trait Tick { @ctl fn tick(): Int; }
 
-fn countdown(n: int): int {
+fn countdown(n: Int): Int {
     if (n == 0) { return 0; }
     var step = tick();
     return step + countdown(n - 1);
 }
 
-fn is_even(n: int): bool {
+fn is_even(n: Int): Bool {
     if (n == 0) { return true; }
     tick();
     return is_odd(n - 1);
 }
 
-fn is_odd(n: int): bool {
+fn is_odd(n: Int): Bool {
     if (n == 0) { return false; }
     tick();
     return is_even(n - 1);
 }
 
-fn sum(xs: List<int>, i: int): int {
+fn sum(xs: List<Int>, i: Int): Int {
     if (i == xs.len()) { return 0; }
     return xs[i] * tick() + sum(xs, i + 1);
 }
 
 var ticks = 0;
-run {
+run<Unit> {
     print(countdown(4));
     print(is_even(5));
     print(is_odd(5));

@@ -81,7 +81,7 @@ and type_expr_kind =
   | Ty_assoc of type_expr * string
   (* `Output = T`: what the impl the bound reaches must have bound. *)
   | Ty_bind of string * type_expr
-  (* `<async, E>` as an argument, where the type's parameter stands in a row. *)
+  (* `<Async, E>` as an argument, where the type's parameter stands in a row. *)
   | Ty_row of (string * type_expr list) list
 
 (* [implicit] marks a trailing lambda whose parameters were not written, so how
@@ -103,12 +103,12 @@ type static_param =
 type type_param =
   { tp_name : string
   ; tp_pack : bool
-  (* `n: int`: a value the type is instantiated at, never seen by the checker. *)
+  (* `n: Int`: a value the type is instantiated at, never seen by the checker. *)
   ; tp_ty : type_expr option
   }
 
 (* [row = None] leaves the effect row to inference; [Some labels] closes it. An
-   effect taking parameters may be written at its arguments — `<Yield<int>>` —
+   effect taking parameters may be written at its arguments — `<Yield<Int>>` —
    and is otherwise left to inference at every one of them. *)
 type signature =
   { ret : type_expr option
@@ -280,7 +280,7 @@ type ('s, 'ann) method_def =
   ; md_attrs : attr list
   }
 
-(* `type Item = int;` in an impl: the binding the trait asked for. *)
+(* `type Item = Int;` in an impl: the binding the trait asked for. *)
 type assoc_def =
   { as_name : string
   ; as_ty : type_expr
@@ -392,7 +392,7 @@ type imports = [ `Import of import | `Global_import of import ]
    functions and meta blocks. Metaprocessing takes it apart. *)
 type 's type_members = [ `Type_members of 's * 's list ]
 
-(* `new Box<int> { … }`, keeping what `<…>` said: an instantiation needs it,
+(* `new Box<Int> { … }`, keeping what `<…>` said: an instantiation needs it,
    and nothing after metaprocessing does. *)
 type 'e generic_new = [ `New_generic of string * 'e static_arg list * (string * 'e) list ]
 
@@ -610,6 +610,8 @@ let generated parts =
    function type performs: the row is open there. *)
 let open_row = generated [ "row"; "open" ]
 
+let absent_type = Types.absent_name
+
 (* A type processed code shows where the checker had not settled one. *)
 let open_type = generated [ "type"; "open" ]
 
@@ -624,12 +626,15 @@ let cps_marker = generated [ "cps"; "made" ]
 let handler_param label = generated [ "hv"; label ]
 
 
-(* The function each top-level statement runs under, by the whole name the
-   prelude's declaration is mangled to. Any module may declare a `__root` of its
-   own, and one matched by its last part would take every statement over. *)
+(* The function the top level runs under, and the one a top-level statement
+   that throws runs under inside it, by the whole names the prelude's
+   declarations are mangled to. Any module may declare a `__root` of its own,
+   and one matched by its last part would take the top level over. *)
 let root_function = generated [ "std"; "prelude"; "__root" ]
+let root_catcher = generated [ "std"; "prelude"; "__throwing" ]
 
 let is_root name = String.equal name root_function
+let is_root_or_catcher name = is_root name || String.equal name root_catcher
 
 (* What a parameter written without a type is a static parameter of: the
    function is generic in it, under a name no program can write. *)
@@ -690,7 +695,11 @@ let method_name type_name method_ = generated [ type_name; method_ ]
    spell. The method's own name is last, so a diagnostic shows it. *)
 let operation_name trait method_ = generated [ trait; "op"; method_ ]
 
-let takes_control (m : method_sig) = List.exists (fun a -> String.equal a.a_name "ctl") m.ms_attrs
+(* `@abort` never resumes, and its handler is written without the continuation. *)
+let aborts (attrs : attr list) = List.exists (fun a -> String.equal a.a_name "abort") attrs
+
+let takes_control (m : method_sig) =
+  aborts m.ms_attrs || List.exists (fun a -> String.equal a.a_name "ctl") m.ms_attrs
 
 let rec mentions name (t : type_expr) =
   match t.it with
@@ -725,7 +734,7 @@ let written_type (t : type_expr) =
   | Ty_name n | Ty_app (n, _) -> n
   | _ -> "_"
 
-(* `Index<int>` and `Index<Range>` on one list each bring a `get`, so the trait
+(* `Index<Int>` and `Index<Range>` on one list each bring a `get`, so the trait
    and its arguments are in the name. A dispatch names the same entry from the
    types a bound gave: [Types.type_name] and [written_type] agree on the head. *)
 let dispatched_method_name type_name trait targets method_ =

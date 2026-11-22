@@ -1,8 +1,8 @@
 // A handler that resumes twice leaves the scope twice, so what was deferred
 // once inside it runs once per exit.
-effect Logic { ctl choose(options: Array<int>): int; }
+effect Logic { ctl choose(options: Array<Int>): Int; }
 
-fn pick(): int {
+fn pick(): Int {
     defer print("cleanup");
     var n = choose([1, 2]);
     print("saw " + str(n));

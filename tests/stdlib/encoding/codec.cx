@@ -2,18 +2,18 @@ import { Encode, Decode, Data, Entry, DecodeError, decode_data } from "std/encod
 import { Result, attempt, Failure } from "std/core/Error";
 
 type Shape {
-    Circle(int),
-    Rect { w: int, h: int },
-    Line(int, int),
+    Circle(Int),
+    Rect { w: Int, h: Int },
+    Line(Int, Int),
     Dot
 }
 
 type Server {
-    host: string,
-    @rename("port_number") port: int,
-    tags: List<string>,
-    limit: Option<int>,
-    @skip cache: Option<string>,
+    host: String,
+    @rename("port_number") port: Int,
+    tags: List<String>,
+    limit: Option<Int>,
+    @skip cache: Option<String>,
     shapes: List<Shape>
 }
 

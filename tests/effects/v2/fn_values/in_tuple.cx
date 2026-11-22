@@ -1,8 +1,8 @@
-trait E { @ctl fn op(): int; }
+trait E { @ctl fn op(): Int; }
 
-fn doubled(): <E> int { return op() * 2; }
+fn doubled(): <E> Int { return op() * 2; }
 
-run {
+run<Unit> {
     var pair = (() => { return doubled(); }, 5);
     print(str(pair.0()));
     print(str(pair.1));

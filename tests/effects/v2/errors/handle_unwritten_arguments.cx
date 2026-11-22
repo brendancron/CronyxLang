@@ -1,0 +1,9 @@
+trait Yield<T> {
+    @ctl fn yield(value: T): Unit;
+}
+
+run<Unit> {
+    yield(1);
+} handle<Yield> {
+    fn yield(x, resume) { print(x); resume(()); }
+}

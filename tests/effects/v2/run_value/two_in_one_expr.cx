@@ -1,8 +1,8 @@
 trait Ask {
-    @ctl fn ask(): int;
+    @ctl fn ask(): Int;
 }
 
-fn probe(): <Ask> int { return ask(); }
+fn probe(): <Ask> Int { return ask(); }
 
-print(run { probe() } handle<Ask> { fn ask(resume) { return resume(5); } }
-    + run { probe() } handle<Ask> { fn ask(resume) { return resume(6); } });
+print(run<Int> { probe() } handle<Ask> { fn ask(resume) { return resume(5); } }
+    + run<Int> { probe() } handle<Ask> { fn ask(resume) { return resume(6); } });

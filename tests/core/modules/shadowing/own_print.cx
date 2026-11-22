@@ -1,4 +1,4 @@
-fn print(x: int) {
+fn print(x: Int) {
     core.print("mine: " + str(x));
 }
 

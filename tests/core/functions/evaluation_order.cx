@@ -1,10 +1,10 @@
-type Cell { v: int }
+type Cell { v: Int }
 
-fn a(): int { print("a"); return 1; }
-fn b(): int { print("b"); return 2; }
-fn c(): int { print("c"); return 3; }
+fn a(): Int { print("a"); return 1; }
+fn b(): Int { print("b"); return 2; }
+fn c(): Int { print("c"); return 3; }
 
-fn add(x: int, y: int): int { return x + y; }
+fn add(x: Int, y: Int): Int { return x + y; }
 
 var cell = Cell { v: 0 };
 fn target(): Cell { print("target"); return cell; }

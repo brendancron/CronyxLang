@@ -1,8 +1,8 @@
-effect one { fn a(): unit; }
+effect One { fn a(): Unit; }
 
 run {
     a();
-} handle one {
+} handle One {
     fn a() { }
     fn b() { }
 }

@@ -1052,7 +1052,7 @@ let run_stdlib_edited_case ~library =
   in
   let copy = Filename.concat root "stdlib" in
   let probe answer =
-    Cx.Archive.into_directory copy [ "probe/Probe.cx", Printf.sprintf "fn answer(): int { return %d; }\n" answer ]
+    Cx.Archive.into_directory copy [ "probe/Probe.cx", Printf.sprintf "fn answer(): Int { return %d; }\n" answer ]
   in
   Cx.Archive.into_directory copy (files "");
   probe 1;
@@ -1424,7 +1424,7 @@ let registry_cases root =
     broken
     [ ( "cronyx.toml"
       , "[package]\nname    = \"broken\"\nversion = \"0.1.0\"\ncronyx  = \"0.0.1\"\n" )
-    ; "src/lib.cx", "fn f(): int {\n    return 1 +;\n}\n"
+    ; "src/lib.cx", "fn f(): Int {\n    return 1 +;\n}\n"
     ];
   let updated names expected =
     match Cx.Build.update ~names ~note app with

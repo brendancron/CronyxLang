@@ -3,16 +3,16 @@ import { Json } from "std/encoding/Json";
 import { Toml } from "std/encoding/Toml";
 import { Result, attempt, Failure } from "std/core/Error";
 
-type Level { Low, High(int), Custom { name: string, weight: float } }
+type Level { Low, High(Int), Custom { name: String, weight: Float } }
 
 type Service {
-    name: string,
-    @rename("listen-port") port: int,
-    replicas: List<int>,
+    name: String,
+    @rename("listen-port") port: Int,
+    replicas: List<Int>,
     level: Level,
     fallback: Option<Level>,
-    owner: Option<string>,
-    healthy: bool
+    owner: Option<String>,
+    healthy: Bool
 }
 
 derive Encode, Decode for Level;
@@ -28,10 +28,10 @@ var original = Service {
     healthy: true
 };
 
-fn same(a: Service, b: Service): bool { return to_text(a) == to_text(b); }
-fn to_text(s: Service): string { return encode_as(Json { pretty: false }, s); }
+fn same(a: Service, b: Service): Bool { return to_text(a) == to_text(b); }
+fn to_text(s: Service): String { return encode_as(Json { pretty: false }, s); }
 
-fn through<F: Format>(format: F, label: string) {
+fn through<F: Format>(format: F, label: String) {
     var text = encode_as(format, original);
     print(text);
     var back: Service = decode_as(format, text);

@@ -1,11 +1,11 @@
-trait E { @ctl fn op(): int; }
+trait E { @ctl fn op(): Int; }
 
-fn work(base: int): <E> int { return base + op(); }
+fn work(base: Int): <E> Int { return base + op(); }
 
-var pending: List<() -> <Console> unit> = [];
+var pending: List<() -> <Console> Unit> = [];
 
-run {
-    var tasks: List<() -> <E> int> = [];
+run<Unit> {
+    var tasks: List<() -> <E> Int> = [];
     tasks.push(() => { return work(10); });
     print(str(tasks[0]()));
 } handle<E> {

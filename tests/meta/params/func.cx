@@ -1,4 +1,4 @@
-fn my_func<n: int>() {
+fn my_func<n: Int>() {
     print(n);
 }
 

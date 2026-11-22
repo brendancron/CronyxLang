@@ -33,7 +33,7 @@
                       "name": "what",
                       "type": {
                         "kind": "name",
-                        "name": "string",
+                        "name": "String",
                         "ref": null,
                         "param": false
                       }
@@ -112,7 +112,7 @@
                   ],
                   "ret": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   },
@@ -159,7 +159,7 @@
                   ],
                   "ret": {
                     "kind": "name",
-                    "name": "string",
+                    "name": "String",
                     "ref": null,
                     "param": false
                   },
@@ -249,7 +249,7 @@
                     "name": "x",
                     "type": {
                       "kind": "name",
-                      "name": "int",
+                      "name": "Int",
                       "ref": null,
                       "param": false
                     },
@@ -260,7 +260,7 @@
                     "name": "y",
                     "type": {
                       "kind": "name",
-                      "name": "int",
+                      "name": "Int",
                       "ref": null,
                       "param": false
                     },

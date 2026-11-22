@@ -1,17 +1,17 @@
-trait Show { fn show(self): string; }
-impl Show for int { fn show(self): string { return "#" + str(self); } }
-impl Show for string { fn show(self): string { return "'" + self + "'"; } }
+trait Show { fn show(self): String; }
+impl Show for Int { fn show(self): String { return "#" + str(self); } }
+impl Show for String { fn show(self): String { return "'" + self + "'"; } }
 
 trait Labelled {
-    fn label(self): string;
-    fn describe(self): string;
+    fn label(self): String;
+    fn describe(self): String;
 }
 
-type Pair<A, B> { tag: string, left: A, right: B }
+type Pair<A, B> { tag: String, left: A, right: B }
 
 impl Labelled for Pair<A: Show, B: Show> {
-    fn label(self): string { return self.tag; }
-    fn describe(self): string { return self.left.show() + " " + self.right.show(); }
+    fn label(self): String { return self.tag; }
+    fn describe(self): String { return self.left.show() + " " + self.right.show(); }
 }
 
 var all: List<Labelled> = [

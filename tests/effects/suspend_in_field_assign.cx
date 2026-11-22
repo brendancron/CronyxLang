@@ -1,13 +1,13 @@
 // The record whose field is being set is evaluated before the operation, so it
 // is the continuation that does the assigning.
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
-fn shift(p: Point): <Ask> unit {
+fn shift(p: Point): <Ask> Unit {
     p.x = get();
 }
 

@@ -1,7 +1,7 @@
-import { async, block_on } from "Task";
+import { Async, block_on } from "Task";
 import { Throw, attempt, Result } from "Error";
 
-fn count(name: string, upto: int): <async, Console> int {
+fn count(name: String, upto: Int): <Async, Console> Int {
     for (var i = 0; i < upto; i += 1) {
         print(name + " " + str(i));
         pause();

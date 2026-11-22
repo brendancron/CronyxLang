@@ -14,19 +14,19 @@ var specials = [0.0, -0.0, 1.0, -2.5, infinity(), neg_infinity(), nan()];
 
 // C libraries agree on the exact cases, but not always on an inexact result's
 // last digit.
-fn shown(x: float): string {
+fn shown(x: Float): String {
     if (is_finite(x) && x != floor(x)) { return fixed(x, 10); }
     return str(x);
 }
 
-fn row(name: string, f: (float) -> float) {
-    var parts: List<string> = [];
+fn row(name: String, f: (Float) -> Float) {
+    var parts: List<String> = [];
     for (x in specials) { parts.push(shown(f(x))); }
     print(name + ": " + join(parts, " "));
 }
 
-fn test(name: string, f: (float) -> bool) {
-    var parts: List<string> = [];
+fn test(name: String, f: (Float) -> Bool) {
+    var parts: List<String> = [];
     for (x in specials) { parts.push(str(f(x))); }
     print(name + ": " + join(parts, " "));
 }

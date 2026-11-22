@@ -1,10 +1,10 @@
-effect async {
-    ctl suspend<T>(register: ((T) -> unit) -> unit): T;
+effect Async {
+    ctl suspend<T>(register: ((T) -> Unit) -> Unit): T;
 }
 
-var ready: List<() -> unit> = [];
+var ready: List<() -> Unit> = [];
 
-fn main(): <async, Console> unit {
+fn main(): <Async, Console> Unit {
     var n = suspend((wake) => { ready.push { wake(1); }; });
     print("got " + str(n));
     var word = suspend((wake) => { ready.push { wake("hi"); }; });
@@ -13,6 +13,6 @@ fn main(): <async, Console> unit {
 
 run {
     main();
-} handle async {
+} handle Async {
     ctl suspend(register) { register((value) => { var n = value + 0; resume value; }); }
 }

@@ -8,7 +8,7 @@ type Vec<N, T> {
     Cons<M>(T, Vec<M, T>) -> Vec<Succ<M>, T>,
 }
 
-fn first(v: Vec<Succ<Zero>, int>): int {
+fn first(v: Vec<Succ<Zero>, Int>): Int {
     match v {
         Vec.Nil => { return 0; }
     }

@@ -1,7 +1,7 @@
-effect A { ctl get(): int; }
-effect B { ctl get(x: string): int; }
+effect A { ctl get(): Int; }
+effect B { ctl get(x: String): Int; }
 
-fn main(): unit {
+fn main(): Unit {
     run { print(get()); } handle A { ctl get() { resume 1; } }
 }
 

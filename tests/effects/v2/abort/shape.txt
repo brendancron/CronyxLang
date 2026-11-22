@@ -1,0 +1,4 @@
+trait EffectHandler<Stop, Int> {
+    fn note(msg: String): Unit;
+    @abort fn stop<T, Rho>(why: String): <Rho> Int;
+}

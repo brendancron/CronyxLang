@@ -1,12 +1,12 @@
 import { Mode, File, Fs, read_text, write_text } from "std/fs/File";
 import { IoError, Reader, Writer, Closer } from "std/io/Io";
 import { Throw, Result } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
-type Memory { data: List<byte>, at: List<int> }
+type Memory { data: List<Byte>, at: List<Int> }
 
 impl Reader for Memory {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         var start = self.at[0];
         if (start >= self.data.len()) { return Option.None; }
         var stop = start + max;
@@ -17,18 +17,18 @@ impl Reader for Memory {
 }
 
 impl Writer for Memory {
-    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+    fn write(self, data: Array<Byte>): <Async, Throw<IoError>> Unit {
         for (b in data) { self.data.push(b); }
     }
 }
 
 impl Closer<IoError> for Memory {
-    fn close(self): <async, Throw<IoError>> unit { }
+    fn close(self): <Async, Throw<IoError>> Unit { }
 }
 
 impl File for Memory {}
 
-fn greet(name: string): <Fs, async, Throw<IoError>> string {
+fn greet(name: String): <Fs, Async, Throw<IoError>> String {
     write_text("greeting.txt", "hello, " + name);
     return read_text("greeting.txt");
 }

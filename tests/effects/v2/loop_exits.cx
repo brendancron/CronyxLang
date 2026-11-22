@@ -1,9 +1,9 @@
-trait Tick { @ctl fn tick(): int; }
+trait Tick { @ctl fn tick(): Int; }
 
-fn in_match(): <Tick, Console> unit {
+fn in_match(): <Tick, Console> Unit {
     for (x in [1, 2, 3, 4]) {
         var n = tick();
-        var stop: Option<int> = Option.None;
+        var stop: Option<Int> = Option.None;
         if (x == 3) { stop = Option.Some(x); }
         match stop {
             Option.Some(_) => { break; }
@@ -13,7 +13,7 @@ fn in_match(): <Tick, Console> unit {
     print("match done");
 }
 
-fn nested(): <Tick, Console> unit {
+fn nested(): <Tick, Console> Unit {
     for (a in [1, 2]) {
         for (b in [1, 2, 3]) {
             var n = tick();
@@ -24,7 +24,7 @@ fn nested(): <Tick, Console> unit {
     }
 }
 
-fn plain_inside(): <Tick, Console> unit {
+fn plain_inside(): <Tick, Console> Unit {
     var n = tick();
     var total = 0;
     for (x in [5, 6, 7]) {
@@ -40,7 +40,7 @@ fn plain_inside(): <Tick, Console> unit {
     print("total " + str(total));
 }
 
-fn stepped(): <Tick, Console> unit {
+fn stepped(): <Tick, Console> Unit {
     for (var i = 0; i < 4; i += 1) {
         var n = tick();
         if (i == 1) { continue; }
@@ -48,7 +48,7 @@ fn stepped(): <Tick, Console> unit {
     }
 }
 
-fn skipping(): <Tick, Console> unit {
+fn skipping(): <Tick, Console> Unit {
     var a = 0;
     while (a < 2) {
         a += 1;
@@ -62,7 +62,7 @@ fn skipping(): <Tick, Console> unit {
     }
 }
 
-fn found(xs: List<int>): <Tick> int {
+fn found(xs: List<Int>): <Tick> Int {
     var i = 0;
     while (true) {
         var n = tick();
@@ -72,7 +72,7 @@ fn found(xs: List<int>): <Tick> int {
     return -1;
 }
 
-run {
+run<Unit> {
     in_match();
     nested();
     plain_inside();
@@ -81,7 +81,7 @@ run {
     print(found([1, 3, 5, 7]));
 } handle<Tick> { fn tick(resume) { resume(1); } }
 
-var picked = run<string> {
+var picked = run<String> {
     var seen = "";
     for (x in [1, 2, 3]) {
         if (x == 2) { continue; }

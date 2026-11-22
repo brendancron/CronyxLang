@@ -1,9 +1,9 @@
-trait logic { @ctl fn choose(): int; }
-fn pick(): int {
-    run {
+trait Logic { @ctl fn choose(): Int; }
+fn pick(): Int {
+    run<Unit> {
         var n = choose();
         if (n == 2) { return n * 10; }
-    } handle<logic> { fn choose(resume) { resume(1); resume(2); } }
+    } handle<Logic> { fn choose(resume) { resume(1); resume(2); } }
     return 7;
 }
 print(pick());

@@ -1,12 +1,12 @@
-effect two {
-    fn a(): unit;
-    fn b(): unit;
+effect Two {
+    fn a(): Unit;
+    fn b(): Unit;
 }
 
 // Discharge is per-effect, so a handler has to cover every operation.
 run {
     a();
     b();
-} handle two {
+} handle Two {
     fn a() { }
 }

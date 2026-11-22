@@ -1,4 +1,4 @@
-var or_zero = (n: Option<int>) => {
+var or_zero = (n: Option<Int>) => {
     match n {
         Option.Some(v) => { return v; }
         Option.None => { return 0; }

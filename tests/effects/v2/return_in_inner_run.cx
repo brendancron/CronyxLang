@@ -1,15 +1,15 @@
-trait E { @ctl fn ask(): int; }
-trait Log { fn note(): unit; }
+trait E { @ctl fn ask(): Int; }
+trait Log { fn note(): Unit; }
 
-fn f(): <E, Console> int {
-    run {
+fn f(): <E, Console> Int {
+    run<Unit> {
         note();
         return 1;
     } handle<Log> { fn note() { print("noted"); } }
     return ask();
 }
 
-run {
+run<Unit> {
     print(f());
 } handle<E> {
     fn ask(resume) {

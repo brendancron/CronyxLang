@@ -1,0 +1,14 @@
+trait Area {
+    fn size(self): Int;
+}
+
+trait Volume {
+    fn size(self): Int;
+}
+
+type Cube impl Area, Volume {
+    side: Int,
+    fn size(self): Int { return self.side; }
+}
+
+print(Cube { side: 2 }.size());

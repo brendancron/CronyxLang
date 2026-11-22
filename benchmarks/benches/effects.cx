@@ -1,12 +1,12 @@
 import { scratch } from "benchmarks";
 
-effect Ask { fn ask(): int; }
-effect Yield { ctl yield(n: int): unit; }
+effect Ask { fn ask(): Int; }
+effect Yield { ctl yield(n: Int): Unit; }
 
 @bench(100)
 @time("linear")
 @memory("constant")
-fn evidence_handler(n: int) {
+fn evidence_handler(n: Int) {
     run {
         var total = 0;
         for (var i = 0; i < n; i += 1) { total += scratch(2000) + ask(); }
@@ -16,7 +16,7 @@ fn evidence_handler(n: int) {
 @bench(100)
 @time("linear")
 @memory("constant")
-fn resumed_handler(n: int) {
+fn resumed_handler(n: Int) {
     var seen = 0;
     run {
         for (var i = 0; i < n; i += 1) {

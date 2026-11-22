@@ -1,0 +1,16 @@
+import { decl_source } from "std/compiler/Printer";
+
+type Box<T> { v: T, all: List<T> }
+type Pair<A, B> { Both(A, B), Left(A) }
+
+fn describe<T>() {
+    meta { print(decl_source(declof(T))); }
+}
+
+meta {
+    print(decl_source(declof(Box<Int>)));
+    print(decl_source(declof(Pair<String, Box<Int>>)));
+    print(typeof(Box<String>).name);
+}
+describe<Box<Bool>>();
+print(Box<Int> { v: 1, all: [] }.v);

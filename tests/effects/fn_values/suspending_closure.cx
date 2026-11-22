@@ -1,12 +1,12 @@
-effect E { ctl op(): unit; }
+effect E { ctl op(): Unit; }
 
-fn work(): <E, Console> unit {
+fn work(): <E, Console> Unit {
     print("before");
     op();
     print("after");
 }
 
-var pending: List<() -> unit> = [];
+var pending: List<() -> Unit> = [];
 
 run {
     var task = () => { work(); };

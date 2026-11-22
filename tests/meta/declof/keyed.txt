@@ -1,13 +1,13 @@
-fn id(x: int): int {
+fn id(x: Int): Int {
     return x;
 }
 
-fn first(x: string) {
+fn first(x: String) {
     return x;
 }
 
-fn times(x: int): int {
-    var n: int = 3;
+fn times(x: Int): Int {
+    var n: Int = 3;
     return (x * n);
 }
 

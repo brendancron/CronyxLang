@@ -1,0 +1,5 @@
+var n: Int = "one";
+print(n + 1);
+var s = 2 + "two";
+print("checked");
+print(true + 1);

@@ -1,19 +1,19 @@
-type Money { cents: int, currency: string, }
+type Money { cents: Int, currency: String, }
 
 impl Eq for Money {
-    fn eq(self, other: Money): bool {
+    fn eq(self, other: Money): Bool {
         return self.cents == other.cents;
     }
 }
 
-fn report<same: bool>(): string {
+fn report<same: Bool>(): String {
     meta if (same) {
         gen return "same";
     }
     return "different";
 }
 
-fn cmp<m: Money>(): string {
+fn cmp<m: Money>(): String {
     return report<(m == Money { cents: 1, currency: "EUR" })>();
 }
 

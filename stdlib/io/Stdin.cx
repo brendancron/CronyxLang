@@ -13,7 +13,7 @@
  * ```
  */
 
-import { async } from "../async/Task";
+import { Async } from "../async/Task";
 import { Throw, Result, Failure } from "../core/Error";
 import { Reader, IoError } from "Io";
 import { decode } from "../text/Utf8";
@@ -28,10 +28,10 @@ effect Stdin {
  * The next line of standard input without its line ending, or `None` once the
  * input has ended. Throws if the line is not UTF-8 text.
  */
-fn read_line(): <Stdin, async, Throw<IoError>> Option<string> {
+fn read_line(): <Stdin, Async, Throw<IoError>> Option<String> {
     var input = stdin();
     var newline = "\n".bytes()[0];
-    var line: List<byte> = [];
+    var line: List<Byte> = [];
     while (true) {
         match input.read(1) {
             Option.None => {
@@ -48,7 +48,7 @@ fn read_line(): <Stdin, async, Throw<IoError>> Option<string> {
 }
 
 // A line's bytes as text, less a carriage return before the newline.
-fn __line(bytes: List<byte>): <Throw<IoError>> string {
+fn __line(bytes: List<Byte>): <Throw<IoError>> String {
     var stop = bytes.len();
     if (stop > 0 && bytes[stop - 1] == "\r".bytes()[0]) { stop = stop - 1; }
     match decode(bytes.items[0:stop]) {
@@ -63,7 +63,7 @@ fn __line(bytes: List<byte>): <Throw<IoError>> string {
 type TerminalInput;
 
 impl Reader for TerminalInput {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         var (status, data, message) = suspend { it(__stdin_read(max)) };
         if (status != 0) { throw(IoError.Other(message)); }
         if (data.len() == 0) { return Option.None; }

@@ -1,9 +1,9 @@
 // Every operand suspends and the handler resumes twice, so the split is
 // re-entered on each resumption. The four answers are the whole tree: a false
 // left in `&&` and a true left in `||` never reach the operand on the right.
-effect Flip { ctl flip(): bool; }
+effect Flip { ctl flip(): Bool; }
 
-fn choose(): <Flip> string {
+fn choose(): <Flip> String {
     if (flip() && (flip() || flip())) { return "yes"; }
     return "no";
 }

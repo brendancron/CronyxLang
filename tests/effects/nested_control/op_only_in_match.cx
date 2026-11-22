@@ -1,8 +1,8 @@
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
 type Color { Red, Blue }
 
-fn use(c: Color): <Ask> int {
+fn use(c: Color): <Ask> Int {
     match c {
         Color.Red => { return get(); }
         Color.Blue => { return 0; }

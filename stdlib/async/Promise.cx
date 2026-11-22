@@ -12,7 +12,7 @@
  * ```
  */
 
-import { async } from "Task";
+import { Async } from "Task";
 
 /** Either the value, or the callbacks waiting for it. */
 type PromiseState<T> {
@@ -20,7 +20,7 @@ type PromiseState<T> {
     Resolved(T),
 
     /** Not yet, and these are waiting. */
-    Awaiting(List<(T) -> unit>)
+    Awaiting(List<(T) -> Unit>)
 }
 
 /** A value some task will supply later. */

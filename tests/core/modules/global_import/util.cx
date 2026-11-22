@@ -1,1 +1,1 @@
-fn square(n: int): int { return n * n; }
+fn square(n: Int): Int { return n * n; }

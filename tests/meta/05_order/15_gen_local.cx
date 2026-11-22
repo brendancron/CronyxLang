@@ -1,6 +1,6 @@
-fn f<a: int>() {
+fn f<a: Int>() {
     meta {
-        gen fn helper(): int { return a; }
+        gen fn helper(): Int { return a; }
     }
     print(helper());
 }

@@ -1,6 +1,6 @@
-fn used(): int { return 1; }
+fn used(): Int { return 1; }
 
-fn helper(): int { return 2; }
+fn helper(): Int { return 2; }
 
 fn unused<T>(x: T): T {
     helper();

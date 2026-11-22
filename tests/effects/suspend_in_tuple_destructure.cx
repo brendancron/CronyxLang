@@ -1,6 +1,6 @@
-effect Tick { ctl tick(): int; }
+effect Tick { ctl tick(): Int; }
 
-fn two(): (int, int) {
+fn two(): (Int, Int) {
     return (tick(), 2);
 }
 
@@ -13,7 +13,7 @@ run {
     ctl tick() { resume 1; }
 }
 
-effect Pick { ctl pick(): (int, string); }
+effect Pick { ctl pick(): (Int, String); }
 
 run {
     var (n, word) = pick();

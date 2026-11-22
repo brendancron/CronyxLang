@@ -1,5 +1,5 @@
 type Effect {
-    Damage { amount: int },
+    Damage { amount: Int },
     None,
 }
 meta {

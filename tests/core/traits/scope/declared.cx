@@ -1,4 +1,4 @@
-trait Twice { fn twice(self): int; }
-impl Twice for int { fn twice(self): int { return self * 2; } }
+trait Twice { fn twice(self): Int; }
+impl Twice for Int { fn twice(self): Int { return self * 2; } }
 
 print(21.twice());

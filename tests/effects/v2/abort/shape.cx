@@ -1,0 +1,10 @@
+import { decl_source } from "std/compiler/Printer";
+
+trait Stop {
+    fn note(msg: String): Unit;
+    @abort fn stop<T>(why: String): T;
+}
+
+meta {
+    print(decl_source(declof(EffectHandler<Stop, Int>)));
+}

@@ -1,8 +1,8 @@
-fn ask(): int {
+fn ask(): Int {
     return 5;
 }
 
-fn tell(n: int) {
+fn tell(n: Int) {
     print(n);
 }
 

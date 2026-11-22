@@ -1,1 +1,1 @@
-[15:11] 'Flag' has no 'to' for <int>. It has To<string> and To<bool>.
+[15:11] 'Flag' has no 'to' for <Int>. It has To<String> and To<Bool>.

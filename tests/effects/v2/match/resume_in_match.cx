@@ -1,12 +1,12 @@
 type Choice { Yes, No }
 
-trait Ask { @ctl fn get(): int; }
+trait Ask { @ctl fn get(): Int; }
 
-fn use(): <Ask> int {
+fn use(): <Ask> Int {
     return get();
 }
 
-run {
+run<Unit> {
     print(use());
 } handle<Ask> {
     fn get(resume) {

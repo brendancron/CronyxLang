@@ -1,6 +1,6 @@
-type Pair { first: int, second: string }
+type Pair { first: Int, second: String }
 
-fn inspect(p: Pair, xs: List<bool>) {
+fn inspect(p: Pair, xs: List<Bool>) {
     meta print(typeof(p.second));
     meta print(typeof(xs[0]));
     meta print(typeof(p).shape);

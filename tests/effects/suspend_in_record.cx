@@ -1,11 +1,11 @@
 // A field initializer is an evaluation context like any other: the fields
 // before the suspension are already evaluated and have to survive it, and the
 // literal is built once the continuation supplies the rest.
-effect Ask { ctl get(): int; }
+effect Ask { ctl get(): Int; }
 
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 fn make(): <Ask> Point {

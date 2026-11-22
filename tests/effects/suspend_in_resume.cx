@@ -1,13 +1,13 @@
-effect Ask { ctl ask(): int; }
-effect Check { ctl check(): bool; }
-effect Tick { ctl tick(): unit; }
+effect Ask { ctl ask(): Int; }
+effect Check { ctl check(): Bool; }
+effect Tick { ctl tick(): Unit; }
 
-fn counted(): <Tick> int {
+fn counted(): <Tick> Int {
     tick();
     return 5;
 }
 
-fn yes(): <Tick> bool {
+fn yes(): <Tick> Bool {
     tick();
     return true;
 }

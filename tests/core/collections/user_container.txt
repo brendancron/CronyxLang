@@ -1,5 +1,5 @@
 1 2 2
 2 1
-9 Ring<int>
-b Ring<string>
+9 Ring<Int>
+b Ring<String>
 2 8 9

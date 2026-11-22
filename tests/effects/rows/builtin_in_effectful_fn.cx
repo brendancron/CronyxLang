@@ -1,21 +1,21 @@
-effect log { fn log(msg: string): unit; }
-effect ask { fn ask(): int; }
+effect Log { fn log(msg: String): Unit; }
+effect Ask { fn ask(): Int; }
 
-fn helper(n: int): int {
+fn helper(n: Int): Int {
     return n + 1;
 }
 
-fn work(n: int): string {
+fn work(n: Int): String {
     log("start");
     return str(helper(n)) + "!";
 }
 
-fn counted(xs: Set<int>): string {
+fn counted(xs: Set<Int>): String {
     log("counting");
     return str(xs.len());
 }
 
-fn both(n: int): string {
+fn both(n: Int): String {
     log("both");
     var extra = ask();
     return work(n + extra);
@@ -24,8 +24,8 @@ fn both(n: int): string {
 run {
     run {
         print(work(1));
-        var s: Set<int> = [1, 2, 2];
+        var s: Set<Int> = [1, 2, 2];
         print(counted(s));
         print(both(1));
-    } handle ask { fn ask() { return 10; } }
-} handle log { fn log(msg: string) { print(msg); } }
+    } handle Ask { fn ask() { return 10; } }
+} handle Log { fn log(msg: String) { print(msg); } }

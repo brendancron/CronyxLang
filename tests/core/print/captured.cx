@@ -1,12 +1,12 @@
 import { Stream } from "std/io/Console";
 
-fn greet(name: string) {
+fn greet(name: String) {
     print("hello, " + name);
     printerr("greeted " + name);
 }
 
-var out: List<string> = [];
-var err: List<string> = [];
+var out: List<String> = [];
+var err: List<String> = [];
 
 run {
     greet("ada");

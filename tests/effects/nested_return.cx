@@ -1,9 +1,9 @@
 // A `return` inside a branch of a converted function still reaches the
 // continuation: it leaves the function, where the join only resumes the rest
 // of the body.
-effect E { ctl ask(): int; }
+effect E { ctl ask(): Int; }
 
-fn pick(n: int): int {
+fn pick(n: Int): Int {
     if (n == 0) { return 42; }
     return ask();
 }

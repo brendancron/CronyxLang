@@ -1,3 +1,3 @@
-type Vec2 { x: int, y: int }
+type Vec2 { x: Int, y: Int }
 var a = Vec2 { x: 1, y: 2 };
 var b = a - a;

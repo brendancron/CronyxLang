@@ -1,9 +1,9 @@
-trait Pick { @ctl fn pick(): int; }
-trait Note { @ctl fn note(text: string): unit; }
+trait Pick { @ctl fn pick(): Int; }
+trait Note { @ctl fn note(text: String): Unit; }
 
-fn both(f: () -> <Pick, Note, Console> unit): <Console> unit {
-    run {
-        run {
+fn both(f: () -> <Pick, Note, Console> Unit): <Console> Unit {
+    run<Unit> {
+        run<Unit> {
             f();
         } handle<Pick> {
             fn pick(resume) {

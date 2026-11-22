@@ -1,4 +1,4 @@
-fn make(): Set<int> {
+fn make(): Set<Int> {
     return [1, 2, 2];
 }
 

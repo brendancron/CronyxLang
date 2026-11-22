@@ -1,25 +1,25 @@
-trait logger {
-    fn log(msg: string): unit;
+trait Logger {
+    fn log(msg: String): Unit;
 }
 
-trait counter {
-    @ctl fn tick(): unit;
+trait Counter {
+    @ctl fn tick(): Unit;
 }
 
-fn greet(name: string) {
+fn greet(name: String) {
     log("Hello, " + name);
     tick();
     log("Bye, " + name);
 }
 
-run {
+run<Unit> {
     greet("Alice");
     greet("Bob");
-} handle<logger> {
+} handle<Logger> {
     fn log(msg) {
         print("[LOG] " + msg);
     }
-} handle<counter> {
+} handle<Counter> {
     fn tick(resume) {
         print("[TICK]");
         resume(());

@@ -7,7 +7,7 @@
  * ```
  * import { HashSet, new } from "std/collections/HashSet";
  *
- * var seen = new<string>();
+ * var seen = new<String>();
  * seen.add("ada");
  * print(seen.contains("ada"));   // true
  * ```
@@ -22,18 +22,18 @@ import { Hash } from "../ops/Hash";
 // `empty` for one never used and `deleted` for one vacated. A probe stops at
 // the first but has to walk past the second, or it would miss a key inserted
 // beyond one that has since been removed.
-fn empty(): int { return 0 - 1; }
-fn deleted(): int { return 0 - 2; }
+fn empty(): Int { return 0 - 1; }
+fn deleted(): Int { return 0 - 2; }
 
 type HashSet<K> {
-    slots: List<int>,
+    slots: List<Int>,
     keys: List<K>,
-    size: int,
-    capacity: int
+    size: Int,
+    capacity: Int
 }
 
-fn filled(capacity: int): List<int> {
-    var slots: List<int> = [];
+fn filled(capacity: Int): List<Int> {
+    var slots: List<Int> = [];
     var at = 0;
     while (at < capacity) {
         slots.push(empty());
@@ -47,13 +47,13 @@ fn new<K>(): HashSet<K> {
     return HashSet { slots: filled(16), keys: keys, size: 0, capacity: 16 };
 }
 
-fn start_at<K: Hash>(key: K, capacity: int): int {
+fn start_at<K: Hash>(key: K, capacity: Int): Int {
     var h = key.hash() % capacity;
     if (h < 0) { return 0 - h; }
     return h;
 }
 
-fn probe_add<K: Hash>(slots: List<int>, keys: List<K>, capacity: int, key: K): bool {
+fn probe_add<K: Hash>(slots: List<Int>, keys: List<K>, capacity: Int, key: K): Bool {
     var at = start_at(key, capacity);
     var probes = 0;
     var vacated = empty();
@@ -83,7 +83,7 @@ fn probe_add<K: Hash>(slots: List<int>, keys: List<K>, capacity: int, key: K): b
 }
 
 impl HashSet<K> {
-    fn contains(self, key: K): bool {
+    fn contains(self, key: K): Bool {
         var at = start_at(key, self.capacity);
         var probes = 0;
         while (probes < self.capacity) {
@@ -103,7 +103,7 @@ impl HashSet<K> {
         }
     }
 
-    fn remove(self, key: K): bool {
+    fn remove(self, key: K): Bool {
         var at = start_at(key, self.capacity);
         var probes = 0;
         while (probes < self.capacity) {
@@ -120,7 +120,7 @@ impl HashSet<K> {
         return false;
     }
 
-    fn size(self): int { return self.size; }
+    fn size(self): Int { return self.size; }
 
     // Walks the slots rather than `keys`, which still holds what `remove`
     // tombstoned.

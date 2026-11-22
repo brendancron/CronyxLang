@@ -2,6 +2,6 @@ fn helper<T>(t: T): T {
     return t;
 }
 
-var g: (int) -> int = helper;
+var g: (Int) -> Int = helper;
 print(g(4));
 print(typeof(g).name);

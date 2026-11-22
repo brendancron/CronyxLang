@@ -11,6 +11,7 @@ let cases =
   ; "tests/core/math/math"
   ; "tests/core/math/float_ieee"
   ; "tests/core/variables/variables"
+  ; "tests/core/top_level/one_root"
   ; "tests/core/variables/reassign"
   ; "tests/core/control/if"
   ; "tests/core/control/else"
@@ -133,6 +134,7 @@ let cases =
   ; "tests/types/expected/open_argument"
   ; "tests/types/expected/function_value"
   ; "tests/types/expected/written_key"
+  ; "tests/types/expected/discarded_return_param"
   ; "tests/types/expected/lambda"
   ; "tests/types/expected/trait_payload"
   ; "tests/types/expected/associated_argument"
@@ -263,6 +265,16 @@ let cases =
   ; "tests/effects/v2/fn_values/trait_object"
   ; "tests/effects/v2/named_ctl_handler"
   ; "tests/effects/v2/meta_once"
+  ; "tests/effects/v2/continuation_row"
+  ; "tests/effects/v2/defaulted/never_throws"
+  ; "tests/effects/v2/handler/in_type"
+  ; "tests/effects/v2/abort/abort"
+  ; "tests/effects/v2/abort/shape"
+  ; "tests/effects/v2/abort/named"
+  ; "tests/effects/v2/prompt/return_crossing"
+  ; "tests/effects/v2/prompt/named_handler"
+  ; "tests/effects/v2/prompt/named_handler_resumes"
+  ; "tests/effects/v2/defaulted/joins_later_throw"
   ; "tests/core/traits/dyn/v2/effect_resumes"
   ; "tests/effects/methods/v2/suspending_receiver"
   ; "tests/effects/v2/discontinue/nested_after_outer"
@@ -614,9 +626,11 @@ let cases =
   ; "tests/meta/traits/effect_handler"
   ; "tests/reflection/typeof_value"
   ; "tests/meta/params/typeof_param"
+  ; "tests/meta/params/type_param_value"
   ; "tests/meta/params/typeof_compound"
   ; "tests/meta/declof/fn"
   ; "tests/meta/declof/keyed"
+  ; "tests/meta/declof/generic_type"
   ; "tests/meta/declof/trait"
   ; "tests/meta/declof/processed"
   ; "tests/meta/declof/pruned"
@@ -677,6 +691,7 @@ let cases =
   ; "tests/core/traits/try_from/main"
   ; "tests/core/traits/associated"
   ; "tests/core/traits/impl_after_use"
+  ; "tests/core/traits/in_type/in_type"
   ; "tests/core/traits/associated_builtin"
   ; "tests/core/traits/associated_type"
   ; "tests/core/traits/supertrait"
@@ -707,6 +722,7 @@ let cases =
   ; "tests/core/defer/defer_in_match_arm"
   ; "tests/core/resolution/hoisting_in_match_arm"
   ; "tests/core/types/local_type_per_function"
+  ; "tests/core/types/copies"
   ; "tests/core/types/local_recursive"
   ; "tests/core/types/unit_literal"
   ; "tests/core/types/empty_type"
@@ -768,9 +784,11 @@ let error_cases =
   ; "tests/core/lambdas/errors/naked_arrow"
   ; "tests/core/type_annotations/errors/arrow_return"
   ; "tests/core/types/errors/empty_type_field"
+  ; "tests/core/types/errors/written_arguments"
     (* Inference never produces a trait object; only a written type asks for one. *)
   ; "tests/core/traits/errors/inferred_trait_object"
   ; "tests/core/traits/errors/not_an_implementer"
+  ; "tests/core/traits/in_type/errors/declared_twice"
   ; "tests/core/traits/errors/object_needs_receiver"
   ; "tests/core/lambdas/errors/trailing_comma"
   ; "tests/core/embed/errors/missing"
@@ -839,6 +857,11 @@ let error_cases =
   ; "tests/effects/v2/errors/ambiguous_operation"
   ; "tests/effects/v2/errors/handler_method_takes_control"
   ; "tests/effects/v2/errors/split_in_loop"
+  ; "tests/effects/v2/errors/arm_body_error"
+  ; "tests/effects/v2/errors/arm_resumes_wrong_type"
+  ; "tests/effects/v2/errors/arm_unmarked_error"
+  ; "tests/effects/v2/errors/run_without_answer"
+  ; "tests/effects/v2/errors/handle_unwritten_arguments"
   ; "tests/core/records/errors/unimported_effect_in_field"
   ; "tests/core/records/errors/unknown_field_type"
   ; "tests/reflection/errors/generic_value"
@@ -948,6 +971,8 @@ let error_cases =
   ; "tests/core/traits/errors/impl_row_narrower"
   ; "tests/core/traits/errors/impl_row_wider"
   ; "tests/core/traits/errors/object_not_a_bound"
+  ; "tests/core/top_level/errors/each_statement"
+  ; "tests/core/top_level/errors/before_initializer"
   ]
 
 (* Accepted, then failing while running. Separate from [error_cases], which
@@ -955,6 +980,7 @@ let error_cases =
 let runtime_cases =
   [ "tests/core/collections/index_out_of_range"
   ; "tests/effects/v2/root/root_failure"
+  ; "tests/core/top_level/uncaught"
   ; "tests/core/slices/negative_index"
   ; "tests/core/builtins/chr_invalid"
   ; "tests/operators/negative_shift"
@@ -1303,14 +1329,14 @@ let renderings =
         Diagnostic.Type
         ~entry:"alpha.cx"
         ~path:"alpha.cx"
-        ~text:(Some "fn main() {\n  var x: int = \"hi\";\n}\n")
+        ~text:(Some "fn main() {\n  var x: Int = \"hi\";\n}\n")
         ~lo:27
         ~hi:31
-        "expected int, found string"
-    , "× Type error: expected int, found string\n\
+        "expected Int, found String"
+    , "× Type error: expected Int, found String\n\
       \  ┌─ alpha.cx:2:16\n\
       \  │\n\
-       2 │   var x: int = \"hi\";\n\
+       2 │   var x: Int = \"hi\";\n\
       \  │                ~~~~\n\
       \  └─\n" )
     (* The gutter widens with the line number, so the rules stay under it. *)
@@ -1442,7 +1468,7 @@ let run_prompt_flushed () =
 let run_prelude_walk () =
   let path = Filename.temp_file "prelude_walk" ".cx" in
   Out_channel.with_open_bin path (fun channel ->
-    output_string channel "var xs: List<int> = [1, 2];\nprint(xs.len() < 3);\n");
+    output_string channel "var xs: List<Int> = [1, 2];\nprint(xs.len() < 3);\n");
   let walked =
     match Pipeline.front ~roots:(Driver.roots_for path) ~out:(fun _ -> ()) path with
     | Ok processed -> Ok (Bootstrap.Printer.string_of_processed_program processed)

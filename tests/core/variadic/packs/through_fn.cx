@@ -1,13 +1,13 @@
 type Slot<...Args> {
-    tag: string,
-    use: (...Args) -> <Console> unit
+    tag: String,
+    use: (...Args) -> <Console> Unit
 }
 
-fn tag_of<...Args>(s: Slot<...Args>): string {
+fn tag_of<...Args>(s: Slot<...Args>): String {
     return s.tag;
 }
 
-fn add(a: int, b: int) {
+fn add(a: Int, b: Int) {
     print(a + b);
 }
 

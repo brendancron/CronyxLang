@@ -15,7 +15,7 @@ fn echo(conn: TcpStream) {
     conn.close();
 }
 
-fn ask(port: int, message: string): string {
+fn ask(port: Int, message: String): String {
     var conn = tcp_connect("127.0.0.1", port);
     conn.write(message.bytes());
     conn.shutdown_write();

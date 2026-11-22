@@ -1,6 +1,6 @@
 // The inner block handles one instantiation and the outer another, so which
 // handler catches a `yield` follows from what it was instantiated at.
-effect Yield<T> { ctl yield(v: T): unit; }
+effect Yield<T> { ctl yield(v: T): Unit; }
 
 run {
     run {

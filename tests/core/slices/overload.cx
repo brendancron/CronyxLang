@@ -1,11 +1,11 @@
 // Slicing is indexing by a range, so a type joins in by declaring the entry —
 // there is no separate slice operator to implement.
-type Ring { items: List<int> }
+type Ring { items: List<Int> }
 
 impl Index<Range> for Ring {
-    type Output = List<int>;
+    type Output = List<Int>;
 
-    fn get(self, r: Range): List<int> {
+    fn get(self, r: Range): List<Int> {
         return self.items[r];
     }
 }

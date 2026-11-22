@@ -1,1 +1,1 @@
-[2:12] No operator + for int and string: int does not implement Add<string>.
+[2:12] No operator + for Int and String: Int does not implement Add<String>.

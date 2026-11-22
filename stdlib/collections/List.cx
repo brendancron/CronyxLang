@@ -1,12 +1,12 @@
 /**
  * The growable list, which is what a list literal builds.
  *
- * `[1, 2, 3]` is a `List<int>` when that is what the annotation asks for -- the
+ * `[1, 2, 3]` is a `List<Int>` when that is what the annotation asks for -- the
  * literal is an array, and the type it is given says what to build from it, so
  * a `Set` or a `Map` literal is written the same way.
  *
  * ```
- * var names: List<string> = [];
+ * var names: List<String> = [];
  * names.push("ada");
  * names.push("grace");
  * print(names[0]);        // ada
@@ -25,7 +25,7 @@
  * ```
  * import { map, filter, fold, join } from "std/collections/List";
  *
- * var ns: List<int> = [1, 2, 3, 4];
+ * var ns: List<Int> = [1, 2, 3, 4];
  * print(fold(filter(ns, fn (n) { return n % 2 == 0; }), 0, fn (a, n) { return a + n; }));
  * ```
  */
@@ -39,7 +39,7 @@ type List<T> {
     items: Array<T>,
 
     /** How many of the array's slots hold a value. */
-    count: int
+    count: Int
 }
 
 impl FromArray<T> for List<T> {
@@ -49,12 +49,12 @@ impl FromArray<T> for List<T> {
     }
 }
 
-impl Index<int> for List<T> {
+impl Index<Int> for List<T> {
     /** An integer index finds one value. */
     type Output = T;
 
     /** The value at the index. */
-    fn get(self, at: int): T {
+    fn get(self, at: Int): T {
         if (at < 0 || at >= self.count) {
             return self.items[__past_end(self.items)];
         }
@@ -62,9 +62,9 @@ impl Index<int> for List<T> {
     }
 }
 
-impl IndexSet<int> for List<T> {
+impl IndexSet<Int> for List<T> {
     /** Puts the value at the index, and answers with it. */
-    fn set(self, at: int, v: T): T {
+    fn set(self, at: Int, v: T): T {
         if (at < 0 || at >= self.count) {
             return self.items[__past_end(self.items)];
         }
@@ -75,7 +75,7 @@ impl IndexSet<int> for List<T> {
 
 impl List<T> {
     /** How many values the list holds. */
-    fn len(self): int {
+    fn len(self): Int {
         return self.count;
     }
 
@@ -111,7 +111,7 @@ impl List<T> {
     }
 
     /** Whether any of the values is equal to this one. */
-    fn contains(self, v: T): bool {
+    fn contains(self, v: T): Bool {
         var i = 0;
         while (i < self.count) {
             if (self.items[i] == v) {
@@ -127,8 +127,8 @@ impl List<T> {
 // index — and it copies, because a view would need to say how long it lives.
 /** The values in order, each as `debug` writes it: `[1, 2, 3]`. */
 impl Debug for List<T> {
-    fn debug(self): string {
-        var parts: List<string> = ["["];
+    fn debug(self): String {
+        var parts: List<String> = ["["];
         var i = 0;
         while (i < self.count) {
             if (i > 0) { parts.push(", "); }
@@ -142,7 +142,7 @@ impl Debug for List<T> {
 
 /** As `Debug` writes it, so a list of strings shows each one quoted. */
 impl Display for List<T> {
-    fn fmt(self): string { return debug(self); }
+    fn fmt(self): String { return debug(self); }
 }
 
 impl Index<Range> for List<T> {
@@ -170,7 +170,7 @@ fn map<T, U, E>(items: List<T>, f: (T) -> <E> U): <E> List<U> {
 }
 
 /** A new list of the values the function accepts, in order. */
-fn filter<T, E>(items: List<T>, f: (T) -> <E> bool): <E> List<T> {
+fn filter<T, E>(items: List<T>, f: (T) -> <E> Bool): <E> List<T> {
     var out: List<T> = [];
     for (item in items) {
         if (f(item)) { out.push(item); }
@@ -191,7 +191,7 @@ fn fold<T, A, E>(items: List<T>, start: A, f: (A, T) -> <E> A): <E> A {
 }
 
 /** Whether the function accepts at least one value. False for an empty list. */
-fn any<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
+fn any<T, E>(items: List<T>, f: (T) -> <E> Bool): <E> Bool {
     for (item in items) {
         if (f(item)) { return true; }
     }
@@ -199,7 +199,7 @@ fn any<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
 }
 
 /** Whether the function accepts every value. True for an empty list. */
-fn all<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
+fn all<T, E>(items: List<T>, f: (T) -> <E> Bool): <E> Bool {
     for (item in items) {
         if (f(item)) {} else { return false; }
     }
@@ -207,7 +207,7 @@ fn all<T, E>(items: List<T>, f: (T) -> <E> bool): <E> bool {
 }
 
 /** The first value the function accepts, or `None` if it accepts none. */
-fn find<T>(items: List<T>, f: (T) -> bool): Option<T> {
+fn find<T>(items: List<T>, f: (T) -> Bool): Option<T> {
     for (item in items) {
         if (f(item)) { return Option.Some(item); }
     }
@@ -243,9 +243,9 @@ fn flat_map<T, U>(items: List<T>, f: (T) -> List<U>): List<U> {
 }
 
 /** The strings run together with the separator between each pair. */
-fn join(items: List<string>, separator: string): string {
+fn join(items: List<String>, separator: String): String {
     if (items.len() == 0) { return ""; }
-    var parts: List<string> = [items[0]];
+    var parts: List<String> = [items[0]];
     var at = 1;
     while (at < items.len()) {
         parts.push(separator);

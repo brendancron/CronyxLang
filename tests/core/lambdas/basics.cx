@@ -1,9 +1,9 @@
-fn apply(g: (int) -> int, v: int): int { return g(v); }
+fn apply(g: (Int) -> Int, v: Int): Int { return g(v); }
 
 print(apply((x) => x * 2, 21));
 print(apply((x) => { return x + 1; }, 41));
 
-var add = (a: int, b: int) => a + b;
+var add = (a, b) => a + b;
 print(add(2, 3));
 
 // The body sees what stood where the value was written.

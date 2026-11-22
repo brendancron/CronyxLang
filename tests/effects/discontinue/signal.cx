@@ -1,5 +1,5 @@
 var cleaned = false;
-var k: (int) -> string = (x) => {
+var k: (Int) -> String = (x) => {
     if (__is_discontinued(x)) {
         cleaned = true;
         return "none";

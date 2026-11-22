@@ -11,19 +11,19 @@ import { RegexAst, make, literal, concat, alt, star, plus, quest, dot, class, em
 
 // A node index and where the parse stopped. `no_node` is what a level returns
 // when it consumed nothing, which is how a term knows it is empty.
-fn no_node(): int { return 0 - 1; }
+fn no_node(): Int { return 0 - 1; }
 
 type ParseResult {
-    node: int,
-    pos: int
+    node: Int,
+    pos: Int
 }
 
-fn found(node: int, pos: int): ParseResult {
+fn found(node: Int, pos: Int): ParseResult {
     return ParseResult { node: node, pos: pos };
 }
 
-fn parse(pattern: string): RegexAst {
-    var cps: List<int> = [];
+fn parse(pattern: String): RegexAst {
+    var cps: List<Int> = [];
     for (c in pattern.chars()) { cps.push(ord(c)); }
     var ast = make();
     var parsed = parse_expr(ast, cps, 0);
@@ -31,7 +31,7 @@ fn parse(pattern: string): RegexAst {
     return ast;
 }
 
-fn parse_expr(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
+fn parse_expr(ast: RegexAst, cps: List<Int>, pos: Int): ParseResult {
     var left = parse_term(ast, cps, pos);
     var cur = left.pos;
     var node = left.node;
@@ -46,7 +46,7 @@ fn parse_expr(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
     return found(node, cur);
 }
 
-fn parse_term(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
+fn parse_term(ast: RegexAst, cps: List<Int>, pos: Int): ParseResult {
     var cur = pos;
     var node = no_node();
     var going = true;
@@ -67,7 +67,7 @@ fn parse_term(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
     return found(node, cur);
 }
 
-fn parse_factor(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
+fn parse_factor(ast: RegexAst, cps: List<Int>, pos: Int): ParseResult {
     var atom = parse_atom(ast, cps, pos);
     var cur = atom.pos;
     var node = atom.node;
@@ -82,7 +82,7 @@ fn parse_factor(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
     return found(node, cur);
 }
 
-fn parse_atom(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
+fn parse_atom(ast: RegexAst, cps: List<Int>, pos: Int): ParseResult {
     if (pos >= cps.len()) { return found(empty(ast), pos); }
 
     var c = cps[pos];
@@ -105,7 +105,7 @@ fn parse_atom(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
     return found(literal(ast, c), pos + 1);
 }
 
-fn parse_escape(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
+fn parse_escape(ast: RegexAst, cps: List<Int>, pos: Int): ParseResult {
     if (pos >= cps.len()) { return found(literal(ast, ord('\\')), pos); }
 
     var c = cps[pos];
@@ -117,7 +117,7 @@ fn parse_escape(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
         return found(class(ast, range(ord('0'), ord('9')), false), pos + 1);
     }
     if (c == ord('s')) {
-        var spaces: List<int> = [ord(' '), 9, 10, 13];
+        var spaces: List<Int> = [ord(' '), 9, 10, 13];
         return found(class(ast, spaces, false), pos + 1);
     }
     if (c == ord('w')) {
@@ -131,7 +131,7 @@ fn parse_escape(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
     return found(literal(ast, c), pos + 1);
 }
 
-fn parse_class(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
+fn parse_class(ast: RegexAst, cps: List<Int>, pos: Int): ParseResult {
     var cur = pos;
     var negated = false;
 
@@ -140,7 +140,7 @@ fn parse_class(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
         cur = cur + 1;
     }
 
-    var chars: List<int> = [];
+    var chars: List<Int> = [];
     while (cur < cps.len() && cps[cur] != ord(']')) {
         var c = cps[cur];
         if (c == ord('\\') && cur + 1 < cps.len()) {
@@ -159,13 +159,13 @@ fn parse_class(ast: RegexAst, cps: List<int>, pos: int): ParseResult {
     return found(class(ast, chars, negated), cur);
 }
 
-fn range(lo: int, hi: int): List<int> {
-    var out: List<int> = [];
+fn range(lo: Int, hi: Int): List<Int> {
+    var out: List<Int> = [];
     append_range(out, lo, hi);
     return out;
 }
 
-fn append_range(out: List<int>, lo: int, hi: int) {
+fn append_range(out: List<Int>, lo: Int, hi: Int) {
     var at = lo;
     while (at <= hi) {
         out.push(at);
@@ -173,7 +173,7 @@ fn append_range(out: List<int>, lo: int, hi: int) {
     }
 }
 
-fn unescape(c: int): int {
+fn unescape(c: Int): Int {
     if (c == ord('n')) { return 10; }
     if (c == ord('t')) { return 9; }
     if (c == ord('r')) { return 13; }

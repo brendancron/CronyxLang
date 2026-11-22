@@ -1,9 +1,9 @@
 type Mode { Fast, Safe, }
 
 type Runner<mode: Mode> {
-    steps: int,
+    steps: Int,
 
-    fn describe(self): string {
+    fn describe(self): String {
         if (mode == Mode.Fast) {
             return "fast " + str(self.steps);
         }

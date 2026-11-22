@@ -1,14 +1,14 @@
-trait Logic { @ctl fn choose(options: Array<int>): int; }
-trait Err { @ctl fn fail<T>(msg: string): T; }
+trait Logic { @ctl fn choose(options: Array<Int>): Int; }
+trait Err { @ctl fn fail<T>(msg: String): T; }
 
-fn pick(): <Logic, Err, Console> int {
+fn pick(): <Logic, Err, Console> Int {
     defer print("cleanup");
     var n = choose([1, 2]);
     if (n == 2) { return fail("second"); }
     return n;
 }
 
-run {
-    run { print(pick()); }
+run<Unit> {
+    run<Unit> { print(pick()); }
     handle<Err> { fn fail(m, resume) { print("caught " + str(m)); } }
 } handle<Logic> { fn choose(options, resume) { for (x in options) { resume(x); } } }

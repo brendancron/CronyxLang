@@ -88,15 +88,15 @@ type BinOp {
 
 type ExprKind {
     Unit,
-    Int(int),
-    Float(float),
-    Str(string),
-    Char(char),
-    Bool(bool),
+    Int(Int),
+    Float(Float),
+    Str(String),
+    Char(Char),
+    Bool(Bool),
     /** A name reflection handed out, standing as a value. */
     NameLit(Name),
     /** What `embed` read, as it was on disk. */
-    Bytes(Array<byte>),
+    Bytes(Array<Byte>),
 
     Var(Name),
     Assign(Name, Expr),
@@ -106,9 +106,9 @@ type ExprKind {
     Or(Expr, Expr),
     Call(Expr, List<Expr>),
     MethodCall(Expr, Name, List<Expr>),
-    /** `f<int, 3>(x)`. */
+    /** `f<Int, 3>(x)`. */
     StaticCall(Expr, List<StaticArg>, List<Expr>),
-    /** `f<int>`, named as a value. */
+    /** `f<Int>`, named as a value. */
     StaticRef(Expr, List<StaticArg>),
 
     /** `x += e`. */
@@ -119,7 +119,7 @@ type ExprKind {
     Index(Expr, Expr),
     IndexAssign(Expr, Expr, Expr),
     Tuple(List<Expr>),
-    TupleGet(Expr, int),
+    TupleGet(Expr, Int),
     /** `...args`, in an argument list. */
     Spread(Expr),
 
@@ -129,9 +129,9 @@ type ExprKind {
     FieldAssign(Expr, Name, Expr),
     /** `Point { x: 1, y: 2 }`. */
     New(Name, List<FieldInit>),
-    /** `Box<int>(x)`. */
+    /** `Box<Int>(x)`. */
     NewCall(Name, List<TypeExpr>, List<Expr>),
-    /** `new Box<int> { … }`. */
+    /** `new Box<Int> { … }`. */
     NewGeneric(Name, List<StaticArg>, List<FieldInit>),
     /** `Option.Some(x)`. */
     NewVariant(Name, Name, Args),
@@ -144,7 +144,7 @@ type ExprKind {
     Match(Expr, List<ValuedArm>),
 
     Typeof(Expr),
-    /** `declof(f)`, or `declof(f<int>)` with the key written. */
+    /** `declof(f)`, or `declof(f<Int>)` with the key written. */
     Declof(Expr, Option<List<StaticArg>>),
     /** `meta { … }` standing where a value is wanted. */
     Meta(List<Stmt>),
@@ -324,7 +324,7 @@ type AssocDecl {
     attrs: List<Attribute>
 }
 
-/** `type Item = int;` in an impl. */
+/** `type Item = Int;` in an impl. */
 type AssocDef {
     name: Name,
     ty: TypeExpr,
@@ -346,33 +346,33 @@ type HandlerClause {
 
 type Import {
     /** `import "geom";`. */
-    Qualified(string),
+    Qualified(String),
     /** `import "geom" as g;`. */
-    Aliased(string, Name),
+    Aliased(String, Name),
     /** `import { Point, origin } from "geom";`. */
-    Selective(List<Name>, string),
+    Selective(List<Name>, String),
     /** `import "geom/…";` with a star: everything the module declares. */
-    Wildcard(string)
+    Wildcard(String)
 }
 
 type Param {
     name: Name,
     ty: Option<TypeExpr>,
     /** A trailing lambda's parameter nobody wrote: `it`. */
-    implicit: bool
+    implicit: Bool
 }
 
 type StaticParam {
     name: Name,
     ty: Option<TypeExpr>,
     /** Collects the rest of the written arguments. */
-    pack: bool
+    pack: Bool
 }
 
 type TypeParam {
     name: Name,
-    pack: bool,
-    /** `n: int`: a value the type is instantiated at. */
+    pack: Bool,
+    /** `n: Int`: a value the type is instantiated at. */
     ty: Option<TypeExpr>
 }
 
@@ -412,7 +412,7 @@ type TypeKind {
     Assoc(TypeExpr, Name),
     /** `Output = T`, in a bound. */
     Bind(Name, TypeExpr),
-    /** `<async, E>` where a type's parameter stands in a row. */
+    /** `<Async, E>` where a type's parameter stands in a row. */
     Row(List<Applied>)
 }
 
@@ -429,9 +429,9 @@ type Operation {
     /** The method, as a handler writes it. */
     name: Name,
     /** Marked `@ctl`: it is handed the rest of its caller. */
-    takes_control: bool,
+    takes_control: Bool,
     /** How many arguments a call to it writes: a call handed its continuation has more. */
-    arity: int
+    arity: Int
 }
 
 /** The operation `callee` names, if it names one. */
@@ -470,10 +470,10 @@ fn operations(label: Name): List<Operation> { return __operations(label); }
 fn method_row(t: Name, method: Name): Array<Name> { return __method_row(t, method); }
 
 /** Whether the effect `label` has an operation that takes control. */
-fn controls(label: Name): bool { return __controls(label); }
+fn controls(label: Name): Bool { return __controls(label); }
 
 /** Whether `callee` names a function the program declares, rather than a value. */
-fn names_function(callee: Expr): bool {
+fn names_function(callee: Expr): Bool {
     match callee.kind {
         ExprKind.Var(n) => { return __names_function(n); }
         _ => { return false; }
@@ -498,7 +498,7 @@ fn arms_row(): List<Applied> { return __arms_row(); }
 fn processed_fn(d: Decl): Decl { return __processed_fn(d); }
 
 /** A name no program can write and no other `fresh` hands out, shown as `prefix`. */
-fn fresh(prefix: string): Name { return __fresh_name(prefix); }
+fn fresh(prefix: String): Name { return __fresh_name(prefix); }
 
 /** The function a callee of processed code reaches: the instance its type settles. */
 fn declof_call(callee: Expr): Decl {
@@ -507,6 +507,9 @@ fn declof_call(callee: Expr): Decl {
         _ => { return compile_error(callee.span, "Only a named function has a declaration."); }
     }
 }
+
+/** The method `method` of the named handler a bound run calls `handler`, as its impl writes it. */
+fn named_method(handler: Name, method: Name): Option<Decl> { return __named_method(handler, method); }
 
 /** A name for the instance a callee of processed code reaches, the same for every callee reaching it. */
 fn instance_of(callee: Expr): Name {

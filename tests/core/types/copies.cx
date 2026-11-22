@@ -1,0 +1,38 @@
+type Box<T> { v: T }
+type Tree<T> { Leaf(T), Node(List<Tree<T>>) }
+type Job<T, E> { go: () -> <E> T }
+
+impl Display for Box<T> {
+    fn fmt(self): String { return "Box(" + str(self.v) + ")"; }
+}
+
+fn unbox<T>(b: Box<T>): T { return b.v; }
+
+fn total(t: Tree<Int>): Int {
+    match t {
+        Tree.Leaf(n) => { return n; }
+        Tree.Node(children) => {
+            var sum = 0;
+            for (c in children) { sum += total(c); }
+            return sum;
+        }
+    }
+}
+
+var a = Box { v: 1 };
+var b = Box { v: "two" };
+var c = Box { v: Box { v: 3.5 } };
+print(a);
+print(b);
+print(c);
+print(unbox(a) + 1);
+print(unbox(unbox(c)));
+print(typeof(c).name);
+print(total(Tree.Node([Tree.Leaf(1), Tree.Node([Tree.Leaf(2), Tree.Leaf(3)])])));
+var names: Tree<String> = Tree.Leaf("x");
+match names {
+    Tree.Leaf(s) => { print(s); }
+    _ => {}
+}
+var t = Job { go: () => { print("ran"); return 4; } };
+print(t.go());

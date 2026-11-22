@@ -146,7 +146,7 @@ let rec type_expr s : Ast.type_expr =
         let member = consume_identifier s "Expected an associated type name after '.'." in
         let sp = Source_map.Span.join sp (Ast.span_of_token (previous s)) in
         match owner.Ast.it with
-        (* `geom.Box<int>`: an associated type takes no arguments, so this is a
+        (* `geom.Box<Int>`: an associated type takes no arguments, so this is a
            type read out of a module. *)
         | Ast.Ty_name namespace when check s Token.Less ->
           ignore (advance s);
@@ -346,7 +346,7 @@ and bit_xor s : Ast.expr = binary_level s [ Token.Caret ] bit_and
 and bit_and s : Ast.expr = binary_level s [ Token.Amp ] shift
 
 (* `<<` and `>>` are two tokens written touching, because `>>` is also the end
-   of `List<List<int>>`, and only the parser knows which it is reading. *)
+   of `List<List<Int>>`, and only the parser knows which it is reading. *)
 and shift s : Ast.expr =
   let touching (a : Token.token) (b : Token.token) =
     match Source_map.Span.view a.Token.span, Source_map.Span.view b.Token.span with
@@ -507,7 +507,7 @@ and type_path s (callee : Ast.expr) =
   | `Field ({ Ast.it = `Var m; _ }, ty) -> m ^ "." ^ ty
   | _ -> raise (error s (peek s) "Expected a type name before the fields.")
 
-(* `f<int>(x)` and `a < b > (c)` are the same shape, so this is accepted only
+(* `f<Int>(x)` and `a < b > (c)` are the same shape, so this is accepted only
    when a call or fields follow, or what follows ends the expression, which no
    comparison can; position and errors are put back otherwise. *)
 and static_arguments ?(operand = false) s : Ast.expr Ast.static_arg list option =
@@ -665,7 +665,7 @@ and record_fields s : (string * Ast.expr) list =
   ignore (consume s Token.Right_brace "Expected '}' after fields.");
   fields
 
-(* Slicing is indexing by a `Range` rather than an `int`, and which entry that
+(* Slicing is indexing by a `Range` rather than an `Int`, and which entry that
    reaches is the type's business. Either bound may be left out. *)
 and index_or_range s : Ast.expr =
   let sp = Ast.span_of_token (peek s) in
@@ -966,7 +966,7 @@ and type_arguments s : Ast.type_expr list =
     args
 
 (* [packs] are the names the enclosing `<>` declared as packs, so `...Args`
-   collects into the tuple the pack stands for while `...int` collects into an
+   collects into the tuple the pack stands for while `...Int` collects into an
    array. *)
 and parameters ?(packs = []) s : Ast.param list =
   (* Each is kept with the token it started at, so a parameter that should not
@@ -1401,7 +1401,25 @@ and attribute_arg s =
 and type_decl s sp : Ast.stmt =
   let name = consume_identifier s "Expected a type name." in
   let params = declared_type_params s in
-  if Option.is_some (matches s [ Token.Semicolon ])
+  (* Each trait named stands among the members as an impl with no methods,
+     until [Metaprocess.implemented_in_types] hands each its own. *)
+  let implemented =
+    match matches s [ Token.Impl ] with
+    | None -> []
+    | Some _ ->
+      let rec traits acc =
+        let at = Ast.span_of_token (peek s) in
+        let trait = consume_identifier s "Expected a trait name after 'impl'." in
+        let args = type_arguments s in
+        let acc =
+          Ast.at at (`Impl_decl (Some (trait, args), name, params, { Ast.ib_assoc = []; ib_methods = [] }))
+          :: acc
+        in
+        if Option.is_some (matches s [ Token.Comma ]) then traits acc else List.rev acc
+      in
+      traits []
+  in
+  if implemented = [] && Option.is_some (matches s [ Token.Semicolon ])
   then Ast.at sp (`Type_decl (name, params, Ast.T_fields []))
   else (
   ignore (consume s Token.Left_brace "Expected '{' after type name.");
@@ -1448,7 +1466,7 @@ and type_decl s sp : Ast.stmt =
             Ast.P_fields fields
           | _ -> Ast.P_none
         in
-        (* `-> Expr<int>` says what this constructor builds, rather than the
+        (* `-> Expr<Int>` says what this constructor builds, rather than the
            type applied to its own parameters. *)
         let result =
           match matches s [ Token.Arrow ] with
@@ -1479,7 +1497,7 @@ and type_decl s sp : Ast.stmt =
   ignore (consume s Token.Right_brace "Expected '}' after type body.");
   let body = if variants <> [] then Ast.T_variants variants else Ast.T_fields fields in
   let decl = Ast.at sp (`Type_decl (name, params, body)) in
-  match members with
+  match implemented @ members with
   | [] -> decl
   | members -> Ast.at sp (`Type_members (decl, members)))
 
@@ -1555,13 +1573,15 @@ and valued_block s : (Ast.expr, Ast.stmt) Ast.valued_block =
 and run_expr s sp : Ast.expr =
   let ret =
     match matches s [ Token.Less ] with
-    | None -> None
+    | None ->
+      ignore (error s (peek s) "Expected '<' after 'run': a run writes the type it answers, as in 'run<Unit> { … }'.");
+      None
     | Some _ ->
       let t = type_expr s in
       ignore (consume s Token.Greater "Expected '>' after the run's type.");
       Some t
   in
-  ignore (consume s Token.Left_brace "Expected '{' after 'run'.");
+  ignore (consume s Token.Left_brace "Expected '{' after 'run<…>'.");
   let body = valued_block s in
   let handlers = handler_clauses s in
   Ast.at sp (`Run_expr (ret, body, handlers))

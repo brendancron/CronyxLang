@@ -1,15 +1,15 @@
 type Person {
     @rename("full name")
-    name: string,
+    name: String,
 
     @skip
-    password: string,
+    password: String,
 
-    age: int,
+    age: Int,
 }
 
 trait Show {
-    fn show(self): string;
+    fn show(self): String;
 }
 
 fn derive(shape: TypeShape) for Show {
@@ -41,7 +41,7 @@ fn derive(shape: TypeShape) for Show {
                 }
             }
             gen impl Show for t {
-                fn show(self): string { return text; }
+                fn show(self): String { return text; }
             }
         }
         _ => {}

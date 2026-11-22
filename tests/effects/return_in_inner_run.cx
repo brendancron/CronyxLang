@@ -1,10 +1,10 @@
 // A `run` whose handler needs no continuation still has a body that might: the
 // `return` here leaves `f`, which by then is a converted function, so it has to
 // reach that function's continuation rather than the block's.
-effect E { ctl ask(): int; }
-effect Log { fn note(): unit; }
+effect E { ctl ask(): Int; }
+effect Log { fn note(): Unit; }
 
-fn f(): <E, Console> int {
+fn f(): <E, Console> Int {
     run {
         note();
         return 1;

@@ -1,13 +1,13 @@
 type Config {
-    name: string,
-    port: int,
-    tags: List<string>,
-    limit: Option<int>,
-    verbose: bool,
-    retry: (int) -> int
+    name: String,
+    port: Int,
+    tags: List<String>,
+    limit: Option<Int>,
+    verbose: Bool,
+    retry: (Int) -> Int
 }
 
-type Box<T> { value: T, count: int }
+type Box<T> { value: T, count: Int }
 
 fn show(shape: TypeShape) {
     match shape {

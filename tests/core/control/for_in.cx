@@ -5,7 +5,7 @@ for (n in xs) {
 }
 print(total);
 
-var names: List<string> = ["alice", "bob"];
+var names: List<String> = ["alice", "bob"];
 for (name in names) {
     print(name);
 }
@@ -21,7 +21,7 @@ for (row in [[1, 2], [3]]) {
 }
 
 var calls = 0;
-fn source(): Array<int> {
+fn source(): Array<Int> {
     calls = calls + 1;
     return [7, 8];
 }

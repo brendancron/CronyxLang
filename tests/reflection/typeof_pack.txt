@@ -1,6 +1,6 @@
-Slot<int, string>
+Slot<Int, String>
 Slot<>
-(int, string) -> <Console> unit
-() -> <Console> unit
-(int, string)
-unit
+(Int, String) -> <Console> Unit
+() -> <Console> Unit
+(Int, String)
+Unit

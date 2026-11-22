@@ -1,17 +1,17 @@
 // `&&` and `||` do not evaluate their right operand unconditionally, so an
 // operation there suspends only on the branch that reaches it: `short` performs
 // nothing at all.
-effect Ask { ctl get(): bool; }
+effect Ask { ctl get(): Bool; }
 
-fn any(): <Ask> bool {
+fn any(): <Ask> Bool {
     return false || get();
 }
 
-fn both(): <Ask> bool {
+fn both(): <Ask> Bool {
     return true && get();
 }
 
-fn short(): <Ask> bool {
+fn short(): <Ask> Bool {
     return true || get();
 }
 

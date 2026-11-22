@@ -1,10 +1,10 @@
 // Two aborting handlers, one inside the other. An unwind stops at the handler
 // that raised it, not at whatever block happens to stand in between: `stop` is
 // the inner block's, `halt` passes straight through it.
-effect Inner { final ctl stop(): int; }
-effect Outer { final ctl halt(): int; }
+effect Inner { final ctl stop(): Int; }
+effect Outer { final ctl halt(): Int; }
 
-fn f(which: bool): <Outer, Console> unit {
+fn f(which: Bool): <Outer, Console> Unit {
     run {
         if (which) { stop(); } else { halt(); }
         print("body done");

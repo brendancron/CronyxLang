@@ -1,2 +1,2 @@
-Box<string>
+Box<String>
 held

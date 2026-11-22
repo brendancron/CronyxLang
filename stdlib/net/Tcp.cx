@@ -16,7 +16,7 @@
  * `using` work on a connection as they do on a file.
  */
 
-import { async } from "../async/Task";
+import { Async } from "../async/Task";
 import { Throw, Result } from "../core/Error";
 import { Reader, Writer, Closer, IoError } from "../io/Io";
 import { Net, __thrown, __would_block, __failure, __ready, __where, __lookup_on_system } from "Net";
@@ -24,40 +24,40 @@ import { Net, __thrown, __would_block, __failure, __ready, __where, __lookup_on_
 /** A connection: bytes each way, closed with `using`. */
 trait TcpStream: Reader, Writer, Closer<IoError> {
     /** The address and port at the other end. */
-    fn peer(self): string;
+    fn peer(self): String;
 
     /** Says there is no more to write, which the peer reads as the end of the stream. Reading goes on. */
-    fn shutdown_write(self): <async, Throw<IoError>> unit;
+    fn shutdown_write(self): <Async, Throw<IoError>> Unit;
 }
 
 /** A port connections arrive at. */
 trait TcpListener: Closer<IoError> {
     /** The next connection, once one arrives. */
-    fn accept(self): <async, Throw<IoError>> TcpStream;
+    fn accept(self): <Async, Throw<IoError>> TcpStream;
 
     /** The port it listens on, which the system chose if it was asked for 0. */
-    fn local_port(self): int;
+    fn local_port(self): Int;
 }
 
 /** A connection to the host, trying each of its addresses in turn. */
-fn tcp_connect(host: string, port: int): <Net, Throw<IoError>> TcpStream {
+fn tcp_connect(host: String, port: Int): <Net, Throw<IoError>> TcpStream {
     return __thrown(connect(host, port));
 }
 
 /** Listening at the address. Port 0 lets the system choose; `local_port` says which it did. */
-fn tcp_listen(host: string, port: int): <Net, Throw<IoError>> TcpListener {
+fn tcp_listen(host: String, port: Int): <Net, Throw<IoError>> TcpListener {
     return __thrown(listen(host, port));
 }
 
 // ---- sockets the system opens, which the root hands out ----
 
 type OsStream {
-    id: int,
-    address: string
+    id: Int,
+    address: String
 }
 
 impl Reader for OsStream {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         while (true) {
             var (status, data, message) = __net_read(self.id, max);
             if (status == 0) {
@@ -72,7 +72,7 @@ impl Reader for OsStream {
 }
 
 impl Writer for OsStream {
-    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+    fn write(self, data: Array<Byte>): <Async, Throw<IoError>> Unit {
         var rest = data;
         while (rest.len() > 0) {
             var (status, written, message) = __net_write(self.id, rest);
@@ -87,35 +87,35 @@ impl Writer for OsStream {
 }
 
 impl Closer<IoError> for OsStream {
-    fn close(self): <async, Throw<IoError>> unit {
+    fn close(self): <Async, Throw<IoError>> Unit {
         var (status, message) = __net_close(self.id);
         if (status != 0) { throw(__failure(status, self.address, message)); }
     }
 }
 
 impl TcpStream for OsStream {
-    fn peer(self): string { return __net_peer(self.id); }
+    fn peer(self): String { return __net_peer(self.id); }
 
-    fn shutdown_write(self): <async, Throw<IoError>> unit {
+    fn shutdown_write(self): <Async, Throw<IoError>> Unit {
         var (status, message) = __net_shutdown_write(self.id);
         if (status != 0) { throw(__failure(status, self.address, message)); }
     }
 }
 
 type OsListener {
-    id: int,
-    address: string
+    id: Int,
+    address: String
 }
 
 impl Closer<IoError> for OsListener {
-    fn close(self): <async, Throw<IoError>> unit {
+    fn close(self): <Async, Throw<IoError>> Unit {
         var (status, message) = __net_close(self.id);
         if (status != 0) { throw(__failure(status, self.address, message)); }
     }
 }
 
 impl TcpListener for OsListener {
-    fn accept(self): <async, Throw<IoError>> TcpStream {
+    fn accept(self): <Async, Throw<IoError>> TcpStream {
         while (true) {
             var (status, id, message) = __net_accept(self.id);
             if (status == 0) {
@@ -128,7 +128,7 @@ impl TcpListener for OsListener {
         return throw(IoError.Other("unreachable"));
     }
 
-    fn local_port(self): int { return __net_local_port(self.id); }
+    fn local_port(self): Int { return __net_local_port(self.id); }
 }
 
 /**
@@ -136,7 +136,7 @@ impl TcpListener for OsListener {
  * name that stands for an IPv6 address nothing listens on still reaches the
  * IPv4 one that does. The last failure is the one reported.
  */
-fn __connect_on_system(host: string, port: int): <async> Result<TcpStream, IoError> {
+fn __connect_on_system(host: String, port: Int): <Async> Result<TcpStream, IoError> {
     var failure = IoError.NotFound(host);
     match __lookup_on_system(host) {
         Result.Err(e) => { return Result.Err(e); }
@@ -163,7 +163,7 @@ fn __connect_on_system(host: string, port: int): <async> Result<TcpStream, IoErr
 }
 
 /** How the root answers `listen`: at the host's first address. */
-fn __listen_on_system(host: string, port: int): Result<TcpListener, IoError> {
+fn __listen_on_system(host: String, port: Int): Result<TcpListener, IoError> {
     match __lookup_on_system(host) {
         Result.Err(e) => { return Result.Err(e); }
         Result.Ok(addresses) => {

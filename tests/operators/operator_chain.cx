@@ -1,6 +1,6 @@
 type Vec2 {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 impl Add<Vec2> for Vec2 {

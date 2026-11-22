@@ -1,24 +1,24 @@
 trait Log {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
 trait Ask {
-    fn ask(): int;
+    fn ask(): Int;
 }
 
-fn countdown(n: int): unit {
+fn countdown(n: Int): Unit {
     if (n == 0) { return; }
     log("at " + str(n));
     countdown(n - 1);
 }
 
-fn total(): int {
+fn total(): Int {
     return ask() + ask();
 }
 
-fn nested(prefix: string): int {
+fn nested(prefix: String): Int {
     var seen = 0;
-    var r = run<int> {
+    var r = run<Int> {
         log("inner start");
         total()
     } handle<Ask> {
@@ -31,8 +31,8 @@ fn nested(prefix: string): int {
     return r;
 }
 
-var lines: List<string> = [];
-run {
+var lines: List<String> = [];
+run<Unit> {
     countdown(2);
     print(nested("p"));
 } handle<Log> {
@@ -40,7 +40,7 @@ run {
 }
 for (l in lines) { print(l); }
 
-var v = run<int> {
+var v = run<Int> {
     ask() * 2
 } handle<Ask> {
     fn ask() { return 21; }
@@ -49,11 +49,11 @@ print(v);
 
 type Outer {}
 impl Log for Outer {
-    fn log(msg: string): unit { print("outer: " + msg); }
+    fn log(msg: String): Unit { print("outer: " + msg); }
 }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         log("hi");
     } handle<Log> {
         fn log(msg) { log("relayed " + msg); }

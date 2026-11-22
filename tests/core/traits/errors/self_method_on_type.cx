@@ -1,7 +1,7 @@
 type Cat;
 
 impl Cat {
-    fn name(self): string { return "Cat"; }
+    fn name(self): String { return "Cat"; }
 }
 
 print(Cat.name());

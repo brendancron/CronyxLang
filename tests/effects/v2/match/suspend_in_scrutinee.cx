@@ -2,14 +2,14 @@ type C { A, B }
 
 trait Ask { @ctl fn pick(): C; }
 
-fn choose(): <Ask> int {
+fn choose(): <Ask> Int {
     match pick() {
         C.A => { return 1; }
         C.B => { return 2; }
     }
 }
 
-run {
+run<Unit> {
     print(choose());
 } handle<Ask> {
     fn pick(resume) {

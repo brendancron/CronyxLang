@@ -1,4 +1,4 @@
-fn f<a: int>() {
+fn f<a: Int>() {
     meta print("f<" + str(a) + ">()");
     print(a);
 }

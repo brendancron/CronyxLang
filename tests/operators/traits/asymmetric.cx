@@ -1,6 +1,6 @@
-type Vec2 { x: int, y: int }
+type Vec2 { x: Int, y: Int }
 
-impl Mul<Vec2> for int {
+impl Mul<Vec2> for Int {
     type Output = Vec2;
 
     fn mul(self, rhs: Vec2): Vec2 {

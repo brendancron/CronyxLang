@@ -1,8 +1,8 @@
 // A `final ctl` needs no continuation, only a way out, so it reaches places a
 // resuming handler cannot: inside a loop, and inside a function value.
-effect Error { final ctl throw(msg: string); }
+effect Error { final ctl throw(msg: String); }
 
-fn sum_positive(items: Array<int>): int {
+fn sum_positive(items: Array<Int>): Int {
     var total = 0;
     for (v in items) {
         if (v < 0) { return throw("negative"); }
@@ -11,7 +11,7 @@ fn sum_positive(items: Array<int>): int {
     return total;
 }
 
-fn apply(g: (int) -> <Error> int, v: int): <Error> int { return g(v); }
+fn apply(g: (Int) -> <Error> Int, v: Int): <Error> Int { return g(v); }
 
 run { print(sum_positive([1, 2, 3])); } handle Error {
     final ctl throw(m) { print("caught: " + m); }

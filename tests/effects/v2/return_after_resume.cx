@@ -1,9 +1,9 @@
 trait Ask {
-    @ctl fn ask(): int;
+    @ctl fn ask(): Int;
 }
 
-fn first(): int {
-    run {
+fn first(): Int {
+    run<Unit> {
         var n = ask();
         return n;
     } handle<Ask> {

@@ -1,12 +1,12 @@
 // Two operations of one effect are one entry: what a row records is what
 // has to be handled.
 
-effect io {
-    ctl emit(val: int): unit;
-    ctl request(): int;
+effect Io {
+    ctl emit(val: Int): Unit;
+    ctl request(): Int;
 }
 
-fn ping_pong(n: int) {
+fn ping_pong(n: Int) {
     emit(n);
     var r = request();
     emit(r);

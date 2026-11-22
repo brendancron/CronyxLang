@@ -1,19 +1,19 @@
-trait parse_error {
-    @ctl fn invalid(input: string): int;
+trait ParseError {
+    @ctl fn invalid(input: String): Int;
 }
 
-fn parse_int(str: string): int {
+fn parse_int(str: String): Int {
     if (str == "10") {
         return 10;
     }
     return invalid(str);
 }
 
-run {
+run<Unit> {
     print(parse_int("10"));
     print(parse_int("apple"));
     print("recovered");
-} handle<parse_error> {
+} handle<ParseError> {
     fn invalid(input, resume) {
         print("Parse error, invalid string: " + input);
         resume(-1);

@@ -2,9 +2,9 @@ import { Expr, Stmt } from "std/compiler/Ast";
 
 fn two(): Expr { return code(2); }
 
-fn literal<n: int>(): Expr { return code(n); }
+fn literal<n: Int>(): Expr { return code(n); }
 
-fn greetings(name: string): List<Stmt> {
+fn greetings(name: String): List<Stmt> {
     return code {
         print("hello " + name);
         print("bye " + name);

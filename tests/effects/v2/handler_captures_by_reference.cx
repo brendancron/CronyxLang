@@ -1,15 +1,15 @@
 trait Log {
-    fn log(msg: string): unit;
+    fn log(msg: String): Unit;
 }
 
-fn greet(name: string) {
+fn greet(name: String) {
     log("hello " + name);
 }
 
-var out: List<string> = [];
+var out: List<String> = [];
 var count = 0;
 
-run {
+run<Unit> {
     greet("ada");
     greet("bob");
 } handle<Log> {

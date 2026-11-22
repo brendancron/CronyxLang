@@ -1,1 +1,1 @@
-var b: byte = 'a';
+var b: Byte = 'a';

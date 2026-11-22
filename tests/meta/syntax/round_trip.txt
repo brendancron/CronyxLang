@@ -1,11 +1,11 @@
 trait Ask {
-    @ctl fn ask(): int;
-    @ctl fn fail<T>(why: string): T;
-    fn log(msg: string): unit;
+    @ctl fn ask(): Int;
+    @ctl fn fail<T>(why: String): T;
+    fn log(msg: String): Unit;
 }
 
 trait EffectHandler<E, R> {
-    fn name(): string;
+    fn name(): String;
     meta {
         match declof(E).kind {
             _ => {
@@ -15,24 +15,24 @@ trait EffectHandler<E, R> {
     }
 }
 
-fn uses(): int {
+fn uses(): Int {
     var plain = declof(greet);
-    var keyed = declof(util.pick<int, 3>);
-    var named = pick<int>;
+    var keyed = declof(util.pick<Int, 3>);
+    var named = pick<Int>;
     var three = meta { gen
     code((1 + 2)); };
-    var ret = run<string> { var n = ask(); "hehe" } handle<Ask> { fn ask(resume) {
+    var ret = run<String> { var n = ask(); "hehe" } handle<Ask> { fn ask(resume) {
     var res = resume(5);
     return "complete";
 }
 };
     run {
         choose([1, 2]);
-    } handle<Effect<int>> {
+    } handle<Effect<Int>> {
         fn log(msg) {
             print(msg);
         }
-        fn choose(options, k): unit {
+        fn choose(options, k): Unit {
             discontinue(k);
         }
     } with Picker;

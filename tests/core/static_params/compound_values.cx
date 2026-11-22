@@ -1,7 +1,7 @@
-type Shape { Circle(int), Rect { w: int, h: int }, Dot, }
-type P { x: int, y: int, }
+type Shape { Circle(Int), Rect { w: Int, h: Int }, Dot, }
+type P { x: Int, y: Int, }
 
-fn area<s: Shape>(): int {
+fn area<s: Shape>(): Int {
     return match (s) {
         Shape.Circle(r) => 3 * r * r,
         Shape.Rect { w, h } => w * h,
@@ -9,24 +9,24 @@ fn area<s: Shape>(): int {
     };
 }
 
-fn sum<p: P>(): int {
+fn sum<p: P>(): Int {
     meta print("sum<" + str(p.x) + ", " + str(p.y) + ">");
     return p.x + p.y;
 }
 
-fn scaled<k: int>(): int {
+fn scaled<k: Int>(): Int {
     return k;
 }
 
-fn projected<p: P>(): int {
+fn projected<p: P>(): Int {
     return scaled<p.x * 10>();
 }
 
-fn joined<t: (int, string)>(): string {
+fn joined<t: (Int, String)>(): String {
     return str(t.0) + t.1;
 }
 
-fn total<xs: Array<int>>(): int {
+fn total<xs: Array<Int>>(): Int {
     var n = 0;
     for (x in xs) {
         n = n + x;
