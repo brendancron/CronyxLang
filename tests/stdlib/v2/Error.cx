@@ -1,0 +1,30 @@
+import { To } from "std/ops/To";
+
+trait Throw<X> {
+    @ctl fn throw<T>(err: X): T;
+}
+
+type Result<T, X> {
+    Ok(T),
+    Err(X)
+}
+
+fn attempt<X, T, E>(f: () -> <Throw<X>, E> T): <E> Result<T, X> {
+    var outcome: Option<Result<T, X>> = Option.None;
+    run {
+        outcome = Option.Some(Result.Ok(f()));
+    } handle<Throw> {
+        fn throw(e, resume) { outcome = Option.Some(Result.Err(e)); }
+    }
+    match outcome {
+        Option.Some(r) => { return r; }
+        Option.None => { panic("attempt: neither a value nor a failure"); }
+    }
+}
+
+fn rethrow<X: To<Y>, Y, T, E>(f: () -> <Throw<X>, E> T): <Throw<Y>, E> T {
+    match attempt(f) {
+        Result.Ok(value) => { return value; }
+        Result.Err(e) => { return throw(e.to()); }
+    }
+}

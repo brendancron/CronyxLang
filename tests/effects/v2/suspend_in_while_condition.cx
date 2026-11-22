@@ -1,0 +1,19 @@
+trait Ask { @ctl fn next(): int; }
+
+var count = 3;
+
+fn drain(): <Ask, Console> unit {
+    while (next() > 0) {
+        print("tick");
+    }
+}
+
+run {
+    drain();
+} handle<Ask> {
+    fn next(resume) {
+        count = count - 1;
+        resume(count);
+        print("h");
+    }
+}

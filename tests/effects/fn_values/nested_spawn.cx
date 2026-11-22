@@ -5,7 +5,7 @@ effect sched {
 
 var queue: List<() -> <Console> unit> = [];
 
-fn run_one(task: () -> <sched, Console> unit) {
+fn run_one(task: () -> <sched, Console> unit): unit {
     run {
         task();
     } handle sched {

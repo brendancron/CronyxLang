@@ -1,0 +1,11 @@
+trait Ask {
+    @ctl fn ask(): int;
+}
+
+run {
+    for (c in "ab") {
+        print(str(c) + str(ask()));
+    }
+} handle<Ask> {
+    fn ask(resume) { resume(1); }
+}

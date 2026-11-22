@@ -1,0 +1,3 @@
+trait Error { @ctl fn throw<T>(msg: string): T; }
+fn f(): int { return throw("x"); }
+run { print(f()); } handle<Error> { fn throw(msg, resume) { resume(0); } }

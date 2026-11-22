@@ -1,0 +1,14 @@
+fn doubled(n: int): int {
+    return n * 2;
+}
+
+fn shared(n: int): int {
+    return n + 1;
+}
+
+meta {
+    print(doubled(21));
+    print(shared(1));
+}
+
+print(shared(2));

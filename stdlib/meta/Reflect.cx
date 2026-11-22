@@ -133,6 +133,27 @@ type TypeShape {
 }
 
 /**
+ * A type as a whole, which is what a bare `typeof` answers with. `doc` is the
+ * text of a doc comment, empty where there is none.
+ */
+type Type {
+    /** As a program writes it: `int`, `List<string>`. */
+    name: string,
+
+    shape: TypeShape,
+
+    /** Its attributes, with the doc comment not among them. */
+    attrs: Array<Attr>,
+
+    doc: string
+}
+
+/** A type is written as its name. */
+impl Display for Type {
+    fn fmt(self): string { return self.name; }
+}
+
+/**
  * What a module declares, which is what `moduleof` answers with.
  *
  * ```
@@ -184,6 +205,4 @@ type DeclarationKind {
     Function,
     Type,
     Trait,
-    Effect,
-    Handler,
 }

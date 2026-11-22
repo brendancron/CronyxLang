@@ -1,0 +1,5 @@
+A starts
+B starts
+A ends
+won
+B ends

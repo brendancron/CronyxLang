@@ -1,6 +1,5 @@
-(* Desugar through Verify. Metaprocessing calls this on each block and the
-   driver on the whole program, so the pass order lives here and nowhere
-   else. *)
+(* The passes after metaprocessing, in their order. The walk leaves a program,
+   or a meta block, checked and resolved, and [back] takes it from there. *)
 
 let ( let* ) = Result.bind
 
@@ -55,57 +54,37 @@ let under_root (p : Ast.program) : Ast.program =
           | None -> Ast.at s.Ast.span (`Expr (under s.Ast.span [ s ]))))
       p
 
-let program ?(on_types = fun _ -> ()) (source : Ast.program)
-  : (Ast.cps_stmt list, Diagnostic.error list) result
-  =
-  let* desugared =
-    match Desugar.program (under_root source) with
-    | Ok desugared -> Ok desugared
-    | Error e -> Diagnostic.one Diagnostic.Desugar e.Desugar.span e.Desugar.message
-  in
-  let registry = Registry.builtins () in
-  let* typed =
-    match Typecheck.check ~registry desugared with
-    | Ok typed -> Ok typed
-    | Error [] ->
-      Diagnostic.one Diagnostic.Type Source_map.Span.nowhere "This does not check."
-    | Error errors ->
-      Error
-        (List.map
-           (fun (e : Typecheck.error) -> Diagnostic.at Diagnostic.Type e.Typecheck.span e.Typecheck.message)
-           errors)
-  in
-  on_types typed;
-  let* specialized =
-    match Type_mono.program ~registry typed with
-    | specialized -> Ok specialized
-    | exception Type_mono.Failed e ->
-      Diagnostic.one Diagnostic.Type_mono e.Type_mono.span e.Type_mono.message
-  in
-  let* resolved =
-    match Resolve.program ~registry specialized with
-    | Ok resolved -> Ok resolved
-    | Error e -> Diagnostic.one Diagnostic.Resolve e.Resolve.span e.Resolve.message
-  in
-  let* reflected =
-    match Reflect.program resolved with
-    | Ok reflected -> Ok reflected
-    | Error e -> Diagnostic.one Diagnostic.Reflect e.Reflect.span e.Reflect.message
-  in
-  let* converted =
-    match Cps.program reflected with
-    | Ok converted -> Ok converted
-    | Error e -> Diagnostic.one Diagnostic.Cps e.Cps.span e.Cps.message
-  in
+let verify (p : Ast.resolved_stmt list) : (unit, Diagnostic.error list) result =
+  match Verify.program p with
+  | Ok () -> Ok ()
+  | Error e -> Diagnostic.one Diagnostic.Verify e.Verify.span e.Verify.message
+
+(* What follows the walk, which leaves a program checked, monomorphic and
+   resolved. *)
+let back (resolved : Ast.resolved_stmt list) : (Ast.resolved_stmt list, Diagnostic.error list) result =
+  let* () = verify resolved in
+  Ok resolved
+
+(* A meta block's program is the declarations it reaches, [shared], which the
+   next block mostly reaches too, then its own statements. [shared] is verified
+   again only when it is not, statement by statement, the list verified last. *)
+let verified_shared : Ast.resolved_stmt list option ref = ref None
+
+let back_sharing ~shared ~own : (Ast.resolved_stmt list, Diagnostic.error list) result =
   let* () =
-    match Verify.program converted with
-    | Ok () -> Ok ()
-    | Error e -> Diagnostic.one Diagnostic.Verify e.Verify.span e.Verify.message
+    match !verified_shared with
+    | Some previous when List.length previous = List.length shared && List.for_all2 ( == ) previous shared ->
+      Ok ()
+    | _ ->
+      let* () = verify shared in
+      verified_shared := Some shared;
+      Ok ()
   in
-  Ok converted
+  let* () = verify own in
+  Ok (shared @ own)
 
 (* The exit code the program ended with: 0 unless it asked for another. *)
-let run env (converted : Ast.cps_stmt list) : (int, Diagnostic.error) result =
+let run env (converted : Ast.resolved_stmt list) : (int, Diagnostic.error) result =
   match Interp.run env converted with
   | Ok code -> Ok code
   | Error e -> Error (Diagnostic.at Diagnostic.Runtime e.Value.span e.Value.message)

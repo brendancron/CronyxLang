@@ -1,0 +1,6 @@
+fn takes(s: Set<int>) {
+    print(typeof(s).name);
+    print(s.len());
+}
+
+takes([1, 2, 2]);

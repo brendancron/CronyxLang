@@ -7,6 +7,11 @@ module S = Metaprocess.Shadowed
 let unknown_name = Ast.generated [ "meta"; "unknown" ]
 let unknown span : Ast.expr = Ast.at span (`Var unknown_name)
 
+(* Of whatever type it is used at, as a call that never returns is. *)
+let anything span : Ast.expr =
+  let at it = Ast.at span it in
+  at (`Call (at (`Var "compile_error"), [ at (`Call (at (`Var "__span_generated"), [])); at (`Str [||]) ]))
+
 (* A value parameter is checked as a local of its declared type: its value is
    what a meta block would read, its type is known now. *)
 let erase (p : Ast.program) : Ast.program =
@@ -40,6 +45,8 @@ let erase (p : Ast.program) : Ast.program =
           ran_meta := true;
           [])
     ; code = (fun _ e -> unknown e.Ast.span)
+    ; declof = (fun _ e -> unknown e.Ast.span)
+    ; meta_expr = (fun _ e -> unknown e.Ast.span)
     ; static_call =
         (fun _ e ->
           match e.Ast.it with
@@ -60,6 +67,18 @@ let erase (p : Ast.program) : Ast.program =
           | _ -> e)
     }
   in
+  let rec returns (body : Ast.stmt list) =
+    List.exists
+      (fun (s : Ast.stmt) ->
+        match s.Ast.it with
+        | `Return (Some _) -> true
+        | `Block b -> returns b
+        | `If (_, t, e) -> returns (t :: Option.to_list e)
+        | `While (_, b) | `For_in (_, _, b) | `Defer b | `Attributed (_, b) -> returns [ b ]
+        | `Match (_, cases) -> List.exists (fun (_, b) -> returns b) cases
+        | _ -> false)
+      body
+  in
   let rec fn (s : Ast.stmt) =
     match Metaprocess.fn_parts s with
     | None -> s
@@ -73,8 +92,18 @@ let erase (p : Ast.program) : Ast.program =
             Ast.at s.Ast.span (`Var_decl (sp.Ast.sp_name, sp.Ast.sp_ty, Some (unknown s.Ast.span))))
           values
       in
-      (* What a meta block would have returned is not known either. *)
-      let tail = if !ran_meta then [ Ast.at s.Ast.span (`Return (Some (unknown s.Ast.span))) ] else [] in
+      (* What a meta block would have returned is not known either. Where the
+         signature or the body's own `return` already says what that is, the
+         value is only of that type: an unknown is never quantified, so
+         returning one would fix a generic function's parameters at its first
+         call. *)
+      let tail =
+        if not !ran_meta
+        then []
+        else if Option.is_none sg.Ast.ret && not (returns body)
+        then [ Ast.at s.Ast.span (`Return (Some (unknown s.Ast.span))) ]
+        else [ Ast.at s.Ast.span (`Return (Some (anything s.Ast.span))) ]
+      in
       Metaprocess.with_body
         (match s.Ast.it with
          | `Fn _ -> { s with Ast.it = `Fn (name, params, { sg with Ast.static_params = types }, []) }
@@ -95,7 +124,6 @@ let erase (p : Ast.program) : Ast.program =
       | `Block b -> `Block (List.map nested b)
       | `If (c, t, e) -> `If (c, nested t, Option.map nested e)
       | `While (c, b) -> `While (c, nested b)
-      | `For (i, c, st, b) -> `For (i, c, st, nested b)
       | `For_in (names, over, b) -> `For_in (names, over, nested b)
       | `Match (subject, cases) -> `Match (subject, List.map (fun (p, b) -> p, List.map nested b) cases)
       | `Defer inner -> `Defer (nested inner)
@@ -144,6 +172,11 @@ let erase (p : Ast.program) : Ast.program =
       | None ->
         (match s.Ast.it with
          | `Meta _ | `Derive _ | `Gen _ -> []
+         (* Its impls are then of an unknown trait, which [Typecheck.partial]
+            leaves alone; kept with only its written methods, each impl would
+            miss what the meta blocks generate. *)
+         | `Trait_members _ | `Attributed (_, { Ast.it = `Trait_members _; _ }) -> []
+
          | `Type_members (({ Ast.it = `Type_decl (name, params, _); _ } as decl), members) ->
            [ type_decl decl
            ; Ast.at
@@ -160,12 +193,9 @@ let erase (p : Ast.program) : Ast.program =
     p
 
 let program (p : Ast.program) : Diagnostic.error list =
-  match Desugar.program (Compile.under_root (erase p)) with
-  | Error _ -> []
-  | Ok desugared ->
-    (match Typecheck.check ~policy:Typecheck.partial ~registry:(Registry.builtins ()) desugared with
-     | Ok _ -> []
-     | Error errors ->
-       List.map
-         (fun (e : Typecheck.error) -> Diagnostic.at Diagnostic.Type e.Typecheck.span e.Typecheck.message)
-         errors)
+  List.map
+    (fun (e : Typecheck.error) -> Diagnostic.at Diagnostic.Type e.Typecheck.span e.Typecheck.message)
+    (Typecheck.check
+       ~policy:Typecheck.partial
+       ~registry:(Registry.builtins ())
+       (Compile.under_root (erase (List.filter (fun s -> not (Ast.is_walk_only s)) p))))

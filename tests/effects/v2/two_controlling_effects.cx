@@ -1,0 +1,32 @@
+trait Tick { @ctl fn tick(): int; }
+trait Pick { @ctl fn pick(): string; }
+
+type Both {}
+
+impl EffectHandler<Pick, unit> for Both {
+    fn pick(resume: (string) -> unit) {
+        resume("x");
+        resume("y");
+    }
+}
+
+fn labelled(n: int): string {
+    var t = tick();
+    return pick() + str(n + t);
+}
+
+run {
+    var a = tick();
+    var b = pick();
+    print(str(a) + b);
+} handle<Tick> {
+    fn tick(resume) { resume(1); }
+} handle<Pick> {
+    fn pick(resume) { resume("x"); resume("y"); }
+}
+
+run {
+    print(labelled(10));
+} handle<Tick> {
+    fn tick(resume) { resume(1); resume(2); }
+} with Both;

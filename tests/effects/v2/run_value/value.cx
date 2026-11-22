@@ -1,0 +1,11 @@
+trait Ask {
+    @ctl fn ask(): int;
+}
+
+fn doubled(): <Ask> int { return ask() * 2; }
+
+var total = run { doubled() } handle<Ask> {
+    fn ask(resume) { return resume(21); }
+};
+
+print(total);

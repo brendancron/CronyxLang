@@ -1,4 +1,5 @@
 import { Decl } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
 
 meta {
     var decls: List<Decl> = [
@@ -64,3 +65,48 @@ meta {
 }
 
 print(exercise());
+
+meta {
+    var reprinted = code fn reprinted() {
+        meta {
+            print(decl_source(code trait Ask {
+                @ctl fn ask(): int;
+                @ctl fn fail<T>(why: string): T;
+                fn log(msg: string): unit;
+            }));
+            print(decl_source(code trait EffectHandler<E, R> {
+                fn name(): string;
+                meta {
+                    match declof(E).kind {
+                        _ => { fail("not a trait"); }
+                    }
+                }
+            }));
+            print(decl_source(code fn uses(): int {
+                var plain = declof(greet);
+                var keyed = declof(util.pick<int, 3>);
+                var named = pick<int>;
+                var three = meta { gen code(1 + 2); };
+                var ret = run<string> {
+                    var n = ask();
+                    "hehe"
+                } handle<Ask> {
+                    fn ask(resume) {
+                        var res = resume(5);
+                        return "complete";
+                    }
+                };
+                run {
+                    choose([1, 2]);
+                } handle<Effect<int>> {
+                    fn log(msg) { print(msg); }
+                    fn choose(options, k): unit { discontinue(k); }
+                } with Picker;
+                return three;
+            }));
+        }
+    };
+    gen reprinted;
+}
+
+reprinted();

@@ -1,5 +1,3 @@
-((...Args) -> <Console> unit, (...Args)) -> (...Args)
-((...Args) -> <Console> T, (...Args)) -> <Console> T
 Slot<int, string>
 Slot<>
 (int, string) -> <Console> unit

@@ -1,0 +1,18 @@
+trait Ask { @ctl fn ask(): int; }
+trait Note { fn note(s: string): unit; }
+
+fn quiet(): <Ask> int { return ask(); }
+
+run {
+    var a = quiet();
+    note("got " + str(a));
+    var b = quiet();
+    print(b);
+} handle<Ask> { fn ask(resume) { return resume(1); } } handle<Note> { fn note(s) { print(s); } }
+
+var r = run<int> {
+    var a = quiet();
+    var b = quiet();
+    a + b
+} handle<Ask> { fn ask(resume) { return resume(2) * 10; } };
+print(r);

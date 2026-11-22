@@ -1,0 +1,19 @@
+trait Ask { @ctl fn ask(): int; }
+
+type Coin { Heads, Tails }
+
+var total = run<int> {
+    var first = ask();
+    print(first);
+    first + ask()
+} handle<Ask> {
+    fn ask(resume) { return resume(21); }
+};
+print(total);
+
+run {
+    print("statement");
+    match Coin.Heads { Coin.Heads => ask(), Coin.Tails => "never read" }
+} handle<Ask> {
+    fn ask(resume) { resume(0); }
+}

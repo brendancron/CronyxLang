@@ -514,15 +514,6 @@ let signature_html ~from ~table entry =
         (applied_html ~from ~table trait)
         (kw "for")
         target
-  | "effect" ->
-    Printf.sprintf "%s %s%s" (kw "effect") name (names_html (Json.field "generics" entry))
-  | "handler" ->
-    let handles = Json.field "handles" entry in
-    Printf.sprintf
-      "%s %s : %s"
-      (kw "handler")
-      name
-      (link ~from ~table (Json.text (Json.field "ref" handles)) (Json.text (Json.field "name" handles)))
   | "var" ->
     let ty = Json.field "type" entry in
     Printf.sprintf
@@ -585,33 +576,6 @@ let members_html ~from ~table entry =
   | "impl" ->
     assoc_html ~from ~table entry
     ^ String.concat "" (List.map (method_html ~from ~table) (Json.items (Json.field "methods" entry)))
-  | "effect" ->
-    String.concat
-      ""
-      (List.map
-         (fun o ->
-           Printf.sprintf
-             "<div class=\"member\"><div class=\"sig\"><span class=\"kw\">%s</span> %s%s(%s)%s</div>\n%s%s</div>\n"
-             (escape (Json.text (Json.field "kind" o)))
-             (escape (Json.text (Json.field "name" o)))
-             (names_html (Json.field "generics" o))
-             (params_html ~from ~table (Json.field "params" o))
-             (let r = Json.field "ret" o in
-              if Json.is_null r then "" else ": " ^ type_html ~from ~table r)
-             (attrs_html o)
-             (doc_html o))
-         (Json.items (Json.field "ops" entry)))
-  | "handler" ->
-    String.concat
-      ""
-      (List.map
-         (fun a ->
-           Printf.sprintf
-             "<div class=\"member\"><div class=\"sig\"><span class=\"kw\">%s</span> %s(%s)</div></div>\n"
-             (escape (Json.text (Json.field "kind" a)))
-             (escape (Json.text (Json.field "name" a)))
-             (String.concat ", " (List.map (fun p -> escape (Json.text p)) (Json.items (Json.field "params" a)))))
-         (Json.items (Json.field "arms" entry)))
   | _ -> ""
 
 (* Where the declaration was written. The line is the index's; the file is the
@@ -645,8 +609,6 @@ let entry_html ~from ~table ~path entry =
 let kinds =
   [ "type", "Types"
   ; "trait", "Traits"
-  ; "effect", "Effects"
-  ; "handler", "Handlers"
   ; "fn", "Functions"
   ; "var", "Values"
   ; "impl", "Implementations"

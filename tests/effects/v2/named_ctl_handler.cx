@@ -1,0 +1,28 @@
+trait Choose { @ctl fn choose(options: Array<int>): int; }
+
+type Every<R> {}
+
+impl EffectHandler<Choose, R> for Every<R> {
+    fn choose(options: Array<int>, resume: (int) -> R): R {
+        var last = resume(options[0]);
+        for (var i = 1; i < options.len(); i += 1) {
+            last = resume(options[i]);
+        }
+        return last;
+    }
+}
+
+fn pair(): <Choose, Console> unit {
+    var a = choose([1, 2]);
+    var b = choose([10, 20]);
+    print(str(a + b));
+}
+
+run<unit> {
+    pair();
+} with Every;
+
+var last = run<int> {
+    choose([3, 4]) * 100
+} with Every;
+print(last);

@@ -1,0 +1,29 @@
+trait Yield<T> {
+    @ctl fn yield(value: T): unit;
+}
+
+fn range(low: int, high: int) {
+    var i = low;
+    while (i < high) {
+        yield(i);
+        i = i + 1;
+    }
+}
+
+fn each_word(text: string) {
+    for (word in text.split(' ')) {
+        yield(word);
+    }
+}
+
+run {
+    range(1, 4);
+} handle<Yield> {
+    fn yield(x, resume) { print(x); resume(()); }
+}
+
+run {
+    each_word("hello world foo");
+} handle<Yield> {
+    fn yield(w, resume) { print(w); resume(()); }
+}

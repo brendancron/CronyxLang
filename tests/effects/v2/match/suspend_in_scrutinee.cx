@@ -1,0 +1,19 @@
+type C { A, B }
+
+trait Ask { @ctl fn pick(): C; }
+
+fn choose(): <Ask> int {
+    match pick() {
+        C.A => { return 1; }
+        C.B => { return 2; }
+    }
+}
+
+run {
+    print(choose());
+} handle<Ask> {
+    fn pick(resume) {
+        resume(C.B);
+        print("h");
+    }
+}

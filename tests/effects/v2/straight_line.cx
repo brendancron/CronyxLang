@@ -1,0 +1,40 @@
+trait Effect {
+    fn log(msg: string): unit;
+    @ctl fn choose(options: Array<int>): int;
+}
+
+fn noisy(tag: string): int {
+    print("evaluated " + tag);
+    return 100;
+}
+
+fn pick(): int {
+    log("picking");
+    var n = choose([1, 2]);
+    log("picked " + str(n));
+    return n * 10;
+}
+
+fn outer(): int {
+    var a = pick();
+    return a + 1;
+}
+
+fn pair(a: int, b: int, c: int): string {
+    return str(a) + "/" + str(b) + "/" + str(c);
+}
+
+var answers = run<string> {
+    var total = noisy("first") + outer();
+    print(pair(noisy("left"), choose([7, 8]), 3));
+    str(total)
+} handle<Effect> {
+    fn log(msg) { print("log: " + msg); }
+    fn choose(options, k) {
+        var all = "";
+        for (x in options) { all = all + "[" + k(x) + "]"; }
+        return all;
+    }
+};
+
+print(answers);

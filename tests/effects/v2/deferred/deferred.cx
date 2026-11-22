@@ -1,0 +1,17 @@
+trait deferred {
+    @ctl fn todo(): unit;
+}
+
+var pending: List<() -> <Console> unit> = [];
+
+run {
+    print("before");
+    todo();
+    print("after");
+} handle<deferred> {
+    fn todo(resume) { pending.push(() => { resume(()); }); }
+}
+
+print("run finished");
+pending[0]();
+print("done");

@@ -1,0 +1,20 @@
+type Choice { Yes, No }
+
+trait Ask { @ctl fn get(): int; }
+
+fn pick(c: Choice): <Ask> int {
+    match c {
+        Choice.Yes => { return get() + 10; }
+        Choice.No => { return 0; }
+    }
+}
+
+run {
+    print(pick(Choice.Yes));
+    print(pick(Choice.No));
+} handle<Ask> {
+    fn get(resume) {
+        resume(5);
+        print("after");
+    }
+}

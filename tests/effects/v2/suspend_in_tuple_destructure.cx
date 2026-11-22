@@ -1,0 +1,23 @@
+trait Tick { @ctl fn tick(): int; }
+
+fn two(): (int, int) {
+    return (tick(), 2);
+}
+
+run {
+    var (a, b) = two();
+    print(a + b);
+    var (c, d) = (tick(), tick());
+    print(str(c) + " " + str(d));
+} handle<Tick> {
+    fn tick(resume) { resume(1); }
+}
+
+trait Pick { @ctl fn pick(): (int, string); }
+
+run {
+    var (n, word) = pick();
+    print(word + " " + str(n));
+} handle<Pick> {
+    fn pick(resume) { resume((1, "one")); resume((2, "two")); }
+}

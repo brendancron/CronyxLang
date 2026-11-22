@@ -1,0 +1,8 @@
+type P { x: int }
+impl Display for P {
+    fn fmt(self): string { return "P(" + str(self.x) + ")"; }
+}
+meta {
+    print(P { x: 4 });
+}
+print(P { x: 5 });

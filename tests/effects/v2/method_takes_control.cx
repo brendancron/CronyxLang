@@ -1,0 +1,21 @@
+trait Tick { @ctl fn tick(): int; }
+
+type Counter {
+    n: int
+}
+
+impl Counter {
+    fn bump(self): <Tick> int { return self.n + tick(); }
+    fn twice(self): <Tick> int { return self.bump() + self.bump(); }
+}
+
+run {
+    var c = Counter { n: 10 };
+    print(c.bump());
+    print(c.twice());
+} handle<Tick> {
+    fn tick(resume) {
+        print("tick");
+        return resume(1);
+    }
+}

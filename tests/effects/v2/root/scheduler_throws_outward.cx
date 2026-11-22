@@ -1,0 +1,45 @@
+trait Fail { @ctl fn fail<T>(why: string): T; }
+trait Wait { @ctl fn pause(): unit; }
+
+fn block_on(tasks: List<() -> <Wait, Fail, Console> unit>): <Fail, Console> unit {
+    var ready: List<() -> <Fail, Console> unit> = [];
+    for (task in tasks) {
+        run {
+            task();
+        } handle<Wait> {
+            fn pause(resume) { ready.push { resume(()); }; }
+        }
+    }
+    while (ready.len() > 0) {
+        var next = ready[0];
+        ready = ready[1:];
+        next();
+    }
+}
+
+fn worker(name: string, steps: int): <Wait, Fail, Console> unit {
+    for (var i = 0; i < steps; i += 1) {
+        print(name + " " + str(i));
+        pause();
+    }
+    if (name == "b") { fail(name + " gave up"); }
+    print(name + " done");
+}
+
+run {
+    block_on([
+        () => { worker("a", 1); },
+        () => { worker("b", 2); },
+        () => { worker("c", 3); }
+    ]);
+    print("all done");
+} handle<Fail> {
+    fn fail(why, resume) { print("caught: " + why); }
+}
+
+run {
+    block_on([() => { worker("d", 2); }]);
+    print("all done");
+} handle<Fail> {
+    fn fail(why, resume) { print("caught: " + why); }
+}

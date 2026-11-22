@@ -1,0 +1,18 @@
+trait Shape {
+    fn area(self): int;
+}
+
+type Square { side: int }
+
+impl Shape for Square {
+    fn area(self): int { return self.side * self.side; }
+}
+
+type Holder { shape: Shape }
+
+impl Holder {
+    fn of(shape: Shape): Holder { return Holder { shape: shape }; }
+}
+
+var held = Holder.of(Square { side: 3 });
+print(held.shape.area());

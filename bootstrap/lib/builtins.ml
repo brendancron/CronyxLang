@@ -91,6 +91,50 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
        quoted and a byte as its number."
     , fun () -> [ Types.fresh () ], Types.IStr )
   ; ("__written", "", fun () -> [ Types.fresh () ], Types.IStr)
+  ; Ast.generated [ "meta"; "emit_value" ], "", (fun () -> [ Types.fresh () ], Types.IUnit)
+  ; Ast.generated [ "meta"; "declof" ], "", (fun () -> [ Types.iname ], Types.INamed (Core.syntax "Decl", []))
+  ; ( "__processed"
+    , ""
+    , fun () -> [ Types.INamed (Core.syntax "ValuedBlock", []) ], Types.INamed (Core.syntax "ValuedBlock", []) )
+  ; "__processed_fn", "", (fun () -> [ Types.INamed (Core.syntax "Decl", []) ], Types.INamed (Core.syntax "Decl", []))
+  ; "__fresh_name", "", (fun () -> [ Types.IStr ], Types.iname)
+  ; ( "__operation"
+    , ""
+    , fun () -> [ Types.iname ], Types.ISum (Core.option, [ Types.INamed (Core.syntax "Operation", []) ]) )
+  ; "__declare", "", (fun () -> [ Types.INamed (Core.syntax "Decl", []) ], Types.IUnit)
+  ; ( "__operation_in"
+    , ""
+    , fun () -> [ Types.iname; Types.iname ], Types.ISum (Core.option, [ Types.INamed (Core.syntax "Operation", []) ]) )
+  ; ( "__operations"
+    , ""
+    , fun () -> [ Types.iname ], Types.INamed (Core.list, [ Types.INamed (Core.syntax "Operation", []) ]) )
+  ; "__names_function", "", (fun () -> [ Types.iname ], Types.IBool)
+  ; "__controls", "", (fun () -> [ Types.iname ], Types.IBool)
+  ; "__method_row", "", (fun () -> [ Types.iname; Types.iname ], Types.iarray Types.iname)
+  ; "__open_row", "", (fun () -> [], Types.iname)
+  ; "__open_type", "", (fun () -> [], Types.iname)
+  ; "__plain_marker", "", (fun () -> [], Types.iname)
+  ; "__cps_marker", "", (fun () -> [], Types.iname)
+  ; "__handler_param", "", (fun () -> [ Types.iname ], Types.iname)
+  ; ( "__bound_arguments"
+    , ""
+    , fun () -> [ Types.iname; Types.iname ], Types.INamed (Core.list, [ Types.INamed (Core.syntax "TypeExpr", []) ]) )
+  ; "__processed_row", "", (fun () -> [], Types.INamed (Core.list, [ Types.INamed (Core.syntax "Applied", []) ]))
+  ; "__arms_row", "", (fun () -> [], Types.INamed (Core.list, [ Types.INamed (Core.syntax "Applied", []) ]))
+  ; ( "__declof_call"
+    , ""
+    , fun () ->
+        ( [ Types.iname; Types.ISum (Core.option, [ Types.INamed (Core.syntax "TypeExpr", []) ]); Types.ispan ]
+        , Types.INamed (Core.syntax "Decl", []) ) )
+  ; ( "__remembered"
+    , ""
+    , fun () -> [ Types.INamed (Core.list, [ Types.iname ]) ], Types.ISum (Core.option, [ Types.iname ]) )
+  ; "__remember", "", (fun () -> [ Types.INamed (Core.list, [ Types.iname ]); Types.iname ], Types.IUnit)
+  ; ( "__instance_of"
+    , ""
+    , fun () ->
+        [ Types.iname; Types.ISum (Core.option, [ Types.INamed (Core.syntax "TypeExpr", []) ]); Types.ispan ], Types.iname
+    )
   ; ( Ast.generated [ "meta"; "moduleof" ]
     , ""
     , fun () -> [ Types.IStr; Types.IStr ], Types.ISum (Core.reflect "Module", []) )
@@ -157,6 +201,21 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   ]
   @ System.functions
   @ Numeric.functions
+
+(* The signal a discontinued continuation is resumed with. A function that never
+   resumes still answers its run, and this stands in for that answer: compared
+   by identity, so no value a program builds is mistaken for it. *)
+let discontinued = Value.Variant (None, "discontinued", [])
+
+(* Typed whole, because the row of the continuation is the row of the call. *)
+let effectful : (string * (unit -> Types.infer_ty)) list =
+  [ ("__discontinued", fun () -> Types.IFn ([], Types.fresh (), Types.fresh_row ()))
+  ; ("__is_discontinued", fun () -> Types.IFn ([ Types.fresh () ], Types.IBool, Types.fresh_row ()))
+  ; ( "discontinue"
+    , fun () ->
+        let row = Types.fresh_row () in
+        Types.IFn ([ Types.IFn ([ Types.fresh () ], Types.fresh (), row) ], Types.IUnit, row) )
+  ]
 
 (* ---- values ---- *)
 
@@ -530,6 +589,22 @@ let values ~out ~globals =
       | Value.Str s -> Value.fail span "%s" (Utf8.encode s)
       | _ -> Value.fail span "Cannot apply panic to these arguments.")
   ; two "same" (fun span a b -> Value.Bool (Value.same span a b))
+  ; native "__open_row" (Some 0) (fun _ _ -> Value.Name Ast.open_row)
+  ; native "__open_type" (Some 0) (fun _ _ -> Value.Name Ast.open_type)
+  ; native "__plain_marker" (Some 0) (fun _ _ -> Value.Name Ast.plain_marker)
+  ; native "__cps_marker" (Some 0) (fun _ _ -> Value.Name Ast.cps_marker)
+  ; native "__handler_param" (Some 1) (fun span args ->
+      match args with
+      | [ Value.Name label ] -> Value.Name (Ast.handler_param label)
+      | _ -> Value.fail span "handler_param takes a name.")
+  ; native "__discontinued" (Some 0) (fun _ _ -> discontinued)
+  ; one "__is_discontinued" (fun _ v -> Value.Bool (v == discontinued))
+  ; one "discontinue" (fun span k ->
+      match k with
+      | Value.Fn f ->
+        ignore (f.Value.apply span [ discontinued ]);
+        Value.Unit
+      | other -> Value.fail span "discontinue takes a continuation, not %s." (Value.type_name other))
   ; one "__upcast" (fun _ v -> v)
   ; two "__structural_eq" (fun span a b -> Value.Bool (Value.values_equal span a b))
   ; one (Ast.method_name "string" "as_name") (fun span v ->

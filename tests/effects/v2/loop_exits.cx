@@ -1,0 +1,94 @@
+trait Tick { @ctl fn tick(): int; }
+
+fn in_match(): <Tick, Console> unit {
+    for (x in [1, 2, 3, 4]) {
+        var n = tick();
+        var stop: Option<int> = Option.None;
+        if (x == 3) { stop = Option.Some(x); }
+        match stop {
+            Option.Some(_) => { break; }
+            Option.None => { print("saw " + str(x)); }
+        }
+    }
+    print("match done");
+}
+
+fn nested(): <Tick, Console> unit {
+    for (a in [1, 2]) {
+        for (b in [1, 2, 3]) {
+            var n = tick();
+            if (b == 2) { break; }
+            print(str(a) + "/" + str(b));
+        }
+        print("outer " + str(a));
+    }
+}
+
+fn plain_inside(): <Tick, Console> unit {
+    var n = tick();
+    var total = 0;
+    for (x in [5, 6, 7]) {
+        var m = tick();
+        var k = 0;
+        while (true) {
+            k += 1;
+            if (k == 2) { break; }
+        }
+        total = total + k;
+        if (x == 6) { break; }
+    }
+    print("total " + str(total));
+}
+
+fn stepped(): <Tick, Console> unit {
+    for (var i = 0; i < 4; i += 1) {
+        var n = tick();
+        if (i == 1) { continue; }
+        print("step " + str(i));
+    }
+}
+
+fn skipping(): <Tick, Console> unit {
+    var a = 0;
+    while (a < 2) {
+        a += 1;
+        for (b in [1, 2, 3]) {
+            var n = tick();
+            if (b == 2) { continue; }
+            print(str(a) + "/" + str(b));
+        }
+        if (a == 1) { continue; }
+        print("outer " + str(a));
+    }
+}
+
+fn found(xs: List<int>): <Tick> int {
+    var i = 0;
+    while (true) {
+        var n = tick();
+        if (xs[i] > 4) { return xs[i] + n; }
+        i += 1;
+    }
+    return -1;
+}
+
+run {
+    in_match();
+    nested();
+    plain_inside();
+    stepped();
+    skipping();
+    print(found([1, 3, 5, 7]));
+} handle<Tick> { fn tick(resume) { resume(1); } }
+
+var picked = run<string> {
+    var seen = "";
+    for (x in [1, 2, 3]) {
+        if (x == 2) { continue; }
+        seen = seen + str(x) + str(tick());
+    }
+    seen
+} handle<Tick> {
+    fn tick(resume) { return resume(7) + ";"; }
+};
+print(picked);

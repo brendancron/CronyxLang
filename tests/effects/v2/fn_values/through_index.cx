@@ -1,0 +1,16 @@
+trait E { @ctl fn op(): int; }
+
+fn work(base: int): <E> int { return base + op(); }
+
+var pending: List<() -> <Console> unit> = [];
+
+run {
+    var tasks: List<() -> <E> int> = [];
+    tasks.push(() => { return work(10); });
+    print(str(tasks[0]()));
+} handle<E> {
+    fn op(resume) { pending.push { resume(5); }; }
+}
+
+print("draining");
+pending[0]();

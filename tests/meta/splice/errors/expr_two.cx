@@ -1,0 +1,5 @@
+var x = meta {
+    gen code(1);
+    gen code(2);
+};
+print(x);

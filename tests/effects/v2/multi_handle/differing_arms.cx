@@ -1,0 +1,23 @@
+trait stream {
+    @ctl fn yield(value: int): unit;
+}
+
+fn range(low: int, high: int) {
+    var i = low;
+    while (i < high) {
+        yield(i);
+        i = i + 1;
+    }
+}
+
+run {
+    range(0, 3);
+} handle<stream> {
+    fn yield(value, resume) { print(value); resume(()); }
+}
+
+var first = run<int> { range(100, 103); -1 } handle<stream> {
+    fn yield(value, resume) { return value; }
+};
+
+print(first);

@@ -1,0 +1,16 @@
+trait Store<T> {
+    fn put(v: T);
+    fn take(): T;
+}
+
+fn round_trip(v: int): int {
+    put(v);
+    return take();
+}
+
+run {
+    print(round_trip(7));
+} handle<Store> {
+    fn put(v) { print("put" + " " + str(v)); }
+    fn take() { return 99; }
+}

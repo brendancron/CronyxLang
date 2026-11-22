@@ -1,0 +1,33 @@
+trait Stop { @ctl fn stop(): unit; }
+trait Other { @ctl fn other(): unit; }
+trait Fail { @ctl fn fail<T>(): T; }
+trait Log { fn log(s: string): unit; }
+
+run {
+    run {
+        stop();
+        print("after stop");
+    } handle<Other> { fn other(resume) { resume(()); } }
+    print("after inner run");
+} handle<Stop> { fn stop(resume) { print("stopped through a ctl block"); } }
+
+run {
+    run {
+        stop();
+        print("after stop");
+    } handle<Fail> { fn fail(resume) { print("failed"); } }
+    print("after inner run");
+} handle<Stop> { fn stop(resume) { print("stopped through a final ctl block"); } }
+
+run {
+    run {
+        run {
+            stop();
+            print("after stop");
+        } handle<Log> { fn log(s) { print(s); } }
+        print("after Log run");
+    } handle<Fail> { fn fail(resume) { print("failed"); } }
+    print("after Fail run");
+} handle<Stop> { fn stop(resume) { print("stopped through two blocks that need no continuation"); } }
+
+print("end");

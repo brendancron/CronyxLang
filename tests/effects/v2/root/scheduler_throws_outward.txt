@@ -1,0 +1,11 @@
+a 0
+b 0
+c 0
+a done
+b 1
+c 1
+caught: b gave up
+d 0
+d 1
+d done
+all done

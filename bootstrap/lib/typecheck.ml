@@ -9,6 +9,11 @@ type error =
 
 exception Located of error
 
+(* Something only metaprocessing removes, met by a check. It ends the check
+   rather than the statement: whatever follows would be checked without what
+   it stood for. *)
+exception Rejected of error
+
 (* What the checker does where a name has nothing declared behind it. Once
    metaprocessing is done that is an error. Before it runs, a meta block may
    still declare the name, so the check carries on as if it knew nothing about
@@ -39,6 +44,25 @@ let is_unknown t =
   in
   List.exists same !unknowns
 
+(* Variables nothing can settle and nothing reads: what an operation, or a
+   function that never returns, hands back to a call that ignores it, and what
+   an error already reported left open. *)
+let unobservable : (int, unit) Hashtbl.t = Hashtbl.create 16
+
+let leave_open t =
+  List.iter (fun (id, _) -> Hashtbl.replace unobservable id ()) (Types.free_vars t)
+
+(* A result no parameter mentions is one the function never hands back:
+   `compile_error` stops the build, an operation that never resumes unwinds. *)
+let returns_nothing = function
+  | Some { Types.quantified; body = Types.IFn (params, ret, _); _ } ->
+    (match Types.repr ret with
+     | Types.IVar { contents = Types.Unbound (id, _) } ->
+       List.mem id quantified
+       && not (List.exists (fun p -> List.mem_assoc id (Types.free_vars p)) params)
+     | _ -> false)
+  | _ -> false
+
 (* Nothing handles the top level's row, and once a label is in it the row no
    longer says which call put it there, so each is recorded as it arrives. The
    checker finishes a node after its children, so the innermost one records it. *)
@@ -58,20 +82,11 @@ type deferred =
 
 let deferred_rows : deferred list ref = ref []
 
-(* The parameter a lambda argument is passed to, set by the call just before the
-   lambda is checked and read by it first thing, so nothing nested sees it. *)
-let expected_lambda : Types.infer_ty option ref = ref None
-
 (* The row a trait's method performs when reached through a table: the one the
    trait wrote, or none. A copy made at an object calls through the table, and
-   only [Resolve] learns that it was made at one. *)
+   only the call's lowering learns that it was made at one. *)
 let dynamic_rows : (string * string, Types.infer_row) Hashtbl.t = Hashtbl.create 16
 let open_defer : deferred option ref = ref None
-
-(* Each top-level statement is the body of a function handed to the root, so
-   its row stands in for the top level's while it is checked: otherwise every
-   site would be the whole statement. Set by the call, read by its lambda. *)
-let root_argument = ref false
 
 let note_effect_sites span row =
   match !top_row with
@@ -81,6 +96,16 @@ let note_effect_sites span row =
         if not (Hashtbl.mem effect_sites label) then Hashtbl.add effect_sites label span)
       (fst (Types.labels_of_infer_row row))
   | _ -> ()
+
+(* A receiver whose type is still a variable. Which impl answers is settled once
+   it is not, from the dispatch. *)
+type 'e bound_calls = [ `Bound_call of 'e * string * Types.infer_ty Ast.dispatch * 'e list ]
+
+(* A value on its way into a trait-typed position. The concrete type is still on
+   the inner expression's annotation; each slot the vtable owes names a method
+   and the dispatch that picks the impl answering it, in the order the trait
+   declared them. *)
+type 'e coercions = [ `Coerce of 'e * string * (string * Types.infer_ty Ast.dispatch) list ]
 
 type checked_expr = (checked_expr_kind, Types.infer_ty) Ast.node
 
@@ -98,12 +123,14 @@ and checked_expr_kind =
   | checked_expr Ast.collection
   | checked_expr Ast.arrays
   | checked_expr Ast.strings
-  | (checked_expr, Types.infer_ty) Ast.bound_calls
+  | checked_expr bound_calls
   | (checked_expr, Types.infer_ty) Ast.dyn_calls
-  | (checked_expr, Types.infer_ty) Ast.coercions
-  | checked_expr Ast.reflect
+  | checked_expr coercions
+  | checked_expr Ast.variant_lit
+  | checked_expr Ast.object_lit
   | (checked_expr, checked_stmt) Ast.lambdas
-  | (checked_expr, checked_stmt, checked_stmt Ast.handler) Ast.run_expr
+  (* A run's clauses are bound once it is checked, so it holds none. *)
+  | `Run_block of (checked_expr, checked_stmt) Ast.valued_block
   | (checked_expr, checked_stmt) Ast.match_expr
   ]
 
@@ -111,15 +138,26 @@ and checked_stmt = (checked_stmt_kind, Types.infer_ty) Ast.node
 
 and checked_stmt_kind =
   [ (checked_expr, checked_stmt) Ast.stmts
-  | (checked_expr, checked_stmt, checked_stmt Ast.handler) Ast.effects
   | Ast.type_defs
   | (checked_expr, checked_stmt) Ast.matching
   | (checked_stmt, Types.infer_ty) Ast.method_defs
   ]
 
+(* A handler's method as checked: the operation it answers, its parameters and
+   its body. *)
+type checked_arm =
+  { arm_name : string
+  ; arm_params : string list
+  ; arm_body : checked_stmt list
+  }
+
 type env =
   { bindings : (string, Types.scheme) Hashtbl.t
   ; parent : env option
+  ; (* The bindings that may leave a variable free, which is all a
+       generalization reads: a scheme whose every variable is quantified stays
+       so, and the top level holds thousands of them. *)
+    open_names : (string, unit) Hashtbl.t
   }
 
 type ctx =
@@ -127,9 +165,226 @@ type ctx =
   ; mutable return_type : Types.infer_ty option
   ; mutable saw_return : bool
   ; mutable row : Types.infer_row
-  ; mutable resume_type : Types.infer_ty option
-  ; mutable in_final_arm : bool
+  ; (* What the statement being checked has to run ahead of itself, newest
+       first. *)
+    mutable hoisted : checked_stmt list
+  ; (* What the function value taking control that the code stands in answers,
+       which a continuation it is part of answers too. *)
+    mutable cps_answer : Types.infer_ty option
   }
+
+(* A function or method as the walk sees it: never checked as written, only at
+   each key a use settles. [wd_vars] are the variables its signature was read
+   with, impl parameters first. *)
+type walk_decl =
+  { wd_id : int
+  ; wd_name : string
+  ; wd_span : Ast.span
+  ; wd_params : Ast.param list
+  ; wd_sig : Ast.signature
+  ; wd_body : Ast.stmt list
+  ; wd_impl : ((string * Ast.type_expr list) option * string * Ast.type_param list) option
+  ; wd_env : env
+  ; wd_scheme : Types.scheme
+  ; wd_vars : (string * Types.infer_ty) list
+  ; wd_values : Ast.static_param list
+  ; wd_local : bool
+  }
+
+type instance_view =
+  { iv_name : string
+  ; iv_ty : Types.infer_ty
+  ; iv_walking : bool
+  ; iv_ret_written : bool
+  ; iv_key : Key.t
+  }
+
+(* What the walk asks of [Metaprocess], which owns the instances and runs the
+   meta blocks. *)
+type walk_ops =
+  { instance : Ast.span -> walk_decl -> Key.t -> instance_view
+  ; (* The run-time names around the block, and the type of an expression
+       reading them, which is all a block may ask of one. *)
+    meta : string list -> (Ast.expr -> Types.ty) -> Ast.stmt -> Ast.stmt list
+  ; meta_expr : string list -> (Ast.expr -> Types.ty) -> Ast.expr -> Ast.expr
+  ; declof : Ast.span -> (walk_decl * Key.t) option -> string -> Ast.expr Ast.static_arg list option -> Ast.expr
+  ; typeof : Ast.span -> Types.ty -> string option -> Ast.expr
+  ; (* Runs what it is given without counting what it reaches as used. *)
+    unused : (unit -> Types.infer_ty) -> Types.infer_ty
+  ; wake : string -> unit
+  ; unknown : string -> Ast.span -> unit
+  ; unknown_method : string -> Ast.span -> unit
+  ; static_value : string -> Ast.expr Ast.static_arg -> Ast.expr * string
+  ; generic_new : Ast.expr -> Ast.expr
+  ; performs_gen : walk_decl -> bool
+  ; instances_of : walk_decl -> checked_stmt list
+  ; (* `EffectHandler<E, _>` for the effect named, made through the library's
+       trait; [None] where the library does not declare it. *)
+    effect_handler : Ast.span -> string -> string option
+  }
+
+(* An instance of a trait whose body runs a meta block is named for its
+   arguments, `Getter<int>`, and is in scope wherever `Getter` is. *)
+let written_trait name =
+  match String.index_opt name '<' with
+  | Some at -> String.sub name 0 at
+  | None -> name
+
+let walk_ops : walk_ops option ref = ref None
+
+let ops () =
+  match !walk_ops with
+  | Some ops -> ops
+  | None -> invalid_arg "Typecheck.ops: not walking"
+
+let walking () = Option.is_some !walk_ops
+
+(* While a meta block's code is checked, and whatever it reaches: a function
+   that runs a `gen` may be called there. *)
+let in_meta = ref false
+
+(* While [processed] checks code a meta block asked about: each expression,
+   with the type it was given. *)
+let recording : (Ast.expr * Types.infer_ty) list ref option ref = ref None
+
+(* Where the meta block being run stands: what [processed] checks the block's
+   code against. *)
+let meta_scope : (env * ctx) option ref = ref None
+
+let in_scope env ctx f =
+  let previous = !meta_scope in
+  meta_scope := Some (env, ctx);
+  Fun.protect ~finally:(fun () -> meta_scope := previous) f
+
+(* By name, each with the scheme it was bound by: a name means the declaration
+   only where [lookup] still finds that very scheme, so a local shadowing it
+   does not. *)
+let walk_decls : (string, (Types.scheme * walk_decl) list) Hashtbl.t = Hashtbl.create 64
+let walk_decl_count = ref 0
+
+(* The local functions a block declared, so the block can hold their instances. *)
+let walk_locals : walk_decl list ref = ref []
+
+(* An effect a run bound, innermost first: what the code being checked reaches
+   it through. [bd_value] is the name the handler's value has here, the run's
+   own variable or an instance's leading parameter, and [None] for a handler
+   with no value. *)
+type binding =
+  { bd_label : string
+  ; bd_handler : string
+  ; bd_value : string option
+  ; (* What was bound outside the run: a named handler's methods are reached
+       from there, as an inline one's are checked there. *)
+    bd_outer : binding list
+  }
+
+let effect_bindings : binding list ref = ref []
+
+(* The evidence a function is handed: a record holding, by label, the handler
+   of each effect the function's type performs. A function whose type performs
+   nothing takes none, and a call passes it last, after any continuation, so a
+   closure taking none ignores it. *)
+let evidence = Ast.generated [ "ev"; "h" ]
+
+(* A function's own frame: every label nothing inside the function binds is
+   answered by the evidence its caller handed it. *)
+let own_frame = { bd_label = ""; bd_handler = ""; bd_value = Some evidence; bd_outer = [] }
+
+let is_own b = String.equal b.bd_label ""
+
+let binding_for label bindings =
+  List.find_opt (fun b -> is_own b || String.equal b.bd_label label) bindings
+
+(* The bindings each call and each operation was checked under, read once the
+   statement ends, when the callee's type finally says what it performs. *)
+module Checked_table = Hashtbl.Make (struct
+    type t = (checked_expr_kind, Types.infer_ty) Ast.node
+
+    let equal = ( == )
+
+    let hash (e : t) = Hashtbl.hash (Source_map.Span.offsets e.Ast.span)
+  end)
+
+let bindings_at : binding list Checked_table.t = Checked_table.create 256
+
+(* Generated code a transform made: continuations, joins and loops. Each is
+   marked by a static parameter of this name, binds what it performs where it
+   is written, and takes no evidence. *)
+let plain_marker = Ast.plain_marker
+
+let is_plain (sg : Ast.signature) =
+  List.exists (fun (p : Ast.static_param) -> String.equal p.Ast.sp_name plain_marker) sg.Ast.static_params
+
+let plain_only (sg : Ast.signature) =
+  { sg with
+    Ast.static_params =
+      List.filter (fun (p : Ast.static_param) -> String.equal p.Ast.sp_name plain_marker) sg.Ast.static_params
+  }
+
+let plain_signature =
+  { Ast.ret = None; row = None; static_params = [ { Ast.sp_name = plain_marker; sp_ty = None; sp_pack = false } ] }
+
+let unmarked (sg : Ast.signature) =
+  { sg with
+    Ast.static_params =
+      List.filter
+        (fun (p : Ast.static_param) ->
+          not (String.equal p.Ast.sp_name plain_marker || String.equal p.Ast.sp_name Ast.cps_marker))
+        sg.Ast.static_params
+  }
+
+(* The type of each handler's value, by the handler's name. A handler not here
+   has no value. *)
+let handler_values : (string, Types.infer_ty) Hashtbl.t = Hashtbl.create 8
+
+(* The type a handler's value is built at, which differs from [handler_values]
+   in each continuation's row: a method calls one performing [resumes], the
+   body hands one performing [given]. *)
+let handler_built : (string, Types.infer_ty) Hashtbl.t = Hashtbl.create 8
+
+let handler_count = ref 0
+
+(* The value of a named handler is checked calling its impl's methods: the
+   type and the effect each such value was made for. *)
+let named_handlers : (string, string * string) Hashtbl.t = Hashtbl.create 8
+
+(* What the methods that take control in the run being transformed perform. *)
+let arm_rows : Types.infer_row list ref = ref []
+
+(* The arguments of the effect a bound run's clause binds, by handler and
+   effect: a run inside another binding the same effect at other arguments
+   leaves the outer one's to it. *)
+let bound_arguments : (string * string, Types.infer_ty list) Hashtbl.t = Hashtbl.create 8
+
+(* The run the check just lowered, and, while processed code is being read,
+   each run with what it was lowered to: processed code shows that in the
+   run's place, so a transform around it never transforms it again. *)
+let last_lowered : Ast.expr option ref = ref None
+
+let expansions : (Ast.expr * Ast.expr) list ref option ref = ref None
+
+let handler_param = Ast.handler_param
+
+(* A function named as a value, before the expression around it settles which
+   instance it is. Its node carries [p_placeholder] until then. *)
+type pending =
+  { p_span : Ast.span
+  ; p_decl : walk_decl
+  ; p_vars : (string * Types.infer_ty * Types.infer_row option) list
+  ; p_ty : Types.infer_ty
+  ; p_placeholder : string
+  }
+
+let pending_values : pending list ref = ref []
+
+(* The traits an instance's static parameters were bounded by, and their
+   supertraits. A generic body reached a method through the bound, which the
+   file need not import; at a key the receiver is concrete, and the bound still
+   says which trait it meant. *)
+let bound_traits : (string * string list option) list ref = ref []
+
+let placeholders : (string, string) Hashtbl.t = Hashtbl.create 16
+let placeholder_count = ref 0
 
 type effect_info =
   { ops : (string, Ast.op_decl) Hashtbl.t
@@ -144,6 +399,36 @@ let ctx_op_owner : (string, string) Hashtbl.t = Hashtbl.create 16
 
 let ctx_effect_params : (string, (string * Types.infer_ty) list) Hashtbl.t =
   Hashtbl.create 8
+
+let takes_control_label label =
+  List.exists
+    (fun (o : Ast.op_decl) -> o.Ast.op_kind <> Ast.Op_fn)
+    (Option.value ~default:[] (Hashtbl.find_opt ctx_effects.declared label))
+
+(* The effects of a function type whose operations take control: a value of
+   that type takes a handler for each, in this order, then its continuation,
+   after the parameters the type shows. *)
+let controlling labels = List.sort_uniq String.compare (List.filter takes_control_label labels)
+
+let controlling_row (row : Types.infer_row) = controlling (List.map fst (fst (Types.labels_of_infer_row row)))
+
+let controlling_ty (t : Types.ty) =
+  match t with
+  | Types.Fn (_, _, row) -> controlling (List.map fst row.Types.labels)
+  | _ -> []
+
+let is_cps (sg : Ast.signature) =
+  List.exists (fun (p : Ast.static_param) -> String.equal p.Ast.sp_name Ast.cps_marker) sg.Ast.static_params
+
+(* The effect a parameter named for its handler holds the handler of. *)
+let handled_by name =
+  let prefix = Ast.handler_param "" in
+  let n = String.length prefix in
+  if String.length name > n && String.equal (String.sub name 0 n) prefix
+  then (
+    let label = String.sub name n (String.length name - n) in
+    if Hashtbl.mem ctx_effects.declared label then Some label else None)
+  else None
 
 type decl =
   | Opaque of Types.infer_ty list
@@ -309,6 +594,106 @@ let ctx_impls : (string * string, Types.infer_ty list) Hashtbl.t = Hashtbl.creat
 let ctx_variadic : (string, Types.scheme * Types.infer_ty) Hashtbl.t = Hashtbl.create 4
 let ctx_methods : (string * string, unit) Hashtbl.t = Hashtbl.create 32
 
+(* What each instance of a trait whose body runs a meta block was made from:
+   the trait, and each argument, [None] where the instance keeps the slot open.
+   An impl names the instance, and `with` needs the arguments it was given. *)
+let trait_instances : (string, string * Ast.type_expr option list) Hashtbl.t = Hashtbl.create 8
+
+(* A named handler's method that takes control is handed the rest of a run's
+   body, whose effects are that run's to say: its continuation is read as
+   performing a row of its own, `(A) -> <ρ> R`, which each call settles, as a
+   handler written inline gets one. *)
+let open_continuation (trait : (string * Ast.type_expr list) option) (m : (Ast.stmt, unit) Ast.method_def) =
+  let handled =
+    match trait with
+    | Some (t, args) when String.equal t Core.effect_handler ->
+      (match args with
+       | { Ast.it = Ast.Ty_name e | Ast.Ty_app (e, _); _ } :: _ -> Some e
+       | _ -> None)
+    | Some (t, _) ->
+      (match Hashtbl.find_opt trait_instances t with
+       | Some (base, Some { Ast.it = Ast.Ty_name e | Ast.Ty_app (e, _); _ } :: _)
+         when String.equal base Core.effect_handler ->
+         Some e
+       | _ -> None)
+    | None -> None
+  in
+  let takes_control e =
+    match Hashtbl.find_opt ctx_effects.ops (Ast.operation_name e m.Ast.md_name) with
+    | Some op -> op.Ast.op_kind <> Ast.Op_fn
+    | None -> false
+  in
+  match handled, List.rev m.Ast.md_params with
+  | Some e, ({ Ast.ty = Some ({ Ast.it = Ast.Ty_fn (ps, r, []); _ } as k); _ } as last) :: before when takes_control e ->
+    let row = Ast.generated [ "resumes"; m.Ast.md_name ] in
+    { m with
+      Ast.md_params = List.rev ({ last with Ast.ty = Some { k with Ast.it = Ast.Ty_fn (ps, r, [ row, [] ]) } } :: before)
+    ; md_signature =
+        { m.Ast.md_signature with
+          Ast.static_params =
+            m.Ast.md_signature.Ast.static_params @ [ { Ast.sp_name = row; sp_ty = None; sp_pack = false } ]
+        }
+    }
+  | _ -> m
+
+(* Functions whose last parameter is variadic: how many come before it, and
+   whether what it collects into is a pack's tuple rather than an array. Keyed
+   by bare name and read from anywhere, so one written inside a block is found
+   the same as one written at the top: missing it is silently an ordinary
+   function taking an array. *)
+let ctx_variadic_arity : (string, int * bool) Hashtbl.t = Hashtbl.create 8
+
+(* What a declaration was written with: no later tree can hold the wrapper.
+
+   Only a type is recorded. `typeof(T).attrs` is the one reader and it keys by
+   type name, so recording a function or a variable under the same key would
+   collide rather than answer -- and nothing can ask for those yet, because
+   `typeof` takes a value and a function value's type names no declaration. *)
+let decl_attrs : (string, Ast.attr list) Hashtbl.t = Hashtbl.create 8
+
+(* The attributes are recorded and the wrapper dropped: nothing after this
+   pass has a type that could carry one. *)
+let rec unattributed (s : Ast.stmt) =
+  match s.Ast.it with
+  | `Attributed (attrs, inner) ->
+    (match inner.Ast.it with
+     | `Type_decl (name, _, _) -> Hashtbl.replace decl_attrs name attrs
+     | _ -> ());
+    unattributed inner
+  | _ -> s
+
+let variadic_arity (params : Ast.param list) =
+  match List.rev params with
+  | { Ast.ty = Some { it = Ast.Ty_variadic { it = Ast.Ty_spread _; _ }; _ }; _ } :: before ->
+    Some (List.length before, true)
+  | { Ast.ty = Some { it = Ast.Ty_variadic _; _ }; _ } :: before -> Some (List.length before, false)
+  | _ -> None
+
+(* What a whole program names from anywhere in it. *)
+let gather (program : Ast.stmt list) =
+  let rec collect (s : Ast.stmt) =
+    (match s.Ast.it with
+     | `Fn (name, params, _, _) ->
+       Option.iter (Hashtbl.replace ctx_variadic_arity name) (variadic_arity params)
+     | _ -> ());
+    List.iter collect (children s)
+  and children (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Attributed (_, inner) -> [ inner ]
+    | `Type_members (decl, members) | `Trait_members (decl, members) -> decl :: members
+    | `Block body | `Fn (_, _, _, body) | `Meta body -> body
+    | `Defer inner | `Gen inner -> [ inner ]
+    | `If (_, t, e) -> t :: Option.to_list e
+    | `While (_, body) -> [ body ]
+    | `For_in (_, _, body) -> [ body ]
+    | `Match (_, cases) -> List.concat_map snd cases
+    | `Impl_decl (_, _, _, body) ->
+      List.concat_map (fun (m : (Ast.stmt, unit) Ast.method_def) -> m.Ast.md_body) body.Ast.ib_methods
+    | `Expr _ | `Var_decl _ | `Var_tuple _ | `Return _ | `Break | `Continue | `Import _
+    | `Global_import _ | `Derive _ | `Type_decl _ | `Trait_decl _ -> []
+  in
+  List.iter collect program
+
 (* The tables are program-global, so what a block adds is taken back out on the
    way past it. [add] rather than [replace]: [ctx_impls] keeps every entry for a
    key, and the snapshot is oldest-first. *)
@@ -376,8 +761,16 @@ let reset_effects () =
   Hashtbl.reset ctx_fn_params;
   param_rows := []
 
-let new_env parent = { bindings = Hashtbl.create 16; parent }
-let bind env name scheme = Hashtbl.replace env.bindings name scheme
+let new_env parent = { bindings = Hashtbl.create 16; parent; open_names = Hashtbl.create 16 }
+
+let closed_scheme (scheme : Types.scheme) =
+  List.for_all (fun (id, _) -> List.mem id scheme.Types.quantified) (Types.free_vars scheme.Types.body)
+  && List.for_all (fun id -> List.mem id scheme.Types.quantified_rows) (Types.free_row_vars scheme.Types.body)
+  && List.for_all (fun id -> List.mem id scheme.Types.quantified_fields) (Types.free_field_vars scheme.Types.body)
+
+let bind env name scheme =
+  Hashtbl.replace env.bindings name scheme;
+  if closed_scheme scheme then Hashtbl.remove env.open_names name else Hashtbl.replace env.open_names name ()
 
 let rec lookup env name =
   match Hashtbl.find_opt env.bindings name with
@@ -387,42 +780,101 @@ let rec lookup env name =
      | Some p -> lookup p name
      | None -> None)
 
+let decl_of env name =
+  if not (walking ())
+  then None
+  else (
+    (ops ()).wake name;
+    match lookup env name with
+    | None -> None
+    | Some scheme ->
+      Option.map
+        snd
+        (List.find_opt
+           (fun (s, _) -> s == scheme)
+           (Option.value ~default:[] (Hashtbl.find_opt walk_decls name))))
+
+let note_walk_decl env ~name ~scheme ~vars ~values ~params ~sg ~body ~impl ~span =
+  if walking ()
+  then (
+    incr walk_decl_count;
+    let d =
+      { wd_id = !walk_decl_count
+      ; wd_name = name
+      ; wd_span = span
+      ; wd_params = params
+      ; wd_sig = sg
+      ; wd_body = body
+      ; wd_impl = impl
+      ; wd_env = env
+      ; wd_scheme = scheme
+      ; wd_vars = vars
+      ; wd_values = values
+      ; wd_local = Option.is_some env.parent
+      }
+    in
+    Hashtbl.replace
+      walk_decls
+      name
+      ((scheme, d) :: Option.value ~default:[] (Hashtbl.find_opt walk_decls name));
+    if d.wd_local then walk_locals := d :: !walk_locals)
+
+(* What a meta block standing here cannot see: everything bound below the top
+   level. *)
+let runtime_names env =
+  let rec go env acc =
+    match env.parent with
+    | None -> acc
+    | Some parent -> go parent (Hashtbl.fold (fun name _ acc -> name :: acc) env.bindings acc)
+  in
+  go env []
+
+let shown_name name =
+  match String.rindex_opt name '#' with
+  | Some at -> String.sub name (at + 1) (String.length name - at - 1)
+  | None -> name
+
 (* Generalization must not quantify a variable the enclosing scope still uses. *)
-let env_free ~free ~quantified env =
-  let acc = ref [] in
+let env_free env =
+  let vars = ref [], Hashtbl.create 64
+  and rows = ref [], Hashtbl.create 64
+  and fields = ref [], Hashtbl.create 16 in
+  let add (acc, seen) quantified id =
+    if (not (List.mem id quantified)) && not (Hashtbl.mem seen id)
+    then (
+      Hashtbl.replace seen id ();
+      acc := id :: !acc)
+  in
   let rec walk env =
+    let settled = ref [] in
     Hashtbl.iter
-      (fun _ (scheme : Types.scheme) ->
-        free scheme.Types.body
-        |> List.iter (fun id ->
-          if (not (List.mem id (quantified scheme))) && not (List.mem id !acc)
-          then acc := id :: !acc))
-      env.bindings;
+      (fun name () ->
+        match Hashtbl.find_opt env.bindings name with
+        | None -> settled := name :: !settled
+        | Some scheme ->
+          let free_vars = List.filter (fun (id, _) -> not (List.mem id scheme.Types.quantified)) (Types.free_vars scheme.Types.body)
+          and free_rows = List.filter (fun id -> not (List.mem id scheme.Types.quantified_rows)) (Types.free_row_vars scheme.Types.body)
+          and free_fields =
+            List.filter (fun id -> not (List.mem id scheme.Types.quantified_fields)) (Types.free_field_vars scheme.Types.body)
+          in
+          if free_vars = [] && free_rows = [] && free_fields = []
+          then settled := name :: !settled
+          else (
+            List.iter (fun (id, _) -> add vars [] id) free_vars;
+            List.iter (add rows []) free_rows;
+            List.iter (add fields []) free_fields))
+      env.open_names;
+    List.iter (Hashtbl.remove env.open_names) !settled;
     Option.iter walk env.parent
   in
   walk env;
-  !acc
+  !(fst vars), !(fst rows), !(fst fields)
 
 (* An unknown is never quantified: each use would instantiate a fresh variable,
    and a fresh variable is no longer known to be unknown. *)
-let env_free_vars env =
-  env_free
-    ~free:(fun body -> List.map fst (Types.free_vars body))
-    ~quantified:(fun (s : Types.scheme) -> s.Types.quantified)
-    env
-  @ List.concat_map (fun u -> List.map fst (Types.free_vars u)) !unknowns
-
-let env_free_row_vars env =
-  env_free
-    ~free:Types.free_row_vars
-    ~quantified:(fun (s : Types.scheme) -> s.Types.quantified_rows)
-    env
-
-let env_free_field_vars env =
-  env_free
-    ~free:Types.free_field_vars
-    ~quantified:(fun (s : Types.scheme) -> s.Types.quantified_fields)
-    env
+let env_free_all env =
+  let vars, rows, fields = env_free env in
+  vars @ List.concat_map (fun u -> List.map fst (Types.free_vars u)) !unknowns, rows, fields
 
 (* The other end of a two-site diagnostic. The tail of the path rather than the
    whole of it: a span renders relative to the entry and the entry is not this
@@ -518,6 +970,17 @@ let rec trait_closure ?(seen = []) (trait : string) : string list =
         (fun seen (super, _) -> trait_closure ~seen super)
         seen
         body.Ast.tb_super)
+
+let is_trait name = Hashtbl.mem ctx_traits name
+
+(* What a table for the trait owes a slot for, its supertraits' included. *)
+let methods_of trait =
+  List.concat_map
+    (fun t ->
+      match Hashtbl.find_opt ctx_traits t with
+      | Some (_, body) -> List.map (fun (m : Ast.method_sig) -> m.Ast.ms_name) body.Ast.tb_methods
+      | None -> [])
+    (trait_closure trait)
 
 let declares trait name =
   match Hashtbl.find_opt ctx_traits trait with
@@ -658,17 +1121,7 @@ let is_trait_type (t : Types.infer_ty) =
   | Types.INamed (name, _) -> Hashtbl.mem ctx_traits name
   | _ -> false
 
-(* The one place a value's type changes without unifying. A trait in type
-   position is an object, and a written type is the only thing that asks for
-   one: inference never produces a trait, so it never reaches here. *)
-let rec mentions_trait (t : Types.infer_ty) =
-  match Types.repr t with
-  | Types.INamed (name, args) ->
-    Hashtbl.mem ctx_traits name || List.exists mentions_trait args
-  | Types.ISum (_, args) -> List.exists mentions_trait args
-  | _ -> false
-
-let not_pure (written : Ast.desugared_expr) param (arg : checked_expr) =
+let not_pure (written : Ast.expr) param (arg : checked_expr) =
   match Types.repr param, Types.repr arg.Ast.ann with
   | Types.IFn (_, _, expected), Types.IFn (_, _, actual) ->
     (match Types.labels_of_infer_row expected, Types.labels_of_infer_row actual with
@@ -686,7 +1139,7 @@ let not_pure (written : Ast.desugared_expr) param (arg : checked_expr) =
 
 (* The object and the bound are spelled with the same name, so unification
    would report the trait against itself. *)
-let not_a_bound ~declared (written : Ast.desugared_expr) param (arg : checked_expr) =
+let not_a_bound ~declared (written : Ast.expr) param (arg : checked_expr) =
   match Types.repr param, Types.infer_type_name (Types.repr arg.Ast.ann) with
   | Types.IVar { contents = Types.Unbound (_, Types.Bound (bound :: _)) }, Some trait
     when Hashtbl.mem ctx_traits trait && not (List.mem bound.Types.bd_trait (trait_closure trait)) ->
@@ -725,31 +1178,29 @@ let not_a_bound ~declared (written : Ast.desugared_expr) param (arg : checked_ex
 let in_loop = ref false
 
 let in_ctx ctx ~set body =
-  let saved =
-    ctx.return_type, ctx.saw_return, ctx.row, ctx.resume_type, ctx.in_final_arm
-  in
+  let saved = ctx.return_type, ctx.saw_return, ctx.row, ctx.cps_answer in
   let looping = !in_loop in
   in_loop := false;
   let restore () =
     in_loop := looping;
-    let return_type, saw_return, row, resume_type, in_final_arm = saved in
+    let return_type, saw_return, row, cps_answer = saved in
     ctx.return_type <- return_type;
     ctx.saw_return <- saw_return;
     ctx.row <- row;
-    ctx.resume_type <- resume_type;
-    ctx.in_final_arm <- in_final_arm
+    ctx.cps_answer <- cps_answer
   in
   Fun.protect ~finally:restore (fun () ->
     set ();
     body ())
 
-let in_function_body ctx ~ret ~row body =
+let in_function_body ?cps ctx ~ret ~row body =
   in_ctx
     ctx
     ~set:(fun () ->
       ctx.return_type <- Some ret;
       ctx.saw_return <- false;
-      ctx.row <- row)
+      ctx.row <- row;
+      ctx.cps_answer <- cps)
     (fun () ->
       let checked = body () in
       if not ctx.saw_return then Types.unify ret Types.IUnit;
@@ -803,7 +1254,6 @@ let rec infer_ty_of_annotation (t : Ast.type_expr) : Types.infer_ty =
     (match Hashtbl.find_opt ctx_type_params other with
      | Some var -> var
      | None -> named_type ~written:false t.Ast.span other [])
-  (* The copy [Type_mono] makes has a concrete owner; this one may not. *)
   | Ast.Ty_assoc (owner, member) ->
     Types.project (infer_ty_of_annotation owner) member
   (* [type_params_of] reads it off before the rest become types. *)
@@ -888,9 +1338,7 @@ and collect_pack name vars args =
       ])
 
 and named_type ?(written = true) span name args =
-  if String.equal name Types.reflection_name && args = []
-  then Types.ireflected
-  else if String.equal name Types.span_name && args = []
+  if String.equal name Types.span_name && args = []
   then Types.ispan
   else if String.equal name Types.name_name && args = []
   then Types.iname
@@ -929,13 +1377,14 @@ and named_type ?(written = true) span name args =
 and row_of_labels ~span entries =
   let tail =
     match List.filter_map (fun (l, _) -> Hashtbl.find_opt ctx_row_params l) entries with
+    | [] when List.mem_assoc Ast.open_row entries -> Types.fresh_row ()
     | [] -> Types.REmpty
     | [ row ] -> row
     | _ -> Types.error "A row may be open in one variable, not several."
   in
   List.fold_right
     (fun (label, written) rest ->
-      if Hashtbl.mem ctx_row_params label
+      if Hashtbl.mem ctx_row_params label || String.equal label Ast.open_row
       then rest
       else (
         let declared =
@@ -988,7 +1437,7 @@ let rec declaring_trait trait (args : Types.infer_ty list) name
   | None -> None
   | Some (params, body) ->
     if List.exists (fun (m : Ast.method_sig) -> String.equal m.Ast.ms_name name) body.Ast.tb_methods
-    then Some { Ast.dp_trait = trait; dp_targets = args; dp_instance = None }
+    then Some { Ast.dp_trait = trait; dp_targets = args }
     else (
       let scope =
         if List.length params = List.length args then List.combine params args else []
@@ -1003,7 +1452,7 @@ let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
   let span = e.Ast.span in
   match Types.repr expected, Types.infer_type_name (Types.repr e.Ast.ann) with
   (* An object of a trait is already an object of each of its supertraits: its
-     table holds their methods too. No slots, which `Resolve` reads as that. *)
+     table holds their methods too. No slots, which the lowering reads as that. *)
   | Types.INamed (trait, _), Some concrete
     when Hashtbl.mem ctx_traits trait
          && Hashtbl.mem ctx_traits concrete
@@ -1060,21 +1509,13 @@ let coerced (expected : Types.infer_ty) (e : checked_expr) : checked_expr =
           ( name
           , Option.value
               (declaring_trait trait trait_args name)
-              ~default:{ Ast.dp_trait = trait; dp_targets = trait_args; dp_instance = None } ))
+              ~default:{ Ast.dp_trait = trait; dp_targets = trait_args } ))
         declared
     in
     Ast.annotated span expected (`Coerce (e, trait, slots))
   | _ ->
     unify_at span expected e.Ast.ann;
     e
-
-(* Unification would reach the closed row from the call's side and report the
-   argument's effect as unhandled there, however many handlers enclose it. *)
-let coerce_params params (args : checked_expr list) =
-  let params = Types.expand params in
-  if List.length params <> List.length args
-  then args
-  else List.map2 (fun p a -> if is_trait_type p then coerced p a else a) params args
 
 (* Put back however the body leaves: [check] carries on after an error, and a
    field pointing at the failed function would follow it. *)
@@ -1147,17 +1588,1286 @@ let annotated_or_fresh = function
   | Some t -> infer_ty_of_annotation t
   | None -> Types.fresh ()
 
+(* `<T: Show>` and `<n: int>` are one syntax: only whether the annotation's head
+   names a trait tells a bound from a value. *)
+let is_value_param (p : Ast.static_param) =
+  match p.Ast.sp_ty with
+  | None -> false
+  | Some { Ast.it = Ast.Ty_name name | Ast.Ty_app (name, _); _ } -> not (Hashtbl.mem ctx_traits name)
+  | Some _ -> true
+
+(* A use of a declaration: its written signature with every static parameter
+   fresh, [u_vars] standing for them. A parameter standing in a row also has
+   the row it is copied to. *)
+type use =
+  { u_decl : walk_decl
+  ; u_ty : Types.infer_ty
+  ; u_vars : (string * Types.infer_ty * Types.infer_row option) list
+  ; mutable u_values : (string * Key.arg) list
+  ; mutable u_defaulted : bool
+  }
+
+(* One instantiation of the signature together with the parameters, so each
+   copy can be read back where it landed. *)
+let use_of (d : walk_decl) : use =
+  let body = d.wd_scheme.Types.body in
+  let in_body = Types.free_row_vars body in
+  let rows =
+    List.map
+      (fun (_, var) ->
+        match List.assq_opt var !param_rows with
+        | Some row ->
+          (match Types.row_tail row with
+           | Some id when List.mem id in_body -> Some row
+           | _ -> None)
+        | None -> None)
+      d.wd_vars
+  in
+  let together =
+    Types.ITuple
+      ((body :: List.map snd d.wd_vars)
+       @ List.filter_map (Option.map (fun row -> Types.IRow row)) rows)
+  in
+  (* Every variable, not only the static parameters': what the signature
+     leaves unwritten is what each instance's body settles for itself. *)
+  let quantified = List.map fst (Types.free_vars together) in
+  match
+    Types.instantiate
+      { Types.quantified
+      ; quantified_rows = Types.free_row_vars together
+      ; quantified_fields = []
+      ; body = together
+      }
+  with
+  | Types.ITuple (ty :: copies) ->
+    let n = List.length d.wd_vars in
+    let types = List.filteri (fun i _ -> i < n) copies
+    and row_copies = ref (List.filteri (fun i _ -> i >= n) copies) in
+    let vars =
+      List.map2
+        (fun ((name, _), copy) row ->
+          let row =
+            match row, !row_copies with
+            | Some _, Types.IRow r :: rest ->
+              row_copies := rest;
+              Some r
+            | _ -> None
+          in
+          name, copy, row)
+        (List.combine d.wd_vars types)
+        rows
+    in
+    { u_decl = d; u_ty = ty; u_vars = vars; u_values = []; u_defaulted = false }
+  | _ -> assert false
+
+(* A signature read and dropped. A declaration's hoisted scheme shares what its
+   signature leaves unwritten, so the walk reads a fresh copy rather than tie
+   every reader to one row. *)
+let signature_of env name scheme =
+  match decl_of env name with
+  | Some d -> (use_of d).u_ty
+  | None -> Types.instantiate scheme
+
+(* Whether a variable appears in a type outside every effect label's arguments,
+   and whether inside one. *)
+let occurrences id (t : Types.infer_ty) =
+  let outside = ref false
+  and inside = ref false in
+  let rec ty ~labelled t =
+    match Types.repr t with
+    | Types.IVar { contents = Types.Unbound (i, _) } ->
+      if i = id then if labelled then inside := true else outside := true
+    | Types.ITuple ts | Types.IPack ts | Types.INamed (_, ts) | Types.ISum (_, ts) ->
+      List.iter (ty ~labelled) ts
+    | Types.ISpread t -> ty ~labelled t
+    | Types.IFn (ps, r, row) ->
+      List.iter (ty ~labelled) ps;
+      ty ~labelled r;
+      row_of ~labelled row
+    | Types.IRecord f -> fields ~labelled f
+    | Types.IRow row -> row_of ~labelled row
+    | _ -> ()
+  and row_of ~labelled row =
+    match Types.repr_row row with
+    | Types.RCons (_, args, rest) ->
+      List.iter (ty ~labelled:true) args;
+      row_of ~labelled rest
+    | _ -> ()
+  and fields ~labelled f =
+    match Types.repr_fields f with
+    | Types.FCons (_, t, rest) ->
+      ty ~labelled t;
+      fields ~labelled rest
+    | _ -> ()
+  in
+  ty ~labelled:false t;
+  !outside, !inside
+
+(* A key is closed: a row still open would let the caller's grow after the
+   instance was made at it, and the two would disagree about the handler
+   values it takes. *)
+let rec close_row (r : Types.infer_row) =
+  match Types.repr_row r with
+  | Types.RVar { contents = Types.RUnbound _ } -> Types.unify_row r Types.REmpty
+  | Types.RCons (_, args, rest) ->
+    List.iter close_type args;
+    close_row rest
+  | _ -> ()
+
+and close_type (t : Types.infer_ty) =
+  match Types.repr t with
+  | Types.IVar { contents = Types.Unbound (_, Types.Collection elem) } ->
+    Types.unify t (Types.iarray elem);
+    close_type t
+  | Types.ITuple ts | Types.IPack ts | Types.INamed (_, ts) | Types.ISum (_, ts) ->
+    List.iter close_type ts
+  | Types.ISpread t -> close_type t
+  | Types.IFn (ps, r, row) ->
+    List.iter close_type ps;
+    close_type r;
+    close_row row
+  | Types.IRecord f ->
+    let rec fields f =
+      match Types.repr_fields f with
+      | Types.FCons (_, t, rest) ->
+        close_type t;
+        fields rest
+      | _ -> ()
+    in
+    fields f
+  | Types.IRow row -> close_row row
+  | _ -> ()
+
+(* The variables a resolved type still holds outside every effect label's
+   arguments. One inside a label is what a defaulted parameter left open at
+   its use, and the instance is generic in it. *)
+let outside_labels (t : Types.ty) =
+  let rec generics (t : Types.ty) =
+    match t with
+    | Types.Generic id -> [ id ]
+    | Types.Tuple ts | Types.Pack ts | Types.Named (_, ts) | Types.Sum (_, ts) -> List.concat_map generics ts
+    | Types.Spread t -> generics t
+    | Types.Record fields -> List.concat_map (fun (_, t) -> generics t) fields
+    | Types.Fn (ps, r, _) -> List.concat_map generics (r :: ps)
+    | _ -> []
+  in
+  generics t
+
+(* A handler arm serves every instantiation of its operation, so the
+   operation's own parameters are still variables there, and an instance made
+   inside the arm is made generic in them. Those are the only declared
+   parameters a key can meet: a declaration's own are copied at each use. *)
+let parametric (t : Types.ty) = List.for_all (fun id -> Hashtbl.mem Types.declared_params id) (outside_labels t)
+
+(* Read once the use's arguments are unified, and never later: a key is settled
+   at the call. *)
+let key_of_use span ~value (u : use) : Key.t =
+  let d = u.u_decl in
+  let declared = d.wd_scheme.Types.body in
+  let unsettled = ref [] in
+  let settled =
+    List.map
+      (fun (name, copy, row) ->
+        match row with
+        | Some r ->
+          close_row r;
+          name, Some (Key.Row (Types.resolve_row r))
+        | None ->
+          (try close_type copy with
+           | Types.Type_error message -> fail span "%s" message);
+          let resolved = Types.resolve copy in
+          if outside_labels resolved = []
+          then name, Some (Key.Type resolved)
+            (* Generic in it whatever part of it is: the instance is checked
+               once, generically, rather than once per shape a run-time value
+               could take. *)
+          else if parametric resolved || is_unknown copy
+          then name, Some (Key.Type (Types.Generic 0))
+          else (
+            let defaulted =
+              match Types.repr copy, List.assoc_opt name d.wd_vars with
+              | Types.IVar _, Some var ->
+                (match Types.repr var with
+                 | Types.IVar { contents = Types.Unbound (id, _) } ->
+                   (match occurrences id declared with
+                    | false, true -> true
+                    | _ -> false)
+                 | _ -> false)
+              | _ -> false
+            in
+            if defaulted
+            then (
+              u.u_defaulted <- true;
+              name, Some (Key.Type Types.Unit))
+            else (
+              unsettled := name :: !unsettled;
+              name, None)))
+      u.u_vars
+  in
+  if !unsettled <> []
+  then (
+    let shown =
+      "{"
+      ^ String.concat
+          ", "
+          (List.map
+             (fun (name, arg) ->
+               (if Ast.is_implicit_param name then "_" else name)
+               ^ " = "
+               ^ match arg with
+                 | Some a -> Key.show_arg a
+                 | None -> "?")
+             settled)
+      ^ "}"
+    in
+    if value
+    then
+      fail
+        span
+        "'%s' is generic and its static params are not settled here; write them or give it a \
+         type: %s."
+        (shown_name d.wd_name)
+        shown
+    else fail span "The static params of '%s' are not settled here: %s." (shown_name d.wd_name) shown);
+  List.map (fun (name, arg) -> name, Option.get arg) settled @ u.u_values
+
+(* The instance a use reaches, its type unified with the use's. One still being
+   metaprocessed has only its written signature to offer. *)
+let enter span ~value (u : use) : instance_view =
+  let key = key_of_use span ~value u in
+  let view = (ops ()).instance span u.u_decl key in
+  if view.iv_walking && not view.iv_ret_written
+  then
+    fail
+      span
+      "'%s' is still being metaprocessed and its signature leaves its return type to \
+       inference; write it."
+      (shown_name u.u_decl.wd_name);
+  (* A generic instance is generic in its own variables at every use, as a
+     scheme is: a call reaching it at another shape is not that shape. *)
+  let own =
+    List.filter (fun id -> Hashtbl.mem Types.declared_params id) (List.map fst (Types.free_vars view.iv_ty))
+  in
+  let ty =
+    if own = []
+    then view.iv_ty
+    else
+      Types.instantiate
+        { Types.quantified = own; quantified_rows = []; quantified_fields = []; body = view.iv_ty }
+  in
+  (* A parameter the key defaulted stands only in labels, and the instance
+     performs none of them: unifying would put `Throw<unit>` in the caller's
+     row, where a later `Throw<IoError>` could not join it. The use keeps its
+     own copy open, which the caller's row may still settle. *)
+  (if u.u_defaulted
+   then (
+     match Types.repr u.u_ty, Types.repr ty with
+     | Types.IFn (_, ret, _), Types.IFn (_, ret', _) -> unify_at span ret ret'
+     | _ -> ())
+   else unify_at span u.u_ty ty);
+  view
+
+(* A finished instance's row is what it performs, contained in its caller's.
+   One still being processed is tied to its caller instead: labels it gains
+   after this call would otherwise never reach the caller. *)
+let walk_admits ~(view : instance_view) ~written row caller =
+  (match !open_defer with
+   | Some d when caller == d.d_row && Types.row_is_declared row -> d.d_open <- true
+   | _ -> ());
+  if view.iv_walking && not written then Types.unify_row row caller else Types.row_within row caller
+
+(* A function named where no call settles it, made concrete once the
+   statement around it has said what it is. *)
+let settle_pending () =
+  let waiting = List.rev !pending_values in
+  pending_values := [];
+  List.iter
+    (fun p ->
+      let u = { u_decl = p.p_decl; u_ty = p.p_ty; u_vars = p.p_vars; u_values = []; u_defaulted = false } in
+      let view = enter p.p_span ~value:true u in
+      Hashtbl.replace placeholders p.p_placeholder view.iv_name)
+    waiting
+
+(* Kept only if it holds: the parent unifies against what it expected anyway,
+   and a mismatch is reported there, at the span it always was. *)
+let meet expected actual =
+  match expected with
+  | Some t ->
+    if Types.retracting (fun () ->
+         try
+           Types.unify t actual;
+           true
+         with
+         | Types.Type_error _ -> false)
+    then Types.unify t actual
+  | None -> ()
+
+(* Met before the arguments are read, so what the parent expects of the result
+   reaches the parameters: `var p: Promise<int> = promise();` settles the key. *)
+let use_toward expected (d : walk_decl) =
+  let u = use_of d in
+  (match Types.repr u.u_ty with
+   | Types.IFn (_, ret, _) -> meet expected ret
+   | _ -> ());
+  u
+
+let written_instance span name scheme static_args =
+  let declared = Option.value ~default:[] (Hashtbl.find_opt ctx_fn_params name) in
+  if List.length declared <> List.length static_args
+  then
+    fail
+      span
+      "'%s' takes %d static argument(s) but %d were given."
+      name
+      (List.length declared)
+      (List.length static_args);
+  let type_args =
+    List.map
+      (function
+        | Ast.St_type t -> t
+        | Ast.St_value _ ->
+          fail span "A static argument to '%s' is not known at compile time." name)
+      static_args
+  in
+  let bound, pinned =
+    List.fold_left2
+      (fun (bound, pinned) (_, var) written ->
+        let written = infer_ty_of_annotation written in
+        match Types.repr var with
+        | Types.IVar { contents = Types.Unbound (id, _) } ->
+          (id, written) :: bound, pinned
+        | other -> bound, (other, written) :: pinned)
+      ([], [])
+      declared
+      type_args
+  in
+  let fn = Types.instantiate ~bound scheme in
+  List.iter (fun (a, b) -> unify_at span a b) pinned;
+  fn
+
+let parameters fn ~receiver (args : Ast.expr list) =
+  let unknown = List.map (fun _ -> None) args in
+  match Types.repr fn with
+  | Types.IFn (params, _, _) ->
+    (match Types.expand params, receiver with
+     | _ :: params, true | params, false ->
+       if List.length params = List.length args then List.map Option.some params else unknown
+     | [], true -> unknown)
+  | _ -> unknown
+
+(* An implicit parameter has no name to write it by. *)
+let write_static ?(implicit = false) span name (u : use) static_args =
+  let d = u.u_decl in
+  let written =
+    List.filter
+      (fun (p : Ast.static_param) -> not (Ast.is_implicit_param p.Ast.sp_name))
+      d.wd_sig.Ast.static_params
+  in
+  let written = if implicit && written = [] then d.wd_sig.Ast.static_params else written in
+  if List.length written <> List.length static_args
+  then
+    fail
+      span
+      "'%s' takes %d static argument(s) but %d were given."
+      (shown_name name)
+      (List.length written)
+      (List.length static_args);
+  List.iter2
+    (fun (p : Ast.static_param) (arg : Ast.expr Ast.static_arg) ->
+      if is_value_param p
+      then (
+        let v, shown = (ops ()).static_value name arg in
+        u.u_values <- u.u_values @ [ p.Ast.sp_name, Key.Value (v, shown) ])
+      else (
+        let written =
+          match arg with
+          | Ast.St_type t -> infer_ty_of_annotation t
+          | Ast.St_value { Ast.it = `Var n; span = at; _ } ->
+            infer_ty_of_annotation (Ast.at at (Ast.Ty_name n))
+          | Ast.St_value v -> fail v.Ast.span "'%s' takes a type here, not a value." (shown_name name)
+        in
+        match List.find_opt (fun (n, _, _) -> String.equal n p.Ast.sp_name) u.u_vars with
+        | Some (_, copy, Some row) ->
+          (match Types.repr written with
+           | Types.IRow r -> unify_at span (Types.IRow row) (Types.IRow r)
+           | _ -> unify_at span copy written)
+        | Some (_, copy, None) -> unify_at span copy written
+        | None -> ()))
+    written
+    static_args
+
+(* A function named as a value: the instance once its use is settled, and
+   otherwise a placeholder the expression around it settles. *)
+let value_of span (u : use) =
+  let settled (_, copy, row) =
+    match row with
+    | Some r -> Types.row_tail r = None
+    | None -> Types.free_vars copy = []
+  in
+  if List.for_all settled u.u_vars || u.u_values <> []
+  then (enter span ~value:true u).iv_name
+  else (
+    incr placeholder_count;
+    let placeholder = Ast.generated [ "use"; string_of_int !placeholder_count ] in
+    pending_values
+    := { p_span = span; p_decl = u.u_decl; p_vars = u.u_vars; p_ty = u.u_ty; p_placeholder = placeholder }
+       :: !pending_values;
+    placeholder)
+
+(* A call's use, once its arguments are unified: the functions they name are
+   settled first, then the callee's own key. *)
+let reached span (u : use) row ctx =
+  settle_pending ();
+  (* A label the caller already carries says what the callee's argument to it
+     is, before the key is read. *)
+  Types.row_within row ctx.row;
+  let view = enter span ~value:false u in
+  walk_admits ~view ~written:(Option.is_some u.u_decl.wd_sig.Ast.row) row ctx.row;
+  view.iv_name
+
+let with_pending f =
+  let outer = !pending_values in
+  pending_values := [];
+  Fun.protect
+    ~finally:(fun () -> pending_values := outer)
+    (fun () ->
+      let result = f () in
+      settle_pending ();
+      result)
+
+(* Where every entry the registry names is declared. *)
+let top_env : env option ref = ref None
+
+(* A call the checker builds to an entry the registry chose: in the walk, the
+   instance the arguments' types settle, with the row that instance performs. *)
+(* Made while its root statement is being finished, an instance is closed at
+   once, as one made earlier is closed then: the call names its row, and an
+   open tail would leave it for the caller to decide. *)
+let closed_if ~at_end (view : instance_view) (ty : Types.infer_ty) =
+  if at_end && not view.iv_walking
+  then (
+    let rec close (r : Types.infer_row) =
+      match Types.repr_row r with
+      | Types.RVar { contents = Types.RUnbound _ } -> Types.unify_row r Types.REmpty
+      | Types.RCons (_, _, rest) -> close rest
+      | _ -> ()
+    in
+    match Types.repr ty with
+    | Types.IFn (_, _, row) -> close row
+    | _ -> ())
+
+let entry_ref ~at_end span name (args : Types.infer_ty list) (result : Types.infer_ty) : checked_expr =
+  let found, row =
+    match Option.bind !top_env (fun env -> decl_of env name) with
+    | None -> name, Types.REmpty
+    | Some d ->
+      let u = use_of d in
+      (match Types.repr u.u_ty with
+       | Types.IFn (params, _, _) ->
+         let params = Types.expand params in
+         List.iteri
+           (fun i a ->
+             match List.nth_opt params i with
+             | Some p -> unify_at span p a
+             | None -> ())
+           args
+       | _ -> ());
+      let view = enter span ~value:false u in
+      closed_if ~at_end view u.u_ty;
+      ( view.iv_name
+      , match Types.repr u.u_ty with
+        | Types.IFn (_, _, row) -> row
+        | _ -> Types.REmpty )
+  in
+  Ast.annotated span (Types.IFn (args, result, row)) (`Var found)
+
+let call_entry ~at_end span name (args : checked_expr list) result : checked_expr =
+  Ast.annotated
+    span
+    result
+    (`Call (entry_ref ~at_end span name (List.map (fun (a : checked_expr) -> a.Ast.ann) args) result, args))
+
+(* The effects a trait's method writes in its row. *)
+let declared_row trait name =
+  let methods =
+    List.concat_map
+      (fun t ->
+        match Hashtbl.find_opt ctx_traits t with
+        | Some (_, body) -> body.Ast.tb_methods
+        | None -> [])
+      (trait_closure trait)
+  in
+  match List.find_opt (fun (m : Ast.method_sig) -> String.equal m.Ast.ms_name name) methods with
+  | Some { Ast.ms_signature = { Ast.row = Some labels; _ }; _ } -> List.map fst labels
+  | _ -> []
+
+(* A table's slot for a method that takes control holds the impl's method
+   made taking its handlers and continuation, as a function value is. *)
+let controlled_slot : (Registry.t -> Ast.span -> string -> checked_expr) ref =
+  ref (fun _ span _ -> fail span "A method that takes control has no table slot here.")
+
+let slot_ref ~at_end span ~owner ~trait name entry (receiver : Types.infer_ty) : checked_expr =
+  match Option.bind !top_env (fun env -> decl_of env entry) with
+  | None -> fail span "'%s' has no '%s' to put in a '%s'." owner name trait
+  | Some d ->
+    let u = use_of d in
+    (match Types.repr u.u_ty with
+     | Types.IFn (self :: _, _, _) -> unify_at span self receiver
+     | _ -> ());
+    let view = enter span ~value:false u in
+    closed_if ~at_end view u.u_ty;
+    Ast.annotated span u.u_ty (`Var view.iv_name)
+
+let ordering_test (op : Ast.binop) =
+  match op with
+  | Ast.Less -> Some Core.is_less
+  | Ast.Less_equal -> Some Core.is_less_equal
+  | Ast.Greater -> Some Core.is_greater
+  | Ast.Greater_equal -> Some Core.is_greater_equal
+  | _ -> None
+
+let ordering_result = Types.ISum (Core.option, [ Types.ISum (Core.ordering, []) ])
+
+(* What a node's lowering reads a type as: while it is checked, only a type no
+   variable is left in; at the end of its root statement, whatever it became. *)
+(* What is still open when a root statement ends. An instance's own
+   parameters are its key's, so this is inference nothing finished. Some stay
+   open on purpose: a collection's kind, which is an array; a parameter a
+   parametric instance keeps; a variable standing only in an effect's
+   arguments, which the key defaulted; a parameter the author named that a
+   handler leaves open; what an error or a meta block left unknown; and what
+   [unobservable] holds. *)
+let unsettled (t : Types.infer_ty) =
+  List.exists
+    (fun (id, kind) ->
+      match kind with
+      | Types.Collection _ -> false
+      | _ ->
+        not
+          (Hashtbl.mem Types.declared_params id
+           || Hashtbl.mem Types.param_names id
+           || Hashtbl.mem unobservable id
+           || List.exists
+                (fun u ->
+                  match Types.repr u with
+                  | Types.IVar { contents = Types.Unbound (other, _) } -> other = id
+                  | _ -> false)
+                !unknowns)
+        && fst (occurrences id t))
+    (Types.free_vars t)
+
+let settled_now = Types.concrete
+let settled_at_end t = if unsettled t then None else Some (Types.resolve t)
+
+let rec settled_all settle = function
+  | [] -> Some []
+  | t :: rest ->
+    Option.bind (settle t) (fun t -> Option.map (fun rest -> t :: rest) (settled_all settle rest))
+
+let accessor registry span (target : Types.ty) (index : Types.ty) pick =
+  let by_index owner =
+    Registry.indexed registry owner (Option.value (Types.type_name index) ~default:"")
+  in
+  match Option.bind (Types.type_name target) by_index with
+  | Some entry ->
+    (match pick entry with
+     | Some name -> name
+     | None -> fail span "%s cannot be assigned into." (Types.string_of_ty target))
+  | None -> fail span "Cannot index %s." (Types.string_of_ty target)
+
+(* [None] while a type the choice reads is not settled. *)
+let lowered ~at_end registry (e : checked_expr) : checked_expr option =
+  let settle = if at_end then settled_at_end else settled_now in
+  let call_entry = call_entry ~at_end
+  and entry_ref = entry_ref ~at_end
+  and slot_ref = slot_ref ~at_end in
+  let span = e.Ast.span
+  and ann = e.Ast.ann in
+  let node it : checked_expr = Ast.annotated span ann it in
+  match e.Ast.it with
+  | `Binop (op, a, b) ->
+    (match settle a.Ast.ann, settle b.Ast.ann with
+     | Some lhs, Some rhs ->
+       (match Registry.find registry op lhs rhs with
+        (* The method answers with an `Ordering`; which comparison was written
+           decides how that becomes a bool. *)
+        | Some { Registry.emit = Registry.Call name; _ } when ordering_test op <> None ->
+          let compared = call_entry span name [ a; b ] ordering_result in
+          Some (call_entry span (Option.get (ordering_test op)) [ compared ] ann)
+        (* One entry answers both, since a type that says what equal means has
+           said what unequal means. *)
+        | Some { Registry.emit = Registry.Call name; _ } when op = Ast.Not_equal ->
+          Some (node (`Unop (Ast.Not, call_entry span name [ a; b ] Types.IBool)))
+        | Some { Registry.emit = Registry.Call name; _ } -> Some (call_entry span name [ a; b ] ann)
+        | Some { Registry.emit = Registry.Primitive; _ } | None -> Some e)
+     | _ -> None)
+  | `Unop (((Ast.Neg | Ast.Bit_not) as op), a) ->
+    Option.map
+      (fun operand ->
+        match Registry.find_unary registry op operand with
+        | Some { Registry.emit = Registry.Call name; _ } -> call_entry span name [ a ] ann
+        | Some { Registry.emit = Registry.Primitive; _ } | None -> e)
+      (settle a.Ast.ann)
+  | `Index (target, index) ->
+    (match settle target.Ast.ann, settle index.Ast.ann with
+     | Some t, Some i ->
+       let via_entry () =
+         call_entry
+           span
+           (accessor registry target.Ast.span t i (fun entry -> entry.Registry.get))
+           [ target; index ]
+           ann
+       in
+       (* Anything but an int is an entry the type declared, a range included. *)
+       Some
+         (if i <> Types.Int
+          then via_entry ()
+          else if t = Types.Str
+          then node (`Str_get (target, index))
+          else if Types.is_array t
+          then node (`Array_get (target, index))
+          else via_entry ())
+     | _ -> None)
+  | `Index_assign (target, index, v) ->
+    (match settle target.Ast.ann with
+     | Some t when Types.is_array t -> Some (node (`Array_set (target, index, v)))
+     | Some t ->
+       Option.map
+         (fun i ->
+           call_entry
+             span
+             (accessor registry target.Ast.span t i (fun entry -> entry.Registry.set))
+             [ target; index; v ]
+             ann)
+         (settle index.Ast.ann)
+     | None -> None)
+  | `Collection_lit items ->
+    Option.map
+      (fun ty ->
+        if Types.is_array ty
+        then node (`Array_lit items)
+        else (
+          let unbuildable () =
+            fail span "%s cannot be built from a literal." (Types.string_of_ty ty)
+          in
+          match Types.type_name ty with
+          | None -> unbuildable ()
+          (* What it holds comes from the entry rather than from its arity. *)
+          | Some name ->
+            (match Registry.container registry name, Registry.container_element registry name ann with
+             | Some make, Some element ->
+               (* The items' own type where there are any, so the entry's
+                  element is the very type they were checked at. *)
+               let element =
+                 match items with
+                 | (first : checked_expr) :: _ -> first.Ast.ann
+                 | [] -> element
+               in
+               let elements : checked_expr =
+                 Ast.annotated span (Types.iarray element) (`Array_lit items)
+               in
+               call_entry span make.Registry.entry [ elements ] ann
+             | _ -> unbuildable ())))
+      (settle ann)
+  | `Coerce (inner, trait, slots) ->
+    let targets =
+      settled_all settle (List.concat_map (fun (_, (d : Types.infer_ty Ast.dispatch)) -> d.Ast.dp_targets) slots)
+    in
+    (match settle inner.Ast.ann, targets with
+     | Some data, Some _ ->
+       (match slots, Types.type_name data with
+        (* An object passed where one of its supertraits is wanted is that
+           object. Called through an identity, so the node keeps the type it
+           was given. *)
+        | [], Some owner when Hashtbl.mem ctx_traits owner ->
+          let identity = Types.IFn ([ inner.Ast.ann ], ann, Types.REmpty) in
+          Some (node (`Call (Ast.annotated span identity (`Var "__upcast"), [ inner ])))
+        | _, None ->
+          fail
+            inner.Ast.span
+            "%s cannot become a '%s': it has no type to dispatch on."
+            (Types.string_of_ty data)
+            trait
+        | _, Some owner ->
+          let slot (name, (d : Types.infer_ty Ast.dispatch)) =
+            let d =
+              { Ast.dp_trait = d.Ast.dp_trait
+              ; dp_targets = List.map Types.resolve d.Ast.dp_targets
+              
+              }
+            in
+            let entry = Registry.dispatched registry d owner name in
+            if controlling (declared_row d.Ast.dp_trait name) <> [] && walking () && Option.is_none !recording
+            then name, !controlled_slot registry span entry
+            else name, slot_ref span ~owner ~trait name entry inner.Ast.ann
+          in
+          let equal =
+            match Registry.find registry Ast.Equal data data with
+            | Some { Registry.emit = Registry.Call name; _ } ->
+              Some (entry_ref span name [ inner.Ast.ann; inner.Ast.ann ] Types.IBool)
+            | Some { Registry.emit = Registry.Primitive; _ } | None -> None
+          in
+          Some
+            (node
+               (`Object (inner, { Ast.made_from = Types.string_of_ty data; equal }, List.map slot slots))))
+     | _ -> None)
+  (* A trait object dispatches on the value it holds, so the impl is not chosen
+     here; the row the call performs was read off the trait. *)
+  | `Bound_call (receiver, name, dispatch, args) ->
+    (match settle receiver.Ast.ann, settled_all settle dispatch.Ast.dp_targets with
+     | Some r, Some targets ->
+       (match Types.type_name r with
+        | Some owner when Hashtbl.mem ctx_traits owner ->
+          let row =
+            Option.value
+              ~default:Types.REmpty
+              (Hashtbl.find_opt dynamic_rows (dispatch.Ast.dp_trait, name))
+          in
+          let performs =
+            Types.IFn
+              (receiver.Ast.ann :: List.map (fun (a : checked_expr) -> a.Ast.ann) args, ann, row)
+          in
+          Some (node (`Dyn_call (receiver, name, performs, args)))
+        | Some owner ->
+          let all =
+            if Registry.is_associated registry owner name then args else receiver :: args
+          in
+          let d = { Ast.dp_trait = dispatch.Ast.dp_trait; dp_targets = targets } in
+          Some (call_entry span (Registry.dispatched registry d owner name) all ann)
+        (* Nothing settled the receiver, so there is no impl to name. *)
+        | None ->
+          fail receiver.Ast.span "Cannot call '%s': the receiver's type is not known here." name)
+     | _ -> None)
+  | `New (_, fields) -> Some (node (`Record_lit fields))
+  | `New_variant (_, variant, payload) -> Some (node (`Variant (variant, Ast.payload_fields payload)))
+  | _ -> None
+
+let lowered_now registry (e : checked_expr) =
+  if walking () then Option.value (lowered ~at_end:false registry e) ~default:e else e
+
+let answer_count = ref 0
+
+let fresh_answer () =
+  incr answer_count;
+  Ast.generated [ "answer"; string_of_int !answer_count ]
+
+(* A compound target is read and then written, and what it is made of must run
+   once between them: `xs[f()] += 1` calls `f` once. The temporary is assigned
+   where the expression stood rather than declared with its value, so an
+   enclosing loop condition still evaluates it every time round. *)
+let once ctx (x : checked_expr) : checked_expr * checked_expr =
+  match x.Ast.it with
+  | `Var _ | #Ast.lit -> x, x
+  | _ ->
+    let temp = fresh_answer () in
+    ctx.hoisted <- Ast.annotated x.Ast.span x.Ast.ann (`Var_decl (temp, None, None)) :: ctx.hoisted;
+    { x with Ast.it = `Assign (temp, x) }, { x with Ast.it = `Var temp }
+
+(* The expressions a node evaluates as part of itself: not a lambda's body,
+   which runs later, nor what a `match` or `run` holds, which is lowered with
+   it. *)
+let children (e : checked_expr) : checked_expr list =
+  match e.Ast.it with
+  | #Ast.lit | `Var _ | `Lambda _ | `Run_block _ | `Match_expr _ -> []
+  | `Assign (_, a) | `Unop (_, a) | `Compound (_, _, a) | `Tuple_get (a, _) | `Spread a
+  | `Field (a, _) | `Array_len a | `Str_len a | `Coerce (a, _, _) -> [ a ]
+  | `Binop (_, a, b) | `And (a, b) | `Or (a, b) | `Compound_field (_, a, _, b) | `Index (a, b)
+  | `Field_assign (a, _, b) | `Array_new (a, b) | `Array_get (a, b) | `Str_get (a, b) ->
+    [ a; b ]
+  | `Compound_index (_, a, b, c) | `Index_assign (a, b, c) | `Array_set (a, b, c) -> [ a; b; c ]
+  | `Call (callee, args) -> callee :: args
+  | `Bound_call (receiver, _, _, args) | `Dyn_call (receiver, _, _, args) -> receiver :: args
+  | `Tuple items | `Collection_lit items | `Array_lit items | `New_call (_, _, items) -> items
+  | `Record_lit fields | `New (_, fields) | `Variant (_, fields) -> List.map snd fields
+  | `New_variant (_, _, payload) -> List.map snd (Ast.payload_fields payload)
+  | `Object (data, _, _) -> [ data ]
+
+(* Whether running checked code reaches a call that takes control, outside the
+   function values it makes. *)
+let rec expr_splits (e : checked_expr) =
+  let takes (t : Types.infer_ty) =
+    match Types.repr t with
+    | Types.IFn (_, _, row) -> controlling_row row <> []
+    | _ -> false
+  in
+  match e.Ast.it with
+  | `Lambda _ -> false
+  | `Call (callee, args) ->
+    takes callee.Ast.ann || List.exists expr_splits (callee :: args)
+  | `Dyn_call (receiver, _, performs, args) -> takes performs || List.exists expr_splits (receiver :: args)
+  | `Run_block b -> block_splits b.Ast.vb_stmts || Option.fold ~none:false ~some:expr_splits b.Ast.vb_value
+  | `Match_expr (x, cases) ->
+    expr_splits x
+    || List.exists
+         (fun (_, (b : (checked_expr, checked_stmt) Ast.valued_block)) ->
+           block_splits b.Ast.vb_stmts || Option.fold ~none:false ~some:expr_splits b.Ast.vb_value)
+         cases
+  | _ -> List.exists expr_splits (children e)
+
+and stmt_splits (s : checked_stmt) =
+  match s.Ast.it with
+  | `Fn _ -> false
+  | `Match (x, cases) -> expr_splits x || List.exists (fun (_, body) -> block_splits body) cases
+  | #Ast.stmts as st ->
+    let found = ref false in
+    ignore
+      (Ast.map_stmts
+         (fun e ->
+           if expr_splits e then found := true;
+           e)
+         (fun s ->
+           if stmt_splits s then found := true;
+           s)
+         st);
+    !found
+  | _ -> false
+
+and block_splits body = List.exists stmt_splits body
+
+(* A call rebuilt keeps the bindings it was checked under. *)
+let carried ~(from : checked_expr) (e : checked_expr) =
+  (match from.Ast.it with
+   | (`Call _ | `Dyn_call _ | `Bound_call _) when from != e ->
+     Option.iter (Checked_table.replace bindings_at e) (Checked_table.find_opt bindings_at from)
+   | _ -> ());
+  e
+
+let rec hoists (e : checked_expr) =
+  match e.Ast.it with
+  | `Run_block _ | `Match_expr _ -> true
+  | _ -> List.exists hoists (children e)
+
+(* A `run` or a `match` in expression position becomes statements run ahead of
+   the statement holding it, and so does the right side of `&&` or `||` that
+   holds one. Each statement is taken apart once, when it is checked, so a
+   statement list inside an expression -- a lambda's body, a block's arms --
+   was already. *)
+let rec hoist_expr ctx (e : checked_expr) : checked_expr =
+  let original = e in
+  let e = in_order ctx e in
+  let span = e.Ast.span
+  and ann = e.Ast.ann in
+  let it : checked_expr_kind =
+    match e.Ast.it with
+    | `Lambda _ as l -> l
+    | (`And (a, b) | `Or (a, b)) as logic ->
+      let a = hoist_expr ctx a in
+      (* What the right side hoisted runs only when the right side would. *)
+      (match hoisting ctx b, logic with
+       | ([], b), `And _ -> `And (a, b)
+       | ([], b), `Or _ -> `Or (a, b)
+       | (before, b), _ ->
+         let temp = fresh_answer () in
+         let at it : checked_stmt = Ast.annotated span Types.IUnit it in
+         let var : checked_expr = Ast.annotated span Types.IBool (`Var temp) in
+         let test =
+           match logic with
+           | `And _ -> var
+           | `Or _ -> { var with Ast.it = `Unop (Ast.Not, var) }
+         in
+         let decided = at (`Expr { b with Ast.it = `Assign (temp, b) }) in
+         ctx.hoisted
+         <- at (`If (test, at (`Block (before @ [ decided ])), None))
+            :: at (`Var_decl (temp, None, Some a))
+            :: ctx.hoisted;
+         `Var temp)
+    | `Run_block body ->
+      let answer = fresh_answer () in
+      let body_stmts, body_value = valued ctx body in
+      let answered =
+        Option.fold
+          ~none:[]
+          ~some:(fun (v : checked_expr) ->
+            [ Ast.annotated v.Ast.span v.Ast.ann (`Expr { v with Ast.it = `Assign (answer, v) }) ])
+          body_value
+      in
+      ctx.hoisted
+      <- Ast.annotated span ann (`Block (body_stmts @ answered))
+         :: Ast.annotated span ann (`Var_decl (answer, None, None))
+         :: ctx.hoisted;
+      `Var answer
+    | `Match_expr (scrutinee, cases) ->
+      let answer = fresh_answer () in
+      let scrutinee = hoist_expr ctx scrutinee in
+      let arm = valued_arm ctx (fun v -> `Expr { v with Ast.it = `Assign (answer, v) }) in
+      let matched : checked_stmt = Ast.annotated span ann (`Match (scrutinee, List.map arm cases)) in
+      ctx.hoisted
+      <- matched :: Ast.annotated span ann (`Var_decl (answer, None, None)) :: ctx.hoisted;
+      `Var answer
+    | _ -> (map_children (hoist_expr ctx) e).Ast.it
+  in
+  carried ~from:original { Ast.it; span; ann }
+
+(* An operand that hoists runs ahead of the whole expression, so each operand
+   before it is evaluated into a temporary first, keeping the order the source
+   wrote. A name or a literal is left in place: spilling an assignment's target
+   would assign the copy, and a callee's name is what picks a builtin. *)
+and in_order ctx (e : checked_expr) : checked_expr =
+  let rec spill (child : checked_expr) : checked_expr =
+    match child.Ast.it with
+    | `Var _ | #Ast.lit -> child
+    | `Spread inner -> { child with Ast.it = `Spread (spill inner) }
+    | _ ->
+      let temp = fresh_answer () in
+      let value = hoist_expr ctx child in
+      ctx.hoisted
+      <- Ast.annotated child.Ast.span child.Ast.ann (`Var_decl (temp, None, Some value)) :: ctx.hoisted;
+      { child with Ast.it = `Var temp }
+  in
+  let rec ordered = function
+    | child :: rest when List.exists hoists rest ->
+      let child = spill child in
+      child :: ordered rest
+    | children -> children
+  in
+  let two a b k =
+    match ordered [ a; b ] with
+    | [ a; b ] -> { e with Ast.it = k a b }
+    | _ -> assert false
+  in
+  let fields pairs = List.combine (List.map fst pairs) (ordered (List.map snd pairs)) in
+  match e.Ast.it with
+  | `Binop (op, a, b) -> two a b (fun a b -> `Binop (op, a, b))
+  | `Index (a, b) -> two a b (fun a b -> `Index (a, b))
+  | `Array_new (a, b) -> two a b (fun a b -> `Array_new (a, b))
+  | `Array_get (a, b) -> two a b (fun a b -> `Array_get (a, b))
+  | `Str_get (a, b) -> two a b (fun a b -> `Str_get (a, b))
+  | `Index_assign (target, index, v) -> two index v (fun index v -> `Index_assign (target, index, v))
+  | `Array_set (target, index, v) -> two index v (fun index v -> `Array_set (target, index, v))
+  | `Call (callee, args) ->
+    (match ordered (callee :: args) with
+     | callee :: args -> { e with Ast.it = `Call (callee, args) }
+     | [] -> assert false)
+  | `Bound_call (receiver, name, dispatch, args) ->
+    (match ordered (receiver :: args) with
+     | receiver :: args -> { e with Ast.it = `Bound_call (receiver, name, dispatch, args) }
+     | [] -> assert false)
+  | `Dyn_call (receiver, name, performs, args) ->
+    (match ordered (receiver :: args) with
+     | receiver :: args -> { e with Ast.it = `Dyn_call (receiver, name, performs, args) }
+     | [] -> assert false)
+  | `Tuple items -> { e with Ast.it = `Tuple (ordered items) }
+  | `Collection_lit items -> { e with Ast.it = `Collection_lit (ordered items) }
+  | `Array_lit items -> { e with Ast.it = `Array_lit (ordered items) }
+  | `Record_lit pairs -> { e with Ast.it = `Record_lit (fields pairs) }
+  | `Variant (variant, pairs) -> { e with Ast.it = `Variant (variant, fields pairs) }
+  | _ -> e
+
+and hoisting ctx (e : checked_expr) =
+  let saved = ctx.hoisted in
+  ctx.hoisted <- [];
+  let e = hoist_expr ctx e in
+  let before = List.rev ctx.hoisted in
+  ctx.hoisted <- saved;
+  before, e
+
+(* Whatever the value expression hoists belongs inside the block, in front of
+   it. *)
+and valued ctx (b : (checked_expr, checked_stmt) Ast.valued_block) =
+  match b.Ast.vb_value with
+  | None -> b.Ast.vb_stmts, None
+  | Some v ->
+    let before, v = hoisting ctx v in
+    b.Ast.vb_stmts @ before, Some v
+
+and valued_arm ctx finish (pattern, b) =
+  let stmts, value = valued ctx b in
+  ( pattern
+  , stmts
+    @ Option.fold
+        ~none:[]
+        ~some:(fun (v : checked_expr) -> [ Ast.annotated v.Ast.span v.Ast.ann (finish v) ])
+        value )
+
+and map_children f (e : checked_expr) : checked_expr =
+  let it : checked_expr_kind =
+    match e.Ast.it with
+    | #Ast.lit as l -> l
+    | `Lambda _ as l -> l
+    | #Ast.arrays as a -> (Ast.map_arrays f a :> checked_expr_kind)
+    | #Ast.strings as s -> (Ast.map_strings f s :> checked_expr_kind)
+    | #Ast.vars as v -> (Ast.map_vars f v :> checked_expr_kind)
+    | #Ast.ops as o -> (Ast.map_ops f o :> checked_expr_kind)
+    | #Ast.logic as l -> (Ast.map_logic f l :> checked_expr_kind)
+    | #Ast.compound as c -> (Ast.map_compound f c :> checked_expr_kind)
+    | #Ast.indexing as i -> (Ast.map_indexing f i :> checked_expr_kind)
+    | #Ast.tuple as t -> (Ast.map_tuple f t :> checked_expr_kind)
+    | #Ast.spread as s -> (Ast.map_spread f s :> checked_expr_kind)
+    | #Ast.record as r -> (Ast.map_record f r :> checked_expr_kind)
+    | #Ast.nominal as n -> (Ast.map_nominal f n :> checked_expr_kind)
+    | #Ast.collection as c -> (Ast.map_collection f c :> checked_expr_kind)
+    | `Bound_call (receiver, name, d, args) -> `Bound_call (f receiver, name, d, List.map f args)
+    | #Ast.dyn_calls as d -> (Ast.map_dyn_call f Fun.id d :> checked_expr_kind)
+    | `Coerce (inner, trait, slots) -> `Coerce (f inner, trait, slots)
+    | #Ast.variant_lit as v -> (Ast.map_variant_lit f v :> checked_expr_kind)
+    | #Ast.object_lit as o -> (Ast.map_object_lit f o :> checked_expr_kind)
+    | (`Run_block _ | `Match_expr _) as r -> r
+  in
+  carried ~from:e { e with Ast.it }
+
+(* Every statement list here is the statements a check produced one at a time,
+   each with what it hoisted already in front of it. *)
+let hoist_stmt ctx (s : checked_stmt) : checked_stmt list =
+  let span = s.Ast.span in
+  let node it : checked_stmt = { s with Ast.it } in
+  match s.Ast.it with
+  (* Its answer goes nowhere, so it needs no name to go by. *)
+  | `Expr ({ Ast.it = `Run_block _; _ } as inner) ->
+    ignore (hoist_expr ctx inner);
+    []
+  | `Expr { Ast.it = `Match_expr (scrutinee, cases); _ } ->
+    let scrutinee = hoist_expr ctx scrutinee in
+    [ node (`Match (scrutinee, List.map (valued_arm ctx (fun v -> `Expr v)) cases)) ]
+  (* A condition that hoisted statements runs them on every test, so they are
+     written once before the loop and again at the end of its body. Taking the
+     condition apart twice gives each copy names of its own. *)
+  | `While (cond, body) ->
+    (match hoisting ctx cond with
+     | [], cond -> [ node (`While (cond, body)) ]
+     | before, first ->
+       let temp = fresh_answer () in
+       let var : checked_expr = Ast.annotated span Types.IBool (`Var temp) in
+       let again, next = hoisting ctx cond in
+       let retest = node (`Expr { next with Ast.it = `Assign (temp, next) }) in
+       before
+       @ [ node (`Var_decl (temp, None, Some first))
+         ; node (`While (var, node (`Block ((body :: again) @ [ retest ]))))
+         ])
+  | #Ast.stmts as st -> [ node (Ast.map_stmts (hoist_expr ctx) Fun.id st :> checked_stmt_kind) ]
+  | `Match (scrutinee, cases) -> [ node (`Match (hoist_expr ctx scrutinee, cases)) ]
+  | #Ast.type_defs | #Ast.method_defs -> [ s ]
+
+let statement ctx (check : unit -> checked_stmt) : checked_stmt list =
+  if not (walking ())
+  then [ check () ]
+  else (
+    let saved = ctx.hoisted in
+    ctx.hoisted <- [];
+    Fun.protect
+      ~finally:(fun () -> ctx.hoisted <- saved)
+      (fun () ->
+        let checked = check () in
+        let produced = hoist_stmt ctx checked in
+        List.rev ctx.hoisted @ produced))
+
+let one_statement ctx (s : Ast.stmt) (check : unit -> checked_stmt) : checked_stmt =
+  match statement ctx check with
+  | [ single ] -> single
+  | many -> Ast.annotated s.Ast.span Types.IUnit (`Block many)
+
+let performed (t : Types.ty) =
+  match t with
+  | Types.Fn (_, _, row) -> List.map fst row.Types.labels
+  | _ -> []
+
+let evidence_param = { Ast.name = evidence; ty = None; implicit = false }
+
+(* Each label the callee performs, from the handler the call's bindings give
+   it. Evidence handed in whole is passed on whole, which is the usual case. *)
+let evidence_for span bindings labels : Ast.resolved_expr =
+  let resolved = List.filter_map (fun label -> Option.map (fun b -> label, b) (binding_for label bindings)) labels in
+  let whole = { Ast.it = `Var evidence; span; ann = Types.Unit } in
+  if resolved <> [] && List.for_all (fun (_, b) -> is_own b) resolved
+  then whole
+  else (
+    let entries =
+      List.filter_map
+        (fun (label, b) ->
+          match b.bd_value with
+          | Some _ when is_own b ->
+            let fields = [ label, Types.Unit ] in
+            Some (label, { Ast.it = `Field ({ whole with Ast.ann = Types.Record fields }, label); span; ann = Types.Unit })
+          | Some v -> Some (label, { Ast.it = `Var v; span; ann = Types.Unit })
+          | None -> None)
+        resolved
+    in
+    { Ast.it = `Record_lit entries; span; ann = Types.Record (List.map (fun (l, _) -> l, Types.Unit) entries) })
+
+(* An operation its function's own evidence answers: the handler's method,
+   read from the evidence. *)
+let evidence_operation span bindings name (callee_ty : Types.ty) =
+  match Hashtbl.find_opt ctx_op_owner name with
+  | Some label ->
+    (match binding_for label bindings with
+     | Some b when is_own b ->
+       let prefix = Ast.operation_name label "" in
+       let short = String.sub name (String.length prefix) (String.length name - String.length prefix) in
+       let callee_ty =
+         match callee_ty with
+         | Types.Fn (ps, r, _) -> Types.Fn (ps, r, { Types.labels = []; tail = None })
+         | t -> t
+       in
+       let handler = Types.Record [ short, callee_ty ] in
+       let whole = { Ast.it = `Var evidence; span; ann = Types.Record [ label, handler ] } in
+       let read = { Ast.it = `Field (whole, label); span; ann = handler } in
+       Some { Ast.it = `Field (read, short); span; ann = callee_ty }
+     | _ -> None)
+  | None -> None
+
+(* A function value whose type takes control though nothing in it splits: it
+   is handed its handlers and continuation, and gives the continuation what
+   its body returns. *)
+let wrapped span (ann : Types.ty) params (signature : Ast.signature) body taken : Ast.resolved_expr_kind =
+  let at it ann : Ast.resolved_expr = { Ast.it; span; ann } in
+  let pure = { Types.labels = []; tail = None } in
+  let ps, ret =
+    match ann with
+    | Types.Fn (ps, ret, _) -> ps, ret
+    | _ -> [], Types.Unit
+  in
+  let k = Ast.generated [ "k"; "wrapped" ] in
+  let inner =
+    at (`Lambda (params, plain_signature, body)) (Types.Fn (ps, ret, pure))
+  in
+  let value =
+    at
+      (`Call (inner, List.map2 (fun (p : Ast.param) t -> at (`Var p.Ast.name) t) params ps))
+      ret
+  in
+  let resumed = at (`Call (at (`Var k) (Types.Fn ([ ret ], Types.Unit, pure)), [ value ])) Types.Unit in
+  let handlers = List.map (fun label -> { Ast.name = handler_param label; ty = None; implicit = false }) taken in
+  let own = { Ast.name = k; ty = None; implicit = false } in
+  let evidence = if performed ann = [] then [] else [ evidence_param ] in
+  `Lambda
+    ( params @ handlers @ (own :: evidence)
+    , { signature with Ast.static_params = { Ast.sp_name = Ast.cps_marker; sp_ty = None; sp_pack = false } :: signature.Ast.static_params }
+    , [ { Ast.it = `Return (Some resumed); span; ann = Types.Unit } ] )
+
+(* The walk's tree once its root statement is done: every type settled, and
+   what could not be lowered while it was checked lowered now. *)
+let rec processed_expr registry (e : checked_expr) : Ast.resolved_expr =
+  let go = processed_expr registry in
+  let span = e.Ast.span in
+  if unsettled e.Ast.ann
+  then
+    fail
+      span
+      "This is not settled when its statement ends: its type is %s, and nothing fixes it. \
+       Write the type."
+      (Types.string_of_ty (Types.resolve e.Ast.ann));
+  let ann = Types.resolve e.Ast.ann in
+  let again () =
+    match lowered ~at_end:true registry e with
+    | Some l when l != e -> Some (go l)
+    | _ -> None
+  in
+  let it : Ast.resolved_expr_kind =
+    match e.Ast.it with
+    | `Var placeholder when Hashtbl.mem placeholders placeholder ->
+      `Var (Hashtbl.find placeholders placeholder)
+    | ( `Binop _ | `Unop ((Ast.Neg | Ast.Bit_not), _) | `Index _ | `Index_assign _
+      | `Collection_lit _ | `Coerce _ | `Bound_call _ | `New _ | `New_variant _ ) as kind ->
+      (match again (), kind with
+       | Some done_, _ -> done_.Ast.it
+       | None, `Binop (op, a, b) -> `Binop (op, go a, go b)
+       | None, `Unop (op, a) -> `Unop (op, go a)
+       | None, _ -> fail span "This is not settled when its statement ends.")
+    | #Ast.lit as l -> l
+    | `Lambda (params, signature, body) ->
+      let with_evidence params =
+        if is_plain signature || performed ann = [] then params else params @ [ evidence_param ]
+      in
+      let body = processed_block registry body in
+      (match controlling_ty ann with
+       | taken when taken <> [] && not (is_cps signature || is_plain signature) ->
+         wrapped span ann params signature body taken
+       | _ -> `Lambda (with_evidence params, signature, body))
+    | `Call (callee, args) ->
+      let bindings = Option.value ~default:[ own_frame ] (Checked_table.find_opt bindings_at e) in
+      let callee' = go callee in
+      let args = processed_arguments registry args in
+      (match callee.Ast.it with
+       | `Var name when Hashtbl.mem ctx_effects.ops name ->
+         (match evidence_operation span bindings name callee'.Ast.ann with
+          | Some handler -> `Call (handler, args)
+          | None -> `Call (callee', args))
+       | _ ->
+         (match performed callee'.Ast.ann with
+          | [] -> `Call (callee', args)
+          | labels -> `Call (callee', args @ [ evidence_for span bindings labels ])))
+    | `Dyn_call (receiver, name, performs, args) ->
+      let bindings = Option.value ~default:[ own_frame ] (Checked_table.find_opt bindings_at e) in
+      let performs = Types.resolve performs in
+      let args = processed_arguments registry args in
+      let args =
+        match performed performs with
+        | [] -> args
+        | labels -> args @ [ evidence_for span bindings labels ]
+      in
+      `Dyn_call (go receiver, name, performs, args)
+    | #Ast.arrays as a -> (Ast.map_arrays go a :> Ast.resolved_expr_kind)
+    | #Ast.strings as s -> (Ast.map_strings go s :> Ast.resolved_expr_kind)
+    | #Ast.vars as v -> (Ast.map_vars go v :> Ast.resolved_expr_kind)
+    | `Unop (op, a) -> `Unop (op, go a)
+    | #Ast.logic as l -> (Ast.map_logic go l :> Ast.resolved_expr_kind)
+    | #Ast.tuple as t -> (Ast.map_tuple go t :> Ast.resolved_expr_kind)
+    | #Ast.record as r -> (Ast.map_record go r :> Ast.resolved_expr_kind)
+    | #Ast.variant_lit as v -> (Ast.map_variant_lit go v :> Ast.resolved_expr_kind)
+    | #Ast.object_lit as o -> (Ast.map_object_lit go o :> Ast.resolved_expr_kind)
+    | #Ast.compound | `New_call _ | `Spread _ | `Run_block _ | `Match_expr _ ->
+      fail span "This should have been taken apart while it was checked."
+  in
+  (* The length intrinsics answer with an int whatever the caller pinned. *)
+  let ann =
+    match it with
+    | `Array_len _ | `Str_len _ -> Types.Int
+    | _ -> ann
+  in
+  { Ast.it; span; ann }
+
+(* A tuple spread into an argument list is as many arguments as it holds. *)
+and processed_arguments registry (args : checked_expr list) : Ast.resolved_expr list =
+  List.concat_map
+    (fun (a : checked_expr) ->
+      match a.Ast.it with
+      | `Spread inner ->
+        let inner = processed_expr registry inner in
+        let held =
+          match inner.Ast.ann with
+          | Types.Tuple items -> Types.expand_ty items
+          | Types.Unit -> []
+          | other -> fail inner.Ast.span "A spread takes a tuple, not %s." (Types.string_of_ty other)
+        in
+        List.mapi (fun index ann -> { Ast.it = `Tuple_get (inner, index); span = a.Ast.span; ann }) held
+      | _ -> [ processed_expr registry a ])
+    args
+
+and processed_stmt registry (s : checked_stmt) : Ast.resolved_stmt list =
+  let span = s.Ast.span in
+  let node it : Ast.resolved_stmt = { Ast.it; span; ann = Types.resolve s.Ast.ann } in
+  let go = processed_expr registry in
+  match s.Ast.it with
+  | `Block body -> [ node (`Block (processed_block registry body)) ]
+  | `Fn (name, params, signature, body) ->
+    let params =
+      if is_plain signature || performed (Types.resolve s.Ast.ann) = [] then params else params @ [ evidence_param ]
+    in
+    [ node (`Fn (name, params, signature, processed_block registry body)) ]
+  | #Ast.stmts as st -> [ node (Ast.map_stmts go (processed_one registry) st :> Ast.resolved_stmt_kind) ]
+  | `Match (scrutinee, cases) ->
+    [ node (`Match (go scrutinee, List.map (fun (p, body) -> p, processed_block registry body) cases)) ]
+  | #Ast.type_defs as t -> [ node t ]
+  | `Trait_decl _ -> []
+  | `Impl_decl _ -> fail span "An impl reaches the walk only as the instances of its methods."
+
+and processed_block registry body = List.concat_map (processed_stmt registry) body
+
+and processed_one registry (s : checked_stmt) : Ast.resolved_stmt =
+  match processed_stmt registry s with
+  | [ single ] -> single
+  | many -> { Ast.it = `Block many; span = s.Ast.span; ann = Types.resolve s.Ast.ann }
+
 (* `var f = someGenericFn; f = otherFn;` would otherwise check. *)
-let is_syntactic_value (e : Ast.desugared_expr) =
+let is_syntactic_value (e : Ast.expr) =
   match e.Ast.it with
   | #Ast.lit | `Var _ -> true
   | _ -> false
 
-let rec assigned_in_expr (e : Ast.desugared_expr) acc =
+let rec assigned_in_expr (e : Ast.expr) acc =
   match e.Ast.it with
   (* What a lambda assigns it assigns when called, not where it stands. *)
   | `Lambda _ -> acc
-  | #Ast.lit | `Var _ -> acc
+  | #Ast.lit | `Var _ | `Declof _ | `Meta_expr _ | `Static_ref _ -> acc
   | `Assign (name, v) | `Compound (_, name, v) -> assigned_in_expr v (name :: acc)
   | `Compound_index (_, a, b, c) ->
     assigned_in_expr c (assigned_in_expr b (assigned_in_expr a acc))
@@ -1182,8 +2892,9 @@ let rec assigned_in_expr (e : Ast.desugared_expr) acc =
   | `Record_lit fields ->
     List.fold_left (fun acc (_, v) -> assigned_in_expr v acc) acc fields
   | `Field_assign (r, _, v) -> assigned_in_expr v (assigned_in_expr r acc)
-  | `New (_, fields) ->
+  | `New (_, fields) | `New_generic (_, _, fields) ->
     List.fold_left (fun acc (_, v) -> assigned_in_expr v acc) acc fields
+  | `Code _ | `Code_stmts _ | `Code_decl _ -> acc
   | `New_call (_, _, args) ->
     List.fold_left (fun acc a -> assigned_in_expr a acc) acc args
   | `New_variant (_, _, payload) ->
@@ -1191,33 +2902,18 @@ let rec assigned_in_expr (e : Ast.desugared_expr) acc =
       (fun acc (_, v) -> assigned_in_expr v acc)
       acc
       (Ast.payload_fields payload)
-  | `Run_expr (body, handlers, clause) ->
-    let block b acc =
-      let acc = List.fold_left (fun acc st -> assigned_in_stmt st acc) acc b.Ast.vb_stmts in
-      Option.fold ~none:acc ~some:(fun v -> assigned_in_expr v acc) b.Ast.vb_value
-    in
-    let acc = block body acc in
-    let acc =
-      List.fold_left
-        (fun acc (h : Ast.desugared_stmt Ast.handler) ->
-          List.fold_left
-            (fun acc (a : Ast.desugared_stmt Ast.arm) ->
-              List.fold_left (fun acc st -> assigned_in_stmt st acc) acc a.Ast.arm_body)
-            acc
-            h.Ast.arms)
-        acc
-        handlers
-    in
-    Option.fold ~none:acc ~some:(fun c -> block c.Ast.rc_body acc) clause
+  | `Run_expr (_, body, _) ->
+    let acc = List.fold_left (fun acc st -> assigned_in_stmt st acc) acc body.Ast.vb_stmts in
+    Option.fold ~none:acc ~some:(fun v -> assigned_in_expr v acc) body.Ast.vb_value
   | `Match_expr (scrutinee, cases) ->
     List.fold_left
-      (fun acc (_, (b : (Ast.desugared_expr, Ast.desugared_stmt) Ast.valued_block)) ->
+      (fun acc (_, (b : (Ast.expr, Ast.stmt) Ast.valued_block)) ->
         let acc = List.fold_left (fun acc st -> assigned_in_stmt st acc) acc b.Ast.vb_stmts in
         Option.fold ~none:acc ~some:(fun v -> assigned_in_expr v acc) b.Ast.vb_value)
       (assigned_in_expr scrutinee acc)
       cases
 
-and assigned_in_stmt (s : Ast.desugared_stmt) acc =
+and assigned_in_stmt (s : Ast.stmt) acc =
   let opt f o acc =
     match o with
     | Some x -> f x acc
@@ -1236,10 +2932,10 @@ and assigned_in_stmt (s : Ast.desugared_stmt) acc =
   | `For_in (_, iterable, body) -> assigned_in_stmt body (assigned_in_expr iterable acc)
   | `Return e -> opt assigned_in_expr e acc
   | `Break | `Continue -> acc
-  | `Effect_decl _ | `Type_decl _ | `Trait_decl _ -> acc
+  | `Type_decl _ | `Trait_decl _ -> acc
   | `Impl_decl (_, _, _, impl) ->
     List.fold_left
-      (fun acc (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+      (fun acc (m : (Ast.stmt, unit) Ast.method_def) ->
         List.fold_left (fun acc st -> assigned_in_stmt st acc) acc m.Ast.md_body)
       acc
       impl.Ast.ib_methods
@@ -1249,29 +2945,8 @@ and assigned_in_stmt (s : Ast.desugared_stmt) acc =
         List.fold_left (fun acc st -> assigned_in_stmt st acc) acc body)
       (assigned_in_expr scrutinee acc)
       cases
-  | `Resume e -> opt assigned_in_expr e acc
-  | `Discontinue -> acc
-  | `Run (body, handlers) ->
-    let acc = List.fold_left (fun acc st -> assigned_in_stmt st acc) acc body in
-    List.fold_left
-      (fun acc (h : Ast.desugared_stmt Ast.handler) ->
-        List.fold_left
-          (fun acc (a : Ast.desugared_stmt Ast.arm) ->
-            List.fold_left (fun acc st -> assigned_in_stmt st acc) acc a.Ast.arm_body)
-          acc
-          h.Ast.arms)
-      acc
-      handlers
-
-(* Anywhere but a nested function, where it would be a different handler's. *)
-let rec resumes (s : Ast.desugared_stmt) =
-  match s.Ast.it with
-  | `Resume _ -> true
-  | `Block body -> List.exists resumes body
-  | `If (_, t, e) -> resumes t || Option.fold ~none:false ~some:resumes e
-  | `While (_, body) | `For_in (_, _, body) | `Defer body -> resumes body
-  | `Match (_, cases) -> List.exists (fun (_, body) -> List.exists resumes body) cases
-  | _ -> false
+  | `Attributed (_, inner) -> assigned_in_stmt inner acc
+  | `Import _ | `Global_import _ | #Ast.meta_blocks | `Type_members _ | `Trait_members _ -> acc
 
 let assigned_names body =
   List.fold_left (fun acc s -> assigned_in_stmt s acc) [] body
@@ -1291,7 +2966,7 @@ type dependency_name =
    are not mangled, so a loop variable `s` in another module would otherwise
    tie that module's functions to the entry's `var s`, and through the order
    top-level statements keep, to every statement before it. *)
-let names_used (s : Ast.desugared_stmt) =
+let names_used (s : Ast.stmt) =
   let module S = Set.Make (String) in
   let used = Hashtbl.create 16 in
   let bound = ref S.empty in
@@ -1304,14 +2979,14 @@ let names_used (s : Ast.desugared_stmt) =
   in
   let declared_fns body =
     List.filter_map
-      (fun (s : Ast.desugared_stmt) ->
+      (fun (s : Ast.stmt) ->
         match s.Ast.it with
         | `Fn (name, _, _, _) -> Some name
         | _ -> None)
       body
   in
   let param_names = List.map (fun (p : Ast.param) -> p.Ast.name) in
-  let rec expr (e : Ast.desugared_expr) =
+  let rec expr (e : Ast.expr) =
     (match e.Ast.it with
      | `Var name | `Assign (name, _) | `Compound (_, name, _) | `New_call (name, _, _) -> value name
      | `Method_call (_, name, as_function, _, _) ->
@@ -1320,53 +2995,46 @@ let names_used (s : Ast.desugared_stmt) =
      | _ -> ());
     match e.Ast.it with
     | `Lambda (ps, _, body) -> scoped (fun () -> bind (param_names ps); block body)
-    | `Run_expr (body, handlers, clause) ->
-      valued body;
-      List.iter handler handlers;
-      Option.iter
-        (fun (c : (_, _) Ast.ret_clause) ->
-          scoped (fun () -> bind [ c.Ast.rc_param ]; valued c.Ast.rc_body))
-        clause
+    | `Run_expr (_, body, _) -> valued body
     | `Match_expr (scrutinee, cases) ->
       expr scrutinee;
       List.iter (fun (p, b) -> scoped (fun () -> bind (Ast.pattern_names p); valued b)) cases
     | _ ->
-      let (_ : Ast.desugared_expr_kind) =
+      let (_ : Ast.expr_kind) =
         match e.Ast.it with
-        | `Lambda _ | `Run_expr _ | `Match_expr _ -> e.Ast.it
+        | `Lambda _ | `Run_expr _ | `Match_expr _ | #Ast.quote | `Declof _ | `Meta_expr _ -> e.Ast.it
+        | `New_generic (_, _, fields) ->
+          List.iter (fun (_, v) -> expr v) fields;
+          e.Ast.it
         | #Ast.lit as l -> l
-        | #Ast.vars as v -> (Ast.map_vars (fun e -> expr e; e) v :> Ast.desugared_expr_kind)
-        | #Ast.ops as o -> (Ast.map_ops (fun e -> expr e; e) o :> Ast.desugared_expr_kind)
-        | #Ast.logic as l -> (Ast.map_logic (fun e -> expr e; e) l :> Ast.desugared_expr_kind)
-        | #Ast.compound as c -> (Ast.map_compound (fun e -> expr e; e) c :> Ast.desugared_expr_kind)
-        | #Ast.indexing as i -> (Ast.map_indexing (fun e -> expr e; e) i :> Ast.desugared_expr_kind)
-        | #Ast.tuple as t -> (Ast.map_tuple (fun e -> expr e; e) t :> Ast.desugared_expr_kind)
-        | #Ast.spread as x -> (Ast.map_spread (fun e -> expr e; e) x :> Ast.desugared_expr_kind)
-        | #Ast.record as r -> (Ast.map_record (fun e -> expr e; e) r :> Ast.desugared_expr_kind)
-        | #Ast.nominal as n -> (Ast.map_nominal (fun e -> expr e; e) n :> Ast.desugared_expr_kind)
-        | #Ast.collection as c -> (Ast.map_collection (fun e -> expr e; e) c :> Ast.desugared_expr_kind)
+        | #Ast.vars as v -> (Ast.map_vars (fun e -> expr e; e) v :> Ast.expr_kind)
+        | #Ast.ops as o -> (Ast.map_ops (fun e -> expr e; e) o :> Ast.expr_kind)
+        | #Ast.logic as l -> (Ast.map_logic (fun e -> expr e; e) l :> Ast.expr_kind)
+        | #Ast.compound as c -> (Ast.map_compound (fun e -> expr e; e) c :> Ast.expr_kind)
+        | #Ast.indexing as i -> (Ast.map_indexing (fun e -> expr e; e) i :> Ast.expr_kind)
+        | #Ast.tuple as t -> (Ast.map_tuple (fun e -> expr e; e) t :> Ast.expr_kind)
+        | #Ast.spread as x -> (Ast.map_spread (fun e -> expr e; e) x :> Ast.expr_kind)
+        | #Ast.record as r -> (Ast.map_record (fun e -> expr e; e) r :> Ast.expr_kind)
+        | #Ast.nominal as n -> (Ast.map_nominal (fun e -> expr e; e) n :> Ast.expr_kind)
+        | #Ast.collection as c -> (Ast.map_collection (fun e -> expr e; e) c :> Ast.expr_kind)
         | #Ast.static_call as c ->
-          (Ast.map_static_call (fun e -> expr e; e) c :> Ast.desugared_expr_kind)
+          (Ast.map_static_call (fun e -> expr e; e) c :> Ast.expr_kind)
         | #Ast.method_call as m ->
-          (Ast.map_method_call (fun e -> expr e; e) m :> Ast.desugared_expr_kind)
-        | #Ast.reflect as r -> (Ast.map_reflect (fun e -> expr e; e) r :> Ast.desugared_expr_kind)
+          (Ast.map_method_call (fun e -> expr e; e) m :> Ast.expr_kind)
+        | #Ast.reflect as r -> (Ast.map_reflect (fun e -> expr e; e) r :> Ast.expr_kind)
       in
       ()
-  and valued (b : (Ast.desugared_expr, Ast.desugared_stmt) Ast.valued_block) =
+  and valued (b : (Ast.expr, Ast.stmt) Ast.valued_block) =
     scoped (fun () ->
       bind (declared_fns b.Ast.vb_stmts);
       List.iter stmt b.Ast.vb_stmts;
       Option.iter expr b.Ast.vb_value)
-  and handler (h : Ast.desugared_stmt Ast.handler) =
-    List.iter
-      (fun (a : Ast.desugared_stmt Ast.arm) -> scoped (fun () -> bind a.Ast.arm_params; block a.Ast.arm_body))
-      h.Ast.arms
   (* A function declared in a block is in scope for all of it. *)
   and block body =
     bind (declared_fns body);
     List.iter stmt body
-  and nested (s : Ast.desugared_stmt) = scoped (fun () -> stmt s)
-  and stmt (s : Ast.desugared_stmt) =
+  and nested (s : Ast.stmt) = scoped (fun () -> stmt s)
+  and stmt (s : Ast.stmt) =
     match s.Ast.it with
     | `Expr e -> expr e
     | `Var_decl (name, _, init) ->
@@ -1398,29 +3066,26 @@ let names_used (s : Ast.desugared_stmt) =
     | `Match (scrutinee, cases) ->
       expr scrutinee;
       List.iter (fun (p, body) -> scoped (fun () -> bind (Ast.pattern_names p); block body)) cases
-    | `Run (body, handlers) ->
-      scoped (fun () -> block body);
-      List.iter handler handlers
-    | `Resume e -> Option.iter expr e
-    | `Discontinue | `Effect_decl _ -> ()
+    | `Attributed (_, inner) -> stmt inner
+    | `Import _ | `Global_import _ | #Ast.meta_blocks | `Type_members _ | `Trait_members _ -> ()
     | #Ast.type_defs -> ()
     | `Trait_decl _ -> ()
     | `Impl_decl (_, _, _, impl) ->
       List.iter
-        (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+        (fun (m : (Ast.stmt, unit) Ast.method_def) ->
           scoped (fun () -> bind (param_names m.Ast.md_params); block m.Ast.md_body))
         impl.Ast.ib_methods
   in
   stmt s;
   Hashtbl.fold (fun name () acc -> name :: acc) used []
 
-let names_declared (s : Ast.desugared_stmt) =
+let names_declared (s : Ast.stmt) =
   match s.Ast.it with
   | `Fn (name, _, _, _) | `Var_decl (name, _, _) -> [ Value name ]
   | `Var_tuple (names, _) -> List.map (fun name -> Value name) names
   | `Impl_decl (trait, type_name, _, impl) ->
     List.concat_map
-      (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+      (fun (m : (Ast.stmt, unit) Ast.method_def) ->
         [ Member m.Ast.md_name; Value (Ast.impl_method_name trait type_name m.Ast.md_name) ])
       impl.Ast.ib_methods
   | _ -> []
@@ -1433,11 +3098,8 @@ let names_declared (s : Ast.desugared_stmt) =
    and is fixed by whatever calls the caller -- at the top level, to the row
    `__root` hands a statement. Statements that are not declarations keep their
    source order among themselves, so a shadowing or an assignment is never
-   checked out of turn. Effects come first, whatever their order: the walk
-   emits a declaration where it reaches it, which is after a function in
-   another module that handles the effect, and a handler needs the effect's
-   operations. *)
-let dependency_order (body : Ast.desugared_stmt list) : int list list =
+   checked out of turn. *)
+let dependency_order (body : Ast.stmt list) : int list list =
   let stmts = Array.of_list body in
   let n = Array.length stmts in
   let declared_by = Hashtbl.create 64 in
@@ -1447,10 +3109,10 @@ let dependency_order (body : Ast.desugared_stmt list) : int list list =
   let deps = Array.make n [] in
   let previous = ref None in
   Array.iteri
-    (fun i (s : Ast.desugared_stmt) ->
+    (fun i (s : Ast.stmt) ->
       let chained =
         match s.Ast.it with
-        | `Fn _ | `Impl_decl _ | `Trait_decl _ | `Type_decl _ | `Effect_decl _ -> []
+        | `Fn _ | `Impl_decl _ | `Trait_decl _ | `Type_decl _ -> []
         | _ ->
           let before = Option.to_list !previous in
           previous := Some i;
@@ -1499,14 +3161,7 @@ let dependency_order (body : Ast.desugared_stmt list) : int list list =
   for v = 0 to n - 1 do
     if index.(v) < 0 then connect v
   done;
-  let effects, rest =
-    List.partition
-      (function
-        | [ i ] -> (match stmts.(i).Ast.it with `Effect_decl _ -> true | _ -> false)
-        | _ -> false)
-      (List.rev !groups)
-  in
-  effects @ rest
+  List.rev !groups
 
 let field_of (target : checked_expr) label =
   match Types.repr target.Ast.ann with
@@ -1579,7 +3234,7 @@ let declared_index env registry (target : checked_expr) (index : checked_expr) =
              let result = Types.fresh () in
              (try
                 Types.unify
-                  (Types.instantiate scheme)
+                  (signature_of env fn scheme)
                   (Types.IFn ([ target.Ast.ann; index.Ast.ann ], result, Types.REmpty));
                 Some result
               with
@@ -1630,9 +3285,9 @@ let binop_result registry (op : Ast.binop) a b =
 (* A trailing lambda writes no parameters, so how many it has is whatever the
    type it is passed to says: none, or the single `it` it already carries. Two or
    more have no names to be reached by, and must be written. *)
-let name_implicit_params_from (expected : Types.infer_ty list) (args : Ast.desugared_expr list) =
+let name_implicit_params_from (expected : Types.infer_ty list) (args : Ast.expr list) =
     List.mapi
-      (fun index (arg : Ast.desugared_expr) ->
+      (fun index (arg : Ast.expr) ->
         match arg.Ast.it with
         | `Lambda ([ { Ast.implicit = true; _ } ], signature, body) ->
           (match Option.map Types.repr (List.nth_opt expected index) with
@@ -1646,24 +3301,72 @@ let name_implicit_params_from (expected : Types.infer_ty list) (args : Ast.desug
         | _ -> arg)
       args
 
-let name_implicit_params (callee : Types.infer_ty) (args : Ast.desugared_expr list) =
+let name_implicit_params (callee : Types.infer_ty) (args : Ast.expr list) =
   match Types.repr callee with
   | Types.IFn (expected, _, _) -> name_implicit_params_from expected args
   | _ -> args
-
-let kind_name = function
-  | Ast.Op_fn -> "fn"
-  | Ast.Op_ctl -> "ctl"
-  | Ast.Op_final -> "final ctl"
 
 let constructs env ctx name =
   lookup env name = None
   && (String.equal name Types.array_name || Registry.constructor ctx.registry name <> None)
 
+(* A call to a variadic function, with its trailing arguments bundled into the
+   one argument they are passed as. *)
+let collected span (callee : Ast.expr) (args : Ast.expr list) =
+  match callee.Ast.it with
+  | `Var name ->
+    (match Hashtbl.find_opt ctx_variadic_arity name with
+     | Some (fixed, packed) when List.length args >= fixed ->
+       let before = List.filteri (fun i _ -> i < fixed) args
+       and rest = List.filteri (fun i _ -> i >= fixed) args in
+       let bundle : Ast.expr_kind =
+         match packed, rest with
+         (* A product of none is `unit`, and nothing later reads an empty tuple
+            as one. *)
+         | true, [] -> `Unit
+         | true, rest -> `Tuple rest
+         | false, rest -> `Collection_lit rest
+       in
+       before @ [ Ast.at span bundle ]
+     | _ -> args)
+  | _ -> args
+
 let declared_variant env ty variant =
   match lookup env ty, Hashtbl.find_opt ctx_types ty with
   | None, Some (Sum (_, variants)) -> List.assoc_opt variant variants
   | _ -> None
+
+(* Each effect `H` implements, as itself or through `EffectHandler`. *)
+let implemented_by name =
+  Hashtbl.fold
+    (fun (ty, trait) args acc ->
+      if not (String.equal ty name)
+      then acc
+      else (
+        match Hashtbl.find_opt trait_instances trait with
+        | Some (base, handled :: result) when String.equal base Core.effect_handler ->
+          (match handled with
+           | Some e ->
+             let label = Ast.written_type e in
+             let label_args =
+               match e.Ast.it with
+               | Ast.Ty_app (_, a) -> List.map infer_ty_of_annotation a
+               | _ -> []
+             in
+             (label, label_args, List.concat_map Option.to_list result) :: acc
+           | None -> acc)
+        | Some _ -> acc
+        | None ->
+          if String.equal trait Core.effect_handler
+          then (
+            match args with
+            | Types.INamed (label, label_args) :: _ -> (label, label_args, []) :: acc
+            | _ -> acc)
+          else if Hashtbl.mem ctx_effects.declared trait
+          then (trait, args, []) :: acc
+          else acc))
+    ctx_impls
+    []
 
 (* An effect's argument is a type, so a parameter standing in a row would be
    matched by name where the effect is declared and carried by nothing where it
@@ -1685,18 +3388,254 @@ let rec row_param_in names (t : Ast.type_expr) =
     row_param_in names inner
   | Ast.Ty_name _ -> None
 
-let rec infer_expr env ctx (e : Ast.desugared_expr) : checked_expr =
-  located ctx e (fun () -> infer_expr_impl env ctx e)
+let method_of_operation label op =
+  let prefix = Ast.operation_name label "" in
+  let n = String.length prefix in
+  if String.length op > n && String.equal (String.sub op 0 n) prefix
+  then String.sub op n (String.length op - n)
+  else op
 
-and located ctx (e : Ast.desugared_expr) check : checked_expr =
+(* A named handler's value calls its impl's method for an operation that takes
+   control with the continuation the record is handed, which nothing else
+   writes. *)
+let named_method_call name args =
+  match Hashtbl.find_opt ctx_effects.ops name, Hashtbl.find_opt ctx_op_owner name with
+  | Some op, Some label ->
+    op.Ast.op_kind <> Ast.Op_fn
+    && List.length args = List.length op.Ast.op_params + 1
+    && (match binding_for label !effect_bindings with
+        | Some b -> (not (is_own b)) && b.bd_value = None
+        | None -> false)
+  | _ -> false
+
+(* The handler a function taking control is handed for [label]: a record of
+   the effect's methods, one that takes control answering whatever its
+   continuation does at each call. *)
+let handler_type ?answer label (args : Types.infer_ty list) =
+  let ops = Option.value ~default:[] (Hashtbl.find_opt ctx_effects.declared label) in
+  let names = List.map fst (Option.value ~default:[] (Hashtbl.find_opt ctx_effect_params label)) in
+  let bound =
+    if List.length names = List.length args
+    then List.combine names args
+    else List.map (fun n -> n, Types.fresh ()) names
+  in
+  with_type_params bound (fun () ->
+    let field (o : Ast.op_decl) =
+      let own =
+        List.map
+          (fun n ->
+            let v = Types.fresh () in
+            Types.declare_param v;
+            n, v)
+          o.Ast.op_tparams
+      in
+      with_type_params own (fun () ->
+        let params = List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) o.Ast.op_params in
+        let result = annotated_or_fresh o.Ast.op_ret in
+        let ty =
+          if o.Ast.op_kind = Ast.Op_fn
+          then Types.IFn (params, result, Types.fresh_row ())
+          else (
+            let answer =
+              match answer with
+              | Some a -> a
+              | None ->
+                let a = Types.fresh () in
+                Types.declare_param a;
+                a
+            in
+            Types.IFn (params @ [ Types.IFn ([ result ], answer, Types.fresh_row ()) ], answer, Types.fresh_row ()))
+        in
+        method_of_operation label o.Ast.op_name, ty)
+    in
+    Types.IRecord (List.fold_right (fun (m, t) rest -> Types.FCons (m, t, rest)) (List.map field ops) Types.FEmpty))
+
+let param_handlers = ref 0
+
+(* The binding a function's own handler parameter makes: what it performs of
+   that effect is answered by the handler it is handed. *)
+let param_binding label ty =
+  incr param_handlers;
+  let handler = Ast.generated [ "param"; string_of_int !param_handlers ] in
+  Hashtbl.replace handler_values handler ty;
+  { bd_label = label; bd_handler = handler; bd_value = Some (handler_param label); bd_outer = [] }
+
+(* A handler's method, as a call shows it: it answers what it performs where
+   its run stands, so it takes no evidence. *)
+let answered (t : Types.infer_ty) =
+  match Types.repr t with
+  | Types.IFn (ps, r, _) -> Types.IFn (ps, r, Types.REmpty)
+  | t -> t
+
+let named_binding op =
+  match Hashtbl.find_opt ctx_op_owner op with
+  | Some label ->
+    (match binding_for label !effect_bindings with
+     | Some b -> (not (is_own b)) && (b.bd_value = None || Hashtbl.mem named_handlers b.bd_handler)
+     | None -> false)
+  | None -> false
+
+let is_handler_value v = List.exists (fun b -> (not (is_own b)) && b.bd_value = Some v) !effect_bindings
+
+(* A copy of [t] with each variable a handler method left to its caller, an
+   operation's own parameter, fresh: one method serves every call. *)
+let per_call (t : Types.infer_ty) =
+  let own =
+    List.filter_map
+      (fun (id, _) -> if Hashtbl.mem Types.declared_params id then Some id else None)
+      (Types.free_vars t)
+  in
+  Types.instantiate { Types.quantified = own; quantified_rows = []; quantified_fields = []; body = t }
+
+(* A call to an operation a run bound: the handler's method, called directly.
+   An inline handler's methods are its value's fields, a named one's are its
+   impl's. One that takes control is reached only handed its continuation. *)
+let bound_operation ?(handed = false) span ctx name (args : checked_expr list) ret : checked_expr option =
+  let kind_fits (op : Ast.op_decl) = handed || op.Ast.op_kind = Ast.Op_fn in
+  match Hashtbl.find_opt ctx_effects.ops name, Hashtbl.find_opt ctx_op_owner name with
+  | Some op, Some label when walking () && kind_fits op ->
+    (match binding_for label !effect_bindings with
+     | None -> None
+     | Some b when is_own b -> None
+     | Some b ->
+       let short = method_of_operation label name in
+       let arg_types = List.map (fun (a : checked_expr) -> a.Ast.ann) args in
+       (match b.bd_value with
+        | Some value ->
+          let value_ty = Hashtbl.find handler_values b.bd_handler in
+          let rec field (f : Types.infer_fields) =
+            match Types.repr_fields f with
+            | Types.FCons (l, t, _) when String.equal l short -> t
+            | Types.FCons (_, _, rest) -> field rest
+            | _ -> fail span "The handler of '%s' has no method '%s'." (shown_name label) short
+          in
+          let method_ty =
+            match Types.repr value_ty with
+            | Types.IRecord f -> field f
+            | _ -> fail span "The handler of '%s' has no methods." (shown_name label)
+          in
+          if not handed
+          then (
+            unify_at span method_ty (Types.IFn (arg_types, ret, Types.fresh_row ()));
+            let target =
+              Ast.annotated span (Types.IRecord (Types.FCons (short, answered method_ty, Types.FEmpty))) (`Var value)
+            in
+            Some
+              (Ast.annotated span ret (`Call (Ast.annotated span (answered method_ty) (`Field (target, short)), args))))
+          else (
+            (* The value is shown holding this call's copy of the method, which
+               is all a later stage reads of it here. *)
+            let method_ty = per_call method_ty in
+            (match Types.repr method_ty with
+             | Types.IFn (params, result, row) when List.length params = List.length arg_types ->
+               List.iter2 (unify_at span) params arg_types;
+               unify_at span result ret;
+               Types.row_within row ctx.row
+             | _ -> fail span "The handler of '%s' has no method '%s' that takes control." (shown_name label) short);
+            let target =
+              Ast.annotated span (Types.IRecord (Types.FCons (short, answered method_ty, Types.FEmpty))) (`Var value)
+            in
+            Some
+              (Ast.annotated span ret (`Call (Ast.annotated span (answered method_ty) (`Field (target, short)), args))))
+        | None ->
+          let entries = Registry.method_entries ctx.registry b.bd_handler short in
+          let entry =
+            match List.filter (fun (e : Registry.method_entry) -> e.Registry.trait = Some label) entries, entries with
+            | [ e ], _ | [], [ e ] -> e
+            | _ -> fail span "'%s' has no one method '%s' for '%s'." (shown_name b.bd_handler) short (shown_name label)
+          in
+          (match Option.bind !top_env (fun env -> decl_of env entry.Registry.mangled) with
+           | None -> fail span "'%s' has no method '%s'." (shown_name b.bd_handler) short
+           | Some d ->
+             let u = use_of d in
+             let row = Types.fresh_row () in
+             unify_at span u.u_ty (Types.IFn (arg_types, ret, row));
+             (* A handler's parameter its method's signature never names, as
+                `Picker<R>`'s in `log`, is nothing this call can settle, and
+                nothing the method's type depends on. *)
+             let named = List.map fst (Types.free_vars u.u_ty) in
+             List.iter
+               (fun (_, var, _) ->
+                 match Types.repr var with
+                 | Types.IVar { contents = Types.Unbound (id, _) } when not (List.mem id named) ->
+                   unify_at span var Types.IUnit
+                 | _ -> ())
+               u.u_vars;
+             let inner = !effect_bindings in
+             effect_bindings := b.bd_outer;
+             let fn =
+               Fun.protect ~finally:(fun () -> effect_bindings := inner) (fun () -> reached span u row ctx)
+             in
+             let ty = u.u_ty in
+             Some (Ast.annotated span ret (`Call (Ast.annotated span ty (`Var fn), args))))))
+  | _ -> None
+
+(* A function named as a value whose type takes control: a lambda calling it,
+   which is made taking its handlers and continuation as any such lambda is. *)
+let eta span name (ty : Types.infer_ty) : Ast.expr =
+  let at it = Ast.at span it in
+  let arity =
+    match Types.repr ty with
+    | Types.IFn (params, _, _) -> List.length (Types.expand params)
+    | _ -> 0
+  in
+  let names = List.init arity (fun i -> Ast.generated [ "arg"; string_of_int i ]) in
+  at
+    (`Lambda
+      ( List.map (fun n -> { Ast.name = n; ty = None; implicit = false }) names
+      , { Ast.ret = None; row = None; static_params = [] }
+      , [ at (`Return (Some (at (`Call (at (`Var name), List.map (fun n -> at (`Var n)) names))))) ] ))
+
+(* A call a transform made through a value whose type takes control: the
+   parameters its type shows, its row, and how many handlers it is handed. *)
+let cps_shape (t : Types.infer_ty) (args : Ast.expr list) =
+  match Types.repr t with
+  | Types.IFn (ps, ret, row) when List.length args > List.length ps ->
+    let ps = Types.expand ps in
+    let n = List.length (controlling_row row) in
+    if n > 0 && List.length args = List.length ps + n + 1 then Some (ps, ret, row, n) else None
+  | _ -> None
+
+(* A trait expected of a value asks for an object, so the value is inferred
+   on its own and coerced. A match is not: each arm is coerced instead. *)
+let rec infer_expr ?expected ?at_root env ctx (e : Ast.expr) : checked_expr =
+  match expected, e.Ast.it with
+  | Some t, it when is_trait_type t && (match it with `Match_expr _ -> false | _ -> true) ->
+    lowered_now ctx.registry (coerced t (located ctx e (fun () -> infer_expr_impl ?at_root env ctx e)))
+  | _ -> located ctx e (fun () -> infer_expr_impl ?expected ?at_root env ctx e)
+
+and located ctx (e : Ast.expr) check : checked_expr =
   let checked =
     try check () with
     | Types.Type_error message -> raise (Located { span = e.Ast.span; message })
   in
   note_effect_sites e.Ast.span ctx.row;
+  (* Under a function's own frame, a call reads what it is not told. *)
+  (match checked.Ast.it, !effect_bindings with
+   | (`Call _ | `Dyn_call _ | `Bound_call _), b :: _ when is_own b -> ()
+   | (`Call _ | `Dyn_call _ | `Bound_call _), bindings when walking () ->
+     Checked_table.replace bindings_at checked bindings
+   | _ -> ());
+  Option.iter
+    (fun table ->
+      table := (e, checked.Ast.ann) :: !table;
+      (* A callee the call branch resolves is never checked as an expression of
+         its own. The handler values it is passed first are not written. *)
+      match e.Ast.it, checked.Ast.it with
+      | `Call (callee, written), `Call (resolved, passed) ->
+        let extra = List.length passed - List.length written in
+        let ty =
+          match Types.repr resolved.Ast.ann with
+          | Types.IFn (params, ret, row) when extra > 0 ->
+            Types.IFn (List.filteri (fun i _ -> i >= extra) params, ret, row)
+          | ty -> ty
+        in
+        table := (callee, ty) :: !table
+      | _ -> ())
+    !recording;
   checked
 
-and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
+and infer_expr_impl ?expected ?(at_root = false) env ctx (e : Ast.expr) : checked_expr =
   let span = e.Ast.span in
   let node ty it : checked_expr = Ast.annotated span ty it in
   match e.Ast.it with
@@ -1708,6 +3647,22 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
   | `Char c -> node Types.IChr (`Char c)
   | `Bool b -> node Types.IBool (`Bool b)
   | `Unit -> node Types.IUnit `Unit
+  | `Var name when Option.is_some (decl_of env name) ->
+    let d = Option.get (decl_of env name) in
+    let u = use_of d in
+    meet expected u.u_ty;
+    if d.wd_values <> []
+    then
+      fail
+        span
+        "'%s' takes a static value, so it is used by a call that writes it: %s<…>(…)."
+        (shown_name name)
+        (shown_name name);
+    let named = node u.u_ty (`Var (value_of span u)) in
+    (match Types.repr u.u_ty with
+     | Types.IFn (_, _, row) when walking () && Option.is_none !recording && controlling_row row <> [] ->
+       infer_expr ?expected env ctx (eta span name u.u_ty)
+     | _ -> named)
   | `Var name ->
     (match lookup env name with
      | Some scheme -> node (Types.instantiate scheme) (`Var name)
@@ -1715,15 +3670,23 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        (* A type with no fields has one value, and its name is that value. *)
        (match Hashtbl.find_opt ctx_types name with
         | Some (Product ([], declared)) when Types.repr_fields declared = Types.FEmpty ->
-          node (Types.INamed (name, [])) (`New (name, []))
+          lowered_now ctx.registry (node (Types.INamed (name, [])) (`New (name, [])))
         | _ ->
+          if walking () then (ops ()).unknown name span;
           !current.unknown
             (fun () -> fail span "Undefined variable '%s'." name)
             (fun () -> node (unknown_ty ()) (`Var name))))
-  | `Run_expr (body, handlers, clause) ->
-    let answer = Types.fresh () in
+  | `Run_expr (written, body, handlers) ->
+    let answer =
+      match written with
+      | Some ret -> infer_ty_of_annotation ret
+      | None ->
+        let answer = Types.fresh () in
+        meet expected answer;
+        answer
+    in
     let assigned = assigned_in_expr e [] in
-    let valued scope (b : (Ast.desugared_expr, Ast.desugared_stmt) Ast.valued_block) =
+    let valued scope (b : (Ast.expr, Ast.stmt) Ast.valued_block) =
       let stmts = infer_block scope ctx b.Ast.vb_stmts in
       let value = Option.map (infer_expr scope ctx) b.Ast.vb_value in
       ( { Ast.vb_stmts = stmts; vb_value = value }
@@ -1731,25 +3694,26 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
         | None -> Types.IUnit
         | Some v -> v.Ast.ann )
     in
-    let (body, produced), handlers =
-      check_run env ctx assigned span ~answer handlers (fun () ->
-        valued (new_env (Some env)) body)
+    last_lowered := None;
+    let (body, produced), prelude =
+      check_run
+        ~transform:(body, fun b -> valued (new_env (Some env)) b)
+        env
+        ctx
+        assigned
+        span
+        ~answer
+        handlers
+        (fun () -> valued (new_env (Some env)) body)
     in
-    let clause =
-      match clause with
-      | None ->
-        (* Without one, finishing normally is what the block evaluates to. *)
-        unify_at span answer produced;
-        None
-      | Some c ->
-        let scope = new_env (Some env) in
-        bind scope c.Ast.rc_param (Types.mono produced);
-        let rc_body, result = valued scope c.Ast.rc_body in
-        unify_at span answer result;
-        Some { Ast.rc_param = c.Ast.rc_param; rc_body }
-    in
-    node answer (`Run_expr (body, handlers, clause))
-  | `Match_expr (scrutinee, cases) -> infer_match_expr env ctx span (Types.fresh ()) scrutinee cases
+    (match !last_lowered, !expansions with
+     | Some lowered, Some table -> table := (e, lowered) :: !table
+     | _ -> ());
+    last_lowered := None;
+    unify_at span answer produced;
+    node answer (`Run_block { body with Ast.vb_stmts = prelude @ body.Ast.vb_stmts })
+  | `Match_expr (scrutinee, cases) ->
+    infer_match_expr env ctx span (Option.value expected ~default:(Types.fresh ())) scrutinee cases
   | `Assign (name, v) ->
     (match lookup env name with
      | None ->
@@ -1758,8 +3722,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          (fun () -> node Types.IUnit (`Assign (name, infer_expr env ctx v)))
      | Some scheme ->
        let target = Types.instantiate scheme in
-       let value = infer_expr env ctx v in
-       let value = if is_trait_type target then coerced target value else value in
+       let value = infer_expr ~expected:target env ctx v in
        Types.unify target value.Ast.ann;
        node target (`Assign (name, value)))
   | `Unop (((Ast.Neg | Ast.Bit_not) as op), a) ->
@@ -1768,7 +3731,8 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     (match Types.concrete a.Ast.ann with
      | Some operand ->
        (match Registry.find_unary ctx.registry op operand with
-        | Some entry -> node (Types.of_ty (Registry.result_of entry operand)) (`Unop (op, a))
+        | Some entry ->
+          lowered_now ctx.registry (node (Types.of_ty (Registry.result_of entry operand)) (`Unop (op, a)))
         | None ->
           fail
             span
@@ -1792,7 +3756,12 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
   | `Binop (op, a, b) ->
     let a = infer_expr env ctx a in
     let b = infer_expr env ctx b in
-    node (binop_result ctx.registry op a.Ast.ann b.Ast.ann) (`Binop (op, a, b))
+    if walking ()
+    then
+      List.iter
+        (fun (c : checked_expr) -> Option.iter (ops ()).wake (Types.infer_type_name c.Ast.ann))
+        [ a; b ];
+    lowered_now ctx.registry (node (binop_result ctx.registry op a.Ast.ann b.Ast.ann) (`Binop (op, a, b)))
   | `Compound (op, name, v) ->
     (match lookup env name with
      | None ->
@@ -1804,8 +3773,12 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        let v = infer_expr env ctx v in
        let result = binop_result ctx.registry op target v.Ast.ann in
        Types.unify target result;
-       let it : checked_expr_kind = `Compound (op, name, v) in
-       node target it)
+       (* No in-place entry exists, so it derives from the plain operator. *)
+       if walking ()
+       then (
+         let current = node target (`Var name) in
+         node target (`Assign (name, lowered_now ctx.registry (node target (`Binop (op, current, v))))))
+       else node target (`Compound (op, name, v)))
   | `Compound_index (op, target, index, v) ->
     let target = infer_expr env ctx target in
     if Types.concrete target.Ast.ann = Some Types.Str
@@ -1820,13 +3793,26 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     in
     let v = infer_expr env ctx v in
     unify_at span current (binop_result ctx.registry op current v.Ast.ann);
-    node current (`Compound_index (op, target, index, v))
+    if walking ()
+    then (
+      let target, target_again = once ctx target in
+      let index, index_again = once ctx index in
+      let read = lowered_now ctx.registry (node current (`Index (target_again, index_again))) in
+      let combined = lowered_now ctx.registry (node current (`Binop (op, read, v))) in
+      lowered_now ctx.registry (node current (`Index_assign (target, index, combined))))
+    else node current (`Compound_index (op, target, index, v))
   | `Compound_field (op, target, label, v) ->
     let target = infer_expr env ctx target in
     let current = field_of target label in
     let v = infer_expr env ctx v in
     unify_at span current (binop_result ctx.registry op current v.Ast.ann);
-    node current (`Compound_field (op, target, label, v))
+    if walking ()
+    then (
+      let target, target_again = once ctx target in
+      let read = node current (`Field (target_again, label)) in
+      let combined = lowered_now ctx.registry (node current (`Binop (op, read, v))) in
+      node current (`Field_assign (target, label, combined)))
+    else node current (`Compound_field (op, target, label, v))
   | `And (a, b) | `Or (a, b) ->
     let a = infer_expr env ctx a in
     let b = infer_expr env ctx b in
@@ -1840,8 +3826,69 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     node Types.IBool it
   (* `Array<int>(3, 0)` reads as a call until `Array` turns out to be a type
      with a constructor rather than a function. *)
-  | `Call ({ Ast.it = `Var name; _ }, args) when constructs env ctx name ->
-    infer_expr env ctx { e with Ast.it = `New_call (name, [], args) }
+  (* The walk renames one a meta block holds before the check sees it. *)
+  | `Call ({ Ast.it = `Var "__moduleof"; _ }, _) ->
+    raise (Rejected { span; message = "'moduleof' is only allowed inside a meta block." })
+  (* One arriving here stood where no meta program would have run it. *)
+  | `Code _ | `Code_stmts _ | `Code_decl _ ->
+    raise (Rejected { span; message = "'code' is only allowed inside a meta block." })
+  | `Declof (operand, static_args) when walking () && !in_meta ->
+    let name =
+      match operand.Ast.it with
+      | `Var name -> name
+      | _ -> fail operand.Ast.span "declof takes the name of a declaration."
+    in
+    let not_a_declaration () = fail operand.Ast.span "'%s' is not a declaration." (shown_name name) in
+    let reified =
+      match decl_of env name with
+      | Some d ->
+        let u = use_of d in
+        (match static_args with
+         | Some args -> write_static ~implicit:true span name u args
+         | None ->
+           if u.u_vars <> [] || d.wd_values <> []
+           then
+             fail
+               span
+               "'%s' takes static parameters, so declof needs its key written: declof(%s<…>)."
+               (shown_name name)
+               (shown_name name));
+        (ops ()).declof span (Some (d, key_of_use span ~value:false u)) name static_args
+      | None ->
+        (match lookup env name with
+         | Some scheme ->
+           (* A meta value holding a name is looked up when the block runs. *)
+           let ty = Types.instantiate scheme in
+           let holds_name () =
+             Types.retracting (fun () ->
+               try
+                 Types.unify ty Types.iname;
+                 true
+               with
+               | Types.Type_error _ -> false)
+           in
+           if Option.is_some static_args || not (holds_name ()) then not_a_declaration ();
+           Ast.at span (`Call (Ast.at span (`Var (Ast.generated [ "meta"; "declof" ])), [ operand ]))
+         | None -> (ops ()).declof span None name static_args)
+    in
+    infer_expr ?expected env ctx reified
+  | `Declof _ -> raise (Rejected { span; message = "'declof' is only allowed inside a meta block." })
+  | `Meta_expr _ when walking () ->
+    infer_expr
+      ?expected
+      env
+      ctx
+      (in_scope env ctx (fun () -> (ops ()).meta_expr (runtime_names env) (reflected_type env ctx) e))
+  | `Meta_expr _ -> raise (Rejected { span; message = "A meta block as an expression is not supported yet." })
+
+  (* An ordinary generic type is checked once, so what `<…>` said is the
+     checker's to infer again: from the fields, not from what the parent
+     expects, which would overrule what was written. *)
+  | (`New_generic _ | `New _) when walking () && (ops ()).generic_new e != e ->
+    infer_expr_impl ?expected env ctx ((ops ()).generic_new e)
+  | `New_generic (name, _, fields) -> infer_expr_impl env ctx { e with Ast.it = `New (name, fields) }
+  | `Call (({ Ast.it = `Var name; _ } as callee), args) when constructs env ctx name ->
+    infer_expr ?expected env ctx { e with Ast.it = `New_call (name, [], collected span callee args) }
   | `Static_call ({ Ast.it = `Var name; _ }, static_args, args) when constructs env ctx name ->
     let type_args =
       List.map
@@ -1850,17 +3897,55 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
           | Ast.St_value _ -> fail span "'%s' takes types here, not values." name)
         static_args
     in
-    infer_expr env ctx { e with Ast.it = `New_call (name, type_args, args) }
+    infer_expr ?expected env ctx { e with Ast.it = `New_call (name, type_args, args) }
+  | `Call ({ Ast.it = `Field (({ Ast.it = `Var v; _ } as target), short); _ }, args)
+    when walking () && is_handler_value v ->
+    handler_call env ctx span target short args
+  | `Call ({ Ast.it = `Var name; _ }, args) when walking () && named_method_call name args ->
+    let args = List.map (argument env ctx) args in
+    let ret = Types.fresh () in
+    (match bound_operation ~handed:true span ctx name args ret with
+     | Some bound -> bound
+     | None -> fail span "'%s' is not an operation." (shown_name name))
   | `Call (callee, args) ->
-    let callee_node = infer_expr env ctx callee in
-    root_argument
-    := (match callee.Ast.it, !top_row with
-        | `Var name, Some top -> Ast.is_root name && top == ctx.row
-        | _ -> false);
+    let args = collected span callee args in
+    let use =
+      match callee.Ast.it with
+      | `Var name ->
+        (match decl_of env name with
+         | Some d ->
+           if (ops ()).performs_gen d && not !in_meta
+           then
+             fail
+               callee.Ast.span
+               "'%s' performs Gen, which only a meta block handles."
+               (shown_name name);
+           Some (use_toward expected d)
+         | None -> None)
+      | _ -> None
+    in
+    let outer_pending = !pending_values in
+    if Option.is_some use then pending_values := [];
+    Fun.protect ~finally:(fun () -> if Option.is_some use then pending_values := outer_pending)
+    @@ fun () ->
+    begin
+    let callee_node =
+      match use, callee.Ast.it with
+      | Some u, `Var name -> Ast.annotated callee.Ast.span u.u_ty (`Var name)
+      | _ -> infer_expr env ctx callee
+    in
+    match cps_shape callee_node.Ast.ann args with
+    | Some (params, ret, row, n) when Option.is_none use -> cps_call env ctx span callee_node params ret row n args
+    | _ ->
+    (* Each top-level statement is the body of a function handed to the root,
+       so that function's row stands in for the top level's while it is
+       checked: otherwise every effect site would be the whole statement. *)
+    let at_root =
+      match callee.Ast.it, !top_row with
+      | `Var name, Some top -> Ast.is_root name && top == ctx.row
+      | _ -> false
+    in
     let args = name_implicit_params callee_node.Ast.ann args in
-    (* A literal is unified with itself before a coercion could reach inside
-       it, so an argument whose parameter mentions a trait is checked rather
-       than inferred. *)
     let declared_params =
       match callee.Ast.it with
       | `Var name -> Option.value ~default:[] (Hashtbl.find_opt ctx_fn_params name)
@@ -1887,29 +3972,32 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
             checked
         in
         List.rev
-          (snd
-             (List.fold_left2
-                (fun (i, checked) param (a : Ast.desugared_expr) ->
-                  let c =
-                    match a.Ast.it with
-                    | `Spread _ -> argument env ctx a
-                    | _ when mentions_trait param -> check_against env ctx param a
-                    | _ ->
-                      (match a.Ast.it with
-                       | `Lambda _ ->
-                         settle_before (List.rev checked);
-                         expected_lambda := Some param
-                       | _ -> ());
-                      let c = argument env ctx a in
-                      not_a_bound ~declared:declared_params a param c;
-                      not_pure a param c;
-                      c
-                  in
-                  i + 1, c :: checked)
-                (0, [])
-                params
-                args))
-      | None -> List.map (argument env ctx) args
+          (List.fold_left2
+             (fun checked param (a : Ast.expr) ->
+               let c =
+                 match a.Ast.it with
+                 | `Spread _ -> argument env ctx a
+                 | _ ->
+                   (* Whether a trailing lambda takes its `it` is read the
+                      same way: processed code shows `xs.push { … }` as
+                      `push(xs, { … })`. *)
+                   let a =
+                     match a.Ast.it with
+                     | `Lambda _ ->
+                       settle_before (List.rev checked);
+                       List.hd (name_implicit_params_from [ param ] [ a ])
+                     | _ -> a
+                   in
+                   let c = argument ~expected:param ~at_root env ctx a in
+                   not_a_bound ~declared:declared_params a param c;
+                   not_pure a param c;
+                   c
+               in
+               c :: checked)
+             []
+             params
+             args)
+      | None -> List.map (argument ~at_root env ctx) args
     in
     (* The name has to still mean the entry, not merely be spelled like it. *)
     let variadic =
@@ -1939,13 +4027,30 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
        Types.unify
          callee_node.Ast.ann
          (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
-       let name, scheme =
-         match callee.Ast.it with
-         | `Var name -> Some name, lookup env name
-         | _ -> None, None
-       in
-       admits_row ?name scheme row ctx.row;
-       node ret (`Call (callee_node, args)))
+       (match callee.Ast.it with
+        | `Var name when Hashtbl.mem ctx_effects.ops name || returns_nothing (lookup env name) ->
+          leave_open ret
+        | _ -> ());
+       (match use with
+        | Some u ->
+          let name = reached span u row ctx in
+          node ret (`Call (Ast.annotated callee.Ast.span u.u_ty (`Var name), args))
+        | None ->
+          let name, scheme =
+            match callee.Ast.it with
+            | `Var name -> Some name, lookup env name
+            | _ -> None, None
+          in
+          (match Option.bind name (fun name -> bound_operation span ctx name args ret) with
+           | Some bound ->
+             (* Through a named handler, the label stays in the row, which is
+                how `with` sees what it binds. *)
+             if Option.fold ~none:false ~some:named_binding name then admits_row ?name scheme row ctx.row;
+             bound
+           | None ->
+             admits_row ?name scheme row ctx.row;
+             node ret (`Call (callee_node, args)))))
+    end
   (* `f.to<bool>()`. The receiver says which type, and the written targets say
      which of that type's impls, which is the one thing a call by name alone
      cannot. *)
@@ -1985,18 +4090,68 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       | Some scheme -> scheme
       | None -> fail span "Type '%s' has no method '%s'." owner method_
     in
-    let fn = Types.instantiate scheme in
-    let args = List.map (infer_expr env ctx) args in
-    let all =
-      if Hashtbl.mem ctx_associated (owner, method_) then args else receiver :: args
+    let use = Option.map (use_toward expected) (decl_of env entry.Registry.mangled) in
+    with_pending @@ fun () ->
+    let fn =
+      match use with
+      | Some u -> u.u_ty
+      | None -> Types.instantiate scheme
     in
+    let associated = Hashtbl.mem ctx_associated (owner, method_) in
+    let args =
+      List.map2
+        (fun expected a -> infer_expr ?expected env ctx a)
+        (parameters fn ~receiver:(not associated) args)
+        args
+    in
+    let all = if associated then args else receiver :: args in
     let ret = Types.fresh () in
     let row = Types.fresh_row () in
     Types.unify
       fn
       (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) all, ret, row));
-    admits_row ~name:entry.Registry.mangled (Some scheme) row ctx.row;
-    node ret (`Call (Ast.annotated span fn (`Var entry.Registry.mangled), all))
+    (match use with
+     | Some u ->
+              let name = reached span u row ctx in
+          let ty = u.u_ty in
+       node ret (`Call (Ast.annotated span ty (`Var name), all))
+     | None ->
+       admits_row ~name:entry.Registry.mangled (Some scheme) row ctx.row;
+       node ret (`Call (Ast.annotated span fn (`Var entry.Registry.mangled), all)))
+  | `Static_call (({ Ast.it = `Var name; _ } as callee), static_args, args)
+    when Option.is_some (decl_of env name) ->
+    let d = Option.get (decl_of env name) in
+    if (ops ()).performs_gen d && not !in_meta
+    then fail span "'%s' performs Gen, which only a meta block handles." (shown_name name);
+    let u = use_of d in
+    write_static span name u static_args;
+    (match Types.repr u.u_ty with
+     | Types.IFn (_, ret, _) -> meet expected ret
+     | _ -> ());
+    let args = collected span callee args in
+    with_pending @@ fun () ->
+    let args =
+      List.map2 (fun expected a -> infer_expr ?expected env ctx a) (parameters u.u_ty ~receiver:false args) args
+    in
+    let ret = Types.fresh () in
+    let row = Types.fresh_row () in
+    unify_at
+      span
+      u.u_ty
+      (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
+        let name = reached span u row ctx in
+          let ty = u.u_ty in
+    node ret (`Call (Ast.annotated span ty (`Var name), args))
+  | `Static_ref ({ Ast.it = `Var name; _ }, static_args) when Option.is_some (decl_of env name) ->
+    let u = use_of (Option.get (decl_of env name)) in
+    write_static span name u static_args;
+    meet expected u.u_ty;
+    node u.u_ty (`Var (value_of span u))
+  | `Static_ref ({ Ast.it = `Var name; _ }, static_args) ->
+    (match lookup env name with
+     | Some scheme -> node (written_instance span name scheme static_args) (`Var name)
+     | None -> fail span "Undefined variable '%s'." name)
+  | `Static_ref _ -> fail span "Only a named function takes static arguments."
   | `Static_call (callee, static_args, args) ->
     let name =
       match callee.Ast.it with
@@ -2008,38 +4163,8 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       | Some scheme -> scheme
       | None -> fail span "Undefined variable '%s'." name
     in
-    let declared = Option.value ~default:[] (Hashtbl.find_opt ctx_fn_params name) in
-    if List.length declared <> List.length static_args
-    then
-      fail
-        span
-        "'%s' takes %d static argument(s) but %d were given."
-        name
-        (List.length declared)
-        (List.length static_args);
-    let type_args =
-      List.map
-        (function
-          | Ast.St_type t -> t
-          | Ast.St_value _ ->
-            fail span "A static argument to '%s' is not known at compile time." name)
-        static_args
-    in
-    let bound, pinned =
-      List.fold_left2
-        (fun (bound, pinned) (_, var) written ->
-          let written = infer_ty_of_annotation written in
-          match Types.repr var with
-          | Types.IVar { contents = Types.Unbound (id, _) } ->
-            (id, written) :: bound, pinned
-          | other -> bound, (other, written) :: pinned)
-        ([], [])
-        declared
-        type_args
-    in
-    let fn = Types.instantiate ~bound scheme in
-    List.iter (fun (a, b) -> unify_at span a b) pinned;
-    let args = List.map (infer_expr env ctx) args in
+    let fn = written_instance span name scheme static_args in
+    let args = List.map (infer_expr env ctx) (collected span callee args) in
     let callee_node : checked_expr = Ast.annotated callee.Ast.span fn (`Var name) in
     let ret = Types.fresh () in
     let row = Types.fresh_row () in
@@ -2054,9 +4179,9 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     let declared = Option.get (declared_variant env ty variant) in
     if args = [] && Ast.payload_fields declared.vd_payload = []
     then fail span "'%s.%s' carries nothing, so it is written without parentheses." ty variant;
-    infer_expr env ctx { e with Ast.it = `New_variant (ty, variant, Ast.P_tuple args) }
+    infer_expr ?expected env ctx { e with Ast.it = `New_variant (ty, variant, Ast.P_tuple args) }
   | `Field ({ Ast.it = `Var ty; _ }, variant) when declared_variant env ty variant <> None ->
-    infer_expr env ctx { e with Ast.it = `New_variant (ty, variant, Ast.P_none) }
+    infer_expr ?expected env ctx { e with Ast.it = `New_variant (ty, variant, Ast.P_none) }
   | `Field ({ Ast.it = `Var ty; _ }, variant)
     when lookup env ty = None
          && (match Hashtbl.find_opt ctx_types ty with
@@ -2084,6 +4209,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       | Some ann -> { Ast.it = `Int 0; span = receiver.Ast.span; ann }
       | None -> infer_expr env ctx receiver
     in
+    if walking () then Option.iter (ops ()).wake (Types.infer_type_name receiver.Ast.ann);
     let owners =
       List.sort_uniq
         compare
@@ -2103,24 +4229,42 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     (* An inherent method answers anywhere; a trait's only where the file
        that wrote the call can see the trait. *)
     let in_reach owner =
-      List.filter
-        (fun (e : Registry.method_entry) ->
-          match e.Registry.trait, in_scope with
-          | None, _ | _, None -> true
-          | Some trait, Some names -> List.mem trait names)
-        (Registry.method_entries ctx.registry owner name)
+      let reached =
+        List.filter
+          (fun (e : Registry.method_entry) ->
+            match e.Registry.trait, in_scope with
+            | None, _ | _, None -> true
+            | Some trait, Some names ->
+              List.mem (written_trait trait) names || List.mem_assoc trait !bound_traits)
+          (Registry.method_entries ctx.registry owner name)
+      in
+      match reached with
+      | _ :: _ :: _ ->
+        (match
+           List.filter
+             (fun (e : Registry.method_entry) ->
+               List.exists
+                 (fun (trait, targets) ->
+                   e.Registry.trait = Some trait
+                   && (targets = None || targets = Some e.Registry.targets))
+                 !bound_traits)
+             reached
+         with
+         | [ bound ] -> [ bound ]
+         | _ -> reached)
+      | reached -> reached
     in
     let entry_in_reach owner =
       match in_reach owner with
       | e :: _ -> e.Registry.mangled
       | [] -> Registry.entry_for_method ctx.registry owner name
     in
-    let expected =
+    let declared =
       match found with
       | Ok (Owner owner) when not (Hashtbl.mem ctx_associated (owner, name)) ->
         (match lookup env (entry_in_reach owner) with
          | Some scheme ->
-           (match Types.repr (Types.instantiate scheme) with
+           (match Types.repr (signature_of env (entry_in_reach owner) scheme) with
             | Types.IFn (self :: rest, _, _) ->
               (* A generic parameter only says how many a lambda takes once the
                  receiver has bound it. This instantiation is read and dropped;
@@ -2130,17 +4274,21 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
               rest
             | _ -> [])
          | None -> [])
+      | Ok (Owner owner) ->
+        (match lookup env (entry_in_reach owner) with
+         | Some scheme ->
+           (match Types.repr (signature_of env (entry_in_reach owner) scheme) with
+            | Types.IFn (params, _, _) -> params
+            | _ -> [])
+         | None -> [])
       | _ -> []
     in
     let args =
+      let sized = List.length declared = List.length args in
       List.mapi
-        (fun i (a : Ast.desugared_expr) ->
-          (match a.Ast.it, List.nth_opt expected i with
-           | `Lambda _, Some param when List.length expected = List.length args ->
-             expected_lambda := Some param
-           | _ -> ());
-          argument env ctx a)
-        (name_implicit_params_from expected args)
+        (fun i (a : Ast.expr) ->
+          argument ?expected:(if sized then List.nth_opt declared i else None) env ctx a)
+        (name_implicit_params_from declared args)
     in
     (* The receiver's own field comes first: a record of functions is how an
        `Iter` or a hand-made table is written, and a local that happens to share
@@ -2180,7 +4328,13 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
       match lookup env as_function with
       | None -> None
       | Some scheme ->
-        let fn = Types.instantiate scheme in
+        let use = Option.map (use_toward expected) (decl_of env as_function) in
+        with_pending @@ fun () ->
+        let fn =
+          match use with
+          | Some u -> u.u_ty
+          | None -> Types.instantiate scheme
+        in
         let passed =
           receiver.Ast.ann :: List.map (fun (a : checked_expr) -> a.Ast.ann) args
         in
@@ -2198,9 +4352,15 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
         let ret = Types.fresh () in
         let row = Types.fresh_row () in
         Types.unify fn (Types.IFn (passed, ret, row));
-        admits_row ~name:as_function (Some scheme) row ctx.row;
-        Some
-          (node ret (`Call ({ Ast.it = `Var as_function; span; ann = fn }, receiver :: args)))
+        match use with
+        | Some u ->
+                    let name = reached span u row ctx in
+          let ty = u.u_ty in
+          Some (node ret (`Call ({ Ast.it = `Var name; span; ann = ty }, receiver :: args)))
+        | None ->
+          admits_row ~name:as_function (Some scheme) row ctx.row;
+          Some
+            (node ret (`Call ({ Ast.it = `Var as_function; span; ann = fn }, receiver :: args)))
     in
     (match via_field () with
     | Some call -> call
@@ -2267,6 +4427,28 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
             | { Ast.name = "self"; _ } :: rest -> rest
             | all -> all
           in
+          let dynamic =
+            match Types.repr receiver.Ast.ann with
+            | Types.INamed (named, _) -> String.equal named trait
+            | _ -> false
+          in
+          let taken =
+            match m.Ast.ms_signature.Ast.row with
+            | Some labels when dynamic -> controlling (List.map fst labels)
+            | _ -> []
+          in
+          (* Called through a table a transform made taking control: the
+             method's arguments, a handler for each effect it takes control
+             of, then the continuation, whose answer is the call's. *)
+          let handed = taken <> [] && List.length args = List.length rest + List.length taken + 1 in
+          let args, continuation =
+            if handed
+            then (
+              let surface = List.filteri (fun i _ -> i < List.length rest) args
+              and extra = List.filteri (fun i _ -> i >= List.length rest) args in
+              surface, Some extra)
+            else args, None
+          in
           if List.length rest <> spread_arity args
           then
             fail
@@ -2301,9 +4483,9 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
              | None -> Types.REmpty);
           let ret = Types.fresh () in
           let row = Types.fresh_row () in
-          (* The written row is what the call passes evidence for, and what it
-             adds to its context -- not all its context may hold, which a closed
-             row unified with the context would insist on. *)
+          (* The written row is what the call adds to its context -- not all
+             its context may hold, which a closed row unified with the context
+             would insist on. *)
           let rec opened (r : Types.infer_row) =
             match Types.repr_row r with
             | Types.REmpty -> Types.fresh_row ()
@@ -2321,22 +4503,39 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
                ( receiver.Ast.ann :: List.map (fun (a : checked_expr) -> a.Ast.ann) args
                , ret
                , row ));
-          Types.unify_row row ctx.row;
+          (* What the call takes control of is answered through the handlers
+             it is handed. *)
+          if handed
+          then (
+            let rec without (r : Types.infer_row) =
+              match Types.repr_row r with
+              | Types.RCons (l, _, rest) when List.mem l taken -> without rest
+              | Types.RCons (l, a, rest) -> Types.RCons (l, a, without rest)
+              | r -> r
+            in
+            Types.row_within (without row) ctx.row)
+          else Types.unify_row row ctx.row;
           (* A receiver whose type is the trait is a value paired with a table,
              so the call reads its target out of that table. Otherwise the bound
              is what says which impl, and it is recorded for the copy. *)
-          (match Types.repr receiver.Ast.ann with
-           | Types.INamed (named, _) when String.equal named trait ->
+          (match Types.repr receiver.Ast.ann, continuation with
+           | Types.INamed (named, _), Some extra when String.equal named trait ->
+             let answer = Types.fresh () in
+             (match List.rev extra with
+              | (k : checked_expr) :: _ -> unify_at k.Ast.span k.Ast.ann (Types.IFn ([ ret ], answer, Types.fresh_row ()))
+              | [] -> ());
+             node answer (`Dyn_call (receiver, name, fn, args @ extra))
+           | Types.INamed (named, _), None when String.equal named trait ->
              node ret (`Dyn_call (receiver, name, fn, args))
            | _ ->
-             node
+             lowered_now ctx.registry @@ node
                ret
                (`Bound_call
                  ( receiver
                  , name
                  , Option.value
                      dispatch
-                     ~default:{ Ast.dp_trait = declaring; dp_targets = bound_args; dp_instance = None }
+                     ~default:{ Ast.dp_trait = declaring; dp_targets = bound_args }
                  , args )))))
      | Owner owner ->
        if Hashtbl.mem ctx_associated (owner, name) && named_receiver = None
@@ -2359,6 +4558,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
            name
            owner;
        let missing (type a) (anything : unit -> a) : a =
+         if walking () then (ops ()).unknown_method name span;
          !current.unknown
            (fun () ->
              match Hashtbl.find_opt ctx_types owner with
@@ -2414,26 +4614,18 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
               name
               (String.concat ", " first.Registry.targets)
           | _ -> ());
+         let use = Option.map (use_toward expected) (decl_of env (entry_in_reach owner)) in
+         let outer_pending = !pending_values in
+         if Option.is_some use then pending_values := [];
+         Fun.protect ~finally:(fun () -> if Option.is_some use then pending_values := outer_pending)
+         @@ fun () ->
          let fn =
-           match lookup env (entry_in_reach owner) with
-           | Some scheme -> Types.instantiate scheme
-           | None -> missing Types.fresh
+           match use, lookup env (entry_in_reach owner) with
+           | Some u, _ -> u.u_ty
+           | None, Some scheme -> Types.instantiate scheme
+           | None, None -> missing Types.fresh
          in
          let associated = Hashtbl.mem ctx_associated (owner, name) in
-         let args =
-           match Types.repr fn with
-           | Types.IFn (params, _, _) ->
-             let params = Types.expand params in
-             coerce_params
-               (if associated
-                then params
-                else (
-                  match params with
-                  | _receiver :: rest -> rest
-                  | [] -> []))
-               args
-           | _ -> args
-         in
          let passed =
            let given = List.map (fun (a : checked_expr) -> a.Ast.ann) args in
            if associated then given else receiver.Ast.ann :: given
@@ -2464,88 +4656,121 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          let ret = Types.fresh () in
          let row = Types.fresh_row () in
          Types.unify fn (Types.IFn (passed, ret, row));
-         admits_row
-           ~name:(Registry.entry_for_method ctx.registry owner name)
-           (lookup env (Registry.entry_for_method ctx.registry owner name))
-           row
-           ctx.row;
          let all = if associated then args else receiver :: args in
-         node
-           ret
-           (`Call
-             ( Ast.annotated
-                 span
-                 fn
-                 (`Var (Registry.entry_for_method ctx.registry owner name))
-             , all ))))))
+         match use with
+         | Some u ->
+           (* Processed code shows the method as the function it is, called
+              with its receiver first: a transform copies it as it would any
+              function. *)
+           (match !expansions, !recording, e.Ast.it with
+            | Some lowered, Some table, `Method_call (written_receiver, _, _, written_args, _) when not associated ->
+              let callee = Ast.at span (`Var u.u_decl.wd_name) in
+              let call = Ast.at span (`Call (callee, written_receiver :: written_args)) in
+              table := (callee, fn) :: (call, ret) :: !table;
+              lowered := (e, call) :: !lowered
+            | _ -> ());
+           let name = reached span u row ctx in
+          let ty = u.u_ty in
+           node ret (`Call (Ast.annotated span ty (`Var name), all))
+         | None ->
+           admits_row
+             ~name:(Registry.entry_for_method ctx.registry owner name)
+             (lookup env (Registry.entry_for_method ctx.registry owner name))
+             row
+             ctx.row;
+           node
+             ret
+             (`Call
+               ( Ast.annotated
+                   span
+                   fn
+                   (`Var (Registry.entry_for_method ctx.registry owner name))
+               , all ))))))
   (* A spread stands for however many its tuple holds, so it is read where an
      argument list is and nowhere else. *)
   | `Spread _ -> fail span "A spread is an argument, so it belongs in a call."
+  | `Lambda (params, signature, body) when is_cps signature -> cps_lambda ?expected env ctx span params signature body
   | `Lambda (params, signature, body) ->
-    let expected = !expected_lambda in
-    expected_lambda := None;
     let param_types = List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) params in
-    (match Option.map Types.repr expected with
-     | Some (Types.IFn (wanted, _, _)) ->
-       let wanted = Types.expand wanted in
-       if List.length wanted = List.length param_types
-       then
-         List.iter2
-           (fun ty want ->
-             try Types.unify ty want with
-             | Types.Type_error _ -> ())
-           param_types
-           wanted
-     | _ -> ());
     let declared_ret = annotated_or_fresh signature.Ast.ret in
+    (* A mismatch is left for whatever expected this type to report, against
+       the lambda's whole type. *)
+    let hint ty want =
+      try Types.unify ty want with
+      | Types.Type_error _ -> ()
+    in
+    let wanted_control =
+      match Option.map Types.repr expected with
+      | Some (Types.IFn (wanted, wanted_ret, wanted_row)) ->
+        let wanted = Types.expand wanted in
+        if List.length wanted = List.length param_types then List.iter2 hint param_types wanted;
+        if Option.is_none signature.Ast.ret then hint declared_ret wanted_ret;
+        controlling_row wanted_row
+      | _ -> []
+    in
     let row = Types.fresh_row () in
     let scope = new_env (Some env) in
     List.iter2
       (fun (p : Ast.param) ty -> bind scope p.Ast.name (Types.mono ty))
       params
       param_types;
-    let at_root = !root_argument in
-    root_argument := false;
-    let saved = !top_row in
+    let saved = !top_row
+    and outer = !effect_bindings in
     if at_root then top_row := Some row;
+    if not (is_plain signature) then effect_bindings := own_frame :: outer;
     let body =
       Fun.protect
-        ~finally:(fun () -> top_row := saved)
-        (fun () -> in_function_body ctx ~ret:declared_ret ~row (fun () -> infer_block scope ctx body))
+        ~finally:(fun () ->
+          top_row := saved;
+          effect_bindings := outer)
+        (fun () ->
+          let cps = if is_plain signature then ctx.cps_answer else None in
+          in_function_body ?cps ctx ~ret:declared_ret ~row (fun () -> infer_block scope ctx body))
     in
-    node (Types.IFn (param_types, declared_ret, row)) (`Lambda (params, signature, body))
-  (* The declared type when no value answers, so `typeof(Dog)` works. *)
-  | `Typeof { Ast.it = `Var name; span = inner; _ } when lookup env name = None ->
-    let ty =
-      match Hashtbl.find_opt ctx_type_param_names name with
-      (* A generic type asked about as itself: at its own parameters. *)
-      | Some (_ :: _ as names) ->
-        let args =
-          List.map
-            (fun n ->
-              let var = Types.fresh () in
-              Types.declare_param var;
-              Types.name_param n var;
-              var)
-            names
-        in
-        (match Hashtbl.find_opt ctx_types name with
-         | Some (Sum _) -> Types.ISum (name, args)
-         | _ -> Types.INamed (name, args))
-      | _ ->
-        (try infer_ty_of_annotation { Ast.it = Ast.Ty_name name; span = inner; ann = () } with
-         | Located _ -> fail inner "Nothing named '%s' is a value or a type." name)
-    in
-    node Types.ireflected (`Typeof { Ast.it = `Int 0; span = inner; ann = ty })
-  | `Typeof e -> node Types.ireflected (`Typeof (infer_expr env ctx e))
+    (* Bound where it is written, it performs through what is around it. *)
+    if is_plain signature then Types.row_within row ctx.row;
+    let checked = node (Types.IFn (param_types, declared_ret, row)) (`Lambda (params, signature, body)) in
+    (* A function value whose type takes control is made taking its handlers
+       and its continuation, wherever it is written. *)
+    if (not (is_plain signature))
+       && walking ()
+       && Option.is_none !recording
+       && controlling_row row <> []
+       && block_splits body
+    then (
+      (* The handlers a value takes follow from its type where it is used,
+         which may take control of more than its body does. *)
+      let taken = List.sort_uniq String.compare (controlling_row row @ wanted_control) in
+      let made = infer_expr ?expected ~at_root env ctx (converted env ctx e taken) in
+      unify_at span made.Ast.ann checked.Ast.ann;
+      made)
+    else checked
+  | `Field ({ Ast.it = `Typeof operand; _ }, (("name" | "shape" | "attrs" | "doc") as field)) ->
+    reflected env ctx span operand (Some field)
+  | `Typeof operand -> reflected env ctx span operand None
   | `Collection_lit items ->
-    let elem = Types.fresh () in
-    let container = Types.fresh_with (Types.Collection elem) in
-    let items = List.map (infer_expr env ctx) items in
+    (* Without a container expected of it, a literal is one the context may
+       still choose, and `Array` if nothing does. *)
+    let container, elem =
+      let chosen =
+        match Option.map (fun t -> t, Types.repr t) expected with
+        | Some (t, Types.INamed (name, _)) when String.equal name Types.array_name ->
+          Option.map (fun (_, elem) -> t, elem) (Types.container_element t)
+        | Some (t, Types.INamed (name, _)) ->
+          Option.map (fun elem -> t, elem) (Registry.container_element ctx.registry name t)
+        | _ -> None
+      in
+      match chosen with
+      | Some chosen -> chosen
+      | None ->
+        let elem = Types.fresh () in
+        Types.fresh_with (Types.Collection elem), elem
+    in
+    let items = List.map (infer_expr ~expected:elem env ctx) items in
     List.iter
       (fun (i : checked_expr) -> unify_at i.Ast.span elem i.Ast.ann)
       items;
-    node container (`Collection_lit items)
+    lowered_now ctx.registry (node container (`Collection_lit items))
   | `New_call (name, type_args, args) when String.equal name Types.array_name ->
     let elem =
       match List.map infer_ty_of_annotation type_args with
@@ -2573,45 +4798,57 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          | Some scheme -> scheme
          | None -> fail span "Undefined variable '%s'." fn
        in
-       let fn_ty = Types.instantiate scheme in
-       let args = List.map (infer_expr env ctx) args in
+       let use = Option.map (use_toward expected) (decl_of env fn) in
+       with_pending @@ fun () ->
+       let fn_ty =
+         match use with
+         | Some u -> u.u_ty
+         | None -> Types.instantiate scheme
+       in
+       let args =
+         List.map2 (fun expected a -> infer_expr ?expected env ctx a) (parameters fn_ty ~receiver:false args) args
+       in
        let ret = Types.fresh () in
        let row = Types.fresh_row () in
        Types.unify
          fn_ty
          (Types.IFn (List.map (fun (a : checked_expr) -> a.Ast.ann) args, ret, row));
-       admits_row ~name:fn (lookup env fn) row ctx.row;
        if type_args <> []
        then
          unify_at
            span
            (named_type span name (type_arguments name type_args))
            ret;
-       node ret (`Call (Ast.annotated span fn_ty (`Var fn), args)))
+       (match use with
+        | Some u ->
+                    let fn = reached span u row ctx in
+          let ty = u.u_ty in
+          node ret (`Call (Ast.annotated span ty (`Var fn), args))
+        | None ->
+          admits_row ~name:fn (lookup env fn) row ctx.row;
+          node ret (`Call (Ast.annotated span fn_ty (`Var fn), args))))
   | `New (name, fields) ->
     (match Hashtbl.find_opt ctx_types name with
      | Some (Opaque _) -> fail span "'%s' has no fields to construct it with." name
      | None | Some (Sum _) -> fail span "Unknown record type '%s'." name
      | Some (Product (vars, declared)) ->
        let args = List.map fresh_argument vars in
+       meet expected (Types.INamed (name, args));
        let declared = Types.substitute_fields (instance vars args) declared in
        let rec labels f =
          match Types.repr_fields f with
          | Types.FEmpty | Types.FVar _ -> []
          | Types.FCons (l, ty, rest) -> (l, ty) :: labels rest
        in
-       let expected = labels declared in
+       let fields_expected = labels declared in
        let fields =
          List.map
-           (fun (l, v) ->
-             match List.assoc_opt l expected with
-             | Some ty when mentions_trait ty -> l, check_against env ctx ty v
-             | _ -> l, infer_expr env ctx v)
+           (fun (l, v) -> l, infer_expr ?expected:(List.assoc_opt l fields_expected) env ctx v)
            fields
        in
        List.iter
          (fun (l, _) ->
-           if not (List.mem_assoc l expected)
+           if not (List.mem_assoc l fields_expected)
            then
              !current.unknown
                (fun () -> fail span "Type '%s' has no field '%s'." name l)
@@ -2621,16 +4858,16 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
          (fun (l, _) ->
            if not (List.mem_assoc l fields)
            then fail span "Field '%s' is missing." l)
-         expected;
+         fields_expected;
        (* A field the type does not declare was reported above, or set aside
           while a meta block could still declare it. *)
        List.iter
          (fun (l, (v : checked_expr)) ->
-           match List.assoc_opt l expected with
+           match List.assoc_opt l fields_expected with
            | Some ty -> unify_at v.Ast.span ty v.Ast.ann
            | None -> ())
          fields;
-       node (Types.INamed (name, args)) (`New (name, fields)))
+       lowered_now ctx.registry (node (Types.INamed (name, args)) (`New (name, fields))))
   | `New_variant (ty, variant, payload) ->
     (match Hashtbl.find_opt ctx_types ty with
      | None | Some (Product _) | Some (Opaque _) ->
@@ -2641,25 +4878,28 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
         | Some declared ->
           let mapping = instantiation vars declared in
           let args = List.map (Types.substitute mapping) declared.vd_result in
-          let expected =
+          meet expected (Types.ISum (ty, args));
+          let carried =
             List.map
               (fun (l, t) -> l, Types.substitute mapping t)
               (Ast.payload_fields declared.vd_payload)
           in
           let given =
-            List.map (fun (l, v) -> l, infer_expr env ctx v) (Ast.payload_fields payload)
+            List.map
+              (fun (l, v) -> l, infer_expr ?expected:(List.assoc_opt l carried) env ctx v)
+              (Ast.payload_fields payload)
           in
-          if List.length expected <> List.length given
+          if List.length carried <> List.length given
           then
             fail
               span
               "Variant '%s' carries %d value(s) but %d were given."
               variant
-              (List.length expected)
+              (List.length carried)
               (List.length given);
           List.iter
             (fun (l, (v : checked_expr)) ->
-              match List.assoc_opt l expected with
+              match List.assoc_opt l carried with
               | Some ty -> unify_at v.Ast.span ty v.Ast.ann
               | None -> fail span "Variant '%s' has no field '%s'." variant l)
             given;
@@ -2669,9 +4909,21 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
             | Ast.P_tuple _ -> Ast.P_tuple (List.map snd given)
             | Ast.P_fields _ -> Ast.P_fields given
           in
-          node (Types.ISum (ty, args)) (`New_variant (ty, variant, payload))))
+          lowered_now ctx.registry (node (Types.ISum (ty, args)) (`New_variant (ty, variant, payload)))))
   | `Record_lit fields ->
-    let fields = List.map (fun (l, v) -> l, infer_expr env ctx v) fields in
+    let expected_field l =
+      match Option.map Types.repr expected with
+      | Some (Types.IRecord f) ->
+        let rec find (f : Types.infer_fields) =
+          match Types.repr_fields f with
+          | Types.FCons (l', t, _) when String.equal l l' -> Some t
+          | Types.FCons (_, _, rest) -> find rest
+          | _ -> None
+        in
+        find f
+      | _ -> None
+    in
+    let fields = List.map (fun (l, v) -> l, infer_expr ?expected:(expected_field l) env ctx v) fields in
     node
       (Types.IRecord
          (List.fold_right
@@ -2684,9 +4936,8 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     node (field_of target label) (`Field (target, label))
   | `Field_assign (target, label, v) ->
     let target = infer_expr env ctx target in
-    let v = infer_expr env ctx v in
     let declared = field_of target label in
-    let v = if is_trait_type declared then coerced declared v else v in
+    let v = infer_expr ~expected:declared env ctx v in
     unify_at v.Ast.span declared v.Ast.ann;
     node v.Ast.ann (`Field_assign (target, label, v))
   | `Tuple items ->
@@ -2727,21 +4978,22 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
     let target = infer_expr env ctx target in
     let index = infer_expr env ctx index in
     (match declared_index env ctx.registry target index with
-     | Some result -> node result (`Index (target, index))
+     | Some result -> lowered_now ctx.registry (node result (`Index (target, index)))
      | None when !current.unknown (fun () -> false) (fun () -> is_unknown target.Ast.ann) ->
        node (unknown_ty ()) (`Index (target, index))
      | None ->
        unify_at index.Ast.span Types.IInt index.Ast.ann;
-       node (element_of ctx.registry target) (`Index (target, index)))
+       lowered_now ctx.registry (node (element_of ctx.registry target) (`Index (target, index))))
   | `Index_assign (target, index, v) ->
     let target = infer_expr env ctx target in
     if Types.concrete target.Ast.ann = Some Types.Str
     then fail target.Ast.span "A string cannot be assigned into.";
     let index = infer_expr env ctx index in
-    let v = infer_expr env ctx v in
     unify_at index.Ast.span Types.IInt index.Ast.ann;
-    unify_at v.Ast.span (element_of ctx.registry target) v.Ast.ann;
-    node v.Ast.ann (`Index_assign (target, index, v))
+    let element = element_of ctx.registry target in
+    let v = infer_expr ~expected:element env ctx v in
+    unify_at v.Ast.span element v.Ast.ann;
+    lowered_now ctx.registry (node v.Ast.ann (`Index_assign (target, index, v)))
 
 (* What an argument contributes to the callee's parameter list: one type, or
    however many a spread's tuple holds. *)
@@ -2749,7 +5001,7 @@ and infer_expr_impl env ctx (e : Ast.desugared_expr) : checked_expr =
 and spread_arity (args : checked_expr list) =
   List.length (Types.expand (List.map (fun (a : checked_expr) -> a.Ast.ann) args))
 
-and argument env ctx (a : Ast.desugared_expr) : checked_expr =
+and argument ?expected ?at_root env ctx (a : Ast.expr) : checked_expr =
   match a.Ast.it with
   | `Spread inner ->
     let inner = infer_expr env ctx inner in
@@ -2771,37 +5023,15 @@ and argument env ctx (a : Ast.desugared_expr) : checked_expr =
           (Types.string_of_infer_ty other)
     in
     Ast.annotated a.Ast.span (Types.ISpread held) (`Spread inner)
-  | _ -> infer_expr env ctx a
-
-(* Checking mode, for the forms a written type can reach inside. A literal's
-   elements are unified with each other, so an element that has to become an
-   object must be coerced before that happens rather than after. *)
-and check_against env ctx (expected : Types.infer_ty) (e : Ast.desugared_expr)
-  : checked_expr
-  =
-  let element =
-    match Types.repr expected with
-    | Types.INamed (_, [ elem ]) -> Some elem
-    | _ -> None
-  in
-  match e.Ast.it, element with
-  | `Collection_lit items, Some elem when mentions_trait elem ->
-    let items = List.map (check_against env ctx elem) items in
-    Ast.annotated e.Ast.span expected (`Collection_lit items)
-  (* Everything else keeps the unification it had, down to which span a
-     mismatch is reported at. *)
-  | `Match_expr (scrutinee, cases), _ ->
-    located ctx e (fun () -> infer_match_expr env ctx e.Ast.span expected scrutinee cases)
-  | _ when is_trait_type expected -> coerced expected (infer_expr env ctx e)
-  | _ -> infer_expr env ctx e
+  | _ -> infer_expr ?expected ?at_root env ctx a
 
 (* [answer] is refined in each arm the way the scrutinee is, so a match checked
    against `T` can answer `int` from an arm that proved `T` is `int`. *)
 and infer_match_expr env ctx span answer scrutinee cases : checked_expr =
-  let arm scope refinement (b : (Ast.desugared_expr, Ast.desugared_stmt) Ast.valued_block) =
+  let arm scope refinement (b : (Ast.expr, Ast.stmt) Ast.valued_block) =
     let stmts = infer_block scope ctx b.Ast.vb_stmts in
     let expected = Types.substitute refinement answer in
-    let value = Option.map (check_against scope ctx expected) b.Ast.vb_value in
+    let value = Option.map (infer_expr ~expected scope ctx) b.Ast.vb_value in
     (match value with
      | None ->
        let last =
@@ -2816,9 +5046,135 @@ and infer_match_expr env ctx span answer scrutinee cases : checked_expr =
   let scrutinee, cases = infer_match env ctx span scrutinee cases arm in
   Ast.annotated span answer (`Match_expr (scrutinee, cases))
 
-and declare_traits (body : Ast.desugared_stmt list) =
+(* An operation called through the handler a transform names: the method is
+   copied per call, so an operation's own parameters are each call's own. *)
+and handler_call env ctx span target short args : checked_expr =
+  let target = infer_expr env ctx target in
+  (* The body's view of a run's handler: the continuations it hands perform
+     what the rest of the body does, not what the methods are called with. *)
+  let seen =
+    match target.Ast.it with
+    | `Var v ->
+      List.find_map
+        (fun b -> if b.bd_value = Some v then Hashtbl.find_opt handler_values b.bd_handler else None)
+        !effect_bindings
+    | _ -> None
+  in
+  let method_ty =
+    match Types.repr (Option.value seen ~default:target.Ast.ann) with
+    | Types.IRecord f ->
+      (try fst (Types.rewrite_fields short f) with
+       | Types.Type_error _ -> fail span "This handler has no method '%s'." short)
+    | _ -> fail span "This handler has no methods."
+  in
+  let method_ty = per_call method_ty in
+  match Types.repr method_ty with
+  | Types.IFn (params, result, row) when List.length params = List.length args ->
+    let args =
+      List.map2
+        (fun p a ->
+          let c = argument ~expected:p env ctx a in
+          unify_at c.Ast.span p c.Ast.ann;
+          c)
+        params
+        args
+    in
+    Types.row_within row ctx.row;
+    let shown = { target with Ast.ann = Types.IRecord (Types.FCons (short, answered method_ty, Types.FEmpty)) } in
+    Ast.annotated span result (`Call (Ast.annotated span (answered method_ty) (`Field (shown, short)), args))
+  | Types.IFn (params, _, _) ->
+    fail span "'%s' takes %d argument(s) here, but %d are given." short (List.length params) (List.length args)
+  | _ -> fail span "This handler has no method '%s'." short
+
+(* A call a transform made through a value that takes control: its arguments,
+   a handler for each effect its type takes control of, then its continuation,
+   whose answer is the call's. *)
+and cps_call env ctx span callee params ret row n args : checked_expr =
+  let count = List.length params in
+  let surface = List.filteri (fun i _ -> i < count) args
+  and rest = List.filteri (fun i _ -> i >= count) args in
+  let surface =
+    List.map2
+      (fun p a ->
+        let c = argument ~expected:p env ctx a in
+        unify_at c.Ast.span p c.Ast.ann;
+        c)
+      params
+      surface
+  in
+  let answer = Types.fresh () in
+  let k_ty = Types.IFn ([ ret ], answer, Types.fresh_row ()) in
+  let rest =
+    List.mapi
+      (fun i a ->
+        if i = n
+        then (
+          let c = argument ~expected:k_ty env ctx a in
+          unify_at c.Ast.span k_ty c.Ast.ann;
+          c)
+        else argument env ctx a)
+      rest
+  in
+  let taken = controlling_row row in
+  let rec without (r : Types.infer_row) =
+    match Types.repr_row r with
+    | Types.RCons (l, _, rest) when List.mem l taken -> without rest
+    | Types.RCons (l, a, rest) -> Types.RCons (l, a, without rest)
+    | r -> r
+  in
+  Types.row_within (without row) ctx.row;
+  Ast.annotated span answer (`Call (callee, surface @ rest))
+
+(* The operand is only asked its type: nothing it would hoist or call is part
+   of the program. *)
+and reflected_type env ctx (operand : Ast.expr) : Types.ty =
+  let infer () =
+    match operand.Ast.it with
+    (* The declared type when no value answers, so `typeof(Dog)` works. *)
+    | `Var name when lookup env name = None ->
+      (match Hashtbl.find_opt ctx_type_param_names name with
+       (* A generic type asked about as itself: at its own parameters. *)
+       | Some (_ :: _ as names) ->
+         let args =
+           List.map
+             (fun n ->
+               let var = Types.fresh () in
+               Types.declare_param var;
+               Types.name_param n var;
+               var)
+             names
+         in
+         (match Hashtbl.find_opt ctx_types name with
+          | Some (Sum _) -> Types.ISum (name, args)
+          | _ -> Types.INamed (name, args))
+       | _ ->
+         (try infer_ty_of_annotation { Ast.it = Ast.Ty_name name; span = operand.Ast.span; ann = () } with
+          | Located _ -> fail operand.Ast.span "Nothing named '%s' is a value or a type." name))
+    | _ ->
+      let hoisted = ctx.hoisted in
+      Fun.protect
+        ~finally:(fun () -> ctx.hoisted <- hoisted)
+        (fun () -> (infer_expr env ctx operand).Ast.ann)
+  in
+  Types.resolve (if walking () then (ops ()).unused infer else infer ())
+
+(* Spliced where it stands, so no stage after the walk meets a `typeof`. *)
+and reflected env ctx span operand field : checked_expr =
+  let ty = reflected_type env ctx operand in
+  let answer =
+    match field with
+    | Some ("name" | "doc") -> Types.IStr
+    | Some "shape" -> Types.ISum (Core.shape, [])
+    | Some "attrs" -> Types.iarray (Types.INamed (Core.attr, []))
+    | _ -> Types.INamed (Core.reflect "Type", [])
+  in
+  if walking ()
+  then infer_expr ~expected:answer env ctx ((ops ()).typeof span ty field)
+  else Ast.annotated span answer (`Var "typeof")
+
+and declare_traits (body : Ast.stmt list) =
   List.iter
-    (fun (s : Ast.desugared_stmt) ->
+    (fun (s : Ast.stmt) ->
       match s.Ast.it with
       | `Trait_decl (name, params, trait_body) ->
         if Hashtbl.mem ctx_trait_spans name then fail s.Ast.span "Trait '%s' is already declared." name;
@@ -2847,9 +5203,9 @@ and declare_traits (body : Ast.desugared_stmt list) =
       | _ -> ())
     body
 
-and declare_impls registry (body : Ast.desugared_stmt list) =
+and declare_impls registry (body : Ast.stmt list) =
   List.iter
-    (fun (s : Ast.desugared_stmt) ->
+    (fun (s : Ast.stmt) ->
       match s.Ast.it with
       | `Impl_decl (trait, type_name, params, impl) ->
         let span = s.Ast.span in
@@ -2865,7 +5221,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
         in
         let supplies name =
           List.exists
-            (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+            (fun (m : (Ast.stmt, unit) Ast.method_def) ->
               String.equal m.Ast.md_name name)
             methods
         in
@@ -2926,7 +5282,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                 ~decl_params:params
                 impl));
         List.iter
-          (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+          (fun (m : (Ast.stmt, unit) Ast.method_def) ->
             (* `T.V(…)` names the variant, so the function could never be reached. *)
             (match Hashtbl.find_opt ctx_types type_name with
              | Some (Sum (_, variants)) when List.mem_assoc m.Ast.md_name variants ->
@@ -3002,7 +5358,7 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
                        ; emit = Registry.Call (entry_name "eq")
                        })
                    [ Ast.Equal; Ast.Not_equal ])
-             (* One entry answers all four: [Resolve] turns the `Ordering` the
+             (* One entry answers all four: the lowering turns the `Ordering` the
                 method returns into the bool the operator wanted. *)
              | t when String.equal t Core.neg || String.equal t Core.bit_not ->
                let op, written, method_ =
@@ -3104,9 +5460,9 @@ and declare_impls registry (body : Ast.desugared_stmt list) =
 
 (* Separate from [declare_impls] and run after it over the whole program: the
    impl a supertrait needs may come from a module declared later. *)
-and check_supertraits (body : Ast.desugared_stmt list) =
+and check_supertraits (body : Ast.stmt list) =
   List.iter
-    (fun (s : Ast.desugared_stmt) ->
+    (fun (s : Ast.stmt) ->
       match s.Ast.it with
       | `Impl_decl (Some (trait, trait_args), type_name, params, _) ->
         (match Hashtbl.find_opt ctx_traits trait with
@@ -3216,7 +5572,7 @@ and conforms span ~trait ~args ~params ~required ~type_name ~type_params ~decl_p
       (fun (r : Ast.method_sig) ->
         match
           List.find_opt
-            (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+            (fun (m : (Ast.stmt, unit) Ast.method_def) ->
               String.equal m.Ast.md_name r.Ast.ms_name)
             impl.Ast.ib_methods
         with
@@ -3229,7 +5585,7 @@ and conforming_method
   ~trait
   ~type_name
   (r : Ast.method_sig)
-  (m : (Ast.desugared_stmt, unit) Ast.method_def)
+  (m : (Ast.stmt, unit) Ast.method_def)
   =
   let without_self = function
     | { Ast.name = "self"; _ } :: rest -> rest
@@ -3347,11 +5703,16 @@ and self_ty span type_name params =
    arguments that effect carries, so the parameters are bound before any of
    them is read. The declaration itself reuses what is bound here: one variable
    per parameter per declaration, so every use of the effect agrees. *)
-and declare_effects (body : Ast.desugared_stmt list) =
+and declare_effects (body : Ast.stmt list) =
   List.iter
-    (fun (s : Ast.desugared_stmt) ->
-      match s.Ast.it with
-      | `Effect_decl (name, params, _) when not (Hashtbl.mem ctx_effect_params name) ->
+    (fun (s : Ast.stmt) ->
+      let declared =
+        match s.Ast.it with
+        | `Trait_decl (name, params, body) when Ast.is_effect body -> Some (name, params)
+        | _ -> None
+      in
+      match declared with
+      | Some (name, params) when not (Hashtbl.mem ctx_effect_params name) ->
         Hashtbl.replace
           ctx_effect_params
           name
@@ -3363,9 +5724,9 @@ and declare_effects (body : Ast.desugared_stmt list) =
    type declared after its own -- which the walk produces whenever it reaches a
    type through another's field rather than through the program. The fields are
    read off the declaration when used, so a placeholder is all a use needs. *)
-and declare_type_names (body : Ast.desugared_stmt list) =
+and declare_type_names (body : Ast.stmt list) =
   List.iter
-    (fun (s : Ast.desugared_stmt) ->
+    (fun (s : Ast.stmt) ->
       match s.Ast.it with
       | `Type_decl (name, params, body) ->
         if Hashtbl.mem ctx_type_spans name || Hashtbl.mem ctx_types name
@@ -3411,9 +5772,9 @@ and member_type annotation =
     if Option.is_none !unreadable_member then unreadable_member := Some e;
     Types.fresh ()
 
-and declare_type_bodies (body : Ast.desugared_stmt list) =
+and declare_type_bodies (body : Ast.stmt list) =
   List.iter
-    (fun (s : Ast.desugared_stmt) ->
+    (fun (s : Ast.stmt) ->
       unreadable_member := None;
       match s.Ast.it with
       | `Type_decl (name, params, body)
@@ -3526,9 +5887,9 @@ and declared_scheme type_params body =
   | quantified ->
     { Types.quantified; quantified_rows = []; quantified_fields = []; body }
 
-and hoist env (body : Ast.desugared_stmt list) =
+and hoist env (body : Ast.stmt list) =
   List.iter
-    (fun (s : Ast.desugared_stmt) ->
+    (fun (s : Ast.stmt) ->
       match s.Ast.it with
       | `Impl_decl (trait, type_name, params, impl) ->
         (* Declared, like a written `<T>`, so a kind constraint from the body
@@ -3558,17 +5919,17 @@ and hoist env (body : Ast.desugared_stmt list) =
             params
             impl_params);
         List.iter
-          (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+          (fun (m : (Ast.stmt, unit) Ast.method_def) ->
+            let m = if walking () then open_continuation trait m else m in
             match m.Ast.md_params with
             (* [declare_impls] reported it; binding it anyway would blame a
-               parameter the author did write. *)
-            | [] -> ()
+               parameter the author did write. The walk binds it anyway, since
+               nothing generalizes it later. *)
+            | [] when not (walking ()) -> ()
             | { Ast.name = "self"; _ } :: rest ->
               let mangled = Ast.impl_method_name trait type_name m.Ast.md_name in
-              let type_params =
-                impl_params
-                @ type_params_of s.Ast.span m.Ast.md_signature.Ast.static_params
-              in
+              let types, values = split_static m.Ast.md_signature.Ast.static_params in
+              let type_params = impl_params @ type_params_of s.Ast.span types in
               Hashtbl.replace ctx_fn_params mangled type_params;
               Hashtbl.replace unchecked mangled ();
               with_type_params type_params (fun () ->
@@ -3581,22 +5942,29 @@ and hoist env (body : Ast.desugared_stmt list) =
                   | Some labels -> row_of_labels ~span:s.Ast.span labels
                   | None -> Types.fresh_row ()
                 in
-                bind
+                let scheme =
+                  declared_scheme
+                    type_params
+                    (Types.IFn (param_types, annotated_or_fresh m.Ast.md_signature.Ast.ret, row))
+                in
+                bind env mangled scheme;
+                note_walk_decl
                   env
-                  mangled
-                  (declared_scheme
-                     type_params
-                     (Types.IFn
-                        ( param_types
-                        , annotated_or_fresh m.Ast.md_signature.Ast.ret
-                        , row ))))
+                  ~name:mangled
+                  ~scheme
+                  ~vars:type_params
+                  ~values
+                  ~params:m.Ast.md_params
+                  ~sg:m.Ast.md_signature
+                  ~body:m.Ast.md_body
+                  ~impl:(Some (trait, type_name, params))
+                  ~span:s.Ast.span)
             (* An associated function takes no receiver, but its signature is
                still written in the impl's parameters. *)
             | written ->
               let mangled = Ast.impl_method_name trait type_name m.Ast.md_name in
-              let type_params =
-                impl_params @ type_params_of s.Ast.span m.Ast.md_signature.Ast.static_params
-              in
+              let types, values = split_static m.Ast.md_signature.Ast.static_params in
+              let type_params = impl_params @ type_params_of s.Ast.span types in
               Hashtbl.replace ctx_fn_params mangled type_params;
               Hashtbl.replace unchecked mangled ();
               with_type_params type_params (fun () ->
@@ -3605,18 +5973,30 @@ and hoist env (body : Ast.desugared_stmt list) =
                   | Some labels -> row_of_labels ~span:s.Ast.span labels
                   | None -> Types.fresh_row ()
                 in
-                bind
+                let scheme =
+                  declared_scheme
+                    type_params
+                    (Types.IFn
+                       ( List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) written
+                       , annotated_or_fresh m.Ast.md_signature.Ast.ret
+                       , row ))
+                in
+                bind env mangled scheme;
+                note_walk_decl
                   env
-                  mangled
-                  (declared_scheme
-                     type_params
-                     (Types.IFn
-                        ( List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) written
-                        , annotated_or_fresh m.Ast.md_signature.Ast.ret
-                        , row )))))
+                  ~name:mangled
+                  ~scheme
+                  ~vars:type_params
+                  ~values
+                  ~params:m.Ast.md_params
+                  ~sg:m.Ast.md_signature
+                  ~body:m.Ast.md_body
+                  ~impl:(Some (trait, type_name, params))
+                  ~span:s.Ast.span))
           impl.Ast.ib_methods
-      | `Fn (name, params, signature, _) ->
-        let type_params = type_params_of s.Ast.span signature.Ast.static_params in
+      | `Fn (name, params, signature, body) ->
+        let types, values = split_static (unmarked signature).Ast.static_params in
+        let type_params = type_params_of s.Ast.span types in
         Hashtbl.replace ctx_fn_params name type_params;
         Hashtbl.replace unchecked name ();
         with_type_params type_params (fun () ->
@@ -3628,18 +6008,36 @@ and hoist env (body : Ast.desugared_stmt list) =
             | Some labels -> row_of_labels ~span:s.Ast.span labels
             | None -> Types.fresh_row ()
           in
-          bind
+          let scheme =
+            declared_scheme
+              type_params
+              (Types.IFn (param_types, annotated_or_fresh signature.Ast.ret, row))
+          in
+          bind env name scheme;
+          note_walk_decl
             env
-            name
-            (declared_scheme
-               type_params
-               (Types.IFn (param_types, annotated_or_fresh signature.Ast.ret, row))))
+            ~name
+            ~scheme
+            ~vars:type_params
+            ~values
+            ~params
+            ~sg:signature
+            ~body
+            ~impl:None
+            ~span:s.Ast.span)
       | _ -> ())
     body
 
+(* A value parameter is settled by what a call writes, never inferred, so the
+   walk keeps it out of the signature it reads. *)
+and split_static (params : Ast.static_param list) =
+  if walking () then List.partition (fun p -> not (is_value_param p)) params else params, []
+
 (* Load-bearing: hoisting reads signatures, which may name a declared type or
    trait, and a use may precede its declaration. *)
-and infer_block env ctx (body : Ast.desugared_stmt list) : checked_stmt list =
+and infer_block env ctx (body : Ast.stmt list) : checked_stmt list =
+  if walking () then walk_block env ctx body else
+  let body = List.map unattributed body in
   scoped_declarations (fun () ->
     (* Before the types: a field may be written with a trait, which is a type
        only once the trait is registered as one. *)
@@ -3655,11 +6053,55 @@ and infer_block env ctx (body : Ast.desugared_stmt list) : checked_stmt list =
       Option.get
       (infer_in_order env ctx assigned ~attempt:(fun check -> Some (check ())) body))
 
+(* In source order, a callee processed where its call settles it. Its own local
+   functions are the instances made of them, which the interpreter defines
+   before the block runs. Only a block declaring types of its own puts the
+   tables back on the way out: one that does not may still have registered a
+   type a meta block or a comptime type made, which outlives it. *)
+and walk_block env ctx (body : Ast.stmt list) : checked_stmt list =
+  let body = List.map unattributed body in
+  let declares (s : Ast.stmt) =
+    match s.Ast.it with
+    | `Type_decl _ | `Trait_decl _ | `Impl_decl _ -> true
+    | _ -> false
+  in
+  let run () =
+    let outer = !walk_locals in
+    walk_locals := [];
+    Fun.protect
+      ~finally:(fun () -> walk_locals := outer)
+      (fun () ->
+        let checked = walk_stmts env ctx body in
+        List.concat_map (ops ()).instances_of (List.rev !walk_locals) @ checked)
+  in
+  if List.exists declares body then scoped_declarations run else run ()
+
+and walk_stmts env ctx (body : Ast.stmt list) : checked_stmt list =
+  declare_traits body;
+  declare_effects body;
+  declare_type_names body;
+  declare_type_bodies body;
+  declare_impls ctx.registry body;
+  check_supertraits body;
+  hoist env body;
+  let assigned = assigned_names body in
+  List.concat_map (walk_stmt env ctx assigned) body
+
+and walk_stmt env ctx assigned (s : Ast.stmt) : checked_stmt list =
+  match s.Ast.it with
+  | `Meta _ | `Derive _ ->
+    walk_stmts
+      env
+      ctx
+      (List.map unattributed (in_scope env ctx (fun () -> (ops ()).meta (runtime_names env) (reflected_type env ctx) s)))
+  | `Fn _ | `Impl_decl _ -> []
+  | _ -> statement ctx (fun () -> with_pending (fun () -> infer_stmt env ctx assigned s))
+
 (* In [dependency_order], back in source order. Functions calling each other are
    generalized together, once all of them are checked, so none is generalized
    while another's row is still [hoist]'s. [attempt] says what a failed check
    leaves behind. *)
-and infer_in_order env ctx assigned ~attempt (body : Ast.desugared_stmt list) =
+and infer_in_order env ctx assigned ~attempt (body : Ast.stmt list) =
   let stmts = Array.of_list body in
   let checked = Array.make (Array.length stmts) None in
   List.iter
@@ -3724,8 +6166,7 @@ and infer_in_order env ctx assigned ~attempt (body : Ast.desugared_stmt list) =
          `var` declared after a statement that calls it -- still generalizes
          its functions together. One generalized while a callee later in the
          group is unchecked has its row grow when that callee is, after its
-         callers have instantiated the smaller one, and CPS then gives the
-         declaration more evidence parameters than those calls pass. *)
+         callers have instantiated the smaller one. *)
       let mixed = List.length group > 1 in
       let last_fn =
         List.fold_left (fun last i -> if Option.is_some (name_of i) then Some i else last) None rest
@@ -3752,14 +6193,12 @@ and generalize_listed env methods =
       Hashtbl.remove unchecked mangled;
       Hashtbl.remove env.bindings mangled)
     methods;
-  let env_vars = env_free_vars env
-  and env_rows = env_free_row_vars env
-  and env_fields = env_free_field_vars env in
+  let env_vars, env_rows, env_fields = env_free_all env in
   List.iter
     (fun (mangled, fn_type) -> bind env mangled (Types.generalize ~env_vars ~env_rows ~env_fields fn_type))
     methods
 
-and infer_stmt ?(generalize = true) env ctx assigned (s : Ast.desugared_stmt)
+and infer_stmt ?(generalize = true) env ctx assigned (s : Ast.stmt)
   : checked_stmt
   =
   let checked =
@@ -3769,11 +6208,20 @@ and infer_stmt ?(generalize = true) env ctx assigned (s : Ast.desugared_stmt)
   note_effect_sites s.Ast.span ctx.row;
   checked
 
-and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : checked_stmt =
+and infer_stmt_impl ~generalize env ctx assigned (s : Ast.stmt) : checked_stmt =
   let span = s.Ast.span in
   let node it : checked_stmt = Ast.annotated span Types.IUnit it in
   match s.Ast.it with
   | `Expr e -> node (`Expr (infer_expr env ctx e))
+  | `Attributed _ -> infer_stmt_impl ~generalize env ctx assigned (unattributed s)
+  | `Import _ | `Global_import _ -> node (`Block [])
+  | (`Meta _ | `Derive _ | `Fn _ | `Impl_decl _) when walking () ->
+    node (`Block (walk_stmts env ctx [ s ]))
+  | `Gen _ when walking () -> fail span "'gen' is only allowed inside a meta block."
+  (* Metaprocessing has replaced every one before a check sees it. *)
+  | #Ast.meta_blocks | `Type_members _ -> assert false
+  | `Trait_members _ ->
+    raise (Rejected { span; message = "A trait whose body runs a meta block is declared only at the top level." })
   (* The arity is written, so the tuple it takes apart is known before the
      initializer is looked at — an annotation would say nothing more. *)
   | `Var_tuple (names, init) ->
@@ -3782,6 +6230,13 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
     unify_at init.Ast.span (Types.ITuple parts) init.Ast.ann;
     List.iter2 (fun name part -> bind env name (Types.mono part)) names parts;
     node (`Var_tuple (names, init))
+  (* A handler a transform made for itself is read at whatever type each call
+     through it uses, so what nothing here settles is left open. *)
+  | `Var_decl (name, Some { Ast.it = Ast.Ty_name n; _ }, Some init) when String.equal n Ast.open_type ->
+    let init = infer_expr env ctx init in
+    leave_open init.Ast.ann;
+    bind env name (Types.mono init.Ast.ann);
+    node (`Var_decl (name, None, Some init))
   | `Var_decl (name, annotation, init) ->
     let declared = annotated_or_fresh annotation in
     let init =
@@ -3801,15 +6256,14 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
         None
       | Some e ->
         let e' =
-          if Option.is_some annotation
-          then check_against env ctx declared e
-          else infer_expr env ctx e
+          infer_expr ?expected:(Option.map (fun _ -> declared) annotation) env ctx e
         in
         unify_at e'.Ast.span declared e'.Ast.ann;
         Some e'
     in
     let generalizable =
-      (not (List.mem name assigned))
+      (not (walking ()))
+      && (not (List.mem name assigned))
       && (match s.Ast.it with
           | `Var_decl (_, _, Some e) -> is_syntactic_value e
           | _ -> false)
@@ -3819,11 +6273,8 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
       name
       (if generalizable
        then
-         Types.generalize
-           ~env_vars:(env_free_vars env)
-           ~env_rows:(env_free_row_vars env)
-           ~env_fields:(env_free_field_vars env)
-           declared
+         (let env_vars, env_rows, env_fields = env_free_all env in
+          Types.generalize ~env_vars ~env_rows ~env_fields declared)
        else Types.mono declared);
     node (`Var_decl (name, annotation, init))
   | `Block body ->
@@ -3835,36 +6286,41 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
     node
       (`If
         ( cond
-        , infer_stmt env ctx assigned then_branch
-        , Option.map (infer_stmt env ctx assigned) else_branch ))
-  (* Lowered here rather than in [Desugar]: whether the sequence is indexed or
+        , one_statement ctx then_branch (fun () -> infer_stmt env ctx assigned then_branch)
+        , Option.map
+            (fun branch -> one_statement ctx branch (fun () -> infer_stmt env ctx assigned branch))
+            else_branch ))
+  (* Lowered here rather than in the parser: whether the sequence is indexed or
      pulled is a question about its type. One the checker cannot see yet is
      indexed, which is what every `for` was before iterators. *)
   | `For_in (names, iterable, body) ->
     let scope = new_env (Some env) in
-    let seq = Desugar.fresh "seq" in
+    let seq = Lower.fresh "seq" in
     let at = iterable.Ast.span in
     let decl =
-      infer_stmt scope ctx assigned { Ast.it = `Var_decl (seq, None, Some iterable); span = at; ann = () }
+      statement ctx (fun () ->
+        infer_stmt scope ctx assigned { Ast.it = `Var_decl (seq, None, Some iterable); span = at; ann = () })
     in
     let held =
-      match decl.Ast.it with
+      match (List.hd (List.rev decl)).Ast.it with
       | `Var_decl (_, _, Some e) -> Types.repr e.Ast.ann
       | _ -> Types.IUnit
     in
     let loop =
       match held with
-      | Types.INamed (name, [ _; _ ]) when String.equal name Core.iter -> Desugar.pulled at names seq ~closes:true body
-      | Types.IFn ([], _, _) -> Desugar.pulled at names seq ~closes:false body
-      | _ -> Desugar.indexed at names seq body
+      | Types.INamed (name, [ _; _ ]) when String.equal name Core.iter -> Lower.pulled at names seq ~closes:true body
+      | Types.IFn ([], _, _) -> Lower.pulled at names seq ~closes:false body
+      | _ -> Lower.indexed at names seq body
     in
-    node (`Block (decl :: infer_block scope ctx loop))
+    node (`Block (decl @ infer_block scope ctx loop))
   | `While (cond, body) ->
     let cond = infer_expr env ctx cond in
     unify_at cond.Ast.span Types.IBool cond.Ast.ann;
     let looping = !in_loop in
     in_loop := true;
-    let body = Fun.protect ~finally:(fun () -> in_loop := looping) (fun () -> infer_stmt env ctx assigned body) in
+    let body = Fun.protect ~finally:(fun () -> in_loop := looping)
+        (fun () -> one_statement ctx body (fun () -> infer_stmt env ctx assigned body))
+    in
     node (`While (cond, body))
   | (`Break | `Continue) as jump ->
     if not !in_loop
@@ -3909,11 +6365,8 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
       bind
         env
         name
-        (Types.generalize
-           ~env_vars:(env_free_vars env)
-           ~env_rows:(env_free_row_vars env)
-           ~env_fields:(env_free_field_vars env)
-           fn_type));
+        (let env_vars, env_rows, env_fields = env_free_all env in
+         Types.generalize ~env_vars ~env_rows ~env_fields fn_type));
     Ast.annotated span fn_type (`Fn (name, params, signature, body)))
   | `Defer inner ->
     let looping = !in_loop
@@ -3929,17 +6382,19 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
           in_loop := looping;
           ctx.row <- outer;
           open_defer := enclosing)
-        (fun () -> infer_stmt env ctx assigned inner)
+        (fun () -> one_statement ctx inner (fun () -> infer_stmt env ctx assigned inner))
     in
     Types.row_within d.d_row ctx.row;
     deferred_rows := d :: !deferred_rows;
     node (`Defer inner)
   | `Type_decl (name, params, body) -> node (`Type_decl (name, params, body))
-  | `Trait_decl (name, params, methods) -> node (`Trait_decl (name, params, methods))
+  | `Trait_decl (name, params, body) ->
+    if Ast.is_effect body then declare_operations env span name params (operations_of span name body);
+    node (`Trait_decl (name, params, body))
   | `Impl_decl (trait, type_name, params, impl) ->
     let inferred =
       List.map
-        (fun (m : (Ast.desugared_stmt, unit) Ast.method_def) ->
+        (fun (m : (Ast.stmt, unit) Ast.method_def) ->
           let mangled = Ast.impl_method_name trait type_name m.Ast.md_name in
           with_type_params
             (Option.value ~default:[] (Hashtbl.find_opt ctx_fn_params mangled))
@@ -4007,7 +6462,27 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
       infer_match env ctx span scrutinee cases (fun scope _ body -> infer_block scope ctx body)
     in
     node (`Match (scrutinee, cases))
-  | `Effect_decl (name, params, ops) ->
+  | `Return e ->
+    let expected =
+      match ctx.return_type with
+      | Some t -> t
+      | None -> fail span "'return' outside of a function."
+    in
+    ctx.saw_return <- true;
+    let e =
+      match e with
+      | None ->
+        Types.unify expected Types.IUnit;
+        None
+      | Some e ->
+        let e' = infer_expr ~expected env ctx e in
+        unify_at e'.Ast.span expected e'.Ast.ann;
+        Some e'
+    in
+    node (`Return e)
+
+
+and declare_operations env span name params (ops : Ast.op_decl list) =
     Hashtbl.replace ctx_effects.declared name ops;
     let bound =
       match Hashtbl.find_opt ctx_effect_params name with
@@ -4080,77 +6555,49 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.desugared_stmt) : chec
             | None -> ())
           (Option.to_list o.Ast.op_ret
            @ List.filter_map (fun (p : Ast.param) -> p.Ast.ty) o.Ast.op_params))
-      ops;
-    node (`Effect_decl (name, params, ops))
-  | `Run (body, handlers) ->
-    let (body, _), handlers =
-      check_run env ctx assigned span ~answer:Types.IUnit handlers (fun () ->
-        { Ast.vb_stmts = infer_block (new_env (Some env)) ctx body; vb_value = None }
-        , Types.IUnit)
-    in
-    node (`Run (body.Ast.vb_stmts, handlers))
-  | `Resume value ->
-    let expected =
-      match ctx.resume_type with
-      | Some t -> t
-      | None ->
-        if ctx.in_final_arm
-        then
-          fail
-            span
-            "A 'final ctl' handler cannot resume — that is what lets its result \
-             be whatever each call site needs."
-        else fail span "'resume' outside of a 'ctl' handler."
-    in
-    let value =
-      match value with
-      | None ->
-        unify_at span expected Types.IUnit;
-        None
-      | Some e ->
-        let e' = infer_expr env ctx e in
-        unify_at e'.Ast.span expected e'.Ast.ann;
-        Some e'
-    in
-    node (`Resume value)
-  | `Discontinue ->
-    if ctx.resume_type = None
-    then
-      if ctx.in_final_arm
-      then
-        fail
-          span
-          "A 'final ctl' handler cannot discontinue: it never resumes, so its \
-           continuation is unwound already."
-      else fail span "'discontinue' outside of a 'ctl' handler.";
-    node `Discontinue
-  | `Return e ->
-    let expected =
-      match ctx.return_type with
-      | Some t -> t
-      | None -> fail span "'return' outside of a function."
-    in
-    ctx.saw_return <- true;
-    let e =
-      match e with
-      | None ->
-        Types.unify expected Types.IUnit;
-        None
-      | Some e ->
-        (* A signature's return type is written, so it asks for an object the
-           same way a parameter does. *)
-        let e' = check_against env ctx expected e in
-        unify_at e'.Ast.span expected e'.Ast.ann;
-        Some e'
-    in
-    node (`Return e)
+      ops
+
+(* An effect trait's methods as the operations they are. One that takes control
+   and whose result is its own parameter, standing nowhere in its arguments,
+   can never be resumed: the handler is given no value of that type. *)
+and operations_of span name (body : Ast.trait_body) : Ast.op_decl list =
+  List.map
+    (fun (m : Ast.method_sig) ->
+      let own = List.map (fun (c : Ast.static_param) -> c.Ast.sp_name) m.Ast.ms_signature.Ast.static_params in
+      let never_resumes =
+        match m.Ast.ms_signature.Ast.ret with
+        | Some { Ast.it = Ast.Ty_name t; _ } ->
+          List.mem t own
+          && not
+               (List.exists
+                  (fun (p : Ast.param) -> Option.fold ~none:false ~some:(Ast.mentions t) p.Ast.ty)
+                  m.Ast.ms_params)
+        | _ -> false
+      in
+      { Ast.op_name = Ast.operation_name name m.Ast.ms_name
+      ; op_kind =
+          (if not (Ast.takes_control m)
+           then Ast.Op_fn
+           else if never_resumes
+           then Ast.Op_final
+           else Ast.Op_ctl)
+      ; op_tparams = own
+      ; op_params = m.Ast.ms_params
+      ; op_ret =
+          Some
+            (Option.value
+               m.Ast.ms_signature.Ast.ret
+               ~default:{ Ast.it = Ast.Ty_name "unit"; span; ann = () })
+      ; op_attrs = m.Ast.ms_attrs
+      })
+    body.Ast.tb_methods
 
 and infer_match
   : 'b 'c.
     env
     -> ctx
     -> Ast.span
-    -> Ast.desugared_expr
+    -> Ast.expr
     -> (Ast.pattern * 'b) list
     -> (env -> (int * Types.infer_ty) list -> 'b -> 'c)
     -> checked_expr * (Ast.pattern * 'c) list
@@ -4201,7 +6648,16 @@ and infer_match
       let head = List.map (Types.substitute freshened) declared.vd_result in
       let fresh = List.map (fun (_, v) -> Types.var_id v) freshened in
       match Types.solve ~fresh (List.combine sum_args head) with
-      | Some refinement -> freshened, refinement
+      | Some refinement ->
+        (* What the head leaves unsaid is existential: only a run-time value
+           says what it is, so an instance reached through it is generic in
+           it, as one reached from a handler arm is. *)
+        if walking ()
+        then
+          List.iter
+            (fun (id, v) -> if not (List.mem_assoc id refinement) then Types.declare_param v)
+            freshened;
+        freshened, refinement
       | None -> raise Not_found
     in
     (* Unreachable, so a match leaving it out is still exhaustive. *)
@@ -4258,6 +6714,9 @@ and infer_match
         else (
           match refine declared with
           | solved -> solved
+          (* At a key the scrutinee is concrete, so an arm it cannot reach is
+             one this instance never runs. *)
+          | exception Not_found when walking () -> raise Exit
           | exception Not_found ->
             fail
               span
@@ -4306,8 +6765,9 @@ and infer_match
           checked)
     in
     let cases =
-      List.map
+      List.filter_map
         (fun ((pattern : Ast.pattern), body) ->
+          try Some (
           match pattern with
           | Ast.Pat_wild ->
             covered := List.map fst variants;
@@ -4341,6 +6801,8 @@ and infer_match
              | Some declared ->
                covered := variant :: !covered;
                pattern, arm variant declared payload body))
+          with
+          | Exit -> None)
         cases
     in
     List.iter
@@ -4350,71 +6812,874 @@ and infer_match
       variants;
     scrutinee, cases)
 
-(* The row work is the same wherever a `run` stands; [answer] is what its arms
-   and its return clause must agree on. *)
-and check_run env ctx assigned span ~answer handlers infer_body =
-  List.iter
-    (fun (h : Ast.desugared_stmt Ast.handler) ->
-      match Hashtbl.find_opt ctx_effects.declared h.Ast.handled with
-      | None -> fail span "Unknown effect '%s'." h.Ast.handled
-      | Some ops ->
-        List.iter
-          (fun (o : Ast.op_decl) ->
-            if not (List.exists (fun (a : Ast.desugared_stmt Ast.arm) ->
-                      String.equal a.Ast.arm_name o.Ast.op_name)
-                      h.Ast.arms)
-            then
-              fail
-                span
-                "Handler for '%s' is missing operation '%s'."
-                h.Ast.handled
-                o.Ast.op_name)
-          ops;
-        List.iter
-          (fun (a : Ast.desugared_stmt Ast.arm) ->
-            if not (List.exists (fun (o : Ast.op_decl) ->
-                      String.equal o.Ast.op_name a.Ast.arm_name)
-                      ops)
-            then
-              fail
-                span
-                "Effect '%s' has no operation '%s'."
-                h.Ast.handled
-                a.Ast.arm_name)
-          h.Ast.arms)
-    handlers;
-  let body_row = Types.fresh_row () in
-  let body = in_ctx ctx ~set:(fun () -> ctx.row <- body_row) (fun () -> infer_body ()) in
-  let instantiated =
-    List.map
-      (fun (h : Ast.desugared_stmt Ast.handler) ->
-        let arity =
-          List.length
-            (Option.value ~default:[] (Hashtbl.find_opt ctx_effect_params h.Ast.handled))
-        in
-        h, List.init arity (fun _ -> Types.fresh ()))
+(* The row work is the same wherever a `run` stands; [answer] is what its
+   handlers' methods that take control answer. *)
+and check_run ?transform env ctx assigned span ~answer handlers infer_body =
+  if handlers <> [] && List.for_all (function Ast.Bound _ -> true | _ -> false) handlers
+  then check_bound env ctx assigned handlers infer_body
+  else check_bindings ?transform env ctx assigned span ~answer handlers infer_body
+
+(* A run a transform has already made: each handler's value is declared where
+   the run stands, outside its bindings, and the body is checked under them as
+   it is. A value's type is whatever its declaration now says, since an outer
+   transform may have rewritten its methods. *)
+and check_bound env ctx assigned handlers infer_body =
+  let prelude =
+    List.concat_map
+      (function
+        | Ast.Bound (_, handler, Some s) -> bound_value env ctx assigned handler s
+        | _ -> [])
       handlers
   in
+  let outer = !effect_bindings in
+  let pushed =
+    List.filter_map
+      (function
+        | Ast.Bound (label, handler, value) ->
+          let value =
+            Option.bind value (fun (s : Ast.stmt) ->
+              match s.Ast.it with
+              | `Var_decl (name, _, _) -> Some name
+              | _ -> None)
+          in
+          Some { bd_label = label; bd_handler = handler; bd_value = value; bd_outer = outer }
+        | _ -> None)
+      handlers
+  in
+  let body_row = Types.fresh_row () in
+  let body =
+    in_ctx ctx ~set:(fun () -> ctx.row <- body_row) (fun () ->
+      effect_bindings := pushed @ outer;
+      Fun.protect ~finally:(fun () -> effect_bindings := outer) infer_body)
+  in
+  let performed, _ = Types.labels_of_infer_row body_row in
   let remaining =
     List.fold_left
-      (fun row ((h : Ast.desugared_stmt Ast.handler), args) ->
-        try Types.rewrite_row h.Ast.handled args row with
-        | Types.Type_error _ -> row)
+      (fun row b ->
+        match List.assoc_opt b.bd_label performed with
+        | Some args ->
+          (try Types.rewrite_row b.bd_label args row with
+           | Types.Type_error _ -> row)
+        | None -> row)
       body_row
-      instantiated
+      pushed
   in
   Types.unify_row remaining ctx.row;
-  ( body
-  , List.map (fun (h, args) -> infer_handler env ctx assigned ~answer ~args h) instantiated )
+  body, prelude
 
-(* An arm performing its own operation propagates outward. *)
-and infer_handler env ctx assigned ~answer ~args (h : Ast.desugared_stmt Ast.handler)
-  : checked_stmt Ast.handler
+(* A handler's value declared where a bound run stands. Its methods are checked
+   against the types they were first checked at, where they still fit, so a
+   parameter nobody wrote keeps the operation's type and an operation's own
+   parameters stay each call's own; a method a transform gave another
+   parameter is read as written. *)
+and bound_value env ctx assigned handler (s : Ast.stmt) : checked_stmt list =
+  let rewritten, s =
+    match s.Ast.it with
+    | `Var_decl (name, Some { Ast.it = Ast.Ty_name n; _ }, init) when String.equal n Ast.open_type ->
+      true, { s with Ast.it = `Var_decl (name, None, init) }
+    | _ -> false, s
+  in
+  match s.Ast.it with
+  | `Var_decl (name, None, Some ({ Ast.it = `Record_lit fields; _ } as init)) ->
+    let arity (e : Ast.expr) =
+      match e.Ast.it with
+      | `Lambda (params, _, _) -> Some (List.length params)
+      | _ -> None
+    in
+    let first =
+      match Hashtbl.find_opt handler_built handler with
+      | Some t -> Some t
+      | None -> Hashtbl.find_opt handler_values handler
+    in
+    (* A method a transform made taking its continuation has one parameter
+       more, and answers what that does; what it was handed is no longer what
+       it is handed. *)
+    let rec fitted n (f : Types.infer_fields) =
+      match Types.repr_fields f with
+      | Types.FCons (l, ty, rest) ->
+        (match List.assoc_opt l fields, Types.repr ty with
+         | Some e, Types.IFn (ps, r, row) ->
+           let rest = fitted (n + 1) rest in
+           if arity e = Some (List.length ps)
+           then Option.map (fun (exact, rest) -> exact, Types.FCons (l, Types.IFn (ps, r, row), rest)) rest
+           else if Option.fold ~none:false ~some:(fun n -> n > List.length ps) (arity e)
+           then
+             Option.map
+               (fun (_, rest) ->
+                 let more = Option.get (arity e) - List.length ps in
+                 let ps =
+                   List.filteri (fun i _ -> i < List.length ps - 1) ps
+                   @ List.init (more + 1) (fun _ -> Types.fresh ())
+                 in
+                 false, Types.FCons (l, Types.IFn (ps, Types.fresh (), row), rest))
+               rest
+           else None
+         | _ -> None)
+      | _ -> if n = List.length fields then Some (true, Types.FEmpty) else None
+    in
+    let exact, expected =
+      match Option.map Types.repr first with
+      | _ when rewritten -> false, None
+      | Some (Types.IRecord f) ->
+        (match fitted 0 f with
+         | Some (exact, f) -> exact, Some (Types.IRecord f)
+         | None -> false, None)
+      | _ -> false, None
+    in
+    (* Only the parameters are read from it: what a method performs is checked
+       as it is written, apart from what it was first found to perform. *)
+    let loosened (t : Types.infer_ty) =
+      let rec fields (f : Types.infer_fields) =
+        match Types.repr_fields f with
+        | Types.FCons (l, ty, rest) ->
+          let ty =
+            match Types.repr ty with
+            | Types.IFn (ps, r, _) -> Types.IFn (ps, r, Types.fresh_row ())
+            | ty -> ty
+          in
+          Types.FCons (l, ty, fields rest)
+        | f -> f
+      in
+      match Types.repr t with
+      | Types.IRecord f -> Types.IRecord (fields f)
+      | t -> t
+    in
+    let checked =
+      match Hashtbl.find_opt named_handlers handler with
+      | Some (name, label) ->
+        let outer = !effect_bindings in
+        effect_bindings := { bd_label = label; bd_handler = name; bd_value = None; bd_outer = outer } :: outer;
+        let own = Types.fresh_row () in
+        let checked =
+          Fun.protect
+            ~finally:(fun () -> effect_bindings := outer)
+            (fun () ->
+              in_ctx ctx ~set:(fun () -> ctx.row <- own) (fun () ->
+                infer_expr ?expected:(Option.map loosened expected) env ctx init))
+        in
+        let rec without (r : Types.infer_row) =
+          match Types.repr_row r with
+          | Types.RCons (l, _, rest) when String.equal l label -> without rest
+          | Types.RCons (l, args, rest) -> Types.RCons (l, args, without rest)
+          | r -> r
+        in
+        Types.row_within (without own) ctx.row;
+        checked
+      | None -> infer_expr ?expected:(Option.map loosened expected) env ctx init
+    in
+    if not exact
+    then (
+      (* What is left open is the methods' own, as an operation's own
+         parameters are: each handed call takes its own copy. *)
+      let in_env, _, _ = env_free_all env in
+      List.iter
+        (fun (id, _) -> if not (List.mem id in_env) then Hashtbl.replace Types.declared_params id ())
+        (Types.free_vars checked.Ast.ann);
+      Hashtbl.replace handler_values handler checked.Ast.ann);
+    bind env name (Types.mono checked.Ast.ann);
+    [ Ast.annotated s.Ast.span Types.IUnit (`Var_decl (name, None, Some checked)) ]
+  | _ -> statement ctx (fun () -> infer_stmt env ctx assigned s)
+
+(* The run's fixed meaning, typed: each clause binds the effects it handles,
+   which leave the body's row; what is left is the run's own. `handle<E>`
+   implements `EffectHandler<E, R>`, so an operation that takes control is
+   given the rest of the body as its last parameter, `(A) -> <ρ> R` with ρ that
+   row, and answers the run; any other is implemented as declared. *)
+and check_bindings ?transform env ctx assigned span ~answer clauses infer_body =
+  let effect_named at name =
+    match Hashtbl.find_opt ctx_effects.declared name with
+    | Some ops when Hashtbl.mem ctx_traits name -> ops
+    | _ ->
+      if Hashtbl.mem ctx_traits name
+      then fail at "'%s' is not an effect, so it has no operations to handle." (shown_name name)
+      else fail at "'%s' is not a trait, so it has no operations to handle." (shown_name name)
+  in
+  let effect_arguments at name (written : Ast.type_expr list option) =
+    let params = Option.value ~default:[] (Hashtbl.find_opt ctx_effect_params name) in
+    match written with
+    | None -> List.map (fun _ -> Types.fresh ()) params
+    | Some args ->
+      if List.length args <> List.length params
+      then
+        fail
+          at
+          "Trait '%s' takes %d type argument(s) but %d were given."
+          (shown_name name)
+          (List.length params)
+          (List.length args);
+      List.map infer_ty_of_annotation args
+  in
+  let inline =
+    List.filter_map
+      (function
+        | Ast.Handle (handled, defs) ->
+          let name, written =
+            match handled.Ast.it with
+            | Ast.Ty_name n -> n, None
+            | Ast.Ty_app (n, args) -> n, Some args
+            | _ -> fail handled.Ast.span "A handler names the effect it handles."
+          in
+          let operations = effect_named handled.Ast.span name in
+          (* The library's instance, in the walk, says what each method is; the
+             same rule written here says it where there is no walk, and for a
+             generic effect, which the instance's meta block cannot be handed as
+             a name. *)
+          let shapes =
+            if walking ()
+               && List.exists (fun (o : Ast.op_decl) -> o.Ast.op_kind <> Ast.Op_fn) operations
+               && Option.value ~default:[] (Hashtbl.find_opt ctx_effect_params name) = []
+            then
+              Option.bind ((ops ()).effect_handler handled.Ast.span name) (fun instance ->
+                Option.map
+                  (fun (_, (body : Ast.trait_body)) -> body.Ast.tb_methods)
+                  (Hashtbl.find_opt ctx_traits instance))
+            else None
+          in
+          Some (name, effect_arguments handled.Ast.span name written, operations, defs, shapes)
+        | Ast.Named _ | Ast.Bound _ -> None)
+      clauses
+  in
+  (* A generic effect's arguments come from the body, but its methods are
+     checked first, and a call in one may need them settled: the body is read
+     once unbound, without counting as a use, for its row. *)
+  let unsettled =
+    List.exists
+      (fun (_, args, _, _, _) ->
+        List.exists
+          (fun a ->
+            match Types.repr a with
+            | Types.IVar _ -> true
+            | _ -> false)
+          args)
+      inline
+  in
+  if walking () && unsettled
+  then (
+    let row = Types.fresh_row () in
+    let hoisted = ctx.hoisted in
+    (try
+       ignore
+         ((ops ()).unused (fun () ->
+            in_ctx ctx ~set:(fun () -> ctx.row <- row) (fun () -> ignore (infer_body ()));
+            Types.IUnit))
+     with
+     | Located _ | Rejected _ -> ());
+    ctx.hoisted <- hoisted;
+    let performed, _ = Types.labels_of_infer_row row in
+    List.iter
+      (fun (name, args, _, _, _) ->
+        match List.assoc_opt name performed with
+        | Some found when List.length found = List.length args ->
+          (try List.iter2 Types.unify args found with
+           | Types.Type_error _ -> ())
+        | _ -> ())
+      inline);
+  let named =
+    List.filter_map
+      (function
+        | Ast.Named name -> Some name
+        | _ -> None)
+      clauses
+  in
+  let implemented = implemented_by in
+  let lowering = transform in
+  let takes_control label =
+    List.exists
+      (fun (o : Ast.op_decl) -> o.Ast.op_kind <> Ast.Op_fn)
+      (Option.value ~default:[] (Hashtbl.find_opt ctx_effects.declared label))
+  in
+  (* A named handler's value, one per effect it binds: a record of closures
+     calling its impl's methods, so it is handed on like an inline one. *)
+  let named_values =
+    if not (walking ())
+    then []
+    else
+      List.concat_map
+        (fun name ->
+          List.map
+            (fun (label, args, _) ->
+              incr handler_count;
+              let handler = Ast.generated [ "handler"; string_of_int !handler_count ] in
+              let value = Ast.generated [ "hv"; string_of_int !handler_count ] in
+              let ops = Option.value ~default:[] (Hashtbl.find_opt ctx_effects.declared label) in
+              let at it = Ast.at span it in
+              let field (o : Ast.op_decl) =
+                let short = method_of_operation label o.Ast.op_name in
+                let control = o.Ast.op_kind <> Ast.Op_fn in
+                let count = List.length o.Ast.op_params + if control then 1 else 0 in
+                let names = List.init count (fun i -> Ast.generated [ "arg"; string_of_int i ]) in
+                let call = at (`Call (at (`Var o.Ast.op_name), List.map (fun n -> at (`Var n)) names)) in
+                ( short
+                , at
+                    (`Lambda
+                      ( List.map (fun n -> { Ast.name = n; ty = None; implicit = false }) names
+                      , plain_signature
+                      , [ at (`Return (Some call)) ] )) )
+              in
+              let fields = List.map field ops in
+              let ty = handler_type ~answer label args in
+              Hashtbl.replace handler_built handler ty;
+              Hashtbl.replace handler_values handler ty;
+              Hashtbl.replace named_handlers handler (name, label);
+              let record = at (`Record_lit fields) in
+              (name, label), (handler, value, Ast.at span (`Var_decl (value, None, Some record))))
+            (implemented name))
+        named
+  in
+  let named_value name label = List.assoc_opt (name, label) named_values in
+  (* An inline handler whose operations take control gives the run its fixed
+     meaning: the body is handed to the library's transform, and what that
+     generates is checked in the body's place. *)
+  let transform =
+    match transform with
+    | Some t
+      when walking ()
+           && (List.exists (fun (name, _, _, _, _) -> takes_control name) inline
+               || List.exists (fun name -> List.exists (fun (l, _, _) -> takes_control l) (implemented name)) named) ->
+      Some t
+    | _ -> None
+  in
+  let body_row = Types.fresh_row () in
+  let unmarked =
+    List.map
+      (fun (name, args, ops, defs, shapes) ->
+        Some
+          (handle_block env ctx assigned span ~answer ~resumes:(Types.fresh_row ()) ~shapes ~pass:`Unmarked name args ops defs))
+      inline
+  in
+  (* Checked ahead of the body when it is transformed, since the generated code
+     calls them. A continuation performs what the rest of the body does, less
+     what this run binds: the generated code hands one performing [given], and
+     the method is checked calling one performing [resumes], which is settled
+     from it once the body is. [resumes] is contained in the surroundings
+     rather than tied to them, so a continuation does not perform everything
+     around the run. *)
+  let controlling =
+    List.map
+      (fun (name, args, ops, defs, shapes) ->
+        match transform with
+        | None -> None
+        | Some _ ->
+          let resumes = Types.fresh_row () in
+          Types.declare_row resumes;
+          let given = Types.fresh_row () in
+          let h, methods =
+            handle_block ~apart:true env ctx assigned span ~answer ~resumes ~shapes ~pass:`Ctl name args ops defs
+          in
+          let seen_by_body (m, ty) =
+            match ty with
+            | Types.IFn (params, ret, row) ->
+              (match List.rev params with
+               | Types.IFn (ps, r, _) :: before ->
+                 m, Types.IFn (List.rev (Types.IFn (ps, r, given) :: before), ret, row)
+               | _ -> m, ty)
+            | _ -> m, ty
+          in
+          Some ((h, methods, List.map seen_by_body methods), (resumes, given)))
+      inline
+  in
+  let rows = List.map (Option.map snd) controlling in
+  let controlling = List.map (Option.map fst) controlling in
+  let outer = !effect_bindings in
+  (* Each inline handler is a type of its own, and has a value when it has a
+     method the body reaches through it. *)
+  let values =
+    List.map2
+      (fun checked control ->
+        match checked with
+        | Some (_, methods) when walking () ->
+          incr handler_count;
+          let handler = Ast.generated [ "handler"; string_of_int !handler_count ] in
+          let methods =
+            match control with
+            | Some (_, _, seen) -> methods @ seen
+            | None -> methods
+          in
+          (match methods with
+           | [] -> Some (handler, None)
+           | methods ->
+             let value = Ast.generated [ "hv"; string_of_int !handler_count ] in
+             let ty =
+               Types.IRecord
+                 (List.fold_right (fun (m, t) rest -> Types.FCons (m, t, rest)) methods Types.FEmpty)
+             in
+             Hashtbl.replace handler_values handler ty;
+             (match control with
+              | Some (_, controls, _) ->
+                Hashtbl.replace
+                  handler_built
+                  handler
+                  (Types.IRecord
+                     (List.fold_right
+                        (fun (m, t) rest -> Types.FCons (m, t, rest))
+                        (List.filteri (fun i _ -> i < List.length methods - List.length controls) methods @ controls)
+                        Types.FEmpty))
+              | None -> Hashtbl.replace handler_built handler ty);
+             Some (handler, Some (value, ty)))
+        | _ -> None)
+      unmarked
+      controlling
+  in
+  let pushed =
+    if not (walking ())
+    then []
+    else
+      List.filter_map
+        (fun ((name, _, _, _, _), value) ->
+          Option.map
+            (fun (handler, value) ->
+              { bd_label = name; bd_handler = handler; bd_value = Option.map fst value; bd_outer = outer })
+            value)
+        (List.combine inline values)
+      @ List.concat_map
+          (fun name ->
+            List.map
+              (fun (label, _, _) ->
+                match named_value name label with
+                | Some (handler, value, _) ->
+                  { bd_label = label; bd_handler = handler; bd_value = Some value; bd_outer = outer }
+                | None -> { bd_label = label; bd_handler = name; bd_value = None; bd_outer = outer })
+              (implemented name))
+          named
+  in
+  (* In the walk a run is lowered to the run it means, bound: each inline
+     handler's value declared from its methods, and the body as the transform
+     makes it, or as written when nothing in it takes control. *)
+  let lowered =
+    match lowering with
+    | Some (surface, _) when walking () ->
+      let bound =
+        List.concat
+          (List.map2
+             (fun (name, args, ops, defs, _) value ->
+               match value with
+               | Some (handler, Some (hv, _)) ->
+                 Hashtbl.replace bound_arguments (handler, name) args;
+                 [ Ast.Bound (name, handler, Some (handler_record span hv name ops defs)) ]
+               | Some (handler, None) ->
+                 Hashtbl.replace bound_arguments (handler, name) args;
+                 [ Ast.Bound (name, handler, None) ]
+               | None -> [])
+             inline
+             values)
+        @ List.concat_map
+            (fun name ->
+              List.map
+                (fun (label, args, _) ->
+                  match named_value name label with
+                  | Some (handler, _, decl) ->
+                    Hashtbl.replace bound_arguments (handler, label) args;
+                    Ast.Bound (label, handler, Some decl)
+                  | None ->
+                    Hashtbl.replace bound_arguments (name, label) args;
+                    Ast.Bound (label, name, None))
+                (implemented name))
+            named
+      in
+      let shell body : Ast.expr = Ast.at span (`Run_expr (None, body, bound)) in
+      (match transform with
+       | Some _ ->
+         let handled =
+           List.filter_map (fun (name, _, _, _, _) -> if takes_control name then Some name else None) inline
+           @ List.concat_map
+               (fun name ->
+                 List.filter_map (fun (l, _, _) -> if takes_control l then Some l else None) (implemented name))
+               named
+         in
+         effect_bindings := pushed @ outer;
+         (* What the methods that take control perform is performed by every
+            continuation that reaches one again. *)
+         let arms =
+           List.concat_map
+             (function
+               | Some (_, methods, _) ->
+                 List.filter_map
+                   (fun (_, t) ->
+                     match Types.repr t with
+                     | Types.IFn (_, _, row) -> Some row
+                     | _ -> None)
+                   methods
+               | None -> [])
+             controlling
+         in
+         let saved = !arm_rows in
+         arm_rows := arms;
+         let generated =
+           Fun.protect
+             ~finally:(fun () ->
+               effect_bindings := outer;
+               arm_rows := saved)
+             (fun () ->
+               transformed env ctx span surface handled (shell { Ast.vb_stmts = []; vb_value = None }))
+         in
+         Some generated
+       | None -> Some (shell surface))
+    | _ -> None
+  in
+  let lowered_values, lowered_body =
+    match lowered with
+    | Some { Ast.it = `Run_expr (_, body, clauses); _ } ->
+      ( List.filter_map
+          (function
+            | Ast.Bound (_, handler, Some s) -> Some (handler, s)
+            | _ -> None)
+          clauses
+      , Some body )
+    | Some g -> fail g.Ast.span "A run's transform made something other than a run."
+    | None -> [], None
+  in
+  (* The values are declared outside the bindings, as the methods were
+     checked; what the body reaches through one is the type it now has. *)
+  (* A named handler's value is checked once the body has settled what the
+     run answers, which its impl's methods may be generic in. *)
+  let named_late, inline_now = List.partition (fun (handler, _) -> Hashtbl.mem named_handlers handler) lowered_values in
+  let lowered_prelude =
+    effect_bindings := outer;
+    List.concat_map (fun (handler, s) -> bound_value env ctx assigned handler s) inline_now
+  in
+  List.iter
+    (fun (handler, (s : Ast.stmt)) ->
+      match s.Ast.it, Hashtbl.find_opt handler_values handler with
+      | `Var_decl (name, _, _), Some ty -> bind env name (Types.mono ty)
+      | _ -> ())
+    named_late;
+  let body =
+    in_ctx ctx ~set:(fun () -> ctx.row <- body_row) (fun () ->
+      effect_bindings := pushed @ outer;
+      Fun.protect
+        ~finally:(fun () -> effect_bindings := outer)
+        (fun () ->
+          match lowering, lowered_body with
+          | Some (_, check_valued), Some b -> check_valued b
+          | _ -> infer_body ()))
+  in
+  Option.iter (fun g -> last_lowered := Some g) lowered;
+  (* A continuation handed to an inline method performs in a row of its own,
+     which is still the body's. *)
+  let performed =
+    List.concat_map
+      (fun row -> fst (Types.labels_of_infer_row row))
+      (body_row :: List.filter_map (Option.map snd) rows)
+  in
+  (* Every effect a named handler implements is bound by it, so one an inline
+     clause or another named handler also claims is claimed twice, performed
+     or not. *)
+  let claimed = Hashtbl.create 4 in
+  List.iter (fun (name, _, _, _, _) -> Hashtbl.replace claimed name ()) inline;
+  List.iter
+    (fun name ->
+      List.iter
+        (fun (label, _, _) ->
+          if Hashtbl.mem claimed label then fail span "'%s' is handled twice in this run." (shown_name label);
+          Hashtbl.replace claimed label ())
+        (implemented name))
+    named;
+  (* What `with H` binds: those the body performs. *)
+  let by_type name =
+    if not (Hashtbl.mem ctx_types name)
+    then raise (Rejected { span; message = Printf.sprintf "Unknown handler '%s'." name });
+    (* What the transform split at is handed the handler's value rather than
+       performed, so it is bound whether the body still shows it or not. *)
+    let bound =
+      List.filter
+        (fun (label, _, _) -> List.mem_assoc label performed || (Option.is_some transform && takes_control label))
+        (implemented name)
+    in
+    if bound = [] then fail span "'%s' handles nothing this run performs." (shown_name name);
+    List.iter
+      (fun (_, _, answers) ->
+        List.iter
+          (fun (r : Ast.type_expr) -> unify_at span answer (infer_ty_of_annotation r))
+          answers)
+      bound;
+    List.map (fun (label, args, _) -> label, args) bound
+  in
+  let bindings =
+    List.map2
+        (fun (name, args, ops, defs, shapes) checked -> `Inline (ops, defs, shapes, checked), name, args)
+        inline
+        unmarked
+    @ List.concat_map
+        (fun name -> List.map (fun (label, args) -> `With, label, args) (by_type name))
+        named
+  in
+  let seen = Hashtbl.create 4 in
+  List.iter
+    (fun (_, label, _) ->
+      if Hashtbl.mem seen label then fail span "'%s' is handled twice in this run." (shown_name label);
+      Hashtbl.replace seen label ())
+    bindings;
+  let remaining =
+    List.fold_left
+      (fun row (_, label, args) ->
+        try Types.rewrite_row label args row with
+        | Types.Type_error _ -> row)
+      body_row
+      bindings
+  in
+  Types.unify_row remaining ctx.row;
+  List.iter
+    (Option.iter (fun (resumes, given) ->
+       let left =
+         List.fold_left
+           (fun row (_, label, args) ->
+             try Types.rewrite_row label args row with
+             | Types.Type_error _ -> row)
+           given
+           bindings
+       in
+       Types.unify_row resumes left;
+       Types.row_within resumes ctx.row))
+    rows;
+  (* Where nothing is transformed, each method that takes control is checked
+     against the continuation the run hands it. *)
+  if Option.is_none transform
+  then
+    List.iter
+      (fun (binding, label, args) ->
+        match binding with
+        | `With -> ()
+        | `Inline (ops, defs, shapes, None) ->
+          ignore (handle_block env ctx assigned span ~answer ~resumes:remaining ~shapes ~pass:`All label args ops defs)
+        | `Inline (ops, defs, shapes, Some _) ->
+          ignore (handle_block env ctx assigned span ~answer ~resumes:remaining ~shapes ~pass:`Ctl label args ops defs))
+      bindings;
+  (* The handler's value, built where the run is: its methods, closing over
+     what they read from around it. *)
+  let prelude =
+    List.concat
+      (List.map2
+         (fun value (checked, control) ->
+           match value, checked with
+           | Some (_, Some (name, ty)), Some ((h : checked_arm list), methods) ->
+             let arms, methods =
+               match control with
+               | Some ((c : checked_arm list), controls, _) -> h @ c, methods @ controls
+               | None -> h, methods
+             in
+             let lambda ((a : checked_arm), (short, method_ty)) =
+               ( short
+               , Ast.annotated
+                   span
+                   method_ty
+                   (`Lambda
+                     ( List.map (fun p -> { Ast.name = p; ty = None; implicit = false }) a.arm_params
+                     , plain_signature
+                     , a.arm_body )) )
+             in
+             (* The methods' own types: what the generated code sees of a
+                continuation performs more, which the bindings discharge. *)
+             let built =
+               match control with
+               | None -> ty
+               | Some _ ->
+                 Types.IRecord
+                   (List.fold_right (fun (m, t) rest -> Types.FCons (m, t, rest)) methods Types.FEmpty)
+             in
+             [ Ast.annotated
+                 span
+                 Types.IUnit
+                 (`Var_decl
+                   (name, None, Some (Ast.annotated span built (`Record_lit (List.map lambda (List.combine arms methods))))))
+             ]
+           | _ -> [])
+         values
+         (List.combine unmarked controlling))
+  in
+  let lowered_prelude =
+    lowered_prelude @ List.concat_map (fun (handler, s) -> bound_value env ctx assigned handler s) named_late
+  in
+  if Option.is_some lowered then body, lowered_prelude else body, prelude
+
+(* The run's fixed meaning: its body quoted and handed to the library's
+   transform with each handler's value, and what that generates checked where
+   the body stands. *)
+and transformed env ctx span (body : (Ast.expr, Ast.stmt) Ast.valued_block) handled (shell : Ast.expr) : Ast.expr =
+  let at it : Ast.expr = Ast.at span it in
+  let value =
+    match body.Ast.vb_value with
+    | None -> at (`New_variant (Core.option, "None", Ast.P_none))
+    | Some v -> at (`New_variant (Core.option, "Some", Ast.P_tuple [ at (`Code v) ]))
+  in
+  let call =
+    at
+      (`Call
+        ( at (`Var Core.effect_transform)
+        , [ at (`Code_stmts body.Ast.vb_stmts)
+          ; value
+          ; at (`Collection_lit (List.map (fun label -> at (`Name label)) handled))
+          ; at (`Code shell)
+          ] ))
+  in
+  let meta = at (`Meta_expr [ Ast.at span (`Gen (Ast.at span (`Expr call))) ]) in
+  in_scope env ctx (fun () -> (ops ()).meta_expr (runtime_names env) (reflected_type env ctx) meta)
+
+(* A function value whose type takes control, made taking its handlers and
+   continuation by the library's transform. *)
+and converted env ctx (lambda : Ast.expr) taken : Ast.expr =
+  let span = lambda.Ast.span in
+  let at it : Ast.expr = Ast.at span it in
+  let labels = at (`Collection_lit (List.map (fun label -> at (`Name label)) taken)) in
+  let call = at (`Call (at (`Var Core.effect_lambda), [ at (`Code lambda); labels ])) in
+  let meta = at (`Meta_expr [ Ast.at span (`Gen (Ast.at span (`Expr call))) ]) in
+  in_scope env ctx (fun () -> (ops ()).meta_expr (runtime_names env) (reflected_type env ctx) meta)
+
+(* A function value a transform made taking its handlers and continuation: its
+   type is what it was written as, the parameters before the handlers, and
+   what it hands its continuation. Its written row says which handlers. *)
+and cps_lambda ?expected env ctx span params (signature : Ast.signature) body : checked_expr =
+  let written = Option.value ~default:[] signature.Ast.row in
+  let row = row_of_labels ~span written in
+  let labels = fst (Types.labels_of_infer_row row) in
+  let taken = controlling_row row in
+  let count = List.length params - List.length taken - 1 in
+  if count < 0 then fail span "A function made taking control has too few parameters.";
+  let surface = List.filteri (fun i _ -> i < count) params in
+  let param_types = List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) surface in
+  let ret = Types.fresh () in
+  (match Option.map Types.repr expected with
+   | Some (Types.IFn (wanted, wanted_ret, _)) ->
+     let wanted = Types.expand wanted in
+     let hint ty want =
+       try Types.unify ty want with
+       | Types.Type_error _ -> ()
+     in
+     if List.length wanted = List.length param_types then List.iter2 hint param_types wanted;
+     hint ret wanted_ret
+   | _ -> ());
+  (* One the transform made for itself answers what the function value taking
+     control it stands in does, so the continuation it is handed can be kept
+     where that one's are. *)
+  let answer =
+    match ctx.cps_answer with
+    | Some t when is_plain signature -> t
+    | _ ->
+      let a = Types.fresh () in
+      Types.declare_param a;
+      a
+  in
+  let scope = new_env (Some env) in
+  List.iter2 (fun (p : Ast.param) ty -> bind scope p.Ast.name (Types.mono ty)) surface param_types;
+  let handlers =
+    List.map
+      (fun label ->
+        let args = Option.value ~default:[] (List.assoc_opt label labels) in
+        let ty = handler_type label args in
+        bind scope (handler_param label) (Types.mono ty);
+        param_binding label ty)
+      taken
+  in
+  let k = List.nth params (List.length params - 1) in
+  bind scope k.Ast.name (Types.mono (Types.IFn ([ ret ], answer, Types.fresh_row ())));
+  let own = Types.fresh_row () in
+  let outer = !effect_bindings in
+  effect_bindings := handlers @ (if is_plain signature then outer else own_frame :: outer);
+  let checked =
+    Fun.protect
+      ~finally:(fun () -> effect_bindings := outer)
+      (fun () -> in_function_body ~cps:answer ctx ~ret:answer ~row:own (fun () -> infer_block scope ctx body))
+  in
+  if is_plain signature then Types.row_within own ctx.row;
+  Ast.annotated span (Types.IFn (param_types, ret, row)) (`Lambda (params, signature, checked))
+
+(* An inline handler's value, as the declaration a bound run holds: a record
+   of its methods as lambdas. A parameter takes the type the operation writes
+   for it unless that names a parameter only the trait can settle; the
+   continuation's is left to the calls that hand one. *)
+and handler_record span value label (ops : Ast.op_decl list) defs : Ast.stmt =
+  let params = List.map fst (Option.value ~default:[] (Hashtbl.find_opt ctx_effect_params label)) in
+  let field (m : (Ast.stmt, unit) Ast.method_def) =
+    let op =
+      List.find_opt
+        (fun (o : Ast.op_decl) -> String.equal o.Ast.op_name (Ast.operation_name label m.Ast.md_name))
+        ops
+    in
+    let control = Option.fold ~none:false ~some:(fun (o : Ast.op_decl) -> o.Ast.op_kind <> Ast.Op_fn) op in
+    let count = List.length m.Ast.md_params in
+    let declared i =
+      match op with
+      | Some o ->
+        (match List.nth_opt o.Ast.op_params i with
+         | Some { Ast.ty = Some t; _ }
+           when not (List.exists (fun n -> Ast.mentions n t) (params @ o.Ast.op_tparams)) -> Some t
+         | _ -> None)
+      | None -> None
+    in
+    let param i (p : Ast.param) =
+      if control && i = count - 1
+      then { p with Ast.ty = None }
+      else (
+        match p.Ast.ty with
+        | Some _ -> p
+        | None -> { p with Ast.ty = declared i })
+    in
+    ( m.Ast.md_name
+    , Ast.at
+        span
+        (`Lambda
+          ( List.mapi param m.Ast.md_params
+          , plain_signature
+          , m.Ast.md_body )) )
+  in
+  Ast.at span (`Var_decl (value, None, Some (Ast.at span (`Record_lit (List.map field defs)))))
+
+and handle_block
+      ?(apart = false)
+      env
+      ctx
+      assigned
+      span
+      ~answer
+      ~resumes
+      ~shapes
+      ~pass
+      label
+      args
+      (ops : Ast.op_decl list)
+      defs
+  : checked_arm list * (string * Types.infer_ty) list
   =
-  let arm (a : Ast.desugared_stmt Ast.arm) : checked_stmt Ast.arm =
-    let op = Hashtbl.find ctx_effects.ops a.Ast.arm_name in
-    (* One arm serves every instantiation, so the operation's own parameters
-       stay variables its body is not allowed to settle. *)
+  let op_of (m : (Ast.stmt, unit) Ast.method_def) =
+    List.find_opt
+      (fun (o : Ast.op_decl) -> String.equal o.Ast.op_name (Ast.operation_name label m.Ast.md_name))
+      ops
+  in
+  let written = defs in
+  let defs =
+    List.filter
+      (fun m ->
+        match pass, op_of m with
+        | `All, _ | `Unmarked, None -> true
+        | `Unmarked, Some o -> o.Ast.op_kind = Ast.Op_fn
+        | `Ctl, Some o -> o.Ast.op_kind <> Ast.Op_fn
+        | `Ctl, None -> false)
+      defs
+  in
+  if pass <> `Ctl
+  then
+  List.iter
+    (fun (o : Ast.op_decl) ->
+      if not
+           (List.exists
+              (fun (m : (Ast.stmt, unit) Ast.method_def) ->
+                String.equal o.Ast.op_name (Ast.operation_name label m.Ast.md_name))
+              written)
+      then
+        fail
+          span
+          "This handler for '%s' is missing method '%s'."
+          (shown_name label)
+          (shown_name o.Ast.op_name))
+    ops;
+  let names =
+    List.map fst (Option.value ~default:[] (Hashtbl.find_opt ctx_effect_params label))
+  in
+  let arm (m : (Ast.stmt, unit) Ast.method_def) =
+    let op =
+      match op_of m with
+      | Some op -> op
+      | None -> fail span "Trait '%s' has no method '%s'." (shown_name label) m.Ast.md_name
+    in
     let own =
       List.map
         (fun name ->
@@ -4424,158 +7689,165 @@ and infer_handler env ctx assigned ~answer ~args (h : Ast.desugared_stmt Ast.han
         op.Ast.op_tparams
     in
     with_type_params own (fun () ->
-    let param_types =
-      List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) op.Ast.op_params
-    in
-    if List.length param_types <> List.length a.Ast.arm_params
-    then
-      Types.error
-        "Operation '%s' takes %d argument(s) but the handler binds %d."
-        a.Ast.arm_name
-        (List.length param_types)
-        (List.length a.Ast.arm_params);
-    (* The declaration is the worst case the performing function was compiled
-       for, so a handler may promise less than it and never more: a `fn`
-       operation's caller has no continuation for a `ctl` arm to capture. *)
-    (match op.Ast.op_kind, a.Ast.arm_kind with
-     | Ast.Op_fn, (Ast.Op_ctl | Ast.Op_final) | Ast.Op_final, Ast.Op_ctl ->
-       Types.error
-         "'%s' is declared `%s`, so a handler may not answer it with `%s`."
-         a.Ast.arm_name
-         (kind_name op.Ast.op_kind)
-         (kind_name a.Ast.arm_kind)
-     | _ -> ());
-    let scope = new_env (Some env) in
-    List.iter2 (fun name ty -> bind scope name (Types.mono ty)) a.Ast.arm_params param_types;
-    let body =
-      in_ctx
-        ctx
-        ~set:(fun () ->
-          ctx.resume_type
-          <- (match a.Ast.arm_kind with
-              | Ast.Op_ctl -> Some (annotated_or_fresh op.Ast.op_ret)
-              | Ast.Op_fn | Ast.Op_final -> None);
-          ctx.in_final_arm <- a.Ast.arm_kind = Ast.Op_final;
-          (* An `fn` arm's value resumes the operation; any other arm's answers
-             for the whole `run`. *)
-          ctx.return_type
-          <- Some
-               (match a.Ast.arm_kind with
-                | Ast.Op_fn -> annotated_or_fresh op.Ast.op_ret
-                | Ast.Op_ctl | Ast.Op_final -> answer);
-          ctx.saw_return <- false)
-        (fun () ->
-          let body = List.map (infer_stmt scope ctx assigned) a.Ast.arm_body in
-          (* Leaving without answering and without handing the continuation the
-             job leaves nothing for the `run` to evaluate to. *)
-          (match a.Ast.arm_kind with
-           | Ast.Op_fn -> ()
-           | Ast.Op_ctl | Ast.Op_final ->
-             if (not ctx.saw_return) && not (List.exists resumes a.Ast.arm_body)
-             then Types.unify answer Types.IUnit);
-          body)
-    in
-    (* Tied to a variable outside the arm is settled too, only later: whatever
-       that variable becomes, every call site would be held to it. *)
-    let outer_types = env_free_vars env
-    and outer_rows = env_free_row_vars env in
-    List.iter
-      (fun (name, var) ->
-        (match Types.repr var with
-         | Types.IVar { contents = Types.Unbound (id, _) } ->
-           if List.mem id outer_types
-           then
-             Types.error
-               "This handler ties '%s' to a type from outside it, but '%s' is handled \
-                once for every type its call sites use."
-               name
-               a.Ast.arm_name
-         | settled ->
-           Types.error
-             "This handler settles '%s' at %s, but '%s' is handled once for every \
-              type its call sites use."
-             name
-             (Types.string_of_infer_ty settled)
-             a.Ast.arm_name);
-        match Types.repr_row (row_of_param var) with
-        | Types.RVar { contents = Types.RUnbound id } ->
-          if List.mem id outer_rows
-          then
-            Types.error
-              "This handler ties '%s' to a row from outside it, but '%s' is handled \
-               once for every row its call sites use."
-              name
-              a.Ast.arm_name
-        | settled ->
-          Types.error
-            "This handler settles '%s' at <%s>, but '%s' is handled once for every \
-             row its call sites use."
-            name
-            (Types.string_of_infer_row settled)
-            a.Ast.arm_name)
-      own;
-    { Ast.arm_name = a.Ast.arm_name
-    ; arm_kind = a.Ast.arm_kind
-    ; arm_params = a.Ast.arm_params
-    ; arm_body = body
-    })
-  in
-  let names =
-    List.map fst (Option.value ~default:[] (Hashtbl.find_opt ctx_effect_params h.Ast.handled))
+      let params = List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) op.Ast.op_params in
+      let result = annotated_or_fresh op.Ast.op_ret in
+      let takes_control = op.Ast.op_kind <> Ast.Op_fn in
+      let shape =
+        Option.bind
+          shapes
+          (List.find_opt (fun (sg : Ast.method_sig) -> String.equal sg.Ast.ms_name m.Ast.md_name))
+      in
+      let expected, returns =
+        match shape with
+        (* The continuation's row is the run's, which a written type cannot
+           name yet, so the instance's own pure one is replaced. *)
+        | Some sg ->
+          with_type_params [ "R", answer ] (fun () ->
+            let written =
+              List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) sg.Ast.ms_params
+            in
+            let written =
+              if takes_control
+              then
+                List.mapi
+                  (fun i ty ->
+                    match ty with
+                    | Types.IFn (ps, r, _) when i = List.length written - 1 -> Types.IFn (ps, r, resumes)
+                    | ty -> ty)
+                  written
+              else written
+            in
+            written, annotated_or_fresh sg.Ast.ms_signature.Ast.ret)
+        | None ->
+          if takes_control
+          then params @ [ Types.IFn ([ result ], answer, resumes) ], answer
+          else params, result
+      in
+      if List.length expected <> List.length m.Ast.md_params
+      then
+        fail
+          span
+          "'%s' takes %d parameter(s) in this handler, but %d are written."
+          m.Ast.md_name
+          (List.length expected)
+          (List.length m.Ast.md_params);
+      let scope = new_env (Some env) in
+      List.iter2
+        (fun (p : Ast.param) ty ->
+          Option.iter (fun written -> unify_at span ty (infer_ty_of_annotation written)) p.Ast.ty;
+          bind scope p.Ast.name (Types.mono ty))
+        m.Ast.md_params
+        expected;
+      Option.iter
+        (fun written -> unify_at span returns (infer_ty_of_annotation written))
+        m.Ast.md_signature.Ast.ret;
+      let around = ctx.row in
+      (* Apart, a method that takes control has a row of its own, contained in
+         its surroundings: the generated code calls it, and a call through a
+         row it is tied to would tie the body's row to the run's. *)
+      let own_row =
+        if takes_control && not apart
+        then around
+        else (
+          let own = Types.fresh_row () in
+          if apart then Types.declare_row own;
+          own)
+      in
+      let body =
+        in_ctx
+          ctx
+          ~set:(fun () ->
+            ctx.row <- own_row;
+            ctx.return_type <- Some returns;
+            ctx.saw_return <- false)
+          (fun () ->
+            let body =
+              List.concat_map
+                (fun s -> statement ctx (fun () -> infer_stmt scope ctx assigned s))
+                m.Ast.md_body
+            in
+            if not ctx.saw_return then unify_at span returns Types.IUnit;
+            body)
+      in
+      if takes_control && apart then Types.row_within own_row around;
+      if not takes_control then Types.row_within own_row around;
+      own_params_unsettled env own m.Ast.md_name;
+      ( { arm_name = op.Ast.op_name
+        ; arm_params = List.map (fun (p : Ast.param) -> p.Ast.name) m.Ast.md_params
+        ; arm_body = body
+        }
+      , (m.Ast.md_name, Types.IFn (expected, returns, if apart then own_row else Types.REmpty)) ))
   in
   with_type_params
     (try List.combine names args with
      | Invalid_argument _ -> [])
-    (fun () -> { Ast.handled = h.Ast.handled; arms = List.map arm h.Ast.arms })
+    (fun () ->
+      List.split (List.map arm defs))
 
-let rec resolve_expr (e : checked_expr) : Ast.typed_expr =
-  let it : Ast.typed_expr_kind =
-    match e.Ast.it with
-    | #Ast.lit as l -> l
-    | `Lambda (params, signature, body) ->
-      `Lambda (params, signature, List.map resolve_stmt body)
-    | #Ast.arrays as a -> (Ast.map_arrays resolve_expr a :> Ast.typed_expr_kind)
-    | #Ast.strings as s -> (Ast.map_strings resolve_expr s :> Ast.typed_expr_kind)
-    | #Ast.vars as v -> (Ast.map_vars resolve_expr v :> Ast.typed_expr_kind)
-    | #Ast.ops as o -> (Ast.map_ops resolve_expr o :> Ast.typed_expr_kind)
-    | #Ast.logic as l -> (Ast.map_logic resolve_expr l :> Ast.typed_expr_kind)
-    | #Ast.compound as c -> (Ast.map_compound resolve_expr c :> Ast.typed_expr_kind)
-    | #Ast.indexing as i -> (Ast.map_indexing resolve_expr i :> Ast.typed_expr_kind)
-    | #Ast.tuple as t -> (Ast.map_tuple resolve_expr t :> Ast.typed_expr_kind)
-    | #Ast.spread as s -> (Ast.map_spread resolve_expr s :> Ast.typed_expr_kind)
-    | #Ast.record as r -> (Ast.map_record resolve_expr r :> Ast.typed_expr_kind)
-    | #Ast.nominal as n -> (Ast.map_nominal resolve_expr n :> Ast.typed_expr_kind)
-    | #Ast.collection as c ->
-      (Ast.map_collection resolve_expr c :> Ast.typed_expr_kind)
-    | #Ast.bound_calls as b ->
-      (Ast.map_bound_call resolve_expr Types.resolve b :> Ast.typed_expr_kind)
-    | #Ast.dyn_calls as d ->
-      (Ast.map_dyn_call resolve_expr Types.resolve d :> Ast.typed_expr_kind)
-    | #Ast.coercions as c ->
-      (Ast.map_coercion resolve_expr Types.resolve c :> Ast.typed_expr_kind)
-    | #Ast.reflect as r -> (Ast.map_reflect resolve_expr r :> Ast.typed_expr_kind)
-    | #Ast.run_expr as r ->
-      (Ast.map_run_expr resolve_expr resolve_stmt (Ast.map_handler resolve_stmt) r
-       :> Ast.typed_expr_kind)
-    | #Ast.match_expr as m ->
-      (Ast.map_match_expr resolve_expr resolve_stmt m :> Ast.typed_expr_kind)
-  in
-  { Ast.it; span = e.Ast.span; ann = Types.resolve e.Ast.ann }
+(* One arm serves every instantiation of the operation, so its own parameters
+   must stay what they were made: free, and free of the enclosing scope. *)
+and own_params_unsettled env own arm_name =
+  (* Tied to a variable outside the arm is settled too, only later: whatever
+     that variable becomes, every call site would be held to it. *)
+  let outer_types, outer_rows, _ = env_free_all env in
+  List.iter
+    (fun (name, var) ->
+      (match Types.repr var with
+       | Types.IVar { contents = Types.Unbound (id, _) } ->
+         if List.mem id outer_types
+         then
+           Types.error
+             "This handler ties '%s' to a type from outside it, but '%s' is handled \
+              once for every type its call sites use."
+             name
+             arm_name
+       | settled ->
+         Types.error
+           "This handler settles '%s' at %s, but '%s' is handled once for every \
+            type its call sites use."
+           name
+           (Types.string_of_infer_ty settled)
+           arm_name);
+      match Types.repr_row (row_of_param var) with
+      | Types.RVar { contents = Types.RUnbound id } ->
+        if List.mem id outer_rows
+        then
+          Types.error
+            "This handler ties '%s' to a row from outside it, but '%s' is handled \
+             once for every row its call sites use."
+            name
+            arm_name
+      | settled ->
+        Types.error
+          "This handler settles '%s' at <%s>, but '%s' is handled once for every \
+           row its call sites use."
+          name
+          (Types.string_of_infer_row settled)
+          arm_name)
+    own
 
-and resolve_stmt (s : checked_stmt) : Ast.typed_stmt =
-  let it : Ast.typed_stmt_kind =
-    match s.Ast.it with
-    | #Ast.stmts as st -> (Ast.map_stmts resolve_expr resolve_stmt st :> Ast.typed_stmt_kind)
-    | #Ast.effects as e ->
-      (Ast.map_effects resolve_expr resolve_stmt (Ast.map_handler resolve_stmt) e
-       :> Ast.typed_stmt_kind)
-    | #Ast.type_defs as t -> t
-    | #Ast.matching as m ->
-      (Ast.map_matching resolve_expr resolve_stmt m :> Ast.typed_stmt_kind)
-    | #Ast.method_defs as m ->
-      (Ast.map_method_defs resolve_stmt Types.resolve m :> Ast.typed_stmt_kind)
-  in
-  { Ast.it; span = s.Ast.span; ann = Types.resolve s.Ast.ann }
+let () =
+  controlled_slot
+  := fun registry span entry ->
+       match !top_env with
+       | None -> fail span "A method that takes control has no table slot here."
+       | Some env ->
+         let arity =
+           match decl_of env entry with
+           | Some d -> List.length d.wd_params
+           | None -> fail span "'%s' has no method to put in a table." (shown_name entry)
+         in
+         let at it : Ast.expr = Ast.at span it in
+         let names = List.init arity (fun i -> Ast.generated [ "arg"; string_of_int i ]) in
+         let lambda =
+           at
+             (`Lambda
+               ( List.map (fun n -> { Ast.name = n; ty = None; implicit = false }) names
+               , { Ast.ret = None; row = None; static_params = [] }
+               , [ Ast.at span (`Return (Some (at (`Call (at (`Var entry), List.map (fun n -> at (`Var n)) names))))) ] ))
+         in
+         let ctx = { registry; return_type = None; saw_return = false; row = Types.fresh_row (); hoisted = []; cps_answer = None } in
+         infer_expr env ctx lambda
 
 (* A closed row here would close the caller's, since a call unifies them. *)
 let pure params ret =
@@ -4733,6 +8005,18 @@ let declare_builtins env =
       bind env name (pure params ret))
     Builtins.functions;
   List.iter
+    (fun (name, signature) ->
+      let body = signature () in
+      bind
+        env
+        name
+        { Types.quantified = List.map fst (Types.free_vars body)
+        ; quantified_rows = Types.free_row_vars body
+        ; quantified_fields = []
+        ; body
+        })
+    Builtins.effectful;
+  List.iter
     (fun (name, result) ->
       let result = result () in
       let scheme =
@@ -4746,108 +8030,634 @@ let declare_builtins env =
       bind env name scheme)
     Builtins.variadic
 
-let check_with ~registry (program : Ast.desugared_stmt list)
-  : (Ast.typed_stmt list, error list) result
-  =
-  Types.reset ();
-  unknowns := [];
-  Types.extra_admits := admits registry;
-  Types.assoc_binding := (fun owner member -> Hashtbl.find_opt ctx_assoc (owner, member));
-  reset_effects ();
-  deferred_rows := [];
-  pending_calls := [];
-  Hashtbl.reset unchecked;
-  let env = new_env None in
-  declare_builtins env;
-  declare_builtin_impls registry;
-  let ctx =
-    { registry
-    ; return_type = None
-    ; saw_return = false
-    ; row = Types.fresh_row ()
-    ; resume_type = None
-    ; in_final_arm = false
+module Session = struct
+  type t =
+    { env : env
+    ; ctx : ctx
+    ; errors : error list ref
     }
-  in
-  top_row := Some ctx.row;
-  Hashtbl.reset effect_sites;
-  let errors = ref [] in
-  (* Per statement: everything after a bad declaration would otherwise be checked
-     without the signatures it needs. *)
-  let each pass =
+
+  let start ~registry =
+    Types.counter := 0;
+    Types.reset ();
+    unknowns := [];
+    Hashtbl.reset unobservable;
+    Types.extra_admits := admits registry;
+    Types.assoc_binding := (fun owner member -> Hashtbl.find_opt ctx_assoc (owner, member));
+    reset_effects ();
+    deferred_rows := [];
+    pending_calls := [];
+    Hashtbl.reset unchecked;
+    Hashtbl.reset trait_instances;
+    Hashtbl.reset ctx_variadic_arity;
+    let env = new_env None in
+    declare_builtins env;
+    declare_builtin_impls registry;
+    let ctx =
+      { registry
+      ; return_type = None
+      ; saw_return = false
+      ; cps_answer = None
+      ; row = Types.fresh_row ()
+      ; hoisted = []
+      }
+    in
+    top_row := Some ctx.row;
+    Hashtbl.reset effect_sites;
+    { env; ctx; errors = ref [] }
+
+  let declare session (program : Ast.stmt list) =
+    gather program;
+    let program = List.map unattributed program in
+    (* Per statement: everything after a bad declaration would otherwise be
+       checked without the signatures it needs. *)
+    let each pass =
+      List.iter
+        (fun s ->
+          try pass [ s ] with
+          | Located e -> session.errors := e :: !(session.errors))
+        program
+    in
+    each declare_traits;
+    each declare_effects;
+    each declare_type_names;
+    each declare_type_bodies;
+    each (declare_impls session.ctx.registry);
+    each check_supertraits;
+    (* A handler in another module may be checked before the trait's own
+       statement is, so its operations are known from the start. *)
+    each (List.iter (fun (s : Ast.stmt) ->
+      match s.Ast.it with
+      | `Trait_decl (name, params, body) when Ast.is_effect body ->
+        declare_operations session.env s.Ast.span name params (operations_of s.Ast.span name body)
+      | _ -> ()));
+    (* A function whose signature does not read is still declared, as
+       something unknown: a call to it is not a second error. *)
     List.iter
       (fun s ->
-        try pass [ s ] with
-        | Located e -> errors := e :: !errors)
+        try hoist session.env [ s ] with
+        | Located e ->
+          session.errors := e :: !(session.errors);
+          if walking ()
+          then
+            List.iter
+              (function
+                | Value name -> bind session.env name (Types.mono (unknown_ty ()))
+                | Member _ -> ())
+              (names_declared s))
       program
-  in
-  each declare_traits;
-  each declare_effects;
-  each declare_type_names;
-  each declare_type_bodies;
-  each (declare_impls registry);
-  each check_supertraits;
-  each (hoist env);
-  let assigned = assigned_names program in
-  let attempt check =
-    try Some (check ()) with
-    | Located e ->
-      errors := e :: !errors;
-      None
-  in
-  let checked = List.filter_map Fun.id (infer_in_order env ctx assigned ~attempt program) in
-  let never_resumes label =
-    match Hashtbl.find_opt ctx_effects.declared label with
-    | Some ops -> List.exists (fun (o : Ast.op_decl) -> o.Ast.op_kind = Ast.Op_final) ops
-    | None -> false
+
+  let infer session (program : Ast.stmt list) =
+    let program = List.map unattributed program in
+    let assigned = assigned_names program in
+    let attempt check =
+      try Some (check ()) with
+      | Located e ->
+        session.errors := e :: !(session.errors);
+        None
+    in
+    ignore (infer_in_order session.env session.ctx assigned ~attempt program)
+
+  let errors session : error list =
+    let never_resumes label =
+      match Hashtbl.find_opt ctx_effects.declared label with
+      | Some ops -> List.exists (fun (o : Ast.op_decl) -> o.Ast.op_kind = Ast.Op_final) ops
+      | None -> false
+    in
+    List.iter
+      (fun d ->
+        let failing =
+          List.filter (fun (label, _) -> never_resumes label) (Types.resolve_row d.d_row).Types.labels
+        in
+        match failing with
+        | entry :: _ ->
+          session.errors
+          := { span = d.d_span
+             ; message =
+                 Printf.sprintf
+                   "A deferred statement cannot fail, and this one can: '%s' never resumes, \
+                    and would replace whatever is already unwinding. Handle it inside the \
+                    'defer'."
+                   (Types.entry Types.string_of_ty entry)
+             }
+             :: !(session.errors)
+        | [] when d.d_open ->
+          session.errors
+          := { span = d.d_span
+             ; message =
+                 "A deferred statement cannot fail, and this one calls through an effect \
+                  row its caller decides, which could hold an operation that never resumes."
+             }
+             :: !(session.errors)
+        | [] -> ())
+      (List.rev !deferred_rows);
+    let errors =
+      List.fold_left
+        (fun errors ((label, _) as entry) ->
+          { span =
+              Option.value
+                ~default:Source_map.Span.nowhere
+                (Hashtbl.find_opt effect_sites label)
+          ; message =
+              Printf.sprintf
+                "Unhandled effect '%s': no handler encloses this."
+                (Types.entry Types.string_of_ty entry)
+          }
+          :: errors)
+        !(session.errors)
+        (Types.resolve_row session.ctx.row).Types.labels
+    in
+    List.rev errors
+end
+
+(* What the walk checks a key's instance with: each static parameter bound to
+   what the key settled, the rest as [hoist] read them. *)
+let with_key_params (assoc : (string * Types.infer_ty) list) f =
+  let saved =
+    List.map
+      (fun (name, _) ->
+        name, Hashtbl.find_opt ctx_type_params name, Hashtbl.find_opt ctx_row_params name)
+      assoc
   in
   List.iter
-    (fun d ->
-      let failing =
-        List.filter (fun (label, _) -> never_resumes label) (Types.resolve_row d.d_row).Types.labels
-      in
-      match failing with
-      | entry :: _ ->
-        errors
-        := { span = d.d_span
-           ; message =
-               Printf.sprintf
-                 "A deferred statement cannot fail, and this one can: '%s' never resumes, \
-                  and would replace whatever is already unwinding. Handle it inside the \
-                  'defer'."
-                 (Types.entry Types.string_of_ty entry)
-           }
-           :: !errors
-      | [] when d.d_open ->
-        errors
-        := { span = d.d_span
-           ; message =
-               "A deferred statement cannot fail, and this one calls through an effect \
-                row its caller decides, which could hold an operation that never resumes."
-           }
-           :: !errors
-      | [] -> ())
-    (List.rev !deferred_rows);
-  let errors =
-    List.fold_left
-      (fun errors ((label, _) as entry) ->
-        { span =
-            Option.value
-              ~default:Source_map.Span.nowhere
-              (Hashtbl.find_opt effect_sites label)
-        ; message =
-            Printf.sprintf
-              "Unhandled effect '%s': no handler encloses this."
-              (Types.entry Types.string_of_ty entry)
-        }
-        :: errors)
-      !errors
-      (Types.resolve_row ctx.row).Types.labels
-  in
-  match List.rev errors with
-  | [] -> Ok (List.map resolve_stmt checked)
-  | errors -> Error errors
+    (fun (name, ty) ->
+      Hashtbl.replace ctx_type_params name ty;
+      match ty with
+      | Types.IRow row -> Hashtbl.replace ctx_row_params name row
+      | _ -> Hashtbl.remove ctx_row_params name)
+    assoc;
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter
+        (fun (name, previous, previous_row) ->
+          (match previous with
+           | Some var -> Hashtbl.replace ctx_type_params name var
+           | None -> Hashtbl.remove ctx_type_params name);
+          match previous_row with
+          | Some row -> Hashtbl.replace ctx_row_params name row
+          | None -> Hashtbl.remove ctx_row_params name)
+        saved)
+    f
 
-let check ?(policy = strict) ~registry program =
+let rec close_tail (r : Types.infer_row) =
+  match Types.repr_row r with
+  | Types.RVar { contents = Types.RUnbound _ } -> Types.unify_row r Types.REmpty
+  | Types.RCons (_, _, rest) -> close_tail rest
+  | _ -> ()
+
+(* [started] hears the signature before the body is read, so a call the body
+   makes back into it finds what was written. *)
+let check_instance ~registry (d : walk_decl) (key : Key.t) ~name ~(body : Ast.stmt list) ~started
+  : checked_stmt
+  =
+  let generics = Hashtbl.create 4 in
+  let rec of_key (t : Types.ty) : Types.infer_ty =
+    match t with
+    | Types.Generic id ->
+      (match Hashtbl.find_opt generics id with
+       | Some var -> var
+       | None ->
+         let var = Types.fresh () in
+         Types.declare_param var;
+         Hashtbl.replace generics id var;
+         var)
+    | Types.Tuple ts -> Types.ITuple (List.map of_key ts)
+    | Types.Pack ts -> Types.IPack (List.map of_key ts)
+    | Types.Spread t -> Types.ISpread (of_key t)
+    | Types.Named (n, ts) -> Types.INamed (n, List.map of_key ts)
+    | Types.Sum (n, ts) -> Types.ISum (n, List.map of_key ts)
+    | Types.Fn (ps, r, row) -> Types.IFn (List.map of_key ps, of_key r, of_key_row row)
+    | Types.Row row -> Types.IRow (of_key_row row)
+    | t -> Types.of_ty t
+  and of_key_row (row : Types.row) =
+    List.fold_right
+      (fun (l, args) rest -> Types.RCons (l, List.map of_key args, rest))
+      row.Types.labels
+      Types.REmpty
+  in
+  let assoc =
+    List.map
+      (fun (param, var) ->
+        match List.assoc_opt param key with
+        | Some (Key.Type t) -> param, of_key t
+        | Some (Key.Row r) -> param, Types.IRow (of_key_row r)
+        | _ -> param, var)
+      d.wd_vars
+  in
+  with_key_params assoc (fun () ->
+    let params = d.wd_params in
+    let param_types =
+      match d.wd_impl, params with
+      | Some (_, type_name, impl_params), { Ast.name = "self"; _ } :: rest ->
+        self_ty d.wd_span type_name (List.map (fun (p : Ast.type_param) -> p.Ast.tp_name) impl_params)
+        :: List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) rest
+      | _ -> List.map (fun (p : Ast.param) -> annotated_or_fresh p.Ast.ty) params
+    in
+    (* A copy a transform made takes the handlers of the effects it splits at. *)
+    let handed =
+      List.filter_map
+        (fun (p : Ast.param) -> Option.map (fun label -> p.Ast.name, label) (handled_by p.Ast.name))
+        params
+    in
+    (* Read through its methods in the body, while a caller hands any value
+       of a handler of that effect. *)
+    let read_as =
+      List.map2
+        (fun (p : Ast.param) ty ->
+          match List.assoc_opt p.Ast.name handed with
+          | Some label when Option.is_none p.Ast.ty -> handler_type label []
+          | _ -> ty)
+        params
+        param_types
+    in
+    let ret = annotated_or_fresh d.wd_sig.Ast.ret in
+    let row =
+      match d.wd_sig.Ast.row with
+      | Some labels -> row_of_labels ~span:d.wd_span labels
+      | None -> Types.fresh_row ()
+    in
+    let fn_type = Types.IFn (param_types, ret, row) in
+    started fn_type (Option.is_some d.wd_sig.Ast.ret);
+    let ctx =
+      { registry
+      ; return_type = None
+      ; saw_return = false
+      ; cps_answer = None
+      ; row = Types.fresh_row ()
+      ; hoisted = []
+      }
+    in
+    let scope = new_env (Some d.wd_env) in
+    List.iter2 (fun (p : Ast.param) ty -> bind scope p.Ast.name (Types.mono ty)) params read_as;
+    let saved = !open_defer, !pending_values, !walk_locals in
+    let outer_bindings = !effect_bindings in
+    if not (is_plain d.wd_sig) then effect_bindings := [ own_frame ];
+    List.iter2
+      (fun (p : Ast.param) ty ->
+        match List.assoc_opt p.Ast.name handed with
+        | Some label -> effect_bindings := param_binding label ty :: !effect_bindings
+        | None -> ())
+      params
+      read_as;
+    let outer_bounds = !bound_traits in
+    bound_traits
+    := List.concat_map
+         (fun (_, var) ->
+           match Types.repr var with
+           | Types.IVar { contents = Types.Unbound (_, Types.Bound bounds) } ->
+             List.concat_map
+               (fun (b : Types.bound) ->
+                 let targets =
+                   List.map
+                     (fun arg ->
+                       match Types.repr arg with
+                       | Types.IVar _ ->
+                         (match List.find_opt (fun (_, v) -> v == arg) d.wd_vars with
+                          | Some (name, _) ->
+                            (match List.assoc_opt name assoc with
+                             | Some t -> Types.infer_type_name t
+                             | None -> None)
+                          | None -> None)
+                       | t -> Types.infer_type_name t)
+                     b.Types.bd_args
+                 in
+                 ( b.Types.bd_trait
+                 , if List.for_all Option.is_some targets
+                   then Some (List.map Option.get targets)
+                   else None )
+                 :: List.map (fun t -> t, None) (List.tl (List.rev (trait_closure b.Types.bd_trait))))
+               bounds
+           | _ -> [])
+         d.wd_vars;
+    open_defer := None;
+    pending_values := [];
+    walk_locals := [];
+    let body =
+      Fun.protect
+        ~finally:(fun () ->
+          let defer, pending, locals = saved in
+          effect_bindings := outer_bindings;
+          bound_traits := outer_bounds;
+          open_defer := defer;
+          pending_values := pending;
+          walk_locals := locals)
+        (fun () -> in_function_body ctx ~ret ~row (fun () -> infer_block scope ctx body))
+    in
+    (* The printer calls these wherever a value is written, inside another
+       value or not, and nothing there handles an effect. *)
+    (match d.wd_impl with
+     | Some (Some (t, _), _, _) when String.equal t Core.display || String.equal t Core.debug ->
+       (match fst (Types.labels_of_infer_row row) with
+        | [] -> ()
+        | (label, _) :: _ ->
+          fail
+            d.wd_span
+            "'%s' in this impl performs '%s', and a value is printed by calling it wherever \
+             the value is written, where nothing handles an effect."
+            (shown_name d.wd_name)
+            label)
+     | _ -> ());
+    Ast.annotated
+      d.wd_span
+      (Types.IFn (param_types, ret, row))
+      (`Fn (name, params, plain_only d.wd_sig, body)))
+
+module Physical = Hashtbl.Make (struct
+    type t = Ast.expr
+
+    let equal = ( == )
+    let hash (e : Ast.expr) = Hashtbl.hash e.Ast.span
+  end)
+
+let rec holds_generic (t : Types.ty) =
+  let row (r : Types.row) = List.exists (fun (_, args) -> List.exists holds_generic args) r.Types.labels in
+  match t with
+  | Types.Generic _ -> true
+  | Types.Tuple ts | Types.Pack ts | Types.Named (_, ts) | Types.Sum (_, ts) -> List.exists holds_generic ts
+  | Types.Spread t -> holds_generic t
+  | Types.Record fields -> List.exists (fun (_, t) -> holds_generic t) fields
+  | Types.Fn (ps, r, rw) -> List.exists holds_generic ps || holds_generic r || row rw
+  | Types.Row r -> row r
+  | Types.Int | Types.Float | Types.Str | Types.Byte | Types.Chr | Types.Bool | Types.Unit -> false
+
+(* Code a meta block asks about, checked where the block stands, and the type
+   each expression was given there; [None] where no checked code surrounds the
+   block.
+   Nothing it reaches counts as a use and nothing it hoists is kept, since what
+   the block generates from it is checked again. A type inference left open is
+   not answered. *)
+let typed_here (check : env -> ctx -> unit)
+  : ((Ast.expr -> Types.ty option) * (Ast.expr -> Ast.expr option)) option
+  =
+  match !meta_scope with
+  | None -> None
+  | Some (env, ctx) ->
+    let table = ref [] in
+    let lowered = ref [] in
+    let previous = !recording
+    and previous_lowered = !expansions in
+    recording := Some table;
+    expansions := Some lowered;
+    let scratch = { ctx with row = Types.fresh_row (); hoisted = [] } in
+    Fun.protect
+      ~finally:(fun () ->
+        recording := previous;
+        expansions := previous_lowered)
+      (fun () ->
+        ignore
+          ((ops ()).unused (fun () ->
+             check env scratch;
+             Types.IUnit)));
+    let types = Physical.create 64 in
+    List.iter (fun (e, t) -> Physical.replace types e t) !table;
+    let runs = Physical.create 8 in
+    List.iter (fun (e, g) -> Physical.replace runs e g) !lowered;
+    Some
+      ( (fun e ->
+          Option.bind (Physical.find_opt types e) (fun t ->
+            let t = Types.resolve t in
+            (* A function's row says what calling it performs, which is worth
+               knowing even where a type in it is still open. *)
+            match t with
+            | Types.Fn _ -> Some t
+            | _ -> if holds_generic t then None else Some t))
+      , Physical.find_opt runs )
+
+(* What the block [typed_block] last checked performs, each label at arguments
+   it settled. *)
+let processed_row : (string * Types.ty list) list ref = ref []
+
+let settled_labels (rows : Types.infer_row list) =
+  List.fold_left
+    (fun acc (label, args) ->
+      let args = List.map Types.resolve args in
+      if List.exists holds_generic args || List.mem (label, args) acc then acc else acc @ [ label, args ])
+    []
+    (List.concat_map (fun r -> fst (Types.labels_of_infer_row r)) rows)
+
+let typed_block (body : (Ast.expr, Ast.stmt) Ast.valued_block) =
+  typed_here (fun env ctx ->
+    let scope = new_env (Some env) in
+    ignore (infer_block scope ctx body.Ast.vb_stmts);
+    Option.iter (fun v -> ignore (infer_expr scope ctx v)) body.Ast.vb_value;
+    processed_row := settled_labels (ctx.row :: !arm_rows))
+
+(* What the methods that take control of the run being transformed perform. *)
+let arms_row () = settled_labels !arm_rows
+
+(* A function's body, checked as the declaration it is: everything it performs
+   is answered by the evidence it is handed. *)
+let typed_fn _name (params : Ast.param list) (sg : Ast.signature) (body : Ast.stmt list) =
+  typed_here (fun _ ctx ->
+    let scope = new_env !top_env in
+    let outer = !effect_bindings in
+    effect_bindings := [ own_frame ];
+    Fun.protect ~finally:(fun () -> effect_bindings := outer) @@ fun () ->
+    (* A copy's own parameters are gone from what declof gives of it, while its
+       types still name them: such a type is left to the body. *)
+    let read t =
+      try annotated_or_fresh t with
+      | Located _ | Rejected _ -> Types.fresh ()
+    in
+    List.iter (fun (p : Ast.param) -> bind scope p.Ast.name (Types.mono (read p.Ast.ty))) params;
+    let returns = read sg.Ast.ret in
+    in_ctx
+      ctx
+      ~set:(fun () ->
+        ctx.return_type <- Some returns;
+        ctx.saw_return <- false)
+      (fun () -> ignore (infer_block scope ctx body)))
+
+(* The declaration a callee names and the key its type settles, as the call
+   branch reads one: a fresh use of the signature unified with the type, rows
+   left out, since what the callee performs is no part of a plain key. *)
+let instance_at span ~at name (ty : Ast.type_expr option) : (walk_decl * Key.t) option =
+  match !top_env with
+  | None -> None
+  | Some env ->
+    (match decl_of env name with
+     | None -> None
+     | Some d ->
+       let u = use_of d in
+       (match ty with
+        | Some t ->
+          (match Types.repr u.u_ty, infer_ty_of_annotation t with
+           | Types.IFn (ps, r, _), Types.IFn (ps', r', _) when List.length ps = List.length ps' ->
+             (try
+                List.iter2 Types.unify ps ps';
+                Types.unify r r'
+              with
+              | Types.Type_error _ -> ())
+           | _ -> ())
+        | None -> ());
+       Some (d, key_of_use span ~value:false u))
+
+(* The operation a name stands for: its effect, its method's name, and whether
+   it takes control. *)
+let operation_of name =
+  match Hashtbl.find_opt ctx_effects.ops name, Hashtbl.find_opt ctx_op_owner name with
+  | Some op, Some label ->
+    Some (label, method_of_operation label name, op.Ast.op_kind <> Ast.Op_fn, List.length op.Ast.op_params)
+  | _ -> None
+
+let effect_operations label =
+  List.map
+    (fun (o : Ast.op_decl) ->
+      label, method_of_operation label o.Ast.op_name, o.Ast.op_kind <> Ast.Op_fn, List.length o.Ast.op_params)
+    (Option.value ~default:[] (Hashtbl.find_opt ctx_effects.declared label))
+
+(* Whether a name, where the asking meta block stands, is a function the walk
+   reaches through an instance rather than a value. *)
+let names_function name =
+  match !meta_scope, !top_env with
+  | Some (env, _), _ | None, Some env -> Option.is_some (decl_of env name)
+  | None, None -> false
+
+(* The walk's own session: declarations as [Session] reads them, then each
+   root statement checked where it stands. *)
+module Walk = struct
+  (* The `var`s whose statements failed. A later statement reading one is not
+     checked: every error it gave would be the first one again. *)
+  let failed : (string, unit) Hashtbl.t = Hashtbl.create 8
+
+  let start ~registry ops =
+    let session = Session.start ~registry in
+    Hashtbl.reset failed;
+    walk_ops := Some ops;
+    top_env := Some session.Session.env;
+    Hashtbl.reset walk_decls;
+    Hashtbl.reset placeholders;
+    Hashtbl.reset handler_values;
+    Hashtbl.reset handler_built;
+    Hashtbl.reset bound_arguments;
+    effect_bindings := [];
+    pending_values := [];
+    walk_locals := [];
+    session
+
+  let stop () =
+    walk_ops := None;
+    top_env := None
+
+  (* A declaration a meta block generated, as one written there would be. *)
+  let declare (session : Session.t) (program : Ast.stmt list) =
+    Session.declare session program
+
+  let check (session : Session.t) f =
+    try Some (f ()) with
+    | Located e ->
+      session.Session.errors := e :: !(session.Session.errors);
+      None
+
+  let root (session : Session.t) (s : Ast.stmt) : checked_stmt list option =
+    let s = unattributed s in
+    if List.exists
+         (function
+           | Value name -> Hashtbl.mem failed name
+           | Member _ -> false)
+         (names_used s)
+    then (
+      List.iter
+        (function
+          | Value name -> Hashtbl.replace failed name ()
+          | Member _ -> ())
+        (names_declared s);
+      None)
+    else (
+      let checked =
+        check session (fun () ->
+          statement session.Session.ctx (fun () ->
+            with_pending (fun () ->
+              infer_stmt session.Session.env session.Session.ctx (assigned_names [ s ]) s)))
+      in
+      if Option.is_none checked
+      then
+        List.iter
+          (function
+            | Value name -> Hashtbl.replace failed name ()
+            | Member _ -> ())
+          (names_declared s);
+      checked)
+
+  (* What a meta block sees: the declarations, and none of the program's
+     run-time variables. *)
+  let meta_env (session : Session.t) ~hidden =
+    let bindings = Hashtbl.copy session.Session.env.bindings in
+    List.iter (Hashtbl.remove bindings) hidden;
+    { bindings; parent = None; open_names = Hashtbl.copy session.Session.env.open_names }
+
+  (* A statement checked apart from whatever the walk was in the middle of: its
+     own row, so nothing the interrupted check was building reaches it. *)
+  let isolated (session : Session.t) env (s : Ast.stmt) =
+    let ctx =
+      { registry = session.Session.ctx.registry
+      ; return_type = None
+      ; saw_return = false
+      ; cps_answer = None
+      ; row = Types.fresh_row ()
+      ; hoisted = []
+      }
+    in
+    let saved = !top_row, !open_defer, !walk_locals, !bound_traits, !in_loop in
+    top_row := Some ctx.row;
+    open_defer := None;
+    walk_locals := [];
+    bound_traits := [];
+    in_loop := false;
+    Fun.protect
+      ~finally:(fun () ->
+        let top, defer, locals, bounds, looping = saved in
+        top_row := top;
+        open_defer := defer;
+        walk_locals := locals;
+        bound_traits := bounds;
+        in_loop := looping)
+      (fun () ->
+        let checked =
+          statement ctx (fun () ->
+            with_pending (fun () -> infer_stmt env ctx (assigned_names [ s ]) s))
+        in
+        checked, ctx.row)
+
+  let meta (session : Session.t) ~hidden (s : Ast.stmt) : checked_stmt list =
+    let saved = !in_meta in
+    in_meta := true;
+    Fun.protect
+      ~finally:(fun () -> in_meta := saved)
+      (fun () ->
+        let checked, row = isolated session (meta_env session ~hidden) s in
+        (match (Types.resolve_row row).Types.labels with
+         | entry :: _ ->
+           fail
+             s.Ast.span
+             "Unhandled effect '%s': no handler encloses this."
+             (Types.entry Types.string_of_ty entry)
+         | [] -> close_tail row);
+        checked)
+
+  (* A static argument checked against its parameter's type. *)
+  let probe (session : Session.t) ~hidden (s : Ast.stmt) =
+    ignore (isolated session (meta_env session ~hidden) s)
+
+  (* A type-level statement emitted as written; an effect's operations are bound
+     where it is checked. *)
+  let type_level (session : Session.t) (s : Ast.stmt) : checked_stmt list option =
+    root session s
+
+  let errors (session : Session.t) = Session.errors session
+end
+
+let check_with ~registry program =
+  let session = Session.start ~registry in
+  Session.declare session program;
+  Session.infer session program;
+  Session.errors session
+
+(* Before the walk, a meta block may still be what removes it. *)
+let check ?(policy = strict) ~registry program : error list =
   current := policy;
-  Fun.protect ~finally:(fun () -> current := strict) (fun () -> check_with ~registry program)
+  Fun.protect
+    ~finally:(fun () -> current := strict)
+    (fun () ->
+      try check_with ~registry program with
+      | Rejected e -> policy.unknown (fun () -> [ e ]) (fun () -> []))

@@ -14,8 +14,6 @@ fn wait() {
 var fire = Move { name: "burn", apply: burn };
 var rest = Move { name: "wait", apply: wait };
 
-var queue = [];
-queue.push(() => { fire.apply(1, 2); });
-queue.push(() => { rest.apply(); });
+var queue = [() => { fire.apply(1, 2); }, () => { rest.apply(); }];
 
 for (step in queue) { step(); }

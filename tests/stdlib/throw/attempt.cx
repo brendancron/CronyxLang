@@ -17,7 +17,7 @@ for (n in [4, 3]) {
     }
 }
 
-var fine = attempt { quiet(2) };
+var fine: Result<int, string> = attempt { quiet(2) };
 match fine {
     Result.Ok(v) => { print("still " + str(v)); }
     Result.Err(_) => { print("unreachable"); }

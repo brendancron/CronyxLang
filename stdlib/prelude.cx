@@ -9,22 +9,13 @@
  * compiler hands every top-level statement to it as a function.
  */
 
-import { async, block_on } from "std/async/Task";
 import { Throw } from "std/core/Error";
-import { Stream, __stdin_of_process } from "std/io/Console";
-import {
-    Fs, Dirs, __open_on_disk, __read_dir_on_disk, __stat_on_disk, __create_dir_on_disk, __remove_on_disk,
-    __rename_on_disk
-} from "std/fs/File";
+import { Stream } from "std/io/Console";
 import { Args } from "std/os/Args";
 import { Env, __env_var_of_process } from "std/os/Env";
 import { Time, Timestamp, Instant } from "std/os/Time";
 import { Random } from "std/random/Random";
-import { Process, Exit, __start_on_system } from "std/os/Process";
 import { Logger, __written_line } from "std/log/Logger";
-import { Net, __lookup_on_system } from "std/net/Net";
-import { __connect_on_system, __listen_on_system } from "std/net/Tcp";
-import { __bind_on_system } from "std/net/Udp";
 
 global import { Assertion, assert } from "std/core/Assert";
 global import { Iter, Iterable } from "std/core/Iter";
@@ -37,65 +28,41 @@ global import {
 global import { Option } from "std/core/Option";
 global import { Range } from "std/core/Range";
 global import {
-    AttrArg, Attr, TypeRef, TypeField, TypeVariant, TypeShape, Module, Declaration, DeclarationKind
+    AttrArg, Attr, TypeRef, TypeField, TypeVariant, TypeShape, Type, Module, Declaration, DeclarationKind
 } from "std/meta/Reflect";
 global import { Set } from "std/collections/Set";
 global import { Display, Debug } from "std/text/Format";
-global import { Console, Stdin, read_line } from "std/io/Console";
+global import { EffectHandler } from "std/core/EffectHandler";
+global import { Console } from "std/io/Console";
 global import { print, printerr } from "std/io/Print";
 
 /**
- * Runs one top-level statement and hands back its value: under the terminal
- * and its input, with files on disk, programs the system runs and its network,
- * the process's arguments and environment, the system's clocks and its entropy,
- * and under `block_on`, so a statement may wait, and a failure nothing catches
- * stops the program with its value.
+ * Runs one top-level statement and hands back its value: under the terminal,
+ * the process's arguments and environment, the system's clocks and its
+ * entropy, and a failure nothing catches stops the program with its value.
  */
-fn __root<T, X, E>(
-    main: () -> <async, Throw<X>, Console, Stdin, Fs, Dirs, Process, Net, Exit, Logger, Args, Env, Time, Random, E> T
-): <E> T {
+fn __root<T, X, Rest>(main: () -> <Throw<X>, Console, Logger, Args, Env, Time, Random, Rest> T): <Rest> T {
     var out: Option<T> = Option.None;
     run {
-        block_on {
-            run {
-                out = Option.Some(main());
-            } handle Fs {
-                ctl open(path, mode) { resume __open_on_disk(path, mode); }
-            } handle Process {
-                ctl start(command) { resume __start_on_system(command); }
-            } handle Net {
-                ctl connect(host, port) { resume __connect_on_system(host, port); }
-                ctl listen(host, port) { resume __listen_on_system(host, port); }
-                ctl bind(host, port) { resume __bind_on_system(host, port); }
-                ctl lookup(host) { resume __lookup_on_system(host); }
-            }
-        };
-    } handle Dirs {
-        fn read_dir(path) { return __read_dir_on_disk(path); }
-        fn stat(path) { return __stat_on_disk(path); }
-        fn create_dir(path) { return __create_dir_on_disk(path); }
-        fn remove(path) { return __remove_on_disk(path); }
-        fn rename(from, to) { return __rename_on_disk(from, to); }
-    } handle Logger {
+        out = Option.Some(main());
+    } handle<Throw> {
+        fn throw(e, resume) { panic("uncaught failure: " + str(e)); }
+    } handle<Logger> {
         fn record(level, message) { __write_err(__written_line(level, message)); }
-    } handle Exit {
-        final ctl exit(status) { __exit(status); }
-    } handle Args {
+    } handle<Args> {
         fn args() { return __args(); }
-    } handle Env {
+    } handle<Env> {
         fn env_var(name) { return __env_var_of_process(name); }
         fn set_env_var(name, value) { __env_set(name, value); }
         fn remove_env_var(name) { __env_remove(name); }
         fn env_vars() { return __env_all(); }
-    } handle Time {
+    } handle<Time> {
         fn now() { return Timestamp { nanos: __time_wall() }; }
         fn instant() { return Instant { nanos: __time_instant() }; }
         fn wait_until(at) { __time_wait_until(at.nanos); }
-    } handle Random {
+    } handle<Random> {
         fn random_bits() { return __random_bits(); }
-    } handle Stdin {
-        fn stdin() { return __stdin_of_process(); }
-    } handle Console {
+    } handle<Console> {
         fn write(to, text) {
             match to {
                 Stream.Out => { __write_out(text); }

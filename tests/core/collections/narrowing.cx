@@ -6,12 +6,16 @@ impl Stack {
     }
 }
 
-var xs = [1, 2, 3];
-xs.push(4);
-print(str(xs.len()) + " " + str(xs[3]) + " " + str(typeof(xs).name));
+fn literals() {
+    var xs = [1, 2, 3];
+    xs.push(4);
+    print(str(xs.len()) + " " + str(xs[3]) + " " + str(typeof(xs).name));
 
-var ys = [1, 2];
-print(str(ys.len()) + " " + str(typeof(ys).name));
+    var ys = [1, 2];
+    print(str(ys.len()) + " " + str(typeof(ys).name));
+}
+
+literals();
 
 var s = Stack { n: 0 };
 s.push(5);

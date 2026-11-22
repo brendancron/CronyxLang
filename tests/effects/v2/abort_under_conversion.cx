@@ -1,0 +1,21 @@
+trait E { @ctl fn ask(): int; }
+trait Fail { @ctl fn bail<T>(): T; }
+
+fn g(): <E, Fail, Console> unit {
+    var t = ask();
+    bail();
+    print("UNREACHABLE");
+}
+
+run {
+    run {
+        g();
+        print("UNREACHABLE-2");
+    } handle<Fail> { fn bail(resume) { print("bailed"); } }
+    print("after the fail run");
+} handle<E> {
+    fn ask(resume) {
+        resume(7);
+        print("E after");
+    }
+}

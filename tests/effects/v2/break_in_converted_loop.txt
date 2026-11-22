@@ -1,0 +1,11 @@
+left iteration 1
+left iteration 2
+after the loop
+saw 1
+saw 2
+match done
+1/1
+outer 1
+2/1
+outer 2
+total 4

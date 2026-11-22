@@ -1,0 +1,15 @@
+import { DeclKind } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
+
+fn id<T>(x: T): T { return x; }
+
+fn first(x) { return x; }
+
+fn times<n: int>(x: int): int { return x * n; }
+
+meta {
+    print(decl_source(declof(id<int>)));
+    print(decl_source(declof(first<string>)));
+    print(decl_source(declof(times<3>)));
+}
+print(id(1));

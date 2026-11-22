@@ -1,0 +1,13 @@
+trait Log {
+    fn log(msg: string): unit;
+}
+
+type Quiet {}
+
+impl Log for Quiet {
+    fn log(msg: string): unit {}
+}
+
+run {
+    print(1);
+} with Quiet;

@@ -1,0 +1,15 @@
+trait E { @ctl fn op(): int; }
+
+fn doubled(): <E> int { return op() * 2; }
+fn tripled(): <E> int { return op() * 3; }
+
+run {
+    var tasks: List<() -> <E> int> = [];
+    tasks.push(() => { return doubled(); });
+    tasks.push(() => { return tripled(); });
+    for (task in tasks) {
+        print(str(task()));
+    }
+} handle<E> {
+    fn op(resume) { resume(7); }
+}

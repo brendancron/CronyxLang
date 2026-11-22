@@ -1,0 +1,78 @@
+/**
+ * The terminal's input. Reading is its own effect, `Stdin`, so capturing output
+ * and faking input are separate handlers; what it hands out is a `Reader`,
+ * whose reads may wait:
+ *
+ * ```
+ * while (true) {
+ *     match read_line() {
+ *         Option.Some(line) => { print("> " + line); }
+ *         Option.None => { break; }
+ *     }
+ * }
+ * ```
+ */
+
+import { async } from "../async/Task";
+import { Throw, Result, Failure } from "../core/Error";
+import { Reader, IoError } from "Io";
+import { decode } from "../text/Utf8";
+
+/** The process's standard input. */
+effect Stdin {
+    /** Standard input, as a stream. Getting it never waits; reading it may. */
+    fn stdin(): Reader;
+}
+
+/**
+ * The next line of standard input without its line ending, or `None` once the
+ * input has ended. Throws if the line is not UTF-8 text.
+ */
+fn read_line(): <Stdin, async, Throw<IoError>> Option<string> {
+    var input = stdin();
+    var newline = "\n".bytes()[0];
+    var line: List<byte> = [];
+    while (true) {
+        match input.read(1) {
+            Option.None => {
+                if (line.len() == 0) { return Option.None; }
+                return Option.Some(__line(line));
+            }
+            Option.Some(chunk) => {
+                if (chunk[0] == newline) { return Option.Some(__line(line)); }
+                line.push(chunk[0]);
+            }
+        }
+    }
+    return Option.None;
+}
+
+// A line's bytes as text, less a carriage return before the newline.
+fn __line(bytes: List<byte>): <Throw<IoError>> string {
+    var stop = bytes.len();
+    if (stop > 0 && bytes[stop - 1] == "\r".bytes()[0]) { stop = stop - 1; }
+    match decode(bytes.items[0:stop]) {
+        Result.Ok(text) => { return text; }
+        Result.Err(e) => { throw(IoError.Other("standard input: " + e.message())); }
+    }
+    return "";
+}
+
+// ---- the terminal's input, which the root hands out ----
+
+type TerminalInput;
+
+impl Reader for TerminalInput {
+    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+        var (status, data, message) = suspend { it(__stdin_read(max)) };
+        if (status != 0) { throw(IoError.Other(message)); }
+        if (data.len() == 0) { return Option.None; }
+        return Option.Some(data);
+    }
+}
+
+/** How the root answers `stdin`: with the process's own. */
+fn __stdin_of_process(): Reader {
+    var input: Reader = TerminalInput;
+    return input;
+}

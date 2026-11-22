@@ -1,6 +1,6 @@
 // `print` is an ordinary function of one argument, so it is a value like any
 // other and a declaration may shadow it.
-var send = print;
+var send: (string) -> <Console> unit = print;
 send("passed as a value");
 
 fn twice(f: (string) -> <Console> unit, msg: string) { f(msg); f(msg); }

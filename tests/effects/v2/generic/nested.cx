@@ -1,0 +1,13 @@
+trait Yield<T> { @ctl fn yield(v: T): unit; }
+
+run {
+    run {
+        yield(1);
+        yield(2);
+    } handle<Yield> {
+        fn yield(x, resume) { print("inner" + " " + str(x)); resume(()); }
+    }
+    yield("done");
+} handle<Yield> {
+    fn yield(s, resume) { print("outer" + " " + str(s)); resume(()); }
+}

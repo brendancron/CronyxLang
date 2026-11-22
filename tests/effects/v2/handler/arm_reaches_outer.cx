@@ -1,0 +1,31 @@
+trait Log { fn log(s: string): unit; }
+trait Ask { @ctl fn ask(): int; }
+trait Fail { @ctl fn fail<T>(why: string): T; }
+
+run {
+    run { log("inner"); } handle<Log> { fn log(s) { log("wrapped " + s); } }
+} handle<Log> { fn log(s) { print("outer got " + s); } }
+
+run {
+    run { print(ask() + 1); } handle<Ask> { fn ask(resume) { resume(ask() * 10); } }
+} handle<Ask> { fn ask(resume) { resume(4); } }
+
+run {
+    run { print(ask() + 2); } handle<Ask> {
+        fn ask(resume) {
+            var seen = ask();
+            resume(seen * 100);
+            print("inner arm done");
+        }
+    }
+} handle<Ask> { fn ask(resume) { resume(3); } }
+
+run {
+    run { fail("deep"); } handle<Fail> { fn fail(why, resume) { fail("rethrown " + why); } }
+} handle<Fail> { fn fail(why, resume) { print("outer caught " + why); } }
+
+fn wrapped() {
+    run { log("from a function"); } handle<Log> { fn log(s) { log("[" + s + "]"); } }
+}
+run { wrapped(); } handle<Log> { fn log(s) { print(s); } }
+print("done");

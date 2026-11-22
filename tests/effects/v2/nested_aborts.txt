@@ -1,0 +1,4 @@
+inner stopped
+after inner run
+---
+outer halted

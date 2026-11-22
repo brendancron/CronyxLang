@@ -46,9 +46,6 @@ let is_alpha c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c = '_'
 let is_alphanumeric c = is_alpha c || is_digit c
 
 let keyword = function
-  | "ctl" -> Some Token.Ctl
-  | "final" -> Some Token.Final
-  | "effect" -> Some Token.Effect
   | "else" -> Some Token.Else
   | "false" -> Some Token.False
   | "fn" -> Some Token.Fn
@@ -62,10 +59,7 @@ let keyword = function
   | "defer" -> Some Token.Defer
   | "meta" -> Some Token.Meta
   | "handle" -> Some Token.Handle
-  | "handler" -> Some Token.Handler
   | "match" -> Some Token.Match
-  | "resume" -> Some Token.Resume
-  | "discontinue" -> Some Token.Discontinue
   | "return" -> Some Token.Return
   | "break" -> Some Token.Break
   | "continue" -> Some Token.Continue
@@ -74,6 +68,7 @@ let keyword = function
   | "true" -> Some Token.True
   | "type" -> Some Token.Type
   | "typeof" -> Some Token.Typeof
+  | "declof" -> Some Token.Declof
   | "var" -> Some Token.Var
   | "while" -> Some Token.While
   | "with" -> Some Token.With

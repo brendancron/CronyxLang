@@ -7,11 +7,16 @@ This is separate from `docs/`, which is the Docusaurus site published for langua
 | Document                                                     | Subject                                                               |
 | ------------------------------------------------------------ | --------------------------------------------------------------------- |
 | [Architecture.md](Architecture.md)                           | `bootstrap` pipeline, a heading per pass                              |
+| [Vocabulary.md](Vocabulary.md)                               | The words the design uses, and the ones it avoids                     |
 | [Type System.md](Type%20System.md)                           | Type system and type checking for `bootstrap` (OCaml)                 |
 | [Algebraic Effects.md](Algebraic%20Effects.md)               | Effect rows and the selective CPS pass                                |
 | [Row Polymorphism.md](Row%20Polymorphism.md)                 | Abstracting over the effects a callback performs                      |
 | [Continuations and Tasks.md](Continuations%20and%20Tasks.md) | Why a continuation is pure and a task is not, and what a scheduler owes to it |
 | [Async.md](Async.md)                                         | The two operations `async` declares, and why the queue holds wake-ups, not tasks |
+| [Async Strategies.md](Async%20Strategies.md)                 | Proposed: suspension as a library rewrite passed as a static param, replacing `ctl` |
+| [CPS in Metaprocessing.md](CPS%20in%20Metaprocessing.md)     | Proposed: CPS as a strategy the walk runs, scoped by `run<S>`         |
+| [Delimited CPS Example.md](Delimited%20CPS%20Example.md)     | A `run` block before and after a delimited CPS conversion             |
+| [Inlining.md](Inlining.md)                                   | Proposed: `inline fn`, and static function params that inline       |
 | [Errors.md](Errors.md)                                       | A failure as a typed value, and why one effect carries every kind     |
 | [IO.md](IO.md)                                               | Files and the console: async from the start, an effect to open, traits to use |
 | [Net.md](Net.md)                                             | Sockets: why the scheduler waits on them, and TCP, UDP and HTTP over that |

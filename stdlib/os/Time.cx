@@ -210,7 +210,7 @@ impl Debug for Timestamp {
 }
 
 /** The clocks. */
-effect Time {
+trait Time {
     /** The time of day. The system may set it, forwards or back. */
     fn now(): Timestamp;
 

@@ -1,0 +1,22 @@
+trait logic { @ctl fn choose(options: Array<int>): int; }
+
+fn pick(): int {
+    run {
+        var n = choose([1, 2]);
+        print("saw" + " " + str(n));
+    } handle<logic> {
+        fn choose(options, resume) { for (x in options) { resume(x); } }
+    }
+    return 7;
+}
+
+print(pick());
+
+run {
+    var a = choose([1, 2]);
+    run {
+        var b = choose([10, 20]);
+        print(str(a) + " " + str(b));
+    } handle<logic> { fn choose(o, resume) { for (x in o) { resume(x); } } }
+} handle<logic> { fn choose(o, resume) { for (x in o) { resume(x); } } }
+print("done");

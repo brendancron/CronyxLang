@@ -1,1 +1,1 @@
-[12:7] Expected Add, got Foo.
+[7:16] No operator + for Foo and Foo: Foo does not implement Add<Foo>.

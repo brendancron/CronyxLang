@@ -43,7 +43,7 @@ impl Level {
 }
 
 /** Where log messages go. */
-effect Logger {
+trait Logger {
     /** Records the message at the level. */
     fn record(level: Level, message: string): unit;
 }

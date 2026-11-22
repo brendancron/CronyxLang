@@ -1,0 +1,27 @@
+import { Decl, DeclKind, FnDecl, Expr, ExprKind, fresh, declare } from "std/compiler/Ast";
+
+fn renamed(d: Decl, name: Name): Decl {
+    match d.kind {
+        DeclKind.Fn(f) => {
+            return Decl.of(DeclKind.Fn(FnDecl { name: name, params: f.params, signature: f.signature, body: f.body }));
+        }
+        _ => { return d; }
+    }
+}
+
+fn doubled(x: int): int {
+    return meta {
+        var a = fresh("double");
+        var b = fresh("double");
+        print(a == b);
+        print(str(a));
+        declare(renamed(code fn double(n: int): int { return n * 2; }, a));
+        var call = Expr.of(ExprKind.Call(Expr.of(ExprKind.Var(a)), [code(x)]));
+        gen call;
+    };
+}
+
+fn double(n: int): int { return n + 1000; }
+
+print(doubled(21));
+print(double(1));

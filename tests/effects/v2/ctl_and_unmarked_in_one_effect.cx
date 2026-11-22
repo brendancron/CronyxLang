@@ -1,0 +1,20 @@
+trait Effect {
+    fn log(msg: string): unit;
+    @ctl fn choose(options: Array<int>): int;
+}
+
+var ret = run<string> {
+    log("picking");
+    var n = choose([1, 2]);
+    log("chose " + str(n));
+    str(n)
+} handle<Effect> {
+    fn log(msg) { print(msg); }
+    fn choose(options, k) {
+        var last = "";
+        for (x in options) { last = k(x); }
+        return last;
+    }
+};
+
+print(ret);

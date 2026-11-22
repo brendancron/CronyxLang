@@ -1,0 +1,26 @@
+trait Error {
+    @ctl fn throw<T>(msg: string): T;
+}
+
+fn as_int(s: string): int {
+    if (s == "42") { return 42; }
+    return throw("not an int: " + s);
+}
+
+fn as_word(n: int): string {
+    if (n == 0) { return "zero"; }
+    return throw("not zero");
+}
+
+run {
+    print(str(as_int("42")) + " " + str(as_word(0)));
+} handle<Error> {
+    fn throw(msg, resume) { print("caught: " + msg); }
+}
+
+run {
+    print(as_int("nope"));
+    print("unreachable");
+} handle<Error> {
+    fn throw(msg, resume) { print("caught: " + msg); }
+}

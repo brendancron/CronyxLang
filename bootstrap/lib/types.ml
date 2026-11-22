@@ -2,8 +2,8 @@
 type fields = (string * ty) list
 
 (* `Yield<int>` and `Yield<string>` are different entries. [tail] is the
-   variable a call site settles: `Cps` reads evidence arity off a definition, so
-   a row that is still open here is one `Type_mono` owes a copy per row. *)
+   variable a call site settles, so a row still open here is one each caller
+   may fill differently. *)
 and row =
   { labels : (string * ty list) list
   ; tail : int option
@@ -19,8 +19,8 @@ and ty =
   | Unit
   | Tuple of ty list
   (* The parameter list a pack stands for, and a use of one in a list position.
-     [Spread] survives only where the pack is still generic: [Type_mono] splices
-     it the moment the copy is concrete. *)
+     [Spread] survives only where the pack is still generic: an instance's key
+     settles it, and it is spliced then. *)
   | Pack of ty list
   | Spread of ty
   | Record of fields
@@ -138,7 +138,6 @@ let name_param name (t : infer_ty) =
   | _ -> ()
 
 let reset () =
-  counter := 0;
   Hashtbl.reset declared_params;
   Hashtbl.reset declared_row_params;
   Hashtbl.reset param_names;
@@ -198,23 +197,9 @@ let rec repr_fields (f : infer_fields) : infer_fields =
 (* A literal that narrowed to nothing else is an array. *)
 let array_name = "Array"
 
-(* Not a runtime value: [Reflect] folds each projection to the data it names. *)
-let reflection_name = "Type"
-let shape_name = Core.shape
-let field_name = Core.field
-let variant_name = Core.variant
-
 let name_name = "Name"
 let iname = INamed (name_name, [])
 let name = Named (name_name, [])
-let attr_name = Core.attr
-let attr_arg_name = Core.attr_arg
-
-let attr_ty = Named (attr_name, [])
-let iattr_ty = INamed (attr_name, [])
-
-let ireflected = INamed (reflection_name, [])
-let reflected = Named (reflection_name, [])
 
 (* Where a piece of syntax was written, carried by a tree a `meta` block holds.
    Opaque, so a program cannot forge one. *)
@@ -619,8 +604,7 @@ let infer_type_name (t : infer_ty) : string option =
   | ITuple _ | IPack _ | ISpread _ | IRecord _ | IFn _ | IRow _ | IVar _ -> None
 
 (* A pack in a list position is however many types it holds. One whose pack is
-   still a variable stays where it is: [Type_mono] splices it once the copy it
-   makes has settled what the pack holds. *)
+   still a variable stays where it is until a key settles what the pack holds. *)
 let rec expand (items : infer_ty list) : infer_ty list =
   match items with
   | [] -> []
@@ -704,8 +688,6 @@ let rec rewrite_row label args (r : infer_row) : infer_row =
   | RVar { contents = RLink _ } -> assert false
   | REmpty -> error "This code does not handle the effect '%s'." label
 
-(* Containment, not equality: the CPS pass reads the callee's annotation to
-   decide how much evidence to pass. *)
 and row_within (inner : infer_row) (outer : infer_row) : unit =
   match repr_row inner with
   | REmpty | RVar _ -> ()
@@ -1072,7 +1054,7 @@ let constrain (t : infer_ty) (kind : kind) : unit =
     cell := Unbound (id, strongest existing kind)
   | _ -> ()
 
-let instantiate ?(bound = []) (s : scheme) : infer_ty =
+let instantiate ?(bound = []) ?(bound_rows = []) (s : scheme) : infer_ty =
   if s.quantified = [] && s.quantified_rows = [] && s.quantified_fields = []
   then s.body
   else (
@@ -1080,6 +1062,7 @@ let instantiate ?(bound = []) (s : scheme) : infer_ty =
     and rows = Hashtbl.create 8
     and fields = Hashtbl.create 8 in
     List.iter (fun (id, t) -> Hashtbl.replace types id t) bound;
+    List.iter (fun (id, r) -> Hashtbl.replace rows id r) bound_rows;
     let rec walk_row r =
       match repr_row r with
       | REmpty -> REmpty
@@ -1490,8 +1473,7 @@ let fields_of name args : infer_fields =
   | None -> FEmpty
 
 (* The rows first and [declared] after them: a field's function performs what
-   its row argument says, and widening it before that is known would leave out
-   the evidence that performing needs. *)
+   its row argument says, which has to be known before it is widened. *)
 let named_fields ?(declared = Fun.id) name args : fields =
   match Hashtbl.find_opt declarations name with
   | None -> []
@@ -1510,15 +1492,3 @@ let named_fields ?(declared = Fun.id) name args : fields =
     in
     List.sort compare (collect f)
 
-let () =
-  let attrs = iarray iattr_ty in
-  (* [doc] is the text of a `/** … */`, empty where there was none -- which is
-     also what an empty one normalizes to, so nothing is lost by not
-     distinguishing them. *)
-  declare_fields
-    reflection_name
-    []
-    (FCons
-       ( "attrs"
-       , attrs
-       , FCons ("doc", IStr, FCons ("name", IStr, FCons ("shape", ISum (shape_name, []), FEmpty))) ))

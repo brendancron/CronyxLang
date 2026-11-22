@@ -1,0 +1,14 @@
+trait Log {
+    fn log(msg: string): unit;
+}
+
+fn greet(name: string): unit {
+    log("hello " + name);
+}
+
+run {
+    var g = greet;
+    g("ada");
+} handle<Log> {
+    fn log(msg) { print(msg); }
+}

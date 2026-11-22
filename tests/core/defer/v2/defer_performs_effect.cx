@@ -1,0 +1,8 @@
+trait Ask { @ctl fn get(): int; }
+
+fn use(): <Ask, Console> unit {
+    defer print(get());
+    print("body");
+}
+
+run { use(); } handle<Ask> { fn get(resume) { resume(5); print("after"); } }

@@ -1,0 +1,12 @@
+trait Ask { @ctl fn get(): bool; }
+
+run {
+    var i = 0;
+    while (i < 3 && get()) {
+        print(i);
+        i = i + 1;
+    }
+    print("done");
+} handle<Ask> {
+    fn get(resume) { resume(true); }
+}

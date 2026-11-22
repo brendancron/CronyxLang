@@ -1,0 +1,4 @@
+meta {
+    gen code fn answer(): int { return 42; };
+}
+print(answer());

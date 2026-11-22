@@ -1,0 +1,24 @@
+trait Ask { @ctl fn get(): bool; }
+
+fn any(): <Ask> bool {
+    return false || get();
+}
+
+fn both(): <Ask> bool {
+    return true && get();
+}
+
+fn short(): <Ask> bool {
+    return true || get();
+}
+
+run {
+    print(any());
+    print(both());
+    print(short());
+} handle<Ask> {
+    fn get(resume) {
+        resume(true);
+        print("after");
+    }
+}

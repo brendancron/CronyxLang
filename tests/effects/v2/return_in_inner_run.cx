@@ -1,0 +1,19 @@
+trait E { @ctl fn ask(): int; }
+trait Log { fn note(): unit; }
+
+fn f(): <E, Console> int {
+    run {
+        note();
+        return 1;
+    } handle<Log> { fn note() { print("noted"); } }
+    return ask();
+}
+
+run {
+    print(f());
+} handle<E> {
+    fn ask(resume) {
+        resume(7);
+        print("after");
+    }
+}

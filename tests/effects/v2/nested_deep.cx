@@ -1,0 +1,18 @@
+trait A0 { @ctl fn a0(): int; }
+trait A1 { @ctl fn a1(): int; }
+trait A2 { @ctl fn a2(): int; }
+trait A3 { @ctl fn a3(): int; }
+trait A4 { @ctl fn a4(): int; }
+
+run {
+    run {
+        run {
+            run {
+                run {
+                    print(a0() + a1() + a2() + a3() + a4());
+                } handle<A0> { fn a0(resume) { return resume(1); } }
+                print("after a0's run");
+            } handle<A1> { fn a1(resume) { return resume(2); } }
+        } handle<A2> { fn a2(resume) { resume(3); resume(30); } }
+    } handle<A3> { fn a3(resume) { return resume(4); } }
+} handle<A4> { fn a4(resume) { return resume(5); } }

@@ -1,0 +1,19 @@
+trait Ask { @ctl fn get(): int; }
+
+type Shape {
+    Circle { radius: int },
+    Rect { w: int, h: int },
+}
+
+fn make(): <Ask> Shape {
+    return Shape.Rect { w: 2, h: get() };
+}
+
+run {
+    match make() {
+        Shape.Rect { w, h } => { print(str(w) + "x" + str(h)); }
+        Shape.Circle { radius } => { print(radius); }
+    }
+} handle<Ask> {
+    fn get(resume) { resume(4); }
+}

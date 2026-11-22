@@ -1,0 +1,6 @@
+fn greet(name: string) {
+    print(("Hello, " + name));
+}
+
+a function named greet
+Hello, ada

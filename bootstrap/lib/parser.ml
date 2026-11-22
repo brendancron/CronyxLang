@@ -49,7 +49,7 @@ let consume_identifier s message =
 
 (* `sig.Beep`: a declaration named through the module it was written in. The
    parser only records the spelling; `Loader` is what resolves the qualification,
-   which is why the same helper serves `derive`, an effect and a handler. *)
+   which is why the same helper serves `derive` and `with`. *)
 let rec qualified_name s message =
   let head = consume_identifier s message in
   if check s Token.Dot
@@ -59,6 +59,7 @@ let rec qualified_name s message =
   else head
 
 let matches_binop s ops =
+
   let token_type = (peek s).Token.token_type in
   if List.mem token_type ops
   then (
@@ -434,12 +435,13 @@ and call s : Ast.expr =
            (Ast.at
               callee.Ast.span
               (`New_generic (type_path s callee, static_args, record_fields s)))
-       | Some static_args ->
-         ignore (consume s Token.Left_paren "Expected '(' after static arguments.");
+       | Some static_args when check s Token.Left_paren ->
+         ignore (advance s);
          loop
            (Ast.at
               callee.Ast.span
               (`Static_call (callee, static_args, arguments s)))
+       | Some static_args -> Ast.at callee.Ast.span (`Static_ref (callee, static_args))
        | None -> callee)
     | Token.Dot ->
       ignore (advance s);
@@ -506,8 +508,9 @@ and type_path s (callee : Ast.expr) =
   | _ -> raise (error s (peek s) "Expected a type name before the fields.")
 
 (* `f<int>(x)` and `a < b > (c)` are the same shape, so this is accepted only
-   when a call or fields follow; position and errors are put back when none does. *)
-and static_arguments s : Ast.expr Ast.static_arg list option =
+   when a call or fields follow, or what follows ends the expression, which no
+   comparison can; position and errors are put back otherwise. *)
+and static_arguments ?(operand = false) s : Ast.expr Ast.static_arg list option =
   let start = s.current
   and errors = s.errors in
   let restore () =
@@ -539,6 +542,12 @@ and static_arguments s : Ast.expr Ast.static_arg list option =
     else None
   with
   | Some args when check s Token.Left_paren || starts_fields s -> Some args
+  | Some args when operand && check s Token.Right_paren -> Some args
+  | Some args
+    when (not operand)
+         && List.mem
+              (peek s).Token.token_type
+              Token.[ Semicolon; Comma; Right_paren; Right_bracket; Right_brace ] -> Some args
   | _ -> restore ()
   | exception Parse_error -> restore ()
 
@@ -753,6 +762,32 @@ and primary s : Ast.expr =
     let e = expression s in
     ignore (consume s Token.Right_paren "Expected ')' after typeof operand.");
     Ast.at sp (`Typeof e)
+  | Token.Declof ->
+    ignore (advance s);
+    ignore (consume s Token.Left_paren "Expected '(' after 'declof'.");
+    let first = peek s in
+    let head =
+      Ast.at
+        (Ast.span_of_token first)
+        (`Var (consume_identifier s "Expected the name of a declaration after 'declof('."))
+    in
+    let rec qualified (e : Ast.expr) =
+      if check s Token.Dot
+      then (
+        ignore (advance s);
+        qualified (Ast.at e.Ast.span (`Field (e, consume_identifier s "Expected a name after '.'."))))
+      else e
+    in
+    let operand = qualified head in
+    let static_args = if check s Token.Less then static_arguments ~operand:true s else None in
+    ignore (consume s Token.Right_paren "Expected ')' after the declof operand.");
+    Ast.at sp (`Declof (operand, static_args))
+  | Token.Meta ->
+    ignore (advance s);
+    if not (check s Token.Left_brace)
+    then raise (error s (peek s) "A meta block standing as a value is written in braces: meta { … }.");
+    ignore (advance s);
+    Ast.at sp (`Meta_expr (block s))
   | Token.Code ->
     ignore (advance s);
     (match (peek s).Token.token_type with
@@ -768,9 +803,8 @@ and primary s : Ast.expr =
        let at = peek s in
        (match declaration s with
         | Some ({ Ast.it =
-                    ( `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Effect_decl _
-                    | `Handler_decl _ | `Type_members _ | `Attributed _ | `Import _
-                    | `Global_import _ )
+                    ( `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Type_members _
+                    | `Trait_members _ | `Attributed _ | `Import _ | `Global_import _ )
                 ; _
                 } as d) -> Ast.at sp (`Code_decl d)
         | _ ->
@@ -823,8 +857,7 @@ and primary s : Ast.expr =
    attribute, and an `import` names nothing to hang one on. *)
 and attachable (s : Ast.stmt) =
   match s.Ast.it with
-  | `Fn _ | `Type_decl _ | `Trait_decl _ | `Impl_decl _ | `Effect_decl _
-  | `Handler_decl _ | `Var_decl _ -> true
+  | `Fn _ | `Type_decl _ | `Trait_decl _ | `Trait_members _ | `Impl_decl _ | `Var_decl _ -> true
   | _ -> false
 
 and declaration s : Ast.stmt option =
@@ -850,12 +883,6 @@ and declaration s : Ast.stmt option =
     | Token.Var ->
       ignore (advance s);
       Some (var_decl s sp)
-    | Token.Effect ->
-      ignore (advance s);
-      Some (effect_decl s sp)
-    | Token.Handler ->
-      ignore (advance s);
-      Some (handler_decl s sp)
     | Token.Type ->
       ignore (advance s);
       Some (type_decl s sp)
@@ -1088,13 +1115,6 @@ and statement s : Ast.stmt =
   | Token.Match ->
     ignore (advance s);
     match_stmt s sp
-  | Token.Resume ->
-    ignore (advance s);
-    resume_stmt s sp
-  | Token.Discontinue ->
-    ignore (advance s);
-    ignore (consume s Token.Semicolon "Expected ';' after discontinue.");
-    Ast.at sp `Discontinue
   | Token.Left_brace ->
     ignore (advance s);
     Ast.at sp (`Block (block s))
@@ -1157,7 +1177,7 @@ and for_stmt s sp : Ast.stmt =
   ignore (consume s Token.Semicolon "Expected ';' after loop condition.");
   let step = if check s Token.Right_paren then None else Some (expression s) in
   ignore (consume s Token.Right_paren "Expected ')' after for clauses.");
-  Ast.at sp (`For (init, cond, step, statement s)))
+  Lower.c_for sp init cond step (statement s))
 
 (* Matched by text, so neither becomes a word a program cannot use. *)
 and import_decl ?(global = false) s sp : Ast.stmt =
@@ -1193,55 +1213,6 @@ and import_decl ?(global = false) s sp : Ast.stmt =
   ignore (matches s [ Token.Semicolon ]);
   Ast.at sp (if global then `Global_import decl else `Import decl)
 
-and op_kind s : Ast.op_kind =
-  match (peek s).Token.token_type with
-  | Token.Fn ->
-    ignore (advance s);
-    Ast.Op_fn
-  | Token.Ctl ->
-    ignore (advance s);
-    Ast.Op_ctl
-  | Token.Final ->
-    ignore (advance s);
-    ignore (consume s Token.Ctl "Expected 'ctl' after 'final'.");
-    Ast.Op_final
-  | _ -> raise (error s (peek s) "Expected 'fn', 'ctl' or 'final ctl'.")
-
-and effect_decl s sp : Ast.stmt =
-  let name = consume_identifier s "Expected effect name." in
-  let params = type_params s in
-  ignore (consume s Token.Left_brace "Expected '{' after effect name.");
-  let rec loop acc =
-    if check s Token.Right_brace || is_at_end s
-    then List.rev acc
-    else (
-      (* An operation is a member, so what is written above it belongs to it --
-         read before the kind, because `/**` and `@` both come first. *)
-      let op_attrs = attributes s in
-      let kind = op_kind s in
-      let op_name = consume_identifier s "Expected operation name." in
-      let op_tparams = type_params s in
-      ignore (consume s Token.Left_paren "Expected '(' after operation name.");
-      let params =
-        listed_until s Token.Right_paren (fun s ->
-          let name = consume_identifier s "Expected parameter name." in
-          { Ast.name; ty = type_annotation s; implicit = false })
-      in
-      ignore (consume s Token.Right_paren "Expected ')' after parameters.");
-      let op_ret =
-        match matches s [ Token.Colon ] with
-        | Some _ -> Some (type_expr s)
-        | None -> None
-      in
-      ignore (consume s Token.Semicolon "Expected ';' after operation.");
-      loop
-        ({ Ast.op_name; op_kind = kind; op_tparams; op_params = params; op_ret; op_attrs }
-         :: acc))
-  in
-  let ops = loop [] in
-  ignore (consume s Token.Right_brace "Expected '}' after effect operations.");
-  Ast.at sp (`Effect_decl (name, params, ops))
-
 and trait_decl s sp : Ast.stmt =
   let name = consume_identifier s "Expected a trait name." in
   let params = type_params s in
@@ -1259,9 +1230,14 @@ and trait_decl s sp : Ast.stmt =
       loop []
   in
   ignore (consume s Token.Left_brace "Expected '{' after the trait name.");
+  let metas = ref [] in
   let rec loop assoc acc =
     if check s Token.Right_brace || is_at_end s
     then List.rev assoc, List.rev acc
+    else if check s Token.Meta
+    then (
+      Option.iter (fun m -> metas := m :: !metas) (declaration s);
+      loop assoc acc)
     else (
       (* Before the dispatch, so an associated type carries what was written
          above it as a method already did. *)
@@ -1291,10 +1267,15 @@ and trait_decl s sp : Ast.stmt =
   in
   let assoc, methods = loop [] [] in
   ignore (consume s Token.Right_brace "Expected '}' after the trait body.");
-  Ast.at
-    sp
-    (`Trait_decl
-      (name, params, { Ast.tb_super = supers; tb_assoc = assoc; tb_methods = methods }))
+  let decl =
+    Ast.at
+      sp
+      (`Trait_decl
+        (name, params, { Ast.tb_super = supers; tb_assoc = assoc; tb_methods = methods }))
+  in
+  match List.rev !metas with
+  | [] -> decl
+  | metas -> Ast.at sp (`Trait_members (decl, metas))
 
 and impl_decl s sp : Ast.stmt =
   let first = consume_identifier s "Expected a type or trait name after 'impl'." in
@@ -1334,28 +1315,27 @@ and impl_decl s sp : Ast.stmt =
         let value = type_expr s in
         ignore (consume s Token.Semicolon "Expected ';' after an associated type.");
         loop ({ Ast.as_name = bound; as_ty = value; as_attrs = attrs } :: assoc) acc)
-      else (
-      ignore (consume s Token.Fn "Expected a method.");
-      let method_name = consume_identifier s "Expected a method name." in
-      let static_params = static_params s in
-      ignore (consume s Token.Left_paren "Expected '(' after the method name.");
-      let params = parameters ~packs:(pack_names static_params) s in
-      let signature = signature ~static_params s in
-      ignore (consume s Token.Left_brace "Expected '{' before the method body.");
-      loop
-        assoc
-        ({ Ast.md_name = method_name
-         ; md_params = params
-         ; md_signature = signature
-         ; md_body = block s
-         ; md_ann = ()
-         ; md_attrs = attrs
-         }
-         :: acc)))
+      else loop assoc (method_def s attrs :: acc))
   in
   let assoc, methods = loop [] [] in
   ignore (consume s Token.Right_brace "Expected '}' after the methods.");
   Ast.at sp (`Impl_decl (trait, type_name, params, { Ast.ib_assoc = assoc; ib_methods = methods }))
+
+and method_def s attrs : (Ast.stmt, unit) Ast.method_def =
+  ignore (consume s Token.Fn "Expected a method.");
+  let method_name = consume_identifier s "Expected a method name." in
+  let static_params = static_params s in
+  ignore (consume s Token.Left_paren "Expected '(' after the method name.");
+  let params = parameters ~packs:(pack_names static_params) s in
+  let signature = signature ~static_params s in
+  ignore (consume s Token.Left_brace "Expected '{' before the method body.");
+  { Ast.md_name = method_name
+  ; md_params = params
+  ; md_signature = signature
+  ; md_body = block s
+  ; md_ann = ()
+  ; md_attrs = attrs
+  }
 
 (* Arguments are literals rather than expressions: an attribute is data a
    deriver reads, so there is nothing to evaluate and no stage that could. *)
@@ -1503,43 +1483,25 @@ and type_decl s sp : Ast.stmt =
   | [] -> decl
   | members -> Ast.at sp (`Type_members (decl, members)))
 
-and handler_decl s sp : Ast.stmt =
-  let name = consume_identifier s "Expected handler name." in
-  ignore (consume s Token.Colon "Expected ':' after handler name.");
-  Ast.at sp (`Handler_decl (name, handler s))
-
-and handler s : Ast.stmt Ast.handler =
-  let handled = qualified_name s "Expected an effect name." in
-  ignore (consume s Token.Left_brace "Expected '{' after effect name.");
-  let rec loop acc =
-    if check s Token.Right_brace || is_at_end s
-    then List.rev acc
-    else (
-      let kind = op_kind s in
-      let arm_name = consume_identifier s "Expected operation name." in
-      ignore (consume s Token.Left_paren "Expected '(' after operation name.");
-      (* Types come from the declaration, so an annotation here is dropped. *)
-      let params =
-        listed_until s Token.Right_paren (fun s ->
-          let name = consume_identifier s "Expected parameter name." in
-          ignore (type_annotation s);
-          name)
-      in
-      ignore (consume s Token.Right_paren "Expected ')' after parameters.");
-      ignore (consume s Token.Left_brace "Expected '{' before operation body.");
-      loop
-        ({ Ast.arm_name; arm_kind = kind; arm_params = params; arm_body = block s } :: acc))
-  in
-  let arms = loop [] in
-  ignore (consume s Token.Right_brace "Expected '}' after handler.");
-  { Ast.handled; arms }
-
 and handler_clauses s : Ast.stmt Ast.handler_clause list =
   let rec loop acc =
     match (peek s).Token.token_type with
-    | Token.Handle ->
+    | Token.Handle when (peek_at s 1).Token.token_type = Token.Less ->
       ignore (advance s);
-      loop (Ast.Inline (handler s) :: acc)
+      ignore (advance s);
+      let handled = type_expr s in
+      ignore (consume s Token.Greater "Expected '>' after the handled trait.");
+      ignore (consume s Token.Left_brace "Expected '{' after 'handle<…>'.");
+      let rec methods acc =
+        if check s Token.Right_brace || is_at_end s
+        then List.rev acc
+        else (
+          let attrs = attributes s in
+          methods (method_def s attrs :: acc))
+      in
+      let defs = methods [] in
+      ignore (consume s Token.Right_brace "Expected '}' after the handler's methods.");
+      loop (Ast.Handle (handled, defs) :: acc)
     | Token.With ->
       ignore (advance s);
       loop (Ast.Named (qualified_name s "Expected a handler name.") :: acc)
@@ -1550,13 +1512,13 @@ and handler_clauses s : Ast.stmt Ast.handler_clause list =
   then ignore (error s (peek s) "Expected 'handle' or 'with' after a run block.");
   handlers
 
-(* The same construct as one standing where a value is wanted, so an arm's
-   `return` means the same thing here; nothing reads the answer. *)
+(* The same construct as one standing where a value is wanted; nothing reads
+   the answer. *)
 and run_stmt s sp : Ast.stmt =
   let it =
     match run_expr s sp with
-    | { Ast.it = `Run_expr (body, handlers, None); _ } as e ->
-      { e with Ast.it = `Run_expr ({ Ast.vb_stmts = unread_block body; vb_value = None }, handlers, None) }
+    | { Ast.it = `Run_expr (ret, body, handlers); _ } as e ->
+      { e with Ast.it = `Run_expr (ret, { Ast.vb_stmts = unread_block body; vb_value = None }, handlers) }
     | e -> e
   in
   (* `with` takes a terminator; `handle` closes with its own brace. *)
@@ -1591,36 +1553,18 @@ and valued_block s : (Ast.expr, Ast.stmt) Ast.valued_block =
   loop []
 
 and run_expr s sp : Ast.expr =
+  let ret =
+    match matches s [ Token.Less ] with
+    | None -> None
+    | Some _ ->
+      let t = type_expr s in
+      ignore (consume s Token.Greater "Expected '>' after the run's type.");
+      Some t
+  in
   ignore (consume s Token.Left_brace "Expected '{' after 'run'.");
   let body = valued_block s in
   let handlers = handler_clauses s in
-  (* The whole shape, or a `return` statement on the next line is eaten. *)
-  let is_clause =
-    check s Token.Return
-    && (peek_at s 1).Token.token_type = Token.Left_paren
-    && (match (peek_at s 2).Token.token_type with
-        | Token.Identifier _ -> true
-        | _ -> false)
-    && (peek_at s 3).Token.token_type = Token.Right_paren
-    && (peek_at s 4).Token.token_type = Token.Left_brace
-  in
-  let clause =
-    if not is_clause
-    then None
-    else (
-      ignore (advance s);
-      ignore (advance s);
-      let param = consume_identifier s "Expected a name for the block's value." in
-      ignore (advance s);
-      ignore (advance s);
-      Some { Ast.rc_param = param; rc_body = valued_block s })
-  in
-  Ast.at sp (`Run_expr (body, handlers, clause))
-
-and resume_stmt s sp : Ast.stmt =
-  let value = if check s Token.Semicolon then None else Some (expression s) in
-  ignore (consume s Token.Semicolon "Expected ';' after resume.");
-  Ast.at sp (`Resume value)
+  Ast.at sp (`Run_expr (ret, body, handlers))
 
 and match_stmt s sp : Ast.stmt =
   let scrutinee, cases = match_cases s in

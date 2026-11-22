@@ -4,7 +4,7 @@ effect Log { fn log(s: string): unit; }
 fn pause() { suspend { it(()) }; }
 
 fn interleaved<E>(actions: List<() -> <async, E> unit>): <E> unit {
-    var ready: List<() -> unit> = [];
+    var ready: List<() -> <E> unit> = [];
 
     fn strand(action: () -> <async, E> unit): <E> unit {
         run {

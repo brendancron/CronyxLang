@@ -1,0 +1,9 @@
+import { DeclKind } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
+
+fn inspect() {
+    meta {
+        print(decl_source(declof(inspect)));
+    }
+}
+inspect();

@@ -1,0 +1,36 @@
+trait logic {
+    @ctl fn choose(options: Array<int>): int;
+    @ctl fn guard(cond: bool): unit;
+}
+
+type LogicHandler {}
+
+impl EffectHandler<logic, unit> for LogicHandler {
+    fn choose(options: Array<int>, resume: (int) -> unit) {
+        for (x in options) {
+            resume(x);
+        }
+    }
+
+    fn guard(cond: bool, resume: (unit) -> unit) {
+        if (cond) {
+            resume(());
+        }
+    }
+}
+
+var results: List<int> = [];
+run {
+    var num1 = choose([1, 2, 3, 4, 5]);
+    var num2 = choose([3, 5, 7]);
+    guard(num1 == num2);
+    results.push(num1);
+} with LogicHandler;
+
+print("Collect All Results:");
+for (x in results) {
+    print(x);
+}
+
+print("Find First Result:");
+print(results[0]);

@@ -1,0 +1,9 @@
+trait EffectHandler<Effect, string> {
+    fn log(msg: string): unit;
+    @ctl fn choose(options: Array<int>, resume: (int) -> string): string;
+}
+
+trait EffectHandler<Fail, int> {
+    @ctl fn throw<T>(msg: string, resume: (T) -> int): int;
+}
+

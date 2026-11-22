@@ -63,8 +63,8 @@ fn collect(m: Module) {
         }
         var label = str(d.name);
         names.push(code(label));
-        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span };
-        var call = Expr { kind: ExprKind.Call(callee, []), span: d.span };
+        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span, ty: Option.None };
+        var call = Expr { kind: ExprKind.Call(callee, []), span: d.span, ty: Option.None };
         var index = i;
         for (s in code { if (selected == index) { call; } }) { chain.push(s); }
     }
@@ -77,7 +77,7 @@ fn collect(m: Module) {
  * Runs the test `cx test` chose for this process, reporting how it went, or
  * lists every test's name when none was chosen.
  */
-fn run_tests<E>(names: List<string>, body: (int) -> <Assertion, E> unit): <E> unit {
+fn run_tests<E>(names: List<string>, body: (int) -> <Assertion, E> unit): <Console, E> unit {
     var mark = str(chr(30));
     var selected = __test_selected();
     if (selected < 0) {

@@ -1,0 +1,18 @@
+trait E { @ctl fn op(): unit; }
+
+fn work(): <E, Console> unit { print("w1"); op(); print("w2"); }
+
+var more: List<() -> <E, Console> unit> = [];
+var pending: List<() -> <Console> unit> = [];
+
+run {
+    work();
+} handle<E> {
+    fn op(resume) {
+        more.push(() => { work(); });
+        pending.push { resume(()); };
+    }
+}
+
+print("drain, queued extra: " + str(more.len()));
+pending[0]();

@@ -1,0 +1,4 @@
+string
+bool
+Product(Pair, [], [{ name: first, ty: Named(int, []), doc: "", attrs: [] }, { name: second, ty: Named(string, []), doc: "", attrs: [] }])
+1

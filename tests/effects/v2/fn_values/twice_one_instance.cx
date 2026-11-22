@@ -1,0 +1,15 @@
+trait Ask { @ctl fn ask(): int; }
+
+fn twice(f: () -> <Ask> int): <Ask> int {
+    meta { print("twice is processed"); }
+    return f() + f();
+}
+
+var total = run<int> {
+    var a = twice(() => { return ask(); });
+    var b = twice(() => { return ask() * 10; });
+    a + b
+} handle<Ask> {
+    fn ask(resume) { return resume(2); }
+};
+print(total);

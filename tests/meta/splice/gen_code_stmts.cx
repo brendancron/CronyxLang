@@ -1,0 +1,7 @@
+meta {
+    var greeting = "hello";
+    gen code {
+        var shout = greeting + "!";
+        print(shout);
+    };
+}

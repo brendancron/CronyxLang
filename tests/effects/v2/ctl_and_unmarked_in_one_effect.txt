@@ -1,0 +1,4 @@
+picking
+chose 1
+chose 2
+2

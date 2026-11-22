@@ -1,0 +1,29 @@
+trait sched {
+    @ctl fn tick(): unit;
+}
+
+var queue: List<() -> <Console> unit> = [];
+
+fn counter(name: string): <sched, Console> unit {
+    for (var i = 0; i < 3; i += 1) {
+        print(name + ": " + str(i));
+        tick();
+    }
+}
+
+fn spawn(task: () -> <sched, Console> unit) {
+    run {
+        task();
+    } handle<sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
+    }
+}
+
+spawn(() => { counter("A"); });
+spawn(() => { counter("B"); });
+
+while (queue.len() > 0) {
+    var next = queue[0];
+    queue = queue[1:];
+    next();
+}

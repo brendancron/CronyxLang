@@ -6,7 +6,7 @@ fn count<T>(tag: string, items: ...T): int {
 
 print(count("ints", 1, 2, 3));
 print(count("strings", "x", "y"));
-print(count("none"));
+print(count<int>("none"));
 
 fn first_or<T>(fallback: T, items: ...T): T {
     if (items.len() == 0) { return fallback; }

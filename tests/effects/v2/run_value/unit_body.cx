@@ -1,0 +1,13 @@
+trait Log {
+    @ctl fn note(msg: string): unit;
+}
+
+var count = run<int> {
+    note("first");
+    note("second");
+    7
+} handle<Log> {
+    fn note(msg, resume) { print(msg); return resume(()); }
+};
+
+print(count);

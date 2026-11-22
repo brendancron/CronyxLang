@@ -1,0 +1,32 @@
+trait sched { @ctl fn tick(): unit; }
+
+var queue: List<() -> <Console> unit> = [];
+
+fn run_one(task: () -> <sched, Console> unit) {
+    run { task(); } handle<sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
+    }
+}
+
+fn scope(body: ((() -> <sched, Console> unit) -> <Console> unit) -> <sched, Console> unit) {
+    run_one(() => {
+        body((task) => { run_one(task); });
+    });
+}
+
+fn counter(name: string): <sched, Console> unit {
+    print(name + " starts");
+    tick();
+    print(name + " ends");
+}
+
+scope((start) => {
+    start(() => { counter("A"); });
+    start(() => { counter("B"); });
+});
+
+while (queue.len() > 0) {
+    var next = queue[0];
+    queue = queue[1:];
+    next();
+}

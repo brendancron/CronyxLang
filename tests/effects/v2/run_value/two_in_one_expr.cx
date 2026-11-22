@@ -1,0 +1,8 @@
+trait Ask {
+    @ctl fn ask(): int;
+}
+
+fn probe(): <Ask> int { return ask(); }
+
+print(run { probe() } handle<Ask> { fn ask(resume) { return resume(5); } }
+    + run { probe() } handle<Ask> { fn ask(resume) { return resume(6); } });

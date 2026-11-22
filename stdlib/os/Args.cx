@@ -14,7 +14,7 @@
  */
 
 /** The program's command-line arguments. */
-effect Args {
+trait Args {
     /** Each argument, in the order given. */
     fn args(): Array<string>;
 }

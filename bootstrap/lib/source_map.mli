@@ -39,4 +39,8 @@ module Span : sig
 
   val view : t -> view
   val path : t -> string
+
+  (* Where in its file, for a table keyed by place: hashing a span hashes the
+     file it holds. *)
+  val offsets : t -> int * int
 end

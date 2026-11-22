@@ -1,0 +1,35 @@
+trait Throw<X> { @ctl fn throw<T>(err: X): T; }
+
+trait Park { @ctl fn park(): unit; }
+
+var stops: List<() -> <Console> unit> = [];
+var wakes: List<() -> <Console> unit> = [];
+
+fn parked<E>(task: () -> <Park, Throw<string>, E> unit): <Console, E> unit {
+    run {
+        run {
+            task();
+        } handle<Throw> {
+            fn throw(e, resume) {
+                print("failed: " + e);
+                stops[2]();
+                stops[1]();
+            }
+        }
+    } handle<Park> {
+        fn park(resume) {
+            stops.push(() => { discontinue(resume); });
+            wakes.push(() => { resume(()); });
+        }
+    }
+}
+
+parked(() => {
+    defer { print("outer cleans up"); }
+    parked(() => { park(); throw("boom"); });
+    parked(() => { defer { print("inner cleans up"); } park(); print("inner resumed"); });
+    park();
+    print("outer resumed");
+});
+wakes[0]();
+print("done");

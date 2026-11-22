@@ -19,7 +19,7 @@
  */
 
 /** A source of random bits. */
-effect Random {
+trait Random {
     /** A number whose 62 bits are each random: from 0 to the largest `int`. */
     fn random_bits(): int;
 }
@@ -71,7 +71,7 @@ fn seeded<T, E>(seed: int, body: () -> <Random, E> T): <E> T {
     var out: Option<T> = Option.None;
     run {
         out = Option.Some(body());
-    } handle Random {
+    } handle<Random> {
         fn random_bits() {
             state = state + 0x1E3779B97F4A7C15;
             return __mix(state) & 0x3FFFFFFFFFFFFFFF;

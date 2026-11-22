@@ -7,38 +7,32 @@ exception Return_value of value * Ast.span
 exception Break_loop
 exception Continue_loop
 
-(* Caught by the `Scope` its own `run` became, passed through any between. *)
-(* Carries where it left from, so one that finds no scope can still say where. *)
-exception Aborted of string * Ast.span
-
-(* A scope is a frame on the interpreter's own stack as well as OCaml's, because
-   a continuation invoked after its `run` block returned has to put back what
-   entering it installed. Innermost first. *)
-let active_scopes : (string * string option * Value.env) list ref = ref []
-
-(* Tail calls. Converted code ends every function by calling the next
-   continuation, so without them each step of a loop that suspends runs inside
-   the last, and the stack -- and every local each step held -- grows until
-   the program ends. A frame or a continuation whose body ends in a call hands
-   the call to whoever called it instead of making it: [tail] says the
-   statement being run is in that position, and [pending] holds the call with
-   the scopes the frame had re-entered, which the caller puts back around it. *)
+(* Tail calls. A loop written as recursion -- what a run's transform makes of
+   a loop holding a split -- ends every step by calling the next, so without
+   them each step runs inside the last, and the stack -- and every local each
+   step held -- grows until the program ends. A function whose body ends in a
+   call hands the call to whoever called it instead of making it: [tail] says
+   the statement being run is in that position, and [pending] holds the call,
+   which the caller makes. *)
 let tail = ref false
-let tail_scopes : (string * string option * Value.env) list ref = ref []
-let pending :
-  (Value.fn * Value.value list * (string * string option * Value.env) list * (string * string option * Value.env) list)
-  option
-  ref =
-  ref None
+
+type pending_call =
+  { p_fn : Value.fn
+  ; p_args : Value.value list
+  ; p_discards : bool
+  }
+
+let pending : pending_call option ref = ref None
+
+(* The function [call] is about to enter. Only a call made through [call] is
+   followed by a [bounce]; a builtin applying a closure directly is not, so the
+   closure makes the call it would have handed back itself. *)
+let entering : Value.fn option ref = ref None
 
 let not_tail f =
   let outer = !tail in
   tail := false;
   Fun.protect ~finally:(fun () -> tail := outer) f
-
-(* What `discontinue` resumes a continuation with. Compared by identity, so no
-   value a program builds can be mistaken for it. *)
-let discontinued = Variant (None, "discontinued", [])
 
 let compare_ordered op x y =
   match op with
@@ -127,7 +121,7 @@ let nominal (ty : Types.ty) =
   | Types.Named (name, _) | Types.Sum (name, _) -> Some name
   | _ -> None
 
-let rec eval env (e : Ast.cps_expr) : value =
+let rec eval env (e : Ast.resolved_expr) : value =
   let span = e.Ast.span in
   match e.Ast.it with
   | `Lambda (params, _, body) -> closure env "fn" params body
@@ -169,11 +163,6 @@ let rec eval env (e : Ast.cps_expr) : value =
     if as_bool span (eval env a) then Bool (as_bool span (eval env b)) else Bool false
   | `Or (a, b) ->
     if as_bool span (eval env a) then Bool true else Bool (as_bool span (eval env b))
-  | `Call ({ Ast.it = `Var name; _ }, [ k; back ]) when String.equal name Ast.discontinue_name ->
-    ignore (call span (eval env k) [ discontinued; eval env back ]);
-    Unit
-  | `Call ({ Ast.it = `Var name; _ }, [ v ]) when String.equal name Ast.discontinued_name ->
-    Bool (eval env v == discontinued)
   | `Call (callee, args) ->
     let f = eval env callee in
     call span f (eval_all env args)
@@ -239,100 +228,39 @@ let rec eval env (e : Ast.cps_expr) : value =
     (match eval env target with
      | Tuple items -> List.nth items index
      | v -> fail span "Cannot take a field of %s." (type_name v))
-(* OCaml's argument order is unspecified, and right to left in practice. *)
-(* Outermost first, so an inner scope's catcher sits inside its outer one.
-
-   Catching answers for the whole body rather than for the part the scope
-   covered, which is enough because an abort calls the frame that follows the
-   scope: what came after is reached through the catcher rather than left
-   behind it. *)
-and under missing k =
-  match missing with
-  | [] -> k ()
-  | (name, exit, senv) :: inner ->
-    (match under inner k with
-     | v -> v
-     | exception Aborted (caught, span) when String.equal caught name ->
-       carry_on span senv exit;
-       Unit)
-
-and carry_on span env exit =
-  match exit with
-  | None -> ()
-  | Some exit ->
-    (match lookup env exit with
-     | Some r -> not_tail (fun () -> ignore (call span !r [ Bool false ]))
-     | None -> fail span "Undefined variable '%s'." exit)
-
-(* [returns] is false for a function the CPS pass cut out of another: a
-   `return` reaching it belongs to the source function it came from, so it is
-   let through rather than answered here. *)
-and closure ?(is_continuation = false) ?(returns = true) env name params body =
+and closure env name params body =
   let names = List.map (fun (p : Ast.param) -> p.Ast.name) params in
-  (* A function is inside the scopes it was written in, not every scope active
-     where it was made: a helper lambda made under an effect performed in a
-     `run` would otherwise re-enter that `run` each time it is called, long
-     after the block was left. *)
-  let captured =
-    if is_continuation
-    then !active_scopes
-    else (
-      let rec within (e : Value.env) senv =
-        e == senv || Option.fold ~none:false ~some:(fun p -> within p senv) e.parent
-      in
-      List.filter (fun (_, _, senv) -> within env senv) !active_scopes)
-  in
-  Fn
+  let rec self =
     { name
     ; arity = Some (List.length names)
     ; apply =
-        (fun _ args ->
+        (fun span args ->
+          let trampolined =
+            match !entering with
+            | Some f -> f == self
+            | None -> false
+          in
+          entering := None;
           let frame = new_env (Some env) in
           List.iter2 (define frame) names args;
-          (* What it was made under and is no longer inside. Re-entering only
-             those leaves an ordinary call, made where it was written, alone. *)
-          let current = !active_scopes in
-          (* A continuation is the rest of a computation that was inside those
-             frames, so it is inside them again even where they are still live:
-             the arm resuming it is outside them, and an abort must land in the
-             continuation rather than unwind through the arm. Any other closure
-             re-enters only what is gone. *)
-          let missing =
-            if is_continuation
-            then captured
-            else
-              List.filter
-                (fun (n, _, _) ->
-                  not (List.exists (fun (m, _, _) -> String.equal m n) current))
-                captured
+          let outer_tail = !tail in
+          tail := true;
+          let v =
+            Fun.protect
+              ~finally:(fun () -> tail := outer_tail)
+              (fun () ->
+                try
+                  run_block frame body;
+                  Unit
+                with
+                | Return_value (v, _) -> v)
           in
-          let saved = current in
-          (* A live frame re-entered is still one frame. Listing it twice would
-             have every continuation made from here capture it twice, and the
-             list double with each resumption. *)
-          active_scopes := missing @ List.filter (fun frame -> not (List.memq frame missing)) current;
-          let outer_tail = !tail
-          and outer_scopes = !tail_scopes in
-          (* A function answers its own `return`, so a call it ends in has to
-             come back through it. *)
-          tail := not returns;
-          tail_scopes := missing;
-          Fun.protect
-            ~finally:(fun () ->
-              active_scopes := saved;
-              tail := outer_tail;
-              tail_scopes := outer_scopes)
-            (fun () ->
-              under
-                (List.rev missing)
-                (fun () ->
-                  try
-                    run_block frame body;
-                    Unit
-                  with
-                  | Return_value (v, _) when returns -> v)))
+          if trampolined then v else bounce span v)
     }
+  in
+  Fn self
 
+(* OCaml's argument order is unspecified, and right to left in practice. *)
 and eval_all env = function
   | [] -> []
   | e :: rest ->
@@ -348,41 +276,40 @@ and eval_labeled env = function
 and call span f args =
   match f with
   | Fn f ->
-    (match f.arity with
-     | Some n when n <> List.length args ->
-       fail span "%s expects %d argument(s) but got %d." f.name n (List.length args)
-     | _ -> ());
-    bounce span [] (f.apply span args)
+    let args = fitted span f args in
+    entering := Some f;
+    bounce span (f.apply span args)
   | v -> fail span "Cannot call %s." (type_name v)
 
-(* Makes the calls handed back to it, each in the scopes the frame that handed
-   it over had re-entered. Those already put back by an enclosing bounce are
-   not put back again, so a loop of continuations re-entering the same scopes
-   runs here, flat, rather than one level deeper each time. *)
-and bounce span installed v =
+(* A call hands evidence last to anything whose type performs an effect, and
+   a function that answers its effects where it was written takes none, so
+   what follows its own parameters is dropped. *)
+and fitted span (f : Value.fn) args =
+  match f.arity with
+  | Some n when n > List.length args ->
+    fail span "%s expects %d argument(s) but got %d." f.name n (List.length args)
+  | Some n when n < List.length args -> List.filteri (fun i _ -> i < n) args
+  | _ -> args
+
+(* Makes the calls handed back to it, flat, rather than one level deeper each
+   time. A call handed back from a bare `f(x);` leaves unit, whatever the rest
+   of the chain gives back, so [discards] is carried to its end. *)
+and bounce ?(discards = false) span v =
   match !pending with
-  | None -> v
-  (* Left for the bounce outside the scope the call leaves. *)
-  | Some (_, _, _, left) when List.exists (fun scope -> List.memq scope installed) left -> v
-  | Some (g, args, scopes, _) ->
+  | None -> if discards then Unit else v
+  | Some p ->
     pending := None;
-    if List.for_all (fun scope -> List.memq scope installed) scopes
-    then bounce span installed (g.apply span args)
-    else (
-      let saved = !active_scopes in
-      active_scopes := scopes @ List.filter (fun scope -> not (List.memq scope scopes)) saved;
-      Fun.protect
-        ~finally:(fun () -> active_scopes := saved)
-        (fun () -> under (List.rev scopes) (fun () -> bounce span scopes (g.apply span args))))
+    entering := Some p.p_fn;
+    bounce ~discards:(discards || p.p_discards) span (p.p_fn.apply span p.p_args)
 
 (* Deferred statements run when the block is left, however it is left, and in
    reverse. *)
 and run_block env body =
   (* In scope for its whole block, as the checker assumed. *)
   List.iter
-    (fun (s : Ast.cps_stmt) ->
+    (fun (s : Ast.resolved_stmt) ->
       match s.Ast.it with
-      | `Fn _ | `Cont _ | `Frame _ -> exec env s
+      | `Fn _ -> exec env s
       | _ -> ())
     body;
   let deferred = ref [] in
@@ -392,7 +319,7 @@ and run_block env body =
     | { Ast.it = `Defer inner; _ } :: rest ->
       deferred := (env, inner) :: !deferred;
       walk rest
-    | { Ast.it = `Fn _ | `Cont _ | `Frame _; _ } :: rest -> walk rest
+    | { Ast.it = `Fn _ | `Type_decl _; _ } :: rest -> walk rest
     (* What this block defers runs when it is left, which has to be after the
        call rather than before it. *)
     | [ s ] when !deferred <> [] -> not_tail (fun () -> exec env s)
@@ -407,51 +334,47 @@ and run_block env body =
      run_deferred ();
      raise e)
 
-(* A branch of an `if` in tail position is in tail position too. Converted code
-   ends a function with one whose `else` is a bare call to the join, and making
-   that call leaves the function's frame, and every local it held, under the
-   rest of the program. *)
-and exec_last env (s : Ast.cps_stmt) =
-  let hand_back ?(left = []) span f args =
+(* A branch of an `if` in tail position is in tail position too, so a function
+   ending in one whose branch is a bare call makes that call from its caller. *)
+and exec_last env (s : Ast.resolved_stmt) =
+  (* A builtin is applied where it stands: it never ends in a call of its own,
+     and its value is what a `return` of it has to raise. *)
+  let hand_back ~discards span f args ~otherwise =
     match f with
-    | Fn f when (match f.arity with Some n -> n = List.length args | None -> true) ->
-      pending := Some (f, args, List.filter (fun scope -> not (List.memq scope left)) !tail_scopes, left)
-    | f -> ignore (call span f args)
+    | Fn f when (match f.arity with Some n -> n <= List.length args | None -> true) ->
+      pending := Some { p_fn = f; p_args = fitted span f args; p_discards = discards }
+    | f -> otherwise (call span f args)
+  in
+  let call_of env (e : Ast.resolved_expr) =
+    match e.Ast.it with
+    | `Call (callee, args) ->
+      Some
+        (fun ~discards ~otherwise ->
+          let f, args = not_tail (fun () -> eval env callee, eval_all env args) in
+          hand_back ~discards e.Ast.span f args ~otherwise)
+    | `Dyn_call (receiver, name, _, args) ->
+      Some
+        (fun ~discards ~otherwise ->
+          match not_tail (fun () -> eval env receiver) with
+          | Object (data, _, vtable) ->
+            (match List.assoc_opt name vtable with
+             | Some f -> hand_back ~discards e.Ast.span f (data :: not_tail (fun () -> eval_all env args)) ~otherwise
+             | None -> fail e.Ast.span "No '%s' in this object's methods." name)
+          | other -> fail e.Ast.span "Expected an object, got %s." (type_name other))
+    | _ -> None
   in
   match s.Ast.it with
-  | `Expr { Ast.it = `Call (callee, args); span; _ } when !tail && not (discontinuing callee) ->
-    let f, args = not_tail (fun () -> eval env callee, eval_all env args) in
-    hand_back ~left:(leaving callee !tail_scopes) span f args
-  | `Expr { Ast.it = `Dyn_call (receiver, name, _, args); span; _ } when !tail ->
-    (match not_tail (fun () -> eval env receiver) with
-     | Object (data, _, vtable) ->
-       (match List.assoc_opt name vtable with
-        | Some f -> hand_back span f (data :: not_tail (fun () -> eval_all env args))
-        | None -> fail span "No '%s' in this object's methods." name)
-     | other -> fail span "Expected an object, got %s." (type_name other))
+  | `Expr e when !tail ->
+    (match call_of env e with
+     | Some hand -> hand ~discards:true ~otherwise:ignore
+     | None -> exec env s)
+  | `Return (Some e) when !tail ->
+    (match call_of env e with
+     | Some hand -> hand ~discards:false ~otherwise:(fun v -> raise (Return_value (v, s.Ast.span)))
+     | None -> exec env s)
   | _ -> exec env s
 
-(* A `run` block's body ends by calling the frame its scope names, the one an
-   abort calls too. That call leaves the scope
-   and every scope inside it; made inside them instead, the rest of the program
-   runs under each `run` it has passed, one more on every turn of a loop. *)
-and leaving (callee : Ast.cps_expr) scopes =
-  match callee.Ast.it with
-  | `Var name ->
-    let rec upto inner = function
-      | [] -> []
-      | ((_, Some exit, _) as scope) :: _ when String.equal exit name -> List.rev (scope :: inner)
-      | scope :: rest -> upto (scope :: inner) rest
-    in
-    upto [] scopes
-  | _ -> []
-
-and discontinuing (callee : Ast.cps_expr) =
-  match callee.Ast.it with
-  | `Var name -> String.equal name Ast.discontinue_name || String.equal name Ast.discontinued_name
-  | _ -> false
-
-and exec env (s : Ast.cps_stmt) : unit =
+and exec env (s : Ast.resolved_stmt) : unit =
   let span = s.Ast.span in
   match s.Ast.it with
   | `Expr e -> ignore (eval env e)
@@ -460,21 +383,6 @@ and exec env (s : Ast.cps_stmt) : unit =
      | Value.Tuple items when List.length items = List.length names ->
        List.iter2 (fun name v -> define env name v) names items
      | v -> Value.fail s.Ast.span "Cannot take %s apart." (type_name v))
-  (* Nothing catches this in between: a function's own handler is for
-     `return`. *)
-  | `Scope (scope, body, exit) ->
-    let saved = !active_scopes in
-    active_scopes := (scope, exit, env) :: saved;
-    (match Fun.protect ~finally:(fun () -> active_scopes := saved) (fun () -> not_tail (fun () -> run_block env body))
-     with
-     | () -> ()
-     | exception Aborted (caught, span) when String.equal caught scope -> carry_on span env exit)
-  | `Abort scope -> raise (Aborted (scope, s.Ast.span))
-  | `On_unwind (body, cleanup) ->
-    (try not_tail (fun () -> List.iter (exec env) body) with
-     | e ->
-       not_tail (fun () -> List.iter (exec env) cleanup);
-       raise e)
   | `Var_decl (name, _, init) ->
     let v =
       match init with
@@ -506,10 +414,7 @@ and exec env (s : Ast.cps_stmt) : unit =
   (* The closure captures the table the name lands in, so recursion works
      without a separate binding step. *)
   | `Fn (name, params, _, body) -> define env name (closure env name params body)
-  | `Cont (name, params, body) ->
-    define env name (closure ~is_continuation:true ~returns:false env name params body)
-  | `Frame (name, params, body) ->
-    define env name (closure ~returns:false env name params body)
+  | `Type_decl _ -> ()
   | `Return e ->
     let v =
       match e with
@@ -542,7 +447,7 @@ and exec env (s : Ast.cps_stmt) : unit =
     in
     first cases
 
-let run env (program : Ast.cps_stmt list) : (int, error) result =
+let run env (program : Ast.resolved_stmt list) : (int, error) result =
   try
     run_block env program;
     Ok 0
@@ -550,7 +455,3 @@ let run env (program : Ast.cps_stmt list) : (int, error) result =
   | Exited code -> Ok code
   | Runtime_error e -> Error e
   | Return_value (_, span) -> Error { span; message = "'return' outside of a function." }
-  (* The scope it named is gone: a continuation re-entered it without putting it
-     back. A diagnostic rather than an escaping exception. *)
-  | Aborted (_, span) ->
-    Error { span; message = "An unwind found no scope left to stop at." }

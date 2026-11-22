@@ -1,0 +1,23 @@
+trait Emit<T> {
+    fn emit(x: T): unit;
+}
+
+fn each<T>(items: List<T>) {
+    for (x in items) { emit(x); }
+}
+
+var sum = 0;
+run {
+    each([1, 2, 3]);
+} handle<Emit> {
+    fn emit(x) { sum = sum + x; }
+}
+print(sum);
+
+var words = "";
+run {
+    each(["a", "b"]);
+} handle<Emit<string>> {
+    fn emit(x) { words = words + x; }
+}
+print(words);

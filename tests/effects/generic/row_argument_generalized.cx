@@ -2,7 +2,7 @@
 // function's own: each call settles it afresh.
 effect Throw<X> { final ctl throw(err: X); }
 
-fn quiet<X, T, E>(fallback: T, f: () -> <Throw<X>, E> T): <E> T {
+fn quiet<X, T, E>(fallback: T, f: () -> <Throw<X>, E> T): <Console, E> T {
     var out = fallback;
     run { out = f(); } handle Throw { final ctl throw(e) { print("swallowed " + str(e)); } }
     return out;

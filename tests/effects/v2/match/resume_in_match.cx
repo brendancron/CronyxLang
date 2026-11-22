@@ -1,0 +1,19 @@
+type Choice { Yes, No }
+
+trait Ask { @ctl fn get(): int; }
+
+fn use(): <Ask> int {
+    return get();
+}
+
+run {
+    print(use());
+} handle<Ask> {
+    fn get(resume) {
+        var c = Choice.No;
+        match c {
+            Choice.Yes => { resume(1); }
+            Choice.No => { resume(2); }
+        }
+    }
+}

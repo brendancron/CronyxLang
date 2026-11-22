@@ -1,7 +1,7 @@
 // Refining an arm is done by substituting and then taking the substitution
 // back, so a constraint the arm placed on a variable from *outside* it is taken
 // back too. Here `p` is an int in the arm and a string after it, and both
-// stick: the program is accepted and fails while running.
+// stick.
 //
 // A local equation, rather than a retracted substitution, is what fixes this.
 type Q<T> { Num -> Q<int>, Text -> Q<string> }

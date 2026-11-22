@@ -1,7 +1,7 @@
 import { pause } from "std/async/Task";
 
-show();
 var late = 0;
+show();
 
 fn steps() {
     print("steps");

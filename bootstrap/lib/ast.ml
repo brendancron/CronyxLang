@@ -116,16 +116,17 @@ type signature =
   ; static_params : static_param list
   }
 
+(* An effect trait's method as the checker reads it. *)
 type op_kind =
-  | Op_fn (* resumes automatically with the arm's value *)
-  | Op_ctl (* resumes only via `resume`, and may do so more than once *)
+  | Op_fn (* returns once, with the handler's value *)
+  | Op_ctl (* takes its continuation, and may resume it more than once *)
   (* Never resumes, so each call site may read its result as what it needs. *)
   | Op_final
 
 (* Metadata a deriver reads off a member, and nothing else in the language
    looks at. It is inert everywhere: no pass changes behaviour on one, and
-   [cps_stmt_kind] does not include [type_defs], so nothing an attribute is
-   attached to survives into the program the interpreter runs. *)
+   [resolved_stmt_kind] keeps only a type's declaration, which the interpreter
+   passes over, of everything an attribute is attached to. *)
 type attr_arg =
   | A_str of string
   | A_int of int
@@ -150,18 +151,6 @@ type op_decl =
   (* An operation is a member of its effect, as a field is of a type, so it
      carries what was written above it. A doc comment rides here. *)
   ; op_attrs : attr list
-  }
-
-type 's handler =
-  { handled : string
-  ; arms : 's arm list
-  }
-
-and 's arm =
-  { arm_name : string
-  ; arm_kind : op_kind
-  ; arm_params : string list
-  ; arm_body : 's list
   }
 
 type lit =
@@ -252,13 +241,12 @@ type type_body =
 
 type type_defs = [ `Type_decl of string * type_param list * type_body ]
 
-(* Only [stmt_kind] carries this, so `Desugar` unwrapping one is what erases
+(* Only [stmt_kind] carries this, so the checker unwrapping one is what erases
    every declaration attribute: no later stage's type can hold one, and a pass
    that tried to read one would not compile. A member's attributes cannot use
    this — a field, a variant and a method are not statements — so they stay on
-   the member itself. A method's die at [Resolve], which turns every impl into
-   plain functions, and [cps_stmt_kind] holds neither [type_defs] nor
-   [method_defs] to carry one further. *)
+   the member itself. A method's die where its impl becomes plain functions,
+   and [resolved_stmt_kind] holds no [method_defs] to carry one further. *)
 type 's attributed = [ `Attributed of attr list * 's ]
 
 type method_sig =
@@ -283,7 +271,6 @@ type trait_body =
   ; tb_methods : method_sig list
   }
 
-(* CPS reads a row off each method's annotation, and one impl holds several. *)
 type ('s, 'ann) method_def =
   { md_name : string
   ; md_params : param list
@@ -335,25 +322,10 @@ type 'e method_call = [ `Method_call of 'e * string * string * 'e list * in_scop
 type 'ty dispatch =
   { dp_trait : string
   ; dp_targets : 'ty list
-  (* The copy a trait object's slot holds, when the impl is generic and
-     [Type_mono] made one for the value's type: the generic method itself has
-     nothing to dispatch its own bounds on. *)
-  ; dp_instance : string option
   }
 
-(* A receiver whose type is still a variable. Which impl answers is settled when
-   the copy is made, from the dispatch. *)
-type ('e, 'ty) bound_calls = [ `Bound_call of 'e * string * 'ty dispatch * 'e list ]
-
-(* A value on its way into a trait-typed position. The concrete type is still on
-   the inner expression's annotation; each slot the vtable owes names a method
-   and the dispatch that picks the impl answering it, in the order the trait
-   declared them. *)
-type ('e, 'ty) coercions =
-  [ `Coerce of 'e * string * (string * 'ty dispatch) list ]
-
 (* The method's own type travels with the call: a row cannot be read off a
-   vtable, and evidence is owed by what the method performs. *)
+   vtable. *)
 type ('e, 'ty) dyn_calls = [ `Dyn_call of 'e * string * 'ty * 'e list ]
 
 (* What tells two objects apart: the type each was made from, and the `Eq`
@@ -366,8 +338,10 @@ type 'e identity =
 
 (* What a coercion becomes: the data beside the functions chosen for it, and a
    call that reads its target out of that table rather than from a name. *)
+type 'e object_lit = [ `Object of 'e * 'e identity * (string * 'e) list ]
+
 type 'e objects =
-  [ `Object of 'e * 'e identity * (string * 'e) list
+  [ 'e object_lit
   | ('e, Types.ty) dyn_calls
   ]
 
@@ -376,7 +350,11 @@ type 'e static_arg =
   | St_type of type_expr
   | St_value of 'e
 
-type 'e static_call = [ `Static_call of 'e * 'e static_arg list * 'e list ]
+(* [`Static_ref] is `f<int>` named as a value, with no call. *)
+type 'e static_call =
+  [ `Static_call of 'e * 'e static_arg list * 'e list
+  | `Static_ref of 'e * 'e static_arg list
+  ]
 
 type pattern =
   | Pat_variant of string * string * string payload
@@ -424,21 +402,26 @@ type 's meta_blocks =
     | `Derive of string list * string
   ]
 
+(* `with H` names a type implementing the effects it binds; `handle<E> { … }`
+   implements one in place. *)
 type 's handler_clause =
-  | Inline of 's handler
   | Named of string
-
-type 's handler_defs = [ `Handler_decl of string * 's handler ]
-
-type ('e, 's, 'h) effects =
-  (* Naming the parameters is what lets two operations agree on one. *)
-  [ `Effect_decl of string * string list * op_decl list
-  | `Run of 's list * 'h list
-  | `Resume of 'e option
-  | `Discontinue
-  ]
+  | Handle of type_expr * ('s, unit) method_def list
+  (* What a transform makes of a run: the effect, the handler bound to it, and
+     the statement declaring the handler's value, checked outside the run. Its
+     body is not transformed again. *)
+  | Bound of string * string * 's option
 
 type 'e reflect = [ `Typeof of 'e ]
+
+(* [None] when no `<…>` was written, which is not the same key as `<>`. *)
+type 'e declof = [ `Declof of 'e * 'e static_arg list option ]
+
+type 's meta_expr = [ `Meta_expr of 's list ]
+
+(* A trait with meta blocks among its members: the `Trait_decl`, then the
+   blocks. *)
+type 's trait_members = [ `Trait_members of 's * 's list ]
 
 (* `code(e)`, `code { … }` and `code fn …`: syntax held as a value rather than
    run, so only metaprocessing ever meets one. *)
@@ -482,41 +465,16 @@ type ('e, 's) valued_block =
   ; vb_value : 'e option
   }
 
-(* What the block produces when it finishes without an arm answering for it. *)
-type ('e, 's) ret_clause =
-  { rc_param : string
-  ; rc_body : ('e, 's) valued_block
-  }
+(* A `run`, lowered to a block and a temporary once checked, so no later stage
+   meets one. The type is the `<R>` written after `run`. *)
+type ('e, 's, 'h) run_expr = [ `Run_expr of type_expr option * ('e, 's) valued_block * 'h list ]
 
-(* `run` where a value is wanted. Desugar lowers it to the statement form and a
-   temporary, so no later stage meets one. *)
-type ('e, 's, 'h) run_expr =
-  [ `Run_expr of ('e, 's) valued_block * 'h list * ('e, 's) ret_clause option ]
-
-(* `match` where a value is wanted. Resolve lowers it to the statement form and a
-   temporary, the way it lowers `Run_expr`. *)
+(* `match` where a value is wanted, lowered the way `Run_expr` is. *)
 type ('e, 's) match_expr = [ `Match_expr of 'e * (pattern * ('e, 's) valued_block) list ]
 
-(* `Abort` unwinds to the `Scope` its `run` block became, so an effect that only
-   aborts needs no continuation. Both carry that scope's name: stopping at the
-   nearest would catch the wrong one. A scope also names the frame its body ends
-   by calling, which an abort calls instead; a block whose body cannot suspend
-   ends where it is written, and has none. *)
-type 's aborts =
-  [ `Scope of string * 's list * string option
-  | `Abort of string
-  (* The second list runs while an unwind passes through, and it carries on. *)
-  | `On_unwind of 's list * 's list
-  ]
-
-(* Lowered by the checker rather than by `Desugar`: whether the sequence is
+(* Lowered by the checker rather than the parser: whether the sequence is
    indexed or pulled depends on its type. *)
 type ('e, 's) for_in = [ `For_in of binder * 'e * 's ]
-
-type ('e, 's) loops =
-  [ `For of 's option * 'e option * 'e option * 's
-  | ('e, 's) for_in
-  ]
 
 type expr = (expr_kind, unit) node
 
@@ -535,6 +493,8 @@ and expr_kind =
   | expr static_call
   | expr method_call
   | expr reflect
+  | expr declof
+  | stmt meta_expr
   | (expr, stmt) quote
   | expr generic_new
   | (expr, stmt) lambdas
@@ -550,83 +510,14 @@ and stmt_kind =
   | imports
   | stmt meta_blocks
   | stmt type_members
-  | (expr, stmt) loops
-  | (expr, stmt, stmt handler_clause) effects
-  | stmt handler_defs
+  | stmt trait_members
+  | (expr, stmt) for_in
   | type_defs
   | (stmt, unit) method_defs
   | (expr, stmt) matching
   ]
 
 type program = stmt list
-
-type desugared_expr = (desugared_expr_kind, unit) node
-
-and desugared_expr_kind =
-  [ lit
-  | desugared_expr vars
-  | desugared_expr ops
-  | desugared_expr logic
-  | desugared_expr compound
-  | desugared_expr indexing
-  | desugared_expr tuple
-  | desugared_expr spread
-  | desugared_expr record
-  | desugared_expr nominal
-  | desugared_expr collection
-  | desugared_expr static_call
-  | desugared_expr method_call
-  | desugared_expr reflect
-  | (desugared_expr, desugared_stmt) lambdas
-  | (desugared_expr, desugared_stmt, desugared_stmt handler) run_expr
-  | (desugared_expr, desugared_stmt) match_expr
-  ]
-
-and desugared_stmt = (desugared_stmt_kind, unit) node
-
-and desugared_stmt_kind =
-  [ (desugared_expr, desugared_stmt) stmts
-  | (desugared_expr, desugared_stmt) for_in
-  | (desugared_expr, desugared_stmt, desugared_stmt handler) effects
-  | type_defs
-  | (desugared_stmt, unit) method_defs
-  | (desugared_expr, desugared_stmt) matching
-  ]
-
-type typed_expr = (typed_expr_kind, Types.ty) node
-
-and typed_expr_kind =
-  [ lit
-  | typed_expr vars
-  | typed_expr ops
-  | typed_expr logic
-  | typed_expr compound
-  | typed_expr indexing
-  | typed_expr tuple
-  | typed_expr spread
-  | typed_expr record
-  | typed_expr nominal
-  | typed_expr collection
-  | typed_expr arrays
-  | typed_expr strings
-  | (typed_expr, Types.ty) bound_calls
-  | (typed_expr, Types.ty) dyn_calls
-  | (typed_expr, Types.ty) coercions
-  | typed_expr reflect
-  | (typed_expr, typed_stmt) lambdas
-  | (typed_expr, typed_stmt, typed_stmt handler) run_expr
-  | (typed_expr, typed_stmt) match_expr
-  ]
-
-and typed_stmt = (typed_stmt_kind, Types.ty) node
-
-and typed_stmt_kind =
-  [ (typed_expr, typed_stmt) stmts
-  | (typed_expr, typed_stmt, typed_stmt handler) effects
-  | type_defs
-  | (typed_stmt, Types.ty) method_defs
-  | (typed_expr, typed_stmt) matching
-  ]
 
 type resolved_expr = (resolved_expr_kind, Types.ty) node
 
@@ -641,7 +532,6 @@ and resolved_expr_kind =
   | resolved_expr strings
   | resolved_expr variant_lit
   | resolved_expr objects
-  | resolved_expr reflect
   | (resolved_expr, resolved_stmt) lambdas
   ]
 
@@ -649,68 +539,8 @@ and resolved_stmt = (resolved_stmt_kind, Types.ty) node
 
 and resolved_stmt_kind =
   [ (resolved_expr, resolved_stmt) stmts
-  | (resolved_expr, resolved_stmt, resolved_stmt handler) effects
   | type_defs
   | (resolved_expr, resolved_stmt) matching
-  ]
-
-type reflected_expr = (reflected_expr_kind, Types.ty) node
-
-and reflected_expr_kind =
-  [ lit
-  | reflected_expr vars
-  | reflected_expr ops
-  | reflected_expr logic
-  | reflected_expr tuple
-  | reflected_expr record
-  | reflected_expr arrays
-  | reflected_expr strings
-  | reflected_expr variant_lit
-  | reflected_expr objects
-  | (reflected_expr, reflected_stmt) lambdas
-  ]
-
-and reflected_stmt = (reflected_stmt_kind, Types.ty) node
-
-and reflected_stmt_kind =
-  [ (reflected_expr, reflected_stmt) stmts
-  | (reflected_expr, reflected_stmt, reflected_stmt handler) effects
-  | type_defs
-  | (reflected_expr, reflected_stmt) matching
-  ]
-
-type cps_expr = (cps_expr_kind, Types.ty) node
-
-and cps_expr_kind =
-  [ lit
-  | cps_expr vars
-  | cps_expr ops
-  | cps_expr logic
-  | cps_expr tuple
-  | cps_expr record
-  | cps_expr arrays
-  | cps_expr strings
-  | cps_expr variant_lit
-  | cps_expr objects
-  | (cps_expr, cps_stmt) lambdas
-  ]
-
-and cps_stmt = (cps_stmt_kind, Types.ty) node
-
-and cps_stmt_kind =
-  [ (cps_expr, cps_stmt) stmts
-  | (cps_expr, cps_stmt) matching
-  | cps_stmt aborts
-  (* A function holding the rest of a computation. Apart from `Fn` because
-     invoking one is being inside the scopes it was captured under again, even
-     where those are still entered, which is true of nothing else. *)
-  | `Cont of string * param list * cps_stmt list
-  (* A function the pass cut out of another: what follows a branch, a loop or a
-     suspension, and the arm that resumes into it. A `return` reaching one is
-     leaving the source function it was cut from, so it passes through rather
-     than stopping here — which is also why an arm's sequel does not run once a
-     resumption returns. *)
-  | `Frame of string * param list * cps_stmt list
   ]
 
 let map_vars (f : 'a -> 'b) (e : 'a vars) : 'b vars =
@@ -776,10 +606,23 @@ let generated parts =
   | [] | [ _ ] -> invalid_arg "Ast.generated: a generated name needs two parts"
   | parts -> String.concat "#" parts
 
-(* What `discontinue` becomes, and the test each continuation makes on entry.
-   The interpreter answers both itself. *)
-let discontinue_name = generated [ "cps"; "discontinue" ]
-let discontinued_name = generated [ "cps"; "discontinued" ]
+(* A row label no program can write, standing for whatever else a generated
+   function type performs: the row is open there. *)
+let open_row = generated [ "row"; "open" ]
+
+(* A type processed code shows where the checker had not settled one. *)
+let open_type = generated [ "type"; "open" ]
+
+(* The static parameter a transform marks its own functions with. *)
+let plain_marker = generated [ "plain"; "made" ]
+
+(* The static parameter marking a function a transform made taking its
+   handlers and its continuation, after the parameters its type shows. *)
+let cps_marker = generated [ "cps"; "made" ]
+
+(* The parameter a function taking control takes an effect's handler in. *)
+let handler_param label = generated [ "hv"; label ]
+
 
 (* The function each top-level statement runs under, by the whole name the
    prelude's declaration is mangled to. Any module may declare a `__root` of its
@@ -787,6 +630,11 @@ let discontinued_name = generated [ "cps"; "discontinued" ]
 let root_function = generated [ "std"; "prelude"; "__root" ]
 
 let is_root name = String.equal name root_function
+
+(* What a parameter written without a type is a static parameter of: the
+   function is generic in it, under a name no program can write. *)
+let implicit_param n = generated [ "implicit"; string_of_int n ]
+let is_implicit_param name = String.starts_with ~prefix:"implicit#" name
 
 (* By trait rather than by the name written, so every deriver may be called
    `derive`. *)
@@ -806,6 +654,22 @@ let deriver_trait name =
    surface that meets one presents it as a comment. *)
 let doc_attr = generated [ "attr"; "doc" ]
 
+(* On each declaration of a unit loaded because the walk runs it, and imported by
+   no unit: nothing the program writes can name one, so Precheck leaves them out. *)
+let walk_only_attr = generated [ "attr"; "walk" ]
+
+let walk_only (s : stmt) : stmt =
+  let marker = { a_name = walk_only_attr; a_args = []; a_span = s.span } in
+  match s.it with
+  | `Import _ | `Global_import _ | `Meta _ | `Derive _ | `Gen _ -> s
+  | `Attributed (attrs, inner) -> { s with it = `Attributed (marker :: attrs, inner) }
+  | _ -> { s with it = `Attributed ([ marker ], s) }
+
+let is_walk_only (s : stmt) =
+  match s.it with
+  | `Attributed (attrs, _) -> List.exists (fun a -> String.equal a.a_name walk_only_attr) attrs
+  | _ -> false
+
 (* A module's top-level meta block, tagged with the prefix its unit's names are
    mangled under: it runs the first time the walk asks that unit for a name. *)
 let deferred_marker = generated [ "unit"; "meta" ]
@@ -821,6 +685,40 @@ let type_head (t : type_expr option) =
   | _ -> "_"
 
 let method_name type_name method_ = generated [ type_name; method_ ]
+
+(* What a bare call to an effect's operation resolves to, which no program can
+   spell. The method's own name is last, so a diagnostic shows it. *)
+let operation_name trait method_ = generated [ trait; "op"; method_ ]
+
+let takes_control (m : method_sig) = List.exists (fun a -> String.equal a.a_name "ctl") m.ms_attrs
+
+let rec mentions name (t : type_expr) =
+  match t.it with
+  | Ty_name n -> String.equal n name
+  | Ty_app (n, args) -> String.equal n name || List.exists (mentions name) args
+  | Ty_tuple items -> List.exists (mentions name) items
+  | Ty_record fields -> List.exists (fun (_, t) -> mentions name t) fields
+  | Ty_fn (params, ret, row) ->
+    List.exists (mentions name) params
+    || mentions name ret
+    || List.exists (fun (l, args) -> String.equal l name || List.exists (mentions name) args) row
+  | Ty_variadic t | Ty_spread t | Ty_assoc (t, _) | Ty_bind (_, t) -> mentions name t
+  | Ty_row row -> List.exists (fun (l, args) -> String.equal l name || List.exists (mentions name) args) row
+
+(* An effect is a trait written as its callers see it: its operations are
+   called with no receiver, so none takes `self`, and none can name `Self`,
+   which a bare call has nothing to stand for. A trait of associated functions
+   that build `Self` -- `Zero`, `FromArray` -- is therefore not one. *)
+let is_effect (body : trait_body) =
+  body.tb_methods <> []
+  && List.for_all
+       (fun m ->
+         (match m.ms_params with
+          | { name = "self"; _ } :: _ -> false
+          | _ -> true)
+         && (not (List.exists (fun p -> Option.fold ~none:false ~some:(mentions "Self") p.ty) m.ms_params))
+         && not (Option.fold ~none:false ~some:(mentions "Self") m.ms_signature.ret))
+       body.tb_methods
 
 let written_type (t : type_expr) =
   match t.it with
@@ -855,35 +753,12 @@ let map_static_call (f : 'a -> 'b) (e : 'a static_call) : 'b static_call =
   | `Static_call (callee, static_args, args) ->
     `Static_call
       (f callee, List.map (map_static_arg f) static_args, List.map f args)
+  | `Static_ref (callee, static_args) -> `Static_ref (f callee, List.map (map_static_arg f) static_args)
 
 let map_method_call (f : 'a -> 'b) (e : 'a method_call) : 'b method_call =
   match e with
   | `Method_call (receiver, name, as_function, args, scope) ->
     `Method_call (f receiver, name, as_function, List.map f args, scope)
-
-let map_coercion (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) coercions)
-  : ('b, 'u) coercions
-  =
-  match e with
-  | `Coerce (inner, trait, slots) ->
-    `Coerce
-      ( f inner
-      , trait
-      , List.map
-          (fun (name, d) ->
-            name, { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets; dp_instance = d.dp_instance })
-          slots )
-
-let map_bound_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) bound_calls)
-  : ('b, 'u) bound_calls
-  =
-  match e with
-  | `Bound_call (receiver, name, d, args) ->
-    `Bound_call
-      ( f receiver
-      , name
-      , { dp_trait = d.dp_trait; dp_targets = List.map g d.dp_targets; dp_instance = d.dp_instance }
-      , List.map f args )
 
 let map_dyn_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) dyn_calls)
   : ('b, 'u) dyn_calls
@@ -892,37 +767,18 @@ let map_dyn_call (f : 'a -> 'b) (g : 't -> 'u) (e : ('a, 't) dyn_calls)
   | `Dyn_call (receiver, name, ty, args) ->
     `Dyn_call (f receiver, name, g ty, List.map f args)
 
-let map_object (f : 'a -> 'b) (e : 'a objects) : 'b objects =
+let map_object_lit (f : 'a -> 'b) (e : 'a object_lit) : 'b object_lit =
   match e with
   | `Object (data, id, vtable) ->
     `Object
       ( f data
       , { id with equal = Option.map f id.equal }
       , List.map (fun (l, v) -> l, f v) vtable )
+
+let map_object (f : 'a -> 'b) (e : 'a objects) : 'b objects =
+  match e with
+  | #object_lit as o -> (map_object_lit f o :> 'b objects)
   | #dyn_calls as d -> (map_dyn_call f (fun t -> t) d :> 'b objects)
-
-let map_method_def (fs : 's1 -> 's2) (fa : 'a1 -> 'a2) (m : ('s1, 'a1) method_def)
-  : ('s2, 'a2) method_def
-  =
-  { md_name = m.md_name
-  ; md_params = m.md_params
-  ; md_signature = m.md_signature
-  ; md_body = List.map fs m.md_body
-  ; md_ann = fa m.md_ann
-  ; md_attrs = m.md_attrs
-  }
-
-let map_method_defs (fs : 's1 -> 's2) (fa : 'a1 -> 'a2) (m : ('s1, 'a1) method_defs)
-  : ('s2, 'a2) method_defs
-  =
-  match m with
-  | `Trait_decl (name, params, body) -> `Trait_decl (name, params, body)
-  | `Impl_decl (trait, type_name, params, body) ->
-    `Impl_decl
-      ( trait
-      , type_name
-      , params
-      , { body with ib_methods = List.map (map_method_def fs fa) body.ib_methods } )
 
 let map_matching (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (m : ('e1, 's1) matching)
   : ('e2, 's2) matching
@@ -969,6 +825,10 @@ let map_reflect (f : 'a -> 'b) (e : 'a reflect) : 'b reflect =
   match e with
   | `Typeof v -> `Typeof (f v)
 
+let map_declof (f : 'a -> 'b) (e : 'a declof) : 'b declof =
+  match e with
+  | `Declof (v, static_args) -> `Declof (f v, Option.map (List.map (map_static_arg f)) static_args)
+
 let map_stmts (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (s : ('e1, 's1) stmts)
   : ('e2, 's2) stmts
   =
@@ -986,24 +846,6 @@ let map_stmts (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (s : ('e1, 's1) stmts)
   | `Continue -> `Continue
   | `Defer s -> `Defer (fs s)
 
-let map_loops (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (s : ('e1, 's1) loops)
-  : ('e2, 's2) loops
-  =
-  match s with
-  | `For (init, cond, step, body) ->
-    `For (Option.map fs init, Option.map fe cond, Option.map fe step, fs body)
-  | `For_in (names, iterable, body) -> `For_in (names, fe iterable, fs body)
-
-let map_arm (fs : 's1 -> 's2) (a : 's1 arm) : 's2 arm =
-  { arm_name = a.arm_name
-  ; arm_kind = a.arm_kind
-  ; arm_params = a.arm_params
-  ; arm_body = List.map fs a.arm_body
-  }
-
-let map_handler (fs : 's1 -> 's2) (h : 's1 handler) : 's2 handler =
-  { handled = h.handled; arms = List.map (map_arm fs) h.arms }
-
 let map_valued_block (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (b : ('e1, 's1) valued_block)
   : ('e2, 's2) valued_block
   =
@@ -1017,33 +859,7 @@ let map_run_expr
   : ('e2, 's2, 'h2) run_expr
   =
   match r with
-  | `Run_expr (body, handlers, clause) ->
-    `Run_expr
-      ( map_valued_block fe fs body
-      , List.map fh handlers
-      , Option.map
-          (fun c -> { rc_param = c.rc_param; rc_body = map_valued_block fe fs c.rc_body })
-          clause )
-
-let map_match_expr (fe : 'e1 -> 'e2) (fs : 's1 -> 's2) (m : ('e1, 's1) match_expr)
-  : ('e2, 's2) match_expr
-  =
-  match m with
-  | `Match_expr (scrutinee, cases) ->
-    `Match_expr (fe scrutinee, List.map (fun (p, b) -> p, map_valued_block fe fs b) cases)
-
-let map_effects
-      (fe : 'e1 -> 'e2)
-      (fs : 's1 -> 's2)
-      (fh : 'h1 -> 'h2)
-      (s : ('e1, 's1, 'h1) effects)
-  : ('e2, 's2, 'h2) effects
-  =
-  match s with
-  | `Effect_decl (name, params, ops) -> `Effect_decl (name, params, ops)
-  | `Run (body, handlers) -> `Run (List.map fs body, List.map fh handlers)
-  | `Resume e -> `Resume (Option.map fe e)
-  | `Discontinue -> `Discontinue
+  | `Run_expr (ret, body, handlers) -> `Run_expr (ret, map_valued_block fe fs body, List.map fh handlers)
 
 let string_of_binop = function
   | Add -> "+"

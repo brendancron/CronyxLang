@@ -98,6 +98,7 @@ let cases =
   ; "tests/stdlib/effects/iterator"
   ; "tests/stdlib/effects/for_iterator"
   ; "tests/stdlib/effects/iterator_suspends"
+  ; "tests/stdlib/effects/transform_imported"
   ; "tests/core/control/for_c"
   ; "tests/core/operators/comparison"
   ; "tests/core/operators/compound_assign"
@@ -108,12 +109,14 @@ let cases =
   ; "tests/core/type_annotations/mixed_annot"
   ; "tests/core/strings/concat"
   ; "tests/core/functions/fib"
+  ; "tests/core/functions/tail_call_deep"
   ; "tests/core/functions/greeting"
   ; "tests/core/functions/return"
   ; "tests/core/functions/closure"
   ; "tests/core/functions/forward_calls_stay_pure"
   ; "tests/core/functions/shadowed_generic"
   ; "tests/core/functions/generic_captures"
+  ; "tests/core/functions/generic_captures_bounded"
   ; "tests/core/functions/lambda_param_imported_type"
   ; "tests/core/functions/evaluation_order"
   ; "tests/types/inference/annotations"
@@ -123,11 +126,19 @@ let cases =
   ; "tests/types/inference/polymorphism"
   ; "tests/types/inference/float_math"
   ; "tests/types/inference/higher_order"
-  ; "tests/types/inference/polymorphic_recursion"
+  ; "tests/types/expected/var_annotation"
+  ; "tests/types/expected/return_type"
+  ; "tests/types/expected/argument"
+  ; "tests/types/expected/field"
+  ; "tests/types/expected/open_argument"
+  ; "tests/types/expected/function_value"
+  ; "tests/types/expected/written_key"
+  ; "tests/types/expected/lambda"
+  ; "tests/types/expected/trait_payload"
+  ; "tests/types/expected/associated_argument"
   ; "tests/reflection/typeof_exprs"
   ; "tests/reflection/typeof_primitives"
   ; "tests/reflection/typeof_fn"
-  ; "tests/reflection/typeof_generic"
   ; "tests/reflection/typeof_pack"
   ; "tests/effects/rows/inferred_rows"
   ; "tests/effects/rows/builtin_in_effectful_fn"
@@ -148,12 +159,140 @@ let cases =
   ; "tests/effects/recover/recover"
   ; "tests/effects/handler/handler"
   ; "tests/effects/handler/arm_reaches_outer"
+  ; "tests/effects/v2/effect_handler_shape"
+  ; "tests/effects/v2/with_binds_several"
+  ; "tests/effects/v2/handler_captures_by_reference"
+  ; "tests/effects/v2/log"
+  ; "tests/effects/v2/handler"
+  ; "tests/effects/v2/methods"
+  ; "tests/effects/v2/bound_through_the_key"
+  ; "tests/effects/v2/generic_unmarked"
+  ; "tests/effects/v2/working_example"
+  ; "tests/effects/v2/resume_returns_block_value"
+  ; "tests/effects/v2/ctl_and_unmarked_in_one_effect"
+  ; "tests/effects/v2/throw_fresh_result"
+  ; "tests/effects/v2/straight_line"
+  ; "tests/effects/v2/ask"
+  ; "tests/effects/v2/delim"
+  ; "tests/effects/v2/flip"
+  ; "tests/effects/v2/recover"
+  ; "tests/effects/v2/nested_return"
+  ; "tests/effects/v2/two_runs_one_expr"
+  ; "tests/effects/v2/suspend_in_record"
+  ; "tests/effects/v2/suspend_in_field_assign"
+  ; "tests/effects/v2/run_value/two_in_one_expr"
+  ; "tests/effects/v2/run_value/value"
+  ; "tests/effects/v2/run_value/unit_body"
+  ; "tests/effects/v2/run_value/arm_answers"
+  ; "tests/effects/v2/multi_handle/multi_handle"
+  ; "tests/effects/v2/generic/shared_param"
+  ; "tests/effects/v2/named_handler_generic"
+  ; "tests/effects/v2/match/resume_in_match"
+  ; "tests/effects/v2/match/return_in_match"
+  ; "tests/effects/v2/match/suspend_in_scrutinee"
+  ; "tests/effects/v2/logic/simple_guard"
+  ; "tests/effects/v2/logic/multi_guard"
+  ; "tests/effects/v2/return_in_converted_loop"
+  ; "tests/effects/v2/suspend_in_logical"
+  ; "tests/effects/v2/suspend_in_logical_nested"
+  ; "tests/effects/v2/suspend_in_logical_while"
+  ; "tests/effects/v2/suspend_in_while_condition"
+  ; "tests/effects/v2/suspend_in_variant"
+  ; "tests/effects/v2/suspend_in_condition"
+  ; "tests/effects/v2/suspend_in_tuple_destructure"
+  ; "tests/effects/v2/exception/exception"
+  ; "tests/effects/v2/generic/generic"
+  ; "tests/effects/v2/generic/written_row"
+  ; "tests/effects/v2/run_value/statements_then_value"
+  ; "tests/effects/v2/multi_handle/differing_arms"
+  ; "tests/effects/v2/stream/stream"
+  ; "tests/effects/v2/loop_exits"
+  ; "tests/effects/v2/recursive_copy"
+  ; "tests/effects/v2/expression_splits"
+  ; "tests/effects/v2/named_handler_in_copy"
+  ; "tests/effects/v2/two_controlling_effects"
+  ; "tests/effects/v2/generic/nested"
+  ; "tests/effects/v2/break_in_converted_loop"
+  ; "tests/effects/v2/continue_in_converted_loop"
+  ; "tests/effects/v2/resume_through_run"
+  ; "tests/effects/v2/split_in_function_value"
+  ; "tests/effects/v2/defer_before_split"
+  ; "tests/effects/v2/inner_run_suspends_outward"
+  ; "tests/effects/v2/handler/arm_reaches_outer"
+  ; "tests/effects/v2/multishot_sequel"
+  ; "tests/effects/v2/abandon_through_run"
+  ; "tests/effects/v2/abort_under_conversion"
+  ; "tests/effects/v2/nested_aborts"
+  ; "tests/effects/v2/valued_handler_function_value"
+  ; "tests/effects/v2/return_after_resume"
+  ; "tests/effects/v2/return_out_of_run"
+  ; "tests/effects/v2/return_in_inner_ctl_run"
+  ; "tests/effects/v2/return_past_arm_defer"
+  ; "tests/effects/v2/return_past_outer_ctl_run"
+  ; "tests/effects/v2/return_in_inner_run"
+  ; "tests/effects/v2/generic/nested_relay"
+  ; "tests/effects/v2/generic/nested_relay_fn"
+  ; "tests/effects/v2/abort_after_resumption"
+  ; "tests/effects/v2/suspend_in_resume"
+  ; "tests/effects/v2/method_takes_control"
+  ; "tests/effects/v2/continuations_differ"
+  ; "tests/effects/v2/nested_deep"
+  ; "tests/effects/v2/deferred/deferred"
+  ; "tests/effects/v2/discontinue/discontinue"
+  ; "tests/effects/v2/final/abort"
+  ; "tests/effects/v2/final/in_loop"
+  ; "tests/core/defer/v2/defer_effect"
+  ; "tests/core/defer/v2/defer_in_converted_fn"
+  ; "tests/core/defer/v2/defer_in_run"
+  ; "tests/core/defer/v2/defer_multishot"
+  ; "tests/core/defer/v2/defer_multishot_abort"
+  ; "tests/core/defer/v2/defer_performs_effect"
+  ; "tests/effects/v2/fn_values/closure_in_arm"
+  ; "tests/effects/v2/fn_values/spawn"
+  ; "tests/effects/v2/fn_values/nested_spawn"
+  ; "tests/effects/v2/fn_values/captures_assigned"
+  ; "tests/effects/v2/fn_values/scheduled_tasks"
+  ; "tests/effects/v2/fn_values/stored_task"
+  ; "tests/effects/v2/stored_tasks/all"
+  ; "tests/effects/v2/stored_tasks/race"
+  ; "tests/effects/v2/stored_tasks/scope_start"
+  ; "tests/effects/v2/stored_tasks/through_operation"
+  ; "tests/effects/v2/fn_values/made_outside_any_run"
+  ; "tests/effects/v2/fn_values/answered_where_called"
+  ; "tests/effects/v2/fn_values/twice_one_instance"
+  ; "tests/effects/v2/fn_values/trait_object"
+  ; "tests/effects/v2/named_ctl_handler"
+  ; "tests/effects/v2/meta_once"
+  ; "tests/core/traits/dyn/v2/effect_resumes"
+  ; "tests/effects/methods/v2/suspending_receiver"
+  ; "tests/effects/v2/discontinue/nested_after_outer"
+  ; "tests/effects/v2/root/root_shaped"
+  ; "tests/effects/v2/root/scheduler_throws_outward"
+  ; "tests/effects/v2/fn_values/two_runs_one_value"
+  ; "tests/effects/v2/outer_resumes_inner_twice"
+  ; "tests/effects/v2/loop_taking_control_outward"
+  ; "tests/stdlib/v2/attempt"
+  ; "tests/stdlib/v2/rethrow"
+  ; "tests/stdlib/v2/iterator"
+  ; "tests/stdlib/v2/block_on"
+  ; "tests/effects/v2/fn_values/in_list"
+  ; "tests/effects/v2/fn_values/in_tuple"
+  ; "tests/effects/v2/fn_values/multishot_closure"
+  ; "tests/effects/v2/fn_values/named_as_value"
+  ; "tests/effects/v2/fn_values/suspending_closure"
+  ; "tests/effects/v2/fn_values/through_index"
+  ; "tests/effects/v2/fn_values/wider_row"
+  ; "tests/effects/v2/fn_values/wider_row_nested"
+  ; "tests/meta/processed/types"
+  ; "tests/meta/processed/operation"
+  ; "tests/meta/processed/fresh_declare"
   ; "tests/effects/named_import/main"
   ; "tests/effects/qualified_op/main"
   ; "tests/effects/handled_in_import/main"
   ; "tests/effects/stream/stream"
   ; "tests/effects/discontinue/discontinue"
   ; "tests/effects/discontinue/nested_after_outer"
+  ; "tests/effects/discontinue/signal"
   ; "tests/effects/run_value/value"
   ; "tests/effects/run_value/return_clause"
   ; "tests/effects/run_value/unit_body"
@@ -289,7 +428,6 @@ let cases =
   ; "tests/effects/generic/row_through_index"
   ; "tests/effects/generic/nested_in_generic"
   ; "tests/effects/generic/row_argument_generalized"
-  ; "tests/effects/generic/unconstrained_at_call"
   ; "tests/core/operators/precedence"
   ; "tests/core/operators/logical_symbols"
   ; "tests/core/operators/logical"
@@ -384,6 +522,9 @@ let cases =
   ; "tests/core/modules/module_statements/main"
   ; "tests/meta/01_basic/basic"
   ; "tests/meta/01_basic/nested"
+  ; "tests/meta/01_basic/display_in_meta"
+  ; "tests/meta/prune/meta_only_function"
+  ; "tests/meta/prune/unreferenced_impl"
   ; "tests/meta/02_gen/basic"
   ; "tests/meta/02_gen/env"
   ; "tests/meta/02_gen/gen_meta"
@@ -434,6 +575,7 @@ let cases =
   ; "tests/meta/05_order/25_meta_in_lambda"
   ; "tests/meta/05_order/26_unreached_type"
   ; "tests/meta/05_order/27_meta_reaches_fn"
+  ; "tests/meta/05_order/29_operator_reached"
   ; "tests/meta/06_modules/circular/main"
   ; "tests/meta/06_modules/derive_across/main"
   ; "tests/meta/06_modules/derive_across_selective/main"
@@ -458,6 +600,29 @@ let cases =
   ; "tests/meta/syntax/record_from_list"
   ; "tests/meta/syntax/statements"
   ; "tests/meta/syntax/type_splice"
+  ; "tests/meta/splice/gen_code_expr"
+  ; "tests/meta/splice/gen_code_stmts"
+  ; "tests/meta/splice/gen_code_decl"
+  ; "tests/meta/splice/meta_expr"
+  ; "tests/meta/splice/meta_expr_value_param"
+  ; "tests/meta/splice/meta_expr_expected"
+  ; "tests/meta/splice/meta_expr_nested"
+  ; "tests/meta/splice/gen_call_value"
+  ; "tests/meta/traits/meta_in_trait"
+  ; "tests/meta/traits/per_instance"
+  ; "tests/meta/traits/open_param"
+  ; "tests/meta/traits/effect_handler"
+  ; "tests/reflection/typeof_value"
+  ; "tests/meta/params/typeof_param"
+  ; "tests/meta/params/typeof_compound"
+  ; "tests/meta/declof/fn"
+  ; "tests/meta/declof/keyed"
+  ; "tests/meta/declof/trait"
+  ; "tests/meta/declof/processed"
+  ; "tests/meta/declof/pruned"
+  ; "tests/meta/declof/static_param"
+  ; "tests/meta/declof/qualified/main"
+  ; "tests/meta/declof/dynamic"
   ; "tests/meta/syntax/round_trip"
   ; "tests/meta/syntax/printer"
   ; "tests/meta/moduleof/main"
@@ -611,6 +776,7 @@ let error_cases =
   ; "tests/core/embed/errors/missing"
   ; "tests/effects/generic/errors/one_type"
   ; "tests/effects/generic/errors/written_row_arity"
+  ; "tests/effects/generic/errors/unconstrained_at_call"
   ; "tests/effects/generic/errors/two_instantiations"
   ; "tests/effects/generic/errors/written_row_mismatch"
   ; "tests/effects/final/errors/resumes"
@@ -622,6 +788,7 @@ let error_cases =
   ; "tests/meta/02_gen/errors/reify_fn"
   ; "tests/meta/02_gen/errors/reify_object"
   ; "tests/meta/03_derive/errors/gen_at_runtime"
+  ; "tests/meta/03_derive/errors/gen_in_comptime"
   ; "tests/meta/03_derive/errors/use_before_derive"
   ; "tests/meta/04_functions/errors/meta_fn"
   ; "tests/meta/05_order/17_gen_before"
@@ -629,13 +796,14 @@ let error_cases =
   ; "tests/meta/05_order/errors/distinct_instances"
   ; "tests/meta/05_order/errors/double_demotion"
   ; "tests/meta/05_order/errors/dynamic_in_meta"
+  ; "tests/meta/05_order/errors/meta_calls_walking"
+  ; "tests/meta/05_order/errors/top_level_var_in_meta"
   ; "tests/meta/05_order/errors/static_arg_in_meta"
   ; "tests/meta/05_order/errors/meta_type_without_args"
   ; "tests/meta/05_order/errors/value_type_without_args"
   ; "tests/meta/07_precheck/errors/instance_mismatch"
   ; "tests/meta/07_precheck/errors/unreached_value_param"
   ; "tests/core/functions/errors/duplicate_fn"
-  ; "tests/core/functions/errors/generic_captures"
   ; "tests/core/types/errors/duplicate_type"
   ; "tests/meta/02_gen/errors/duplicate_generated"
   ; "tests/core/traits/errors/self_method_on_type"
@@ -647,20 +815,41 @@ let error_cases =
   ; "tests/core/syntax/errors/unterminated_block_comment"
   ; "tests/reflection/errors/no_such_name"
   ; "tests/meta/code/errors/outside_meta"
+  ; "tests/meta/code/errors/quoting_at_runtime"
   ; "tests/meta/code/errors/not_a_name"
   ; "tests/meta/syntax/errors/wrong_kind"
+  ; "tests/meta/splice/errors/expr_none"
+  ; "tests/meta/splice/errors/expr_two"
+  ; "tests/meta/splice/errors/expr_stmt"
+  ; "tests/meta/splice/errors/sig_in_body"
+  ; "tests/meta/traits/errors/stmt_in_trait"
+  ; "tests/meta/traits/errors/missing_generated"
+  ; "tests/meta/traits/errors/duplicate_generated"
+  ; "tests/meta/declof/errors/unkeyed"
+  ; "tests/meta/declof/errors/self"
+  ; "tests/meta/declof/errors/not_a_decl"
+  ; "tests/meta/declof/errors/outside_meta"
+  ; "tests/meta/declof/errors/dynamic_unknown"
   ; "tests/meta/moduleof/errors/not_a_module"
   ; "tests/meta/moduleof/errors/outside_meta"
   ; "tests/effects/handler/errors/arm_without_outer"
+  ; "tests/effects/v2/errors/handled_twice"
+  ; "tests/effects/v2/final/errors/resumes"
+  ; "tests/effects/v2/errors/with_binds_nothing"
+  ; "tests/effects/v2/errors/ambiguous_operation"
+  ; "tests/effects/v2/errors/handler_method_takes_control"
+  ; "tests/effects/v2/errors/split_in_loop"
   ; "tests/core/records/errors/unimported_effect_in_field"
   ; "tests/core/records/errors/unknown_field_type"
-  ; "tests/reflection/errors/not_a_value"
+  ; "tests/reflection/errors/generic_value"
   ; "tests/types/errors/mixed_numeric"
-  ; "tests/types/inference/errors/unspecializable_recursion"
   ; "tests/types/errors/non_bool_condition"
   ; "tests/types/errors/undefined_variable"
   ; "tests/types/errors/arity"
   ; "tests/types/errors/return_mismatch"
+  ; "tests/types/expected/errors/unsettled_value"
+  ; "tests/types/expected/errors/unsettled_lambda"
+  ; "tests/types/expected/errors/unsettled_variant"
   ; "tests/types/errors/assign_mismatch"
   ; "tests/types/errors/unknown_type"
   ; "tests/types/errors/declared_without_value"
@@ -751,7 +940,6 @@ let error_cases =
   ; "tests/effects/errors/row_argument_kind"
   ; "tests/effects/errors/closed_row_argument"
   ; "tests/types/errors/local_type_escapes"
-  ; "tests/types/inference/errors/unspecializable_names_the_caller"
   ; "tests/core/modules/errors/outside_package/main"
   ; "tests/core/modules/errors/module_var/main"
   ; "tests/core/modules/errors/module_var_shadowed/main"
@@ -766,6 +954,7 @@ let error_cases =
    never reach the interpreter. *)
 let runtime_cases =
   [ "tests/core/collections/index_out_of_range"
+  ; "tests/effects/v2/root/root_failure"
   ; "tests/core/slices/negative_index"
   ; "tests/core/builtins/chr_invalid"
   ; "tests/operators/negative_shift"
@@ -838,7 +1027,6 @@ let expected_failing : (string * blocker) list =
   ; "tests/compile/m6/apply", Parked
   ; "tests/compile/m7/safe_div", Parked
   ; "tests/compile/m8/gadt", Parked
-  ; "tests/meta/03_derive/errors/gen_in_comptime", Waiting "Gen as an effect"
   ]
 
 (* Run everywhere but Windows, which cannot wait on a pipe with `select`, so
@@ -1257,7 +1445,7 @@ let run_prelude_walk () =
     output_string channel "var xs: List<int> = [1, 2];\nprint(xs.len() < 3);\n");
   let walked =
     match Pipeline.front ~roots:(Driver.roots_for path) ~out:(fun _ -> ()) path with
-    | Ok processed -> Ok (Bootstrap.Source.program processed)
+    | Ok processed -> Ok (Bootstrap.Printer.string_of_processed_program processed)
     | Error _ -> Error "the probe does not metaprocess"
   in
   match walked with
@@ -1275,9 +1463,11 @@ let run_prelude_walk () =
       go 0
     in
     let expectations =
-      [ "the prelude reaches the walk", mentions "type std#List#List", true
-      ; "a prelude function a later pass calls survives", mentions "fn std#Ops#__is_less(", true
-      ; "an unreached prelude function is dropped", mentions "fn std#Assert#assert", false
+      [ "the prelude reaches the walk", mentions "(type std#List#List)", true
+      ; ( "a prelude function a later pass calls survives"
+        , mentions "(fn std#List#List#std#Ops#FromArray#T#from_array"
+        , true )
+      ; "an unreached prelude function is dropped", mentions "(fn std#Assert#assert", false
       ]
     in
     List.for_all
@@ -1298,6 +1488,43 @@ let run_prelude_walk () =
                (if expected then "" else "not ");
              false))
          expectations)
+
+(* Cases whose processed program must leave out, or keep, a declaration: the
+   output cannot show it, only `--dump-code` can. Each is in [cases] too. *)
+let pruned =
+  [ "tests/meta/prune/meta_only_function", [ "(fn doubled " ], [ "(fn shared " ]
+  ; "tests/meta/declof/pruned", [ "(fn lonely " ], []
+  ; ( "tests/meta/prune/unreferenced_impl"
+    , [ "(fn Circle#Area#area "; "(fn Circle#std#Format#Display#fmt " ]
+    , [ "(fn Square#Area#area "; "(fn Square#std#Format#Display#fmt " ] )
+  ]
+
+let run_pruned root (name, absent, present) =
+  let path = Filename.concat root (name ^ ".cx") in
+  match Pipeline.front ~roots:(Driver.roots_for path) ~out:(fun _ -> ()) path with
+  | Error _ ->
+    Printf.printf "FAIL %s (dump-code)\n  does not metaprocess\n" name;
+    false
+  | Ok processed ->
+    let printed = Bootstrap.Printer.string_of_processed_program processed in
+    let mentions needle =
+      let n = String.length needle in
+      let rec go i =
+        i + n <= String.length printed && (String.equal (String.sub printed i n) needle || go (i + 1))
+      in
+      go 0
+    in
+    let wrong =
+      List.filter mentions absent @ List.filter (fun needle -> not (mentions needle)) present
+    in
+    (match wrong with
+     | [] -> Printf.printf "ok   %s (dump-code)\n" name
+     | wrong ->
+       Printf.printf
+         "FAIL %s (dump-code)\n  wrongly kept or dropped:\n%s\n"
+         name
+         (String.concat "\n" (List.map (fun needle -> "    " ^ needle) wrong)));
+    wrong = []
 
 (* Every file the library ships, reached by a fixture or not. Two modules under
    `stdlib/lex/` rotted to a syntax the language had dropped, and stayed broken
@@ -1373,6 +1600,7 @@ let () =
       @ List.map (flushed Fun.id (run_round_trip root)) cases
       @ List.map (flushed fst (run_expected_failing root)) expected_failing
       @ List.map (flushed Fun.id (run_known_unsound root)) known_unsound
+      @ List.map (flushed (fun (name, _, _) -> name) (run_pruned root)) pruned
       @ [ run_partition root; run_rendering (); run_prelude_walk (); run_stdlib_parses root ]
       @ [ run_prompt_flushed () ]
     in

@@ -1,0 +1,25 @@
+trait Shape {
+    fn area(self): int;
+}
+
+type Square { side: int }
+type Rect { w: int, h: int }
+
+impl Shape for Square {
+    fn area(self): int { return self.side * self.side; }
+}
+
+impl Shape for Rect {
+    fn area(self): int { return self.w * self.h; }
+}
+
+var shapes: List<Shape> = [Square { side: 2 }, Rect { w: 2, h: 3 }];
+var biggest: Option<Shape> = Option.Some(Rect { w: 4, h: 5 });
+
+for (s in shapes) {
+    print(s.area());
+}
+match biggest {
+    Option.Some(s) => { print(s.area()); }
+    Option.None => { print("none"); }
+}

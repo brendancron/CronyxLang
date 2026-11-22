@@ -1,0 +1,26 @@
+trait Tick { @ctl fn tick(): unit; }
+
+fn find(xs: List<int>, v: int): <Tick> bool {
+    for (x in xs) {
+        if (x == v) { return true; }
+    }
+    return false;
+}
+
+fn first_over(xs: List<int>, limit: int): <Tick> int {
+    var i = 0;
+    while (i < xs.len()) {
+        tick();
+        if (xs[i] > limit) { return xs[i]; }
+        i += 1;
+    }
+    return 0;
+}
+
+run {
+    print(find([1, 2], 2));
+    print(find([1, 2], 3));
+    print(first_over([1, 5, 9], 4));
+} handle<Tick> {
+    fn tick(resume) { resume(()); }
+}

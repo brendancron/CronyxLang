@@ -1,0 +1,4 @@
+before
+run finished
+after
+done

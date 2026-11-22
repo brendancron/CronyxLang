@@ -41,9 +41,9 @@
 import { To } from "../ops/To";
 
 /** A failure, abandoning the work that raised it. */
-effect Throw<X> {
+trait Throw<X> {
     /** Abandons the work and hands the handler what went wrong. Never resumed. */
-    final ctl throw(err: X);
+    @ctl fn throw<T>(err: X): T;
 }
 
 /** A value, or the failure in its place. */
@@ -60,8 +60,8 @@ fn attempt<X, T, E>(f: () -> <Throw<X>, E> T): <E> Result<T, X> {
     var outcome: Option<Result<T, X>> = Option.None;
     run {
         outcome = Option.Some(Result.Ok(f()));
-    } handle Throw {
-        final ctl throw(e) { outcome = Option.Some(Result.Err(e)); }
+    } handle<Throw> {
+        fn throw(e, resume) { outcome = Option.Some(Result.Err(e)); }
     }
     match outcome {
         Option.Some(r) => { return r; }
@@ -134,12 +134,12 @@ fn fail<T>(err: Failure): <Throw<Failure>> T {
  * A failure whose handler must produce a value: reported, and answered with a
  * `T` by the handler.
  *
- * `raise` is an `fn` operation rather than a `ctl` one, so the handler's answer
- * *is* the call's result and the function carries on. That makes it the shape
- * for a default -- a missing entry standing in as zero -- where `Throw` is the
- * shape for abandoning the work.
+ * `raise` does not take control, so the handler's answer *is* the call's
+ * result and the function carries on. That makes it the shape for a default --
+ * a missing entry standing in as zero -- where `Throw` is the shape for
+ * abandoning the work.
  */
-effect Fallible<T> {
+trait Fallible<T> {
     /** Reports the failure and answers with whatever the handler gives back. */
     fn raise(msg: string): T;
 }

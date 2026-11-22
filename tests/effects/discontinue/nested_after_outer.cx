@@ -5,7 +5,7 @@ effect Park { ctl park(): unit; }
 var stops: List<() -> unit> = [];
 var wakes: List<() -> unit> = [];
 
-fn parked<E>(task: () -> <Park, Throw<string>, E> unit): <E> unit {
+fn parked<E>(task: () -> <Park, Throw<string>, E> unit): <Console, E> unit {
     run {
         run {
             task();

@@ -1,0 +1,4 @@
+var x = meta {
+    gen var y = 1;
+};
+print(x);

@@ -1,7 +1,7 @@
 import { map, filter, fold, any, all, find, concat, reverse, flat_map, join }
     from "std/collections/List";
 
-var nums = [1, 2, 3, 4, 5];
+var nums: List<int> = [1, 2, 3, 4, 5];
 
 var doubled = nums.map() { it * 2 };
 print(doubled[0]);
@@ -17,7 +17,7 @@ var rev = nums.reverse();
 print(rev[0]);
 print(rev[4]);
 
-var words = ["hello", "world"];
+var words: List<string> = ["hello", "world"];
 print(words.join(", "));
 
 var big = nums.filter() { it > 3 };
@@ -30,8 +30,8 @@ match found {
     Option.None    => { print("none"); }
 }
 
-var a = [1, 2];
-var b = [3, 4];
+var a: List<int> = [1, 2];
+var b: List<int> = [3, 4];
 var c = a.concat(b);
 print(c[0]);
 print(c[3]);

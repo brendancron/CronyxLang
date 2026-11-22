@@ -1,0 +1,16 @@
+var cleaned = false;
+var k: (int) -> string = (x) => {
+    if (__is_discontinued(x)) {
+        cleaned = true;
+        return "none";
+    }
+    return "resumed with " + str(x);
+};
+
+print(k(3));
+print(cleaned);
+discontinue(k);
+print(cleaned);
+
+print(__is_discontinued(__discontinued()));
+print(__is_discontinued(0));

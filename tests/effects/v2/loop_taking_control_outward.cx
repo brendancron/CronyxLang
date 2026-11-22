@@ -1,0 +1,16 @@
+trait Ask { @ctl fn ask(): int; }
+trait L { @ctl fn l(): int; }
+
+run {
+    run {
+        var total = 0;
+        for (var i = 0; i < 3; i += 1) {
+            total += ask() + l();
+        }
+        print(total);
+    } handle<Ask> {
+        fn ask(resume) { resume(10); }
+    }
+} handle<L> {
+    fn l(resume) { resume(1); }
+}

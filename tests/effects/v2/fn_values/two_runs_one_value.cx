@@ -1,0 +1,28 @@
+trait Pick { @ctl fn pick(): int; }
+trait Note { @ctl fn note(text: string): unit; }
+
+fn both(f: () -> <Pick, Note, Console> unit): <Console> unit {
+    run {
+        run {
+            f();
+        } handle<Pick> {
+            fn pick(resume) {
+                resume(1);
+                resume(2);
+                print("picked both");
+            }
+        }
+        print("pick's run is done");
+    } handle<Note> {
+        fn note(text, resume) {
+            print("note: " + text);
+            resume(());
+        }
+    }
+}
+
+both(() => {
+    var n = pick();
+    note("got " + str(n));
+    print(n * 10);
+});

@@ -1,0 +1,22 @@
+trait Ask { @ctl fn ask(): int; }
+trait Check { @ctl fn check(): bool; }
+trait Tick { @ctl fn tick(): unit; }
+
+fn counted(): <Tick> int {
+    tick();
+    return 5;
+}
+
+fn yes(): <Tick> bool {
+    tick();
+    return true;
+}
+
+run {
+    run {
+        print(ask());
+        print(ask() + ask());
+        print(check());
+    } handle<Ask> { fn ask(resume) { resume(counted() * 2); } }
+      handle<Check> { fn check(resume) { resume(false || yes()); } }
+} handle<Tick> { fn tick(resume) { print("tick"); resume(()); } }

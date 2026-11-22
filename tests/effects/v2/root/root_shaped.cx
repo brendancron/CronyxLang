@@ -1,0 +1,54 @@
+trait Out { fn emit(text: string): unit; }
+
+trait Fails<X> { @ctl fn fails<T>(err: X): T; }
+
+trait Wait { @ctl fn pause(): unit; }
+
+fn block_on<X, E>(main: () -> <Wait, Fails<X>, E> unit): <Console, E> unit {
+    var ready: List<() -> <Console, E> unit> = [];
+    run {
+        run {
+            main();
+        } handle<Fails> {
+            fn fails(e, resume) { print("uncaught failure: " + str(e)); }
+        }
+    } handle<Wait> {
+        fn pause(resume) { ready.push { resume(()); }; }
+    }
+    while (ready.len() > 0) {
+        var next = ready[0];
+        ready = ready[1:];
+        next();
+    }
+}
+
+fn root<T, X, E>(main: () -> <Wait, Fails<X>, Out, Console, E> T): <Console, E> T {
+    var out: Option<T> = Option.None;
+    run {
+        block_on(() => { out = Option.Some(main()); });
+    } handle<Out> {
+        fn emit(text) { print("> " + text); }
+    }
+    match out {
+        Option.Some(value) => { return value; }
+        Option.None => { panic("a top-level statement finished without a value"); }
+    }
+}
+
+fn twice(name: string): <Wait, Out> unit {
+    emit(name + " 1");
+    pause();
+    emit(name + " 2");
+}
+
+var total = root(() => { return 40; });
+root(() => { total = total + 2; });
+root(() => { twice("a"); emit(str(total)); });
+var n = root(() => {
+    var local = 1;
+    twice("b");
+    local += 1;
+    return local;
+});
+print(n);
+print("done");

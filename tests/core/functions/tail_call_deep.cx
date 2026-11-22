@@ -1,0 +1,27 @@
+fn main() {
+    var ping: (int) -> int = (n) => n;
+    var pong: (int) -> int = (n) => n;
+    ping = (n) => {
+        if (n == 0) { return 0; }
+        return pong(n - 1);
+    };
+    pong = (n) => {
+        if (n == 0) { return 1; }
+        return ping(n - 1);
+    };
+    print(ping(1000000));
+    print(ping(1000001));
+
+    var steps = 0;
+    var walk: (int) -> unit = (n) => {};
+    walk = (n) => {
+        if (n > 0) {
+            steps = steps + 1;
+            walk(n - 1);
+        }
+    };
+    walk(1000000);
+    print(steps);
+}
+
+main();

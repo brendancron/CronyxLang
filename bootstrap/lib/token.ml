@@ -52,9 +52,6 @@ type token_type =
      comment about the module from one about the declaration below it. *)
   | Doc of string * bool
   (* Keywords. *)
-  | Ctl
-  | Final
-  | Effect
   | Else
   | False
   | Fn
@@ -68,9 +65,6 @@ type token_type =
   | Derive
   | Defer
   | Handle
-  | Handler
-  | Resume
-  | Discontinue
   | Return
   | Break
   | Continue
@@ -80,6 +74,7 @@ type token_type =
   | Trait
   | Type
   | Typeof
+  | Declof
   | With
   | Var
   | While
@@ -140,9 +135,6 @@ let token_type_to_string = function
   | Int _ -> "INT"
   | Float _ -> "FLOAT"
   | Doc _ -> "DOC"
-  | Ctl -> "CTL"
-  | Final -> "FINAL"
-  | Effect -> "EFFECT"
   | Else -> "ELSE"
   | False -> "FALSE"
   | Fn -> "FN"
@@ -156,9 +148,6 @@ let token_type_to_string = function
   | Derive -> "DERIVE"
   | Defer -> "DEFER"
   | Handle -> "HANDLE"
-  | Handler -> "HANDLER"
-  | Resume -> "RESUME"
-  | Discontinue -> "DISCONTINUE"
   | Return -> "RETURN"
   | Break -> "BREAK"
   | Continue -> "CONTINUE"
@@ -168,6 +157,7 @@ let token_type_to_string = function
   | Trait -> "TRAIT"
   | Type -> "TYPE"
   | Typeof -> "TYPEOF"
+  | Declof -> "DECLOF"
   | With -> "WITH"
   | Var -> "VAR"
   | While -> "WHILE"

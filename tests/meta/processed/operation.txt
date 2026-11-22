@@ -1,0 +1,4 @@
+log("hi"): Effect.log, returns
+choose([1, 2]): Effect.choose, takes control
+print("plain"): not an operation
+log("named"): Effect.log, returns

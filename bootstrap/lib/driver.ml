@@ -86,13 +86,13 @@ let execute_linked ?(dumps = no_dumps) ~entry program =
     if dumps.types
     then (
       print_endline "-- types --";
-      print_string (Printer.string_of_typed_program typed))
+      print_string (Printer.string_of_processed_program typed))
   in
   let on_code processed =
     if dumps.code
     then (
       print_endline "-- code --";
-      print_string (Source.program processed))
+      print_string (Printer.string_of_processed_program processed))
   in
   match Pipeline.linked ~on_code ~on_types ~out:Builtins.to_stdout program with
   | Error errors -> die_at ~entry errors
@@ -109,13 +109,13 @@ let execute ?(dumps = no_dumps) ?roots entry =
     if dumps.code
     then (
       print_endline "-- code --";
-      print_string (Source.program processed))
+      print_string (Printer.string_of_processed_program processed))
   in
   let on_types typed =
     if dumps.types
     then (
       print_endline "-- types --";
-      print_string (Printer.string_of_typed_program typed))
+      print_string (Printer.string_of_processed_program typed))
   in
   match Pipeline.compile ~on_code ~on_types ~roots ~out:Builtins.to_stdout entry with
   | Error errors -> die_at ~entry errors

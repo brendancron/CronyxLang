@@ -1,0 +1,23 @@
+trait log {
+    fn log(msg: string): unit;
+}
+
+fn greet(name: string): unit {
+    log("Hello, " + name);
+}
+
+run {
+    greet("Brendan");
+} handle<log> {
+    fn log(msg: string) {
+        print(msg);
+    }
+}
+
+run {
+    greet("Brendan");
+} handle<log> {
+    fn log(msg: string) {
+        print("Log: " + msg);
+    }
+}

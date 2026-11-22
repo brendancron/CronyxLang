@@ -1,0 +1,12 @@
+trait Flip { @ctl fn coin(): bool; }
+
+fn trial(): <Flip, Console> unit {
+    if (coin()) { print("heads"); } else { print("tails"); }
+}
+
+run {
+    var task = () => { trial(); };
+    task();
+} handle<Flip> {
+    fn coin(resume) { resume(true); resume(false); }
+}

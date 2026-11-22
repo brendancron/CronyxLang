@@ -1,0 +1,15 @@
+trait Ask {
+    @ctl fn ask(): int;
+}
+
+fn first(): int {
+    run {
+        var n = ask();
+        return n;
+    } handle<Ask> {
+        fn ask(resume) { resume(1); }
+    }
+    return 0;
+}
+
+print(first());

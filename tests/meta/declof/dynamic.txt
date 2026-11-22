@@ -1,0 +1,9 @@
+fn ask(): int {
+    return 5;
+}
+
+fn tell(n: int) {
+    print(n);
+}
+
+5

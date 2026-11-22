@@ -1,8 +1,8 @@
-fn identity<T>(x) {
+fn identity<T>(x: T) {
     return x;
 }
 
-fn first<T>(list) {
+fn first<T>(list: Array<T>) {
     return list[0];
 }
 

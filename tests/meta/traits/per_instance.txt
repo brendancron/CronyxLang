@@ -1,0 +1,5 @@
+making Shown<int>
+making Shown<string>
+an A
+a B
+a C

@@ -1,0 +1,24 @@
+trait Error { @ctl fn throw<T>(msg: string): T; }
+trait E { @ctl fn op(): unit; }
+
+fn work(): <Error, E, Console> unit {
+    print("w1");
+    op();
+    throw("boom");
+    print("UNREACHABLE");
+}
+
+run {
+    var pending: List<() -> <Error, Console> unit> = [];
+    run {
+        work();
+        print("UNREACHABLE TOO");
+    } handle<E> {
+        fn op(resume) { pending.push(() => { resume(()); }); }
+    }
+    print("drain");
+    pending[0]();
+} handle<Error> {
+    fn throw(msg, resume) { print("caught: " + msg); }
+}
+print("done");

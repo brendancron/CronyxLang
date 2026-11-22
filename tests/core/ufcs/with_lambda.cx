@@ -12,6 +12,6 @@ fn total(items: List<int>): int {
     return sum;
 }
 
-var nums = [1, 2, 3];
+var nums: List<int> = [1, 2, 3];
 print(nums.each() { it * 2 }.total());
 print(nums.each((v) => v + 1).total());

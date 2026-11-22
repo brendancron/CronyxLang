@@ -1,0 +1,17 @@
+trait E { @ctl fn op(): int; }
+
+fn doubled(): <E> int { return op() * 2; }
+fn tripled(): <E> int { return op() * 3; }
+
+fn call_it(task: () -> <E> int): <E> int { return task(); }
+
+run {
+    print(call_it(doubled));
+    var fns: List<() -> <E> int> = [];
+    fns.push(doubled);
+    fns.push(tripled);
+    print(fns[0]());
+    print(fns[1]());
+} handle<E> {
+    fn op(resume) { resume(7); }
+}

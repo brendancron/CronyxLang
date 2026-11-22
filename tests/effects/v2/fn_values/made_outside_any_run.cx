@@ -1,0 +1,18 @@
+trait Ask { @ctl fn ask(): int; }
+
+fn asker(scale: int): () -> <Ask> int {
+    return () => { return ask() * scale; };
+}
+
+fn answer(f: () -> <Ask> int, n: int): int {
+    return run<int> {
+        f() + f()
+    } handle<Ask> {
+        fn ask(resume) { return resume(n); }
+    };
+}
+
+var triple = asker(3);
+print(answer(triple, 1));
+print(answer(triple, 5));
+print(answer(asker(10), 2));

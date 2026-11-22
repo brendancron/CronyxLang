@@ -1,0 +1,21 @@
+trait Ask { @ctl fn ask(): int; }
+
+var saved: List<() -> <Ask> int> = [];
+
+run<unit> {
+    var first = ask();
+    saved.push(() => { return ask() + first; });
+    print("made under the first run, which answered " + str(first));
+} handle<Ask> {
+    fn ask(resume) { return resume(1); }
+}
+
+var got = run<int> {
+    saved[0]()
+} handle<Ask> {
+    fn ask(resume) {
+        print("the second run answers");
+        return resume(100);
+    }
+};
+print(got);

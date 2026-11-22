@@ -1,0 +1,40 @@
+import { Expr, ExprKind, Stmt, StmtKind, operation_of } from "std/compiler/Ast";
+import { expr_source } from "std/compiler/Printer";
+
+trait Effect {
+    fn log(msg: string): unit;
+    @ctl fn choose(options: Array<int>): int;
+}
+
+fn describe(s: Stmt): string {
+    match s.kind {
+        StmtKind.Expression(e) => {
+            match e.kind {
+                ExprKind.Call(f, _) => {
+                    match operation_of(f) {
+                        Option.Some(op) => {
+                            var mode = "returns";
+                            if (op.takes_control) { mode = "takes control"; }
+                            return expr_source(e) + ": " + str(op.label) + "." + str(op.name) + ", " + mode;
+                        }
+                        _ => { return expr_source(e) + ": not an operation"; }
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    return "not a call";
+}
+
+meta {
+    for (s in code {
+        log("hi");
+        choose([1, 2]);
+        print("plain");
+        Effect.log("named");
+    }) {
+        print(describe(s));
+    }
+}

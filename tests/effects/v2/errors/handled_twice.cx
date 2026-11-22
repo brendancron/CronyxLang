@@ -1,0 +1,17 @@
+trait Log {
+    fn log(msg: string): unit;
+}
+
+type Basic {}
+
+impl Log for Basic {
+    fn log(msg: string): unit {
+        print(msg);
+    }
+}
+
+run {
+    log("x");
+} handle<Log> {
+    fn log(msg) { print(msg); }
+} with Basic;

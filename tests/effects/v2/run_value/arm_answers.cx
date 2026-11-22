@@ -1,0 +1,15 @@
+trait Yield {
+    @ctl fn yield(v: int): unit;
+}
+
+fn each(): <Yield> unit {
+    yield(1);
+    yield(2);
+    yield(3);
+}
+
+var first = run<int> { each(); 0 } handle<Yield> {
+    fn yield(v, resume) { return v; }
+};
+
+print(first);

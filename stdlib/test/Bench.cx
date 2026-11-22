@@ -84,9 +84,9 @@ fn collect_benches(m: Module) {
         names.push(code(label));
         var plan = str(__size_of(d)) + "\t" + __class_of(d, "time") + "\t" + __class_of(d, "memory");
         plans.push(code(plan));
-        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span };
-        var size = Expr { kind: ExprKind.Var("size".as_name()), span: d.span };
-        var call = Expr { kind: ExprKind.Call(callee, [size]), span: d.span };
+        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span, ty: Option.None };
+        var size = Expr { kind: ExprKind.Var("size".as_name()), span: d.span, ty: Option.None };
+        var call = Expr { kind: ExprKind.Call(callee, [size]), span: d.span, ty: Option.None };
         var index = i;
         for (s in code { if (selected == index) { call; } }) { chain.push(s); }
     }
@@ -101,7 +101,7 @@ fn collect_benches(m: Module) {
  * Runs the benchmark `cx bench` chose for this process at the size it chose,
  * or lists each one's name and plan when none was chosen.
  */
-fn run_benches<E>(names: List<string>, plans: List<string>, body: (int, int) -> <E> unit): <E> unit {
+fn run_benches<E>(names: List<string>, plans: List<string>, body: (int, int) -> <E> unit): <Console, E> unit {
     var mark = str(chr(30));
     var selected = __test_selected();
     if (selected < 0) {

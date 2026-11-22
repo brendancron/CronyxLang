@@ -1,0 +1,15 @@
+trait Flip { @ctl fn flip(): bool; }
+
+fn choose(): <Flip> string {
+    if (flip() && (flip() || flip())) { return "yes"; }
+    return "no";
+}
+
+run {
+    print(choose());
+} handle<Flip> {
+    fn flip(resume) {
+        resume(true);
+        resume(false);
+    }
+}

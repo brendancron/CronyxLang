@@ -1,0 +1,21 @@
+trait Log { fn log(s: string): unit; }
+trait Tick { fn tick(): unit; }
+trait Ask { @ctl fn ask(): int; }
+
+fn call_it<E>(f: () -> <Log, Tick, E> unit): <Log, Tick, E> unit { f(); }
+
+fn only_logs() { log("only logs"); }
+fn nothing() { print("performs nothing"); }
+fn asks() { log("asked " + str(ask())); }
+
+run {
+    call_it(only_logs);
+    call_it(nothing);
+    call_it(asks);
+} handle<Log> {
+    fn log(s) { print(s); }
+} handle<Tick> {
+    fn tick() { }
+} handle<Ask> {
+    fn ask(resume) { resume(42); }
+}

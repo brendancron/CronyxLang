@@ -12,5 +12,5 @@ fn local() {
 print(describe(1));
 print(describe(true));
 local();
-var passed = describe;
+var passed: (int) -> string = describe;
 print(passed(2));

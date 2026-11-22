@@ -1,0 +1,8 @@
+a step 0
+b step 0
+a step 1
+b step 1
+b step 2
+result 7
+result 2
+result 3

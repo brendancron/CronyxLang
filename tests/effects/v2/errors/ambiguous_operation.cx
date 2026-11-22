@@ -1,0 +1,11 @@
+trait Log {
+    fn log(msg: string): unit;
+}
+
+trait Journal {
+    fn log(msg: string): unit;
+}
+
+fn note() {
+    log("x");
+}

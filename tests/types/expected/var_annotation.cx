@@ -1,0 +1,3 @@
+var xs: Set<int> = [1, 2, 2];
+print(typeof(xs).name);
+print(xs.len());

@@ -1,0 +1,10 @@
+trait Ask { @ctl fn get(): int; }
+
+fn f(): <Ask, Console> int {
+    defer print("cleanup");
+    print("body");
+    return get();
+}
+
+run { print(f()); } handle<Ask> { fn get(resume) { resume(1); print("after arm"); } }
+print("after");

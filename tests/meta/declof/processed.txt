@@ -1,0 +1,10 @@
+made's meta block runs
+fn made() {
+    print("generated");
+    print("written");
+}
+
+generated
+written
+generated
+written

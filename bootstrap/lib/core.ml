@@ -49,6 +49,15 @@ let is_less_equal = ops "__is_less_equal"
 let is_greater = ops "__is_greater"
 let is_greater_equal = ops "__is_greater_equal"
 
+(* What an impl names to handle an effect whose operations take control. *)
+let effect_handler = name "core/EffectHandler" "EffectHandler"
+
+(* What a run means: its body handed to this, which splits it at each operation
+   that takes control. *)
+let transform_module = "core/Transform"
+let effect_transform = name transform_module "effect_transform"
+let effect_lambda = name transform_module "effect_lambda"
+
 let reflect = name "meta/Reflect"
 let shape = reflect "TypeShape"
 let field = reflect "TypeField"

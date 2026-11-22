@@ -1,0 +1,10 @@
+trait Ask {
+    @ctl fn ask(): int;
+}
+
+run {
+    var later = () => { print(ask()); };
+    later();
+} handle<Ask> {
+    fn ask(resume) { resume(1); }
+}

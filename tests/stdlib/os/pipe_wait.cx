@@ -22,7 +22,4 @@ fn other() {
     }
 }
 
-var tasks = [];
-tasks.push(() => reader());
-tasks.push(() => other());
-interleaved(tasks);
+interleaved([() => reader(), () => other()]);

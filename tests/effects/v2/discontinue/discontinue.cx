@@ -1,0 +1,31 @@
+trait Pause { @ctl fn pause(): unit; }
+
+fn inner(): <Pause, Console> unit {
+    defer print("inner cleaned up");
+    print("inner before");
+    pause();
+    print("inner never");
+}
+
+fn outer(): <Pause, Console> unit {
+    defer print("outer cleaned up");
+    inner();
+    print("outer never");
+}
+
+run { outer(); } handle<Pause> {
+    fn pause(resume) {
+        print("arm before");
+        discontinue(resume);
+        print("arm after");
+    }
+}
+print("first done");
+
+var later: List<() -> <Console> unit> = [];
+run { outer(); } handle<Pause> {
+    fn pause(resume) { later.push(() => { discontinue(resume); }); }
+}
+print("second run returned");
+later[0]();
+print("second done");

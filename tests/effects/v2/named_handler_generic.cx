@@ -1,0 +1,34 @@
+trait Effect {
+    fn log(msg: string): unit;
+    @ctl fn choose(options: Array<int>): int;
+}
+
+type Picker<R> {}
+
+impl EffectHandler<Effect, R> for Picker<R> {
+    fn log(msg: string): unit {
+        print(msg);
+    }
+    fn choose(options: Array<int>, k: (int) -> R): R {
+        var last = k(options[0]);
+        var i = 1;
+        while (i < options.len()) {
+            last = k(options[i]);
+            i = i + 1;
+        }
+        return last;
+    }
+}
+
+run {
+    log("statement");
+    var n = choose([3, 4]);
+    print(n);
+} with Picker;
+
+var r = run<int> {
+    var n = choose([5, 6]);
+    n * 10
+} with Picker;
+
+print(r);
