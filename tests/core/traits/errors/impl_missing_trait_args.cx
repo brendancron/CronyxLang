@@ -5,4 +5,4 @@ type Holder { n: Int }
 impl Pair for Holder {
     fn first(self): Int { return self.n; }
 }
-print(Holder { n: 1 });
+print(Holder { n: 1 }.n);

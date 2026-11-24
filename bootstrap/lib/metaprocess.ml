@@ -10,6 +10,8 @@ exception Failed = Splice.Failed
 
 let fail = Splice.fail
 
+let built span value = Splice.built span (Splice.syntax span value)
+
 (* The interpreter already compares two values of any shape, so a derived `Eq`
    reaches that rather than walking the type's fields. *)
 let derived_eq span target : Ast.stmt =
@@ -29,7 +31,7 @@ let derived_eq span target : Ast.stmt =
                   ; { Ast.name = "rhs"; ty = Some (ty target); implicit = false }
                   ]
               ; md_signature =
-                  { Ast.ret = Some (ty "Bool"); row = Some []; static_params = [] }
+                  { Ast.ret = Some (ty "Bool"); row = Some []; static_params = []; inline = false }
               ; md_body =
                   [ at
                       (`Return
@@ -86,13 +88,14 @@ let name_of (v : Value.value) =
    own local. *)
 module Shadowed = Set.Make (String)
 
-let substitution (bound : (string, Value.value) Hashtbl.t) =
+let substitution ?(row = Fun.id) (bound : (string, Value.value) Hashtbl.t) =
   let named name =
     match Hashtbl.find_opt bound name with
     | Some v -> Option.value (name_of v) ~default:name
     | None -> name
   in
-  let rec type_expr (t : Ast.type_expr) : Ast.type_expr =
+  let rec entries row_entries = row (List.map (fun (l, args) -> l, List.map type_expr args) row_entries)
+  and type_expr (t : Ast.type_expr) : Ast.type_expr =
     let it =
       match t.Ast.it with
       | Ast.Ty_variadic t -> Ast.Ty_variadic (type_expr t)
@@ -108,9 +111,8 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
       | Ast.Ty_tuple items -> Ast.Ty_tuple (List.map type_expr items)
       | Ast.Ty_record fields ->
         Ast.Ty_record (List.map (fun (l, t) -> l, type_expr t) fields)
-      | Ast.Ty_fn (args, ret, row) ->
-        Ast.Ty_fn (List.map type_expr args, type_expr ret, row)
-      | Ast.Ty_row row -> Ast.Ty_row row
+      | Ast.Ty_fn (args, ret, written) -> Ast.Ty_fn (List.map type_expr args, type_expr ret, entries written)
+      | Ast.Ty_row written -> Ast.Ty_row (entries written)
     in
     { t with Ast.it }
   in
@@ -118,6 +120,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
   let signature (sg : Ast.signature) =
     { sg with
       Ast.ret = Option.map type_expr sg.Ast.ret
+    ; row = Option.map entries sg.Ast.row
     ; static_params =
         List.map
           (fun (c : Ast.static_param) -> { c with Ast.sp_ty = Option.map type_expr c.Ast.sp_ty })
@@ -143,6 +146,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
     | it ->
       let it : Ast.expr_kind =
         match it with
+        | `Pre_checked _ as it -> it
         | `Lambda (params, sg, body) ->
           `Lambda
             ( List.map param params
@@ -214,7 +218,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
     | a -> Ast.map_static_arg (expr shadowed) a
   and clause shadowed (c : Ast.stmt Ast.handler_clause) =
     match c with
-    | Ast.Named n -> Ast.Named n
+    | Ast.Named n -> Ast.Named (named n)
     | Ast.Handle (handled, defs) -> Ast.Handle (type_expr handled, List.map (method_def shadowed) defs)
     | Ast.Bound (label, handler, value) ->
       Ast.Bound (label, handler, Option.map (fun s -> only (sequence shadowed [ s ])) value)
@@ -259,6 +263,7 @@ let substitution (bound : (string, Value.value) Hashtbl.t) =
     let expr = expr shadowed in
     let it : Ast.stmt_kind =
       match s.Ast.it with
+      | `Pre_checked _ as it -> it
       | `Attributed (attrs, inner) -> `Attributed (attrs, stmt shadowed inner)
       | `Fn (name, params, sg, body) ->
         `Fn
@@ -343,8 +348,8 @@ let substitute_expr bound (e : Ast.expr) : Ast.expr =
   let expr, _, _, _ = substitution bound in
   expr e
 
-let substitute_all bound (body : Ast.stmt list) : Ast.stmt list =
-  let _, _, sequence, _ = substitution bound in
+let substitute_all ?row bound (body : Ast.stmt list) : Ast.stmt list =
+  let _, _, sequence, _ = substitution ?row bound in
   sequence body
 
 let substitute_type bound (t : Ast.type_expr) : Ast.type_expr =
@@ -463,13 +468,22 @@ let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~na
       | None -> Value.fail span "Only a meta block inside checked code can ask for processed code."
       | Some (typer, lowered) ->
         let previous = !Syntax.typer
-        and previous_lowered = !Syntax.expansion in
+        and previous_lowered = !Syntax.expansion
+        and previous_viewed = !Syntax.viewed
+        and previous_generated = !Syntax.generated
+        and previous_kept = !Syntax.kept in
         Syntax.typer := (fun e -> Option.map (Splice.type_expr_of ~opened:true e.Ast.span) (typer e));
         Syntax.expansion := lowered;
+        Syntax.viewed := Typecheck.shown_view;
+        Syntax.generated := Typecheck.Physical_stmt.find_opt Typecheck.meta_stmts;
+        Syntax.kept := Typecheck.Physical_stmt.find_opt Typecheck.kept_stmts;
         Fun.protect
           ~finally:(fun () ->
             Syntax.typer := previous;
-            Syntax.expansion := previous_lowered)
+            Syntax.expansion := previous_lowered;
+            Syntax.viewed := previous_viewed;
+            Syntax.generated := previous_generated;
+            Syntax.kept := previous_kept)
           write
     in
     let checked span check =
@@ -509,12 +523,13 @@ let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~na
         incr fresh_names;
         Value.Name (Ast.generated [ "cx" ^ string_of_int !fresh_names; Utf8.encode prefix ])
       | _ -> Value.fail span "fresh takes a string.");
-    let operation (label, op, control, arity) =
+    let operation (label, op, control, aborts, arity) =
       Syntax.record
         "Operation"
         [ "label", Value.Name label
         ; "name", Value.Name op
         ; "takes_control", Value.Bool control
+        ; "aborts", Value.Bool aborts
         ; "arity", Value.Int arity
         ]
     in
@@ -549,6 +564,16 @@ let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~na
       | [ Value.Name trait; Value.Name name ] ->
         Value.Array (Array.of_list (List.map (fun l -> Value.Name l) (Typecheck.declared_row trait name)))
       | _ -> Value.fail span "method_row takes a trait and a method.");
+    native "__field_type" (Some 2) (fun span args ->
+      match args with
+      | [ ty; Value.Name field ] ->
+        (match Syntax.read_option (Syntax.read_type { Syntax.fallback = span }) ty with
+         | Some t ->
+           Syntax.option
+             (fun ft -> Syntax.type_expr (Splice.type_expr_of span ft))
+             (Typecheck.field_type t field)
+         | None -> Syntax.option (fun _ -> Value.Unit) None)
+      | _ -> Value.fail span "field_type takes a type and a field.");
     native "__controls" (Some 1) (fun span args ->
       match args with
       | [ Value.Name label ] -> Value.Bool (Typecheck.takes_control_label label)
@@ -566,6 +591,11 @@ let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~na
       checked span (fun () ->
         try Syntax.decl (Lazy.force (fst (declof_call span ~at name ty))) with
         | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message })));
+    native "__declared_call" (Some 3) (fun span args ->
+      let name, ty, at = called span args in
+      checked span (fun () ->
+        try Syntax.option Syntax.decl (Some (Lazy.force (fst (declof_call span ~at name ty)))) with
+        | Failed _ -> Syntax.option Syntax.decl None));
     native "__named_method" (Some 2) (fun span args ->
       match args with
       | [ Value.Name handler; Value.Name short ] ->
@@ -668,6 +698,7 @@ let promote ~meta ~visible (s : Ast.stmt) : Ast.stmt * (string * Ast.expr) list 
     let expr = expr shadowed in
     let it : Ast.expr_kind =
       match e.Ast.it with
+      | `Pre_checked _ as it -> it
       | `Lambda (params, sg, body) ->
         `Lambda
           ( params
@@ -837,7 +868,7 @@ let lowering { table; codes; _ } ~visible ~returns =
       let expr = expr scope in
       let it : Ast.expr_kind =
         match it with
-        | (`Code _ | `Code_stmts _ | `Code_decl _ | `Declof _ | `Meta_expr _) as c -> c
+        | (`Code _ | `Code_stmts _ | `Code_decl _ | `Declof _ | `Meta_expr _ | `Pre_checked _) as c -> c
         | `Lambda (params, sg, body) -> `Lambda (params, sg, block scope body)
         | #Ast.lit as l -> l
         | #Ast.vars as v -> (Ast.map_vars expr v :> Ast.expr_kind)
@@ -1063,6 +1094,7 @@ let rec texpr h scope (e : Ast.expr) : Ast.expr =
     let it : Ast.expr_kind =
       match it with
       | #Ast.lit as l -> l
+      | `Pre_checked _ as it -> it
       | `Assign (name, v) -> assigned name (`Assign (name, ex v))
       | `Unop (op, a) -> `Unop (op, ex a)
       | `Binop (op, a, b) ->
@@ -1167,6 +1199,7 @@ and tstmt h scope (s : Ast.stmt) : Ast.stmt list * S.t =
     let out = h.meta scope s in
     out, List.fold_left declared_here scope out
   | `Gen _ -> h.gen scope s, scope
+  | `Pre_checked n -> [ s ], List.fold_left declared_here scope (Option.to_list (Typecheck.viewed_stmt n))
   | `Var_decl (name, ty, init) ->
     let init = Option.map ex init in
     h.local name ty init;
@@ -1298,10 +1331,16 @@ type instance =
     mutable deps : S.t
   ; (* Its body quotes code or runs a `gen`, so only a meta block runs it. *)
     mutable quoting : bool
+  ; (* Its body quotes code as run-time literals. A meta block would have
+       written the values its own names hold into each quote instead, so it
+       cannot share this instance. *)
+    mutable quoting_literally : bool
   ; (* The body as the checker received it, and what each of its meta blocks
        generated, by the block's own statement list: what `declof` shows. *)
     mutable source : Ast.stmt list
   ; mutable generated : (Ast.stmt list * spliced) list
+  ; (* Its key holds a type declared in a body, so it is emitted there. *)
+    mutable homed : bool
   }
 
 type made =
@@ -1334,6 +1373,7 @@ type world =
   ; (* What the root statements name. *)
     mutable rooted : S.t
   ; mutable root : string option
+  ; mutable meta_root : string option
   ; (* Every top-level function, written or generated: what a meta program
        compiles from. *)
     fns : (string, Ast.stmt) Hashtbl.t
@@ -1831,6 +1871,20 @@ let returns w n =
   | Some (_, _, sg, _) -> sg.Ast.ret
   | None -> None
 
+let quotes_in body =
+  let found = ref false in
+  ignore
+    (tblock
+       { quiet with
+         code =
+           (fun _ e ->
+             found := true;
+             e)
+       }
+       S.empty
+       body);
+  !found
+
 let rec gens_in (body : Ast.stmt list) =
   List.exists
     (fun (s : Ast.stmt) ->
@@ -1884,18 +1938,14 @@ let deferred_prefix (s : Ast.stmt) =
     when String.equal a_name Ast.deferred_marker -> Some prefix
   | _ -> None
 
-let is_printer (d : Typecheck.walk_decl) =
-  match d.Typecheck.wd_impl with
-  | Some (Some (t, _), _, _) -> String.equal t Core.display || String.equal t Core.debug
-  | _ -> false
+let instance_base (d : Typecheck.walk_decl) =
+  match d.Typecheck.wd_owner with
+  | Some owner -> Ast.generated [ owner; d.Typecheck.wd_name ]
+  | None -> d.Typecheck.wd_name
 
 let instance_name w (d : Typecheck.walk_decl) (key : Key.t) =
   let made = Option.value ~default:[] (Hashtbl.find_opt w.by_decl d.Typecheck.wd_id) in
-  (* The printer finds a `Display` or `Debug` method by its declaration's name,
-     so the first instance of one keeps it. *)
-  if key = [] || (is_printer d && made = [])
-  then d.Typecheck.wd_name
-  else Ast.generated [ d.Typecheck.wd_name; string_of_int (List.length made) ]
+  if key = [] then instance_base d else Ast.generated [ instance_base d; string_of_int (List.length made) ]
 
 let view (i : instance) : Typecheck.instance_view =
   { Typecheck.iv_name = i.name
@@ -1914,21 +1964,61 @@ let values_of (key : Key.t) =
     key
 
 let referenced w name =
+  Option.iter (fun names -> names := name :: !names) !Typecheck.reaching;
   match w.current, w.meta_frame with
   | Some i, _ -> i.deps <- S.add name i.deps
   | None, Some f -> f.reached <- S.add name f.reached
   | None, None -> w.rooted <- S.add name w.rooted
 
-let processed_of w i =
+let processing : (string, unit) Hashtbl.t = Hashtbl.create 16
+
+(* Calls of the instances declared `inline`, replaced by the bodies they run.
+   A callee is processed before its body is read, so its own calls have been
+   replaced; one already being processed around the call is recursion. *)
+let rec inlined w body =
+  let find name =
+    match Hashtbl.find_opt w.by_name name with
+    | None -> Inline.Not_inline
+    | Some c when not c.decl.Typecheck.wd_sig.Ast.inline -> Inline.Not_inline
+    | Some c ->
+      (match c.state, c.processed with
+       | Failed_instance, _ -> Inline.Not_inline
+       | _ when c.decl.Typecheck.wd_local -> Inline.Not_inline
+       | _ when c.quoting -> Inline.Unready "it quotes code, so only a meta block runs it"
+       | _ when c.homed -> Inline.Not_inline
+       | Done, Some [ fn ] -> Inline.Ready fn
+       | Done, None when not (Hashtbl.mem processing c.name) ->
+         (match processed_of w c with
+          | [ fn ] -> Inline.Ready fn
+          | _ -> Inline.Unready "it has no body of its own to write")
+       | _ -> Inline.Unready "it is recursive, and its own body reaches this call")
+  in
+  let report =
+    match w.session with
+    | Some s -> !(s.Typecheck.Session.errors) = []
+    | None -> true
+  in
+  Inline.program ~report ~find ~is_function:(Hashtbl.mem w.by_name) body
+
+and processed_of w i =
   match i.processed with
   | Some processed -> processed
   | None ->
+    if i.decl.Typecheck.wd_local && i.decl.Typecheck.wd_sig.Ast.inline
+    then
+      Typecheck.fail
+        i.decl.Typecheck.wd_span
+        "'%s' is declared inline, but a function declared inside another is never inlined."
+        (Typecheck.shown_name i.decl.Typecheck.wd_name);
     let previous = w.current in
     w.current <- Some i;
+    Hashtbl.replace processing i.name ();
     let processed =
       Fun.protect
-        ~finally:(fun () -> w.current <- previous)
-        (fun () -> Typecheck.processed_stmt w.registry (Option.get i.checked))
+        ~finally:(fun () ->
+          w.current <- previous;
+          Hashtbl.remove processing i.name)
+        (fun () -> inlined w (Typecheck.processed_stmt w.registry (Option.get i.checked)))
     in
     i.processed <- Some processed;
     w.emitted <- i :: w.emitted;
@@ -1952,6 +2042,9 @@ let rec drain w =
     drain w
 
 let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : instance =
+  (* `declof` and the transform ask by the key without the handlers, which
+     names the instance a call made under the handlers around it. *)
+  let key = Option.value ~default:key (Hashtbl.find_opt Typecheck.handler_alias (d.Typecheck.wd_id, Key.show key)) in
   match Hashtbl.find_opt w.cache (d.Typecheck.wd_id, Key.show key) with
   | Some (Function i) ->
     if use && i.quoting && not !Typecheck.in_meta
@@ -1959,6 +2052,12 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
       fail
         span
         "'%s' quotes code or runs a gen, so only a meta block can call it."
+        (Typecheck.shown_name d.Typecheck.wd_name);
+    if use && i.quoting_literally && !Typecheck.in_meta
+    then
+      fail
+        span
+        "'%s' quotes code at run time, so a meta block cannot call it."
         (Typecheck.shown_name d.Typecheck.wd_name);
     if use then referenced w i.name;
     i
@@ -1976,6 +2075,8 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
       ; processed = None
       ; deps = S.empty
       ; quoting = false
+      ; quoting_literally = false
+      ; homed = false
       ; source = []
       ; generated = []
       }
@@ -2037,7 +2138,9 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
        block's are. One that has any runs only inside a meta block. *)
     let body =
       if not !Typecheck.in_meta
-      then body
+      then (
+        i.quoting_literally <- quotes_in body;
+        body)
       else (
         let captured () = Hashtbl.length w.context.table + Hashtbl.length w.context.codes in
         let before = captured () in
@@ -2049,6 +2152,7 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
         i.quoting <- captured () > before;
         lowered)
     in
+    let home = Typecheck.home_of_key key in
     let previous = w.current
     and frame = w.meta_frame in
     w.current <- Some i;
@@ -2060,6 +2164,7 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
            w.meta_frame <- frame)
          (fun () ->
            Typecheck.check_instance
+             ?home
              ~registry:w.registry
              d
              key
@@ -2073,7 +2178,14 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
        i.checked <- Some checked;
        i.ty <- checked.Ast.ann;
        i.state <- Done;
-       if not d.Typecheck.wd_local then w.finished <- i :: w.finished
+       (match home, Typecheck.instance_run d key with
+        | _, Some run when not d.Typecheck.wd_local ->
+          i.homed <- true;
+          Typecheck.run_instances := (run, checked) :: !Typecheck.run_instances
+        | Some env, None when not d.Typecheck.wd_local ->
+          i.homed <- true;
+          Typecheck.local_instances := (env, checked) :: !Typecheck.local_instances
+        | _ -> if not d.Typecheck.wd_local then w.finished <- i :: w.finished)
      | exception Typecheck.Located e ->
        i.state <- Failed_instance;
        Typecheck.leave_open i.ty;
@@ -2082,6 +2194,49 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
     i
 
 and instance w span d key = view (made w span d key)
+
+and lift w name (checked : Typecheck.checked_stmt) =
+  incr Typecheck.walk_decl_count;
+  let s = session w in
+  let d =
+    { Typecheck.wd_id = !Typecheck.walk_decl_count
+    ; wd_name = name
+    ; wd_span = checked.Ast.span
+    ; wd_params = []
+    ; wd_sig =
+        (match checked.Ast.it with
+         | `Fn (_, _, sg, _) -> sg
+         | _ -> { Ast.ret = None; row = None; static_params = []; inline = false })
+    ; wd_body = []
+    ; wd_impl = None
+    ; wd_env = s.Typecheck.Session.env
+    ; wd_scheme = { Types.quantified = []; quantified_rows = []; quantified_fields = []; body = checked.Ast.ann }
+    ; wd_vars = []
+    ; wd_values = []
+    ; wd_local = false
+    ; wd_owner = None
+    }
+  in
+  let i =
+    { decl = d
+    ; key = []
+    ; name
+    ; state = Done
+    ; ty = checked.Ast.ann
+    ; ret_written = true
+    ; checked = Some checked
+    ; processed = None
+    ; deps = S.empty
+    ; quoting = false
+    ; quoting_literally = false
+    ; homed = false
+    ; source = []
+    ; generated = []
+    }
+  in
+  Hashtbl.replace w.by_name name i;
+  referenced w name;
+  w.finished <- i :: w.finished
 
 (* What `declof` shows of an instance: its body as checked, each meta block
    replaced by what it generated, and its signature at the key, under the
@@ -2096,6 +2251,7 @@ and surface w (i : instance) : Ast.stmt =
   List.iter
     (fun (param, arg) ->
       match arg with
+      | Key.Type ty when Typecheck.holds_generic ty -> ()
       | Key.Type ty ->
         let t = Splice.type_expr_of span ty in
         Hashtbl.replace written param (Syntax.type_expr t);
@@ -2104,7 +2260,7 @@ and surface w (i : instance) : Ast.stmt =
          | _, (Types.Named (n, args) | Types.Sum (n, args)) when Hashtbl.mem w.generic_decls n && Types.closed ty ->
            Hashtbl.replace named param (Value.Name (type_copy w n args))
          | _ -> ())
-      | Key.Value _ | Key.Row _ -> ())
+      | Key.Value _ | Key.Row _ | Key.Handler _ -> ())
     i.key;
   let h = ref quiet in
   h
@@ -2126,9 +2282,8 @@ and surface w (i : instance) : Ast.stmt =
               | _ -> e)
            | _ -> e)
      };
-  let body = substitute_all named (tblock !h S.empty i.source) in
-  let _, _, _, (param, signature, _) = substitution written in
-  (* A parameter standing in a row is written back as the effects it is at. *)
+  (* A parameter standing in a row is written back as the effects it is at,
+     in the body too: the instance has no static parameters to name. *)
   let rows =
     List.filter_map
       (fun (param, arg) ->
@@ -2137,9 +2292,16 @@ and surface w (i : instance) : Ast.stmt =
         | _ -> None)
       i.key
   in
+  (* A label at a parameter the key defaulted is performed by nothing. *)
+  let absent (t : Ast.type_expr) =
+    match t.Ast.it with
+    | Ast.Ty_name n -> String.equal n Ast.absent_type
+    | _ -> false
+  in
   let rec effects (entries : (string * Ast.type_expr list) list) =
     List.concat_map
       (fun (label, args) ->
+        if List.exists absent args then [] else
         match List.assoc_opt label rows with
         | Some (r : Types.row) ->
           List.map (fun (l, args) -> l, List.map (Splice.type_expr_of span) args) r.Types.labels
@@ -2156,6 +2318,20 @@ and surface w (i : instance) : Ast.stmt =
     in
     { t with Ast.it }
   in
+  (* A type no name spells, `(Int, String)`, is written in the body as a type. *)
+  Hashtbl.iter (fun param t -> if not (Hashtbl.mem named param) then Hashtbl.replace named param t) written;
+  (* A row parameter written as a type's argument (`Tasks<E>`) is a name there. *)
+  List.iter
+    (fun (param, (r : Types.row)) ->
+      if not (Hashtbl.mem named param)
+      then
+        Hashtbl.replace
+          named
+          param
+          (Syntax.type_expr (Ast.at span (Ast.Ty_row (List.map (fun (l, args) -> l, List.map (Splice.type_expr_of span) args) r.Types.labels)))))
+    rows;
+  let body = substitute_all ~row:effects named (tblock !h S.empty i.source) in
+  let _, _, _, (param, signature, _) = substitution written in
   (* A parameter written with no type, a method's `self` among them, has the
      one the instance settled. *)
   let settled =
@@ -2171,7 +2347,18 @@ and surface w (i : instance) : Ast.stmt =
       if Typecheck.holds_generic t then p else { p with Ast.ty = Some (Splice.type_expr_of span t) }
     | _ -> { p with Ast.ty = Option.map expanded p.Ast.ty }
   in
-  let sg = signature { d.Typecheck.wd_sig with Ast.static_params = [] } in
+  (* A static parameter no part of the key settles, or one it leaves generic, is
+     still the instance's own. *)
+  let unsettled =
+    List.filter
+      (fun (p : Ast.static_param) ->
+        match List.assoc_opt p.Ast.sp_name i.key with
+        | None -> true
+        | Some (Key.Type ty) -> Typecheck.holds_generic ty
+        | Some _ -> false)
+      d.Typecheck.wd_sig.Ast.static_params
+  in
+  let sg = signature { d.Typecheck.wd_sig with Ast.static_params = unsettled } in
   let sg = { sg with Ast.ret = Option.map expanded sg.Ast.ret; row = Option.map effects sg.Ast.row } in
   Ast.at span (`Fn (d.Typecheck.wd_name, List.mapi param d.Typecheck.wd_params, sg, body))
 
@@ -2237,7 +2424,11 @@ and declared_by_name w span name =
 and declared_at w span ~at name ty =
   wake w name;
   match Typecheck.instance_at span ~at name ty with
-  | Some (d, key) -> lazy (declared_instance w span d key), d.Typecheck.wd_name ^ Key.show key
+  | Some (d, key) ->
+    ( lazy
+        (Typecheck.declof_shown := Some (d.Typecheck.wd_name, key);
+         declared_instance w span d key)
+    , instance_base d ^ Key.show key )
   | None -> lazy (declared_type w span name None), name
 
 (* A named handler's method as its impl writes it, for a transform to make
@@ -2375,21 +2566,22 @@ and run_meta w ~span ~statics ~runtime ~outer body =
      own -- the transform, an `EffectHandler` instance -- and one put under the
      root would need the root finished first. *)
   let at it = Ast.at span it in
+  (* Not only when the root is the instance walking: what it reaches is walked
+     inside it, and a meta block there cannot call it either. *)
   let root_walking =
     match w.current with
     | Some i -> Ast.is_root i.decl.Typecheck.wd_name
     | None -> false
   in
   let block =
-    match w.root with
+    match w.meta_root with
     | Some root when not root_walking ->
-      let main = at (`Lambda ([], { Ast.ret = None; row = None; static_params = [] }, [ at (`Block (bindings @ lowered)) ])) in
+      let main = at (`Lambda ([], { Ast.ret = None; row = None; static_params = []; inline = false }, [ at (`Block (bindings @ lowered)) ])) in
       at (`Expr (at (`Call (at (`Var root), [ main ]))))
     | _ -> at (`Block (bindings @ lowered))
   in
   let s = session w in
   let runtime = List.fold_left (Fun.flip S.add) runtime (hidden w) in
-  printed w;
   let frame = { outer = List.map fst statics @ outer; reached = S.empty } in
   let previous_frame = w.meta_frame
   and previous_current = w.current
@@ -2446,8 +2638,7 @@ and run_meta w ~span ~statics ~runtime ~outer body =
   List.rev !collected
 
 (* The processed bodies of the instances a meta block names, and of those they
-   name, and every printer: the interpreter finds a `Display` or `Debug` method
-   by name wherever a value is written. *)
+   name. *)
 and reached w names =
   let seen = Hashtbl.create 32 in
   let out = ref [] in
@@ -2455,65 +2646,25 @@ and reached w names =
     if not (Hashtbl.mem seen name)
     then (
       Hashtbl.replace seen name ();
-      match Hashtbl.find_opt w.by_name name with
-      | None -> ()
-      | Some i ->
-        (match i.state with
+      Option.iter
+        (fun i ->
+        match i.state with
          | Walking ->
            fail
              i.decl.Typecheck.wd_span
              "'%s' is still being metaprocessed, so a meta block cannot call it yet."
              (Typecheck.shown_name i.decl.Typecheck.wd_name)
          | Failed_instance -> ()
+         | Done when i.homed -> S.iter visit i.deps
          | Done ->
+           (* Its callees first: a call is inlined only once their bodies are. *)
+           S.iter visit i.deps;
            let processed = processed_of w i in
-           if not i.decl.Typecheck.wd_local then out := processed :: !out;
-           S.iter visit i.deps))
+           if not i.decl.Typecheck.wd_local then out := processed :: !out)
+        (Hashtbl.find_opt w.by_name name))
   in
   S.iter visit names;
-  Hashtbl.iter
-    (fun name i -> if i.state = Done && is_printer i.decl then visit name)
-    w.by_name;
   List.concat (List.rev !out)
-
-(* The printer finds these by name wherever a value is written, so each is made
-   whether or not anything calls it. *)
-and printed w =
-  let s = session w in
-  (* Made is not used: [pruned] keeps one only for a type the program builds. *)
-  let rooted = w.rooted in
-  Fun.protect ~finally:(fun () -> w.rooted <- rooted) @@ fun () ->
-  List.iter
-    (fun impl ->
-      match impl_parts impl with
-      | Some ((Some (trait, _) as written), type_name, _, body)
-        when String.equal trait Core.display || String.equal trait Core.debug ->
-        List.iter
-          (fun (m : (Ast.stmt, unit) Ast.method_def) ->
-            match
-              Typecheck.decl_of s.Typecheck.Session.env (Ast.impl_method_name written type_name m.Ast.md_name)
-            with
-            | Some d when not (Hashtbl.mem w.by_decl d.Typecheck.wd_id) ->
-              let key =
-                List.map
-                  (fun (name, var) ->
-                    match Types.repr var with
-                    | Types.IVar { contents = Types.Unbound _ } -> name, Key.Type Types.Unit
-                    | fixed -> name, Key.Type (Types.resolve fixed))
-                  d.Typecheck.wd_vars
-              in
-              let previous = w.current in
-              w.current <- None;
-              (try
-                 Fun.protect
-                   ~finally:(fun () -> w.current <- previous)
-                   (fun () -> ignore (instance w d.Typecheck.wd_span d key))
-               with
-               | Typecheck.Located e -> s.Typecheck.Session.errors := e :: !(s.Typecheck.Session.errors))
-            | _ -> ())
-          body.Ast.ib_methods
-      | _ -> ())
-    (List.rev w.impls)
 
 and instance_decl w name =
   match w.session with
@@ -3180,22 +3331,77 @@ let rec implicit (s : Ast.stmt) : Ast.stmt =
     | other -> other
   in
   { s with Ast.it }
+let method_of_member (f : Ast.stmt) =
+  match fn_parts f with
+  | Some (name, params, sg, body) ->
+    { Ast.md_name = name
+    ; md_params = params
+    ; md_signature = sg
+    ; md_body = body
+    ; md_ann = ()
+    ; md_attrs = fn_attrs f
+    }
+  | None -> fail f.Ast.span "A type holds functions and meta blocks after its fields."
+
+let members_as_impl (s : Ast.stmt) decl name params members =
+  [ decl
+  ; Ast.at
+      s.Ast.span
+      (`Impl_decl (None, name, params, { Ast.ib_assoc = []; ib_methods = List.map method_of_member members }))
+  ]
+
+(* The attributes over a type with members belong to the type, which [f] puts
+   first among what it splits the declaration into. *)
+let attributed_first (f : Ast.stmt -> Ast.stmt list) (s : Ast.stmt) : Ast.stmt list =
+  match s.Ast.it with
+  | `Attributed (attrs, ({ Ast.it = `Type_members _; _ } as inner)) ->
+    (match f inner with
+     | first :: rest -> { s with Ast.it = `Attributed (attrs, first) } :: rest
+     | [] -> [])
+  | _ -> f s
+
+let in_bodies (f : Ast.stmt -> Ast.stmt list) (p : Ast.program) : Ast.program =
+  let rec body (stmts : Ast.stmt list) = List.concat_map (fun s -> List.concat_map f (nested s)) stmts
+  and one (s : Ast.stmt) =
+    match body [ s ] with
+    | [ s ] -> s
+    | ss -> Ast.at s.Ast.span (`Block ss)
+  and nested (s : Ast.stmt) : Ast.stmt list =
+    let it : Ast.stmt_kind =
+      match s.Ast.it with
+      | `Fn (name, params, sg, b) -> `Fn (name, params, sg, body b)
+      | `Block b -> `Block (body b)
+      | `If (c, t, e) -> `If (c, one t, Option.map one e)
+      | `While (c, b) -> `While (c, one b)
+      | `For_in (names, over, b) -> `For_in (names, over, one b)
+      | `Match (subject, cases) -> `Match (subject, List.map (fun (pat, b) -> pat, body b) cases)
+      | `Attributed (_, { Ast.it = `Type_members _; _ }) as kept -> kept
+      | `Attributed (attrs, inner) -> `Attributed (attrs, one inner)
+      | other -> other
+    in
+    [ { s with Ast.it } ]
+  in
+  List.concat_map
+    (fun (s : Ast.stmt) ->
+      match s.Ast.it with
+      | `Fn _ -> nested s
+      | _ -> [ s ])
+    p
+
+let split_local_members =
+  in_bodies @@ attributed_first (fun (s : Ast.stmt) ->
+    match s.Ast.it with
+    | `Type_members (({ Ast.it = `Type_decl (name, params, _); _ } as decl), members) ->
+      if List.exists (fun (p : Ast.type_param) -> Option.is_some p.Ast.tp_ty) params
+         || List.exists (fun (m : Ast.stmt) -> match m.Ast.it with `Meta _ -> true | _ -> false) members
+      then fail s.Ast.span "A type taking a value or holding a meta block is declared only at the top level.";
+      members_as_impl s decl name params members
+    | _ -> [ s ])
+
 (* A type taking a value, or holding a meta block, is made per argument list;
    one whose members are only functions is a type and an impl, as it would be
    written by hand. *)
 let types_of w (p : Ast.program) =
-  let method_of (f : Ast.stmt) =
-    match fn_parts f with
-    | Some (name, params, sg, body) ->
-      { Ast.md_name = name
-      ; md_params = params
-      ; md_signature = sg
-      ; md_body = body
-      ; md_ann = ()
-      ; md_attrs = fn_attrs f
-      }
-    | None -> fail f.Ast.span "A type holds functions and meta blocks after its fields."
-  in
   let comptime_type name params decl members =
     incr Typecheck.walk_decl_count;
     Hashtbl.replace
@@ -3215,25 +3421,19 @@ let types_of w (p : Ast.program) =
   in
   let takes_value params = List.exists (fun (p : Ast.type_param) -> Option.is_some p.Ast.tp_ty) params in
   List.concat_map
-    (fun (s : Ast.stmt) ->
+    (attributed_first (fun (s : Ast.stmt) ->
       match s.Ast.it with
       | `Type_members (({ Ast.it = `Type_decl (name, params, _); _ } as decl), members) ->
         if takes_value params || List.exists runs_meta members
         then (
           comptime_type name params decl members;
           [])
-        else
-          [ decl
-          ; Ast.at
-              s.Ast.span
-              (`Impl_decl
-                (None, name, params, { Ast.ib_assoc = []; ib_methods = List.map method_of members }))
-          ]
+        else members_as_impl s decl name params members
       | `Type_decl (name, params, _) when takes_value params ->
         comptime_type name params s [];
         []
-      | _ -> [ s ])
-    p
+      | _ -> [ s ]))
+    (split_local_members p)
 
 (* A type declared in a body is renamed after its owner, and left where it is:
    once checked, a type is looked up by name, so two functions each declaring a
@@ -3374,135 +3574,86 @@ let collect w (s : Ast.stmt) =
   List.iter (fun name -> Hashtbl.replace w.known_methods name ()) (method_names s);
   note_written w s
 
-(* The types whose values a body builds. A `typeof` builds the reflection
-   records. *)
-let constructed (body : Ast.resolved_stmt list) =
-  let found = ref S.empty in
-  let note (ty : Types.ty) =
-    match ty with
-    | Types.Named (name, _) | Types.Sum (name, _) -> found := S.add name !found
-    | _ -> ()
-  in
-  let rec expr (e : Ast.resolved_expr) =
-    (match e.Ast.it with
-     | `Record_lit _ | `Variant _ -> note e.Ast.ann
-     | _ -> ());
-    let _ : Ast.resolved_expr_kind =
-      match e.Ast.it with
-      | #Ast.lit as l -> l
-      | #Ast.arrays as a -> (Ast.map_arrays expr a :> Ast.resolved_expr_kind)
-      | #Ast.strings as a -> (Ast.map_strings expr a :> Ast.resolved_expr_kind)
-      | #Ast.vars as a -> (Ast.map_vars expr a :> Ast.resolved_expr_kind)
-      | #Ast.ops as a -> (Ast.map_ops expr a :> Ast.resolved_expr_kind)
-      | #Ast.logic as a -> (Ast.map_logic expr a :> Ast.resolved_expr_kind)
-      | #Ast.tuple as a -> (Ast.map_tuple expr a :> Ast.resolved_expr_kind)
-      | #Ast.record as a -> (Ast.map_record expr a :> Ast.resolved_expr_kind)
-      | #Ast.variant_lit as a -> (Ast.map_variant_lit expr a :> Ast.resolved_expr_kind)
-      | #Ast.objects as a -> (Ast.map_object expr a :> Ast.resolved_expr_kind)
-      | `Lambda (params, signature, body) -> `Lambda (params, signature, List.map stmt body)
-    in
-    e
-  and stmt (s : Ast.resolved_stmt) =
-    let _ : Ast.resolved_stmt_kind =
-      match s.Ast.it with
-      | #Ast.stmts as st -> (Ast.map_stmts expr stmt st :> Ast.resolved_stmt_kind)
-      | #Ast.type_defs as t -> t
-      | #Ast.matching as m -> (Ast.map_matching expr stmt m :> Ast.resolved_stmt_kind)
-    in
-    s
-  in
-  List.iter (fun s -> ignore (stmt s)) body;
-  !found
+(* Every name processed code reads. A call the transform sent to a copy names
+   the copy, so what reaches the original only while being checked does not
+   keep it. *)
+let rec names_in_expr (acc : S.t ref) (e : Ast.resolved_expr) =
+  let go = names_in_expr acc in
+  match e.Ast.it with
+  | `Unit | `Int _ | `Bytes _ | `Name _ | `Float _ | `Str _ | `Char _ | `Bool _ -> ()
+  | `Var name -> acc := S.add name !acc
+  | `Assign (name, v) ->
+    acc := S.add name !acc;
+    go v
+  | `Unop (_, a) | `Tuple_get (a, _) | `Field (a, _) | `Array_len a | `Str_len a -> go a
+  | `Binop (_, a, b) | `And (a, b) | `Or (a, b) | `Field_assign (a, _, b) | `Array_new (a, b)
+  | `Array_get (a, b) | `Str_get (a, b) ->
+    go a;
+    go b
+  | `Array_set (a, b, c) ->
+    go a;
+    go b;
+    go c
+  | `Call (callee, args) ->
+    go callee;
+    List.iter go args
+  | `Dyn_call (receiver, _, _, args) ->
+    go receiver;
+    List.iter go args
+  | `Tuple items | `Array_lit items -> List.iter go items
+  | `Record_lit fields | `Variant (_, fields) -> List.iter (fun (_, v) -> go v) fields
+  | `Object (data, id, slots) ->
+    go data;
+    Option.iter go id.Ast.equal;
+    List.iter (fun (_, v) -> go v) slots
+  | `Lambda (_, _, body) -> List.iter (names_in_stmt acc) body
 
-(* The instances the roots reach through what each one names, in the order they
-   were processed. The printer finds a `Display` or `Debug` method by name
-   wherever a value is written, so one for each type a reached body builds is
-   reached too. *)
+and names_in_stmt (acc : S.t ref) (s : Ast.resolved_stmt) =
+  let expr = names_in_expr acc
+  and stmt = names_in_stmt acc in
+  match s.Ast.it with
+  | `Expr e | `Var_tuple (_, e) | `Var_decl (_, _, Some e) | `Return (Some e) -> expr e
+  | `Var_decl (_, _, None) | `Return None | `Break | `Continue | `Type_decl _ -> ()
+  | `Defer inner -> stmt inner
+  | `Block body | `Fn (_, _, _, body) -> List.iter stmt body
+  | `If (c, t, e) ->
+    expr c;
+    stmt t;
+    Option.iter stmt e
+  | `While (c, body) ->
+    expr c;
+    stmt body
+  | `Match (scrutinee, cases) ->
+    expr scrutinee;
+    List.iter (fun (_, body) -> List.iter stmt body) cases
+
+(* The instances the roots reach through what each one's processed code names,
+   in the order they were processed. *)
 let pruned w (roots : Ast.resolved_stmt list) =
   let marked = Hashtbl.create 64 in
-  let printers = Hashtbl.create 16 in
-  Hashtbl.iter
-    (fun name i ->
-      match i.decl.Typecheck.wd_impl with
-      | Some (_, type_name, _) when is_printer i.decl && String.equal name i.decl.Typecheck.wd_name ->
-        Hashtbl.add printers type_name name
-      | _ -> ())
-    w.by_name;
-  let built = Hashtbl.create 32 in
-  let rec build body =
-    S.iter
-      (fun ty ->
-        if not (Hashtbl.mem built ty)
-        then (
-          Hashtbl.replace built ty ();
-          List.iter visit (Hashtbl.find_all printers ty)))
-      (constructed body)
-  and visit name =
+  let rec visit name =
     if not (Hashtbl.mem marked name)
     then (
       Hashtbl.replace marked name ();
-      match Hashtbl.find_opt w.by_name name with
-      | Some ({ state = Done; _ } as i) ->
-        S.iter visit i.deps;
-        (* A local one is built inside its owner's body. *)
-        Option.iter build i.processed
-      | _ -> ())
+      Option.iter
+        (fun i ->
+          match i.state, i.processed with
+          | Done, Some processed ->
+            let named = ref S.empty in
+            List.iter (names_in_stmt named) processed;
+            S.iter visit !named
+          | _ -> ())
+        (Hashtbl.find_opt w.by_name name))
   in
-  S.iter visit w.rooted;
-  build roots;
+  let named = ref S.empty in
+  List.iter (names_in_stmt named) roots;
+  S.iter visit !named;
   List.concat_map
     (fun i ->
-      if Hashtbl.mem marked i.name && not (i.decl.Typecheck.wd_local || i.quoting)
+      if Hashtbl.mem marked i.name && not (i.decl.Typecheck.wd_local || i.quoting || i.homed)
       then Option.get i.processed
       else [])
     (List.rev w.emitted)
-
-(* A named handler's `@abort` method is written without its continuation, and
-   is given one it never names: what it answers is handed back once the
-   continuation is discontinued, so what that unwinds runs its cleanups. *)
-let aborting_impls (p : Ast.program) : Ast.program =
-  let aborting = Hashtbl.create 8 in
-  let rec note (s : Ast.stmt) =
-    match s.Ast.it with
-    | `Trait_decl (name, _, body) ->
-      List.iter
-        (fun (m : Ast.method_sig) -> if Ast.aborts m.Ast.ms_attrs then Hashtbl.replace aborting (name, m.Ast.ms_name) (List.length m.Ast.ms_params))
-        body.Ast.tb_methods
-    | `Attributed (_, inner) -> note inner
-    | _ -> ()
-  in
-  List.iter note p;
-  let given eff (m : (Ast.stmt, unit) Ast.method_def) =
-    match Hashtbl.find_opt aborting (eff, m.Ast.md_name) with
-    | Some arity when List.length m.Ast.md_params = arity ->
-      let span = match m.Ast.md_body with s :: _ -> s.Ast.span | [] -> Source_map.Span.nowhere in
-      let at it = Ast.at span it in
-      let k = Ast.generated [ "aborted"; m.Ast.md_name ]
-      and answer = Ast.generated [ "aborted"; "answer" ] in
-      let body =
-        at (`Lambda ([], { Ast.ret = m.Ast.md_signature.Ast.ret; row = None; static_params = [] }, m.Ast.md_body))
-      in
-      { m with
-        Ast.md_params = m.Ast.md_params @ [ { Ast.name = k; ty = None; implicit = false } ]
-      ; md_body =
-          [ at (`Var_decl (answer, None, Some (at (`Call (body, [])))))
-          ; at (`Expr (at (`Call (at (`Var "discontinue"), [ at (`Var k) ]))))
-          ; at (`Return (Some (at (`Var answer))))
-          ]
-      }
-    | _ -> m
-  in
-  let rec impl (s : Ast.stmt) =
-    match s.Ast.it with
-    | `Impl_decl (Some (trait, ({ Ast.it = Ast.Ty_name eff | Ast.Ty_app (eff, _); _ } :: _ as args)), ty, params, body)
-      when String.equal trait Core.effect_handler ->
-      { s with
-        Ast.it = `Impl_decl (Some (trait, args), ty, params, { body with Ast.ib_methods = List.map (given eff) body.Ast.ib_methods })
-      }
-    | `Attributed (attrs, inner) -> { s with Ast.it = `Attributed (attrs, impl inner) }
-    | _ -> s
-  in
-  List.map impl p
 
 (* `type X impl A, B { … }`: each method goes to the trait that declares it, and
    one no named trait declares is the type's own. A trait whose meta blocks
@@ -3611,7 +3762,7 @@ let implemented_in_types (p : Ast.program) : Ast.program * (Ast.span * string) l
         :: impls)
     | _ -> [ s ]
   in
-  let p = List.concat_map split p in
+  let p = in_bodies split (List.concat_map split p) in
   p, List.rev !errors
 
 (* Processed code names each closed use of a plain generic type by its copy,
@@ -3721,7 +3872,6 @@ let monomorphized w (type_level : Ast.resolved_stmt list) (code : Ast.resolved_s
 
 let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error list) result =
   let p, misplaced = implemented_in_types p in
-  let p = aborting_impls p in
   let context =
     { out
     ; table = Hashtbl.create 16
@@ -3745,6 +3895,7 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
     ; emitted = []
     ; rooted = S.empty
     ; root = None
+    ; meta_root = None
     ; fns = Hashtbl.create 64
     ; known = Hashtbl.create 256
     ; unknown = Hashtbl.create 16
@@ -3768,15 +3919,21 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
   Hashtbl.reset Types.generic_types;
   Hashtbl.reset Types.copies;
   let roots = ref [] in
+  let generated_globals = ref [] in
   let finish_root (checked : Typecheck.checked_stmt list option) =
     let s = session w in
     try
+      (* The root is processed after the top level it calls, which says
+         whether the call hands it evidence. *)
+      let root, rest = List.partition (fun i -> Ast.is_program_root i.decl.Typecheck.wd_name) w.finished in
+      w.finished <- rest;
       drain w;
+      w.finished <- root @ w.finished;
       Option.iter
         (fun root ->
           let made = Typecheck.processed_block w.registry root in
           drain w;
-          roots := List.rev_append made !roots)
+          roots := List.rev_append (inlined w made) !roots)
         checked;
       drain w
     with
@@ -3784,8 +3941,19 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
       s.Typecheck.Session.errors := e :: !(s.Typecheck.Session.errors);
       w.finished <- []
   in
-  let type_errors =
-    List.map (fun (e : Typecheck.error) -> Diagnostic.at Diagnostic.Type e.Typecheck.span e.Typecheck.message)
+  (* One mistake in a function the transform copied is met in the original and
+     in each copy, at the same place with the same words. *)
+  let type_errors errors =
+    let seen = Hashtbl.create 16 in
+    List.filter_map
+      (fun (e : Typecheck.error) ->
+        let key = Source_map.Span.offsets e.Typecheck.span, Source_map.Span.path e.Typecheck.span, e.Typecheck.message in
+        if Hashtbl.mem seen key
+        then None
+        else (
+          Hashtbl.replace seen key ();
+          Some (Diagnostic.at Diagnostic.Type e.Typecheck.span e.Typecheck.message)))
+      errors
   in
   let walk () =
     (match misplaced with
@@ -3801,6 +3969,15 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
       match w.current with
       | Some i -> values_of i.key
       | None -> []
+    in
+    let top_meta (s : Ast.stmt) =
+      let generated = Splice.fit Splice.Top s.Ast.span (meta_stmt w ~statics:[] ~runtime:S.empty ~outer:[] s) in
+      (* Hoisted, since what generated it may stand below its use. *)
+      let declarations, statements = List.partition Splice.is_visible_to_meta generated in
+      List.iter (register w) declarations;
+      let statements = List.map implicit statements in
+      generated_globals := List.rev_append (List.concat_map Compile.globals statements) !generated_globals;
+      statements
     in
     let ops =
       { Typecheck.instance = (fun span d key -> instance w span d key)
@@ -3821,7 +3998,9 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
               in
               lower w.context ~visible:(visible w) ~returns:(returns w) ~params:runtime generated
             | None ->
-              let fragments = meta_stmt w ~statics:(statics ()) ~runtime:(S.of_list runtime) ~outer:[] s in
+              let fragments =
+                meta_stmt w ~statics:(statics ()) ~runtime:(S.of_list runtime) ~outer:[] s
+              in
               let generated =
                 List.map
                   implicit
@@ -3833,6 +4012,7 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
                | Some i, `Meta body -> i.generated <- (body, Spliced_stmts generated) :: i.generated
                | _ -> ());
               generated)
+      ; top_meta
       ; meta_expr =
           (fun runtime type_in e ->
             match e.Ast.it with
@@ -3854,15 +4034,27 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
                  generated)
             | _ -> e)
       ; declof =
-          (fun span target name static_args ->
+          (fun ~meta span target name static_args ->
             let decl =
               match target with
               | Some (d, key) -> declared_instance w span d key
               | None -> declared_type w span name static_args
             in
-            let index = Hashtbl.length w.context.codes in
-            Hashtbl.replace w.context.codes index (Ast.at span (`Code_decl decl));
-            Ast.at span (`Call (Ast.at span (`Var quoter_decl), [ Ast.at span (`Int index) ])))
+            if meta
+            then (
+              let index = Hashtbl.length w.context.codes in
+              Hashtbl.replace w.context.codes index (Ast.at span (`Code_decl decl));
+              Ast.at span (`Call (Ast.at span (`Var quoter_decl), [ Ast.at span (`Int index) ])))
+            else built span (fun () -> Syntax.decl decl))
+      ; quoted =
+          (fun e ->
+            built e.Ast.span (fun () ->
+              match e.Ast.it with
+              | `Code inner -> Syntax.expr inner
+              | `Code_stmts body -> Syntax.list Syntax.stmt body
+              | `Code_decl d -> Syntax.decl d
+              | _ -> fail e.Ast.span "This is not a quote."))
+      ; moduleof = (fun span prefix shown -> built span (fun () -> module_record w prefix shown))
       ; typeof = Splice.reflected
       ; unused =
           (fun f ->
@@ -3891,6 +4083,8 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
             List.filter_map
               (fun i -> if i.state = Done then i.checked else None)
               (List.rev (Option.value ~default:[] (Hashtbl.find_opt w.by_decl d.Typecheck.wd_id))))
+      ; lift = (fun name checked -> lift w name checked)
+      ; refer = (fun name -> referenced w name)
       ; effect_handler =
           (fun span handled ->
             Option.map
@@ -3906,6 +4100,7 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
               (Hashtbl.find_opt w.comptime_traits Core.effect_handler))
       }
     in
+    Syntax.Handed.reset Syntax.handed;
     let session = Typecheck.Walk.start ~registry ops in
     w.session <- Some session;
     Fun.protect ~finally:Typecheck.Walk.stop @@ fun () ->
@@ -3917,59 +4112,57 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
       List.find_opt
         (fun s ->
           match fn_parts s with
-          | Some (name, _, _, _) -> Ast.is_root name
+          | Some (name, _, _, _) -> Ast.is_program_root name
           | None -> false)
         p
     in
     w.root <- Option.bind root_decl (fun s -> Option.map (fun (name, _, _, _) -> name) (fn_parts s));
+    let declared name =
+      List.find_map
+        (fun s ->
+          match fn_parts s with
+          | Some (found, _, _, _) when String.equal found name -> Some found
+          | _ -> None)
+        p
+    in
+    w.meta_root <- declared Ast.meta_root_function;
     List.iter (register w) of_comptime_traits;
-    (* The statements since the last top-level meta block, which run as one
-       root call: a meta block stands between two, so it still runs after what
-       the statements above it reach, and its generated statements join the
-       ones below. Each `var` is declared at the top level ahead of the call,
-       once the call has settled its type. *)
-    let pending = ref [] in
-    let flush () =
-      let statements = List.rev !pending in
-      pending := [];
-      if statements <> []
-      then (
-        match w.root with
-        | Some name ->
-          let checked = Typecheck.Walk.root session (Compile.root_call name statements) in
-          let globals = List.concat_map Compile.globals statements in
-          let before = !roots in
-          finish_root checked;
-          let made = List.rev (List.filteri (fun i _ -> i < List.length !roots - List.length before) !roots) in
-          roots := List.rev_append (globals @ made) before
-        | None -> List.iter (fun s -> finish_root (Typecheck.Walk.root session s)) statements)
+    (* The whole top level is one root call. A top-level meta block is a
+       statement of its body, so it runs where the check reaches it, after what
+       the statements above it reach. Each `var` is declared at the top level
+       ahead of the call, a generated one included, once the call has settled
+       its type. *)
+    let statements =
+      List.filter
+        (fun (s : Ast.stmt) ->
+          match s.Ast.it with
+          | `Gen _ -> fail s.Ast.span "'gen' is only allowed inside a meta block."
+          | _ when Option.is_some (deferred_prefix s) -> false
+          | `Meta _ | `Derive _ -> true
+          | _ -> not (Loader.is_declaration s))
+        p
     in
-    let rec root (s : Ast.stmt) =
-      match s.Ast.it with
-      | `Meta _ | `Derive _ ->
-        flush ();
-        let generated = Splice.fit Splice.Top s.Ast.span (meta_stmt w ~statics:[] ~runtime:S.empty ~outer:[] s) in
-        (* Hoisted, since what generated it may stand below its use. *)
-        let declarations, statements = List.partition Splice.is_visible_to_meta generated in
-        List.iter (register w) declarations;
-        List.iter root (List.map implicit statements)
-      | `Gen _ -> fail s.Ast.span "'gen' is only allowed inside a meta block."
-      | _ when Loader.is_declaration s -> ()
-      | _ -> pending := s :: !pending
-    in
-    List.iter
-      (fun (s : Ast.stmt) ->
-        match deferred_prefix s with
-        | Some _ -> ()
-        | None -> root s)
-      p;
-    flush ();
-    printed w;
+    (match w.root, statements with
+     | _, [] -> ()
+     | Some name, _ ->
+       let checked = Typecheck.Walk.root session (Compile.root_call name statements) in
+       let globals = List.concat_map Compile.globals statements @ List.rev !generated_globals in
+       let before = !roots in
+       finish_root checked;
+       let made = List.rev (List.filteri (fun i _ -> i < List.length !roots - List.length before) !roots) in
+       roots := List.rev_append (globals @ made) before
+     | None, _ ->
+       let rec root (s : Ast.stmt) =
+         match s.Ast.it with
+         | `Meta _ | `Derive _ -> List.iter root (top_meta s)
+         | _ -> finish_root (Typecheck.Walk.root session s)
+       in
+       List.iter root statements);
     finish_root None;
     match type_errors (Typecheck.Walk.errors session) with
     | [] ->
       let type_level, code = monomorphized w (List.rev w.type_level) (pruned w (List.rev !roots) @ List.rev !roots) in
-      Ok (type_level @ code)
+      Ok (type_level @ List.map Typecheck.exact_stmt code)
     | errors -> Error errors
   in
   try walk () with

@@ -2,11 +2,11 @@ import { Async, block_on, all, pause } from "std/async/Task";
 import { Promise, promise, await } from "std/async/Promise";
 import { Throw } from "std/core/Error";
 
-effect Log { fn log(s: String): Unit; }
+trait Log { fn log(s: String): Unit; }
 
 block_on {
-    run {
-        run {
+    run<Unit> {
+        run<Unit> {
             var never: Promise<Unit> = promise();
             all([
                 () => { defer { log("A cleanup"); } log("A start"); await(never); log("A end"); },
@@ -20,20 +20,20 @@ block_on {
                 }
             ]);
             print("scope done");
-        } handle Log { fn log(s) { print("log: " + s); } }
-    } handle Throw {
-        final ctl throw(e) { print("scope failed: " + e); }
+        } handle<Log> { fn log(s) { print("log: " + s); } }
+    } handle<Throw<String>> {
+        fn throw(e) { print("scope failed: " + e); }
     }
 
-    run {
-        run {
+    run<Unit> {
+        run<Unit> {
             all([
                 () => { log("D fails"); throw("early"); },
                 () => { defer { log("E cleanup"); } log("E start"); }
             ]);
-        } handle Log { fn log(s) { print("log: " + s); } }
-    } handle Throw {
-        final ctl throw(e) { print("scope failed: " + e); }
+        } handle<Log> { fn log(s) { print("log: " + s); } }
+    } handle<Throw<String>> {
+        fn throw(e) { print("scope failed: " + e); }
     }
     print("carrying on");
 };

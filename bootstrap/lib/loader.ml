@@ -8,6 +8,10 @@ type error =
 
 exception Failed of error
 
+(* What a module qualifier raises where its name is two effects' operation:
+   only the expression naming it knows where to report that. *)
+exception Ambiguous_operation of string
+
 let fail span fmt =
   Printf.ksprintf (fun message -> raise (Failed { span; message })) fmt
 
@@ -383,6 +387,7 @@ let rewrite
       ~own
       ~whole
       ~trait_ops
+      ~foreign
       ~effect_traits
       ~rename
       ~from
@@ -427,6 +432,10 @@ let rewrite
     | Some target -> target
     | None -> if Hashtbl.mem own name then rename name else name
   in
+    let qualified_at span namespace name =
+    try (Hashtbl.find aliases namespace) name with
+    | Ambiguous_operation message -> fail span "%s" message
+  in
     let resolve_type name =
     match String.index_opt name '.' with
     | Some at ->
@@ -465,7 +474,8 @@ let rewrite
   in
   let param (p : Ast.param) = { p with Ast.ty = Option.map type_expr p.Ast.ty } in
   let signature (sg : Ast.signature) =
-    { Ast.ret = Option.map type_expr sg.Ast.ret
+    { sg with
+      Ast.ret = Option.map type_expr sg.Ast.ret
     ; row = Option.map effect_row sg.Ast.row
     ; static_params =
         List.map
@@ -503,6 +513,7 @@ let rewrite
     let go = expr locals in
     let it : Ast.expr_kind =
       match e.Ast.it with
+      | `Pre_checked _ as it -> it
       | `Lambda (params, sg, body) ->
         let inner =
           List.fold_left (fun acc (p : Ast.param) -> S.add p.Ast.name acc) locals params
@@ -552,7 +563,26 @@ let rewrite
              (shown b)
              name
          | [] -> `Var (resolve_local name))
+      | `Var name when (not (S.mem name locals)) && Hashtbl.mem foreign name ->
+        let declaring, namespace = Hashtbl.find foreign name in
+        fail
+          e.Ast.span
+          "'%s' is an operation of '%s', which this file does not import by name. Write \
+           '%s.%s', or import { %s } from its module."
+          name
+          declaring
+          namespace
+          name
+          declaring
       | `Var name when not (S.mem name locals) -> `Var (resolve_local name)
+      (* Renamed here, where the module's own names are known, so a program
+         declaring its own `implements` does not capture the library's call. *)
+      | `Call ({ Ast.it = `Var "implements"; _ } as callee, args)
+        when not (S.mem "implements" locals || Hashtbl.mem direct "implements" || Hashtbl.mem own "implements") ->
+        `Call ({ callee with Ast.it = `Var "__implements" }, List.map go args)
+      | `Call ({ Ast.it = `Var "effects_of"; _ } as callee, args)
+        when not (S.mem "effects_of" locals || Hashtbl.mem direct "effects_of" || Hashtbl.mem own "effects_of") ->
+        `Call ({ callee with Ast.it = `Var "__effects_of" }, List.map go args)
       (* `moduleof(helpers)` names a module, which only the loader can tell: it
          becomes the prefix the module's declarations carry, and the name it
          was imported under. *)
@@ -571,12 +601,12 @@ let rewrite
       | `Method_call ({ Ast.it = `Var receiver; _ }, name, _, args, _)
         when (not (S.mem receiver locals)) && Hashtbl.mem aliases receiver ->
         `Call
-          ( { e with Ast.it = `Var (Hashtbl.find aliases receiver name) }
+          ( { e with Ast.it = `Var (qualified_at e.Ast.span receiver name) }
           , List.map go args )
       (* `util.f<1>()` and `animals.Cat`: a name read out of a module. *)
       | `Field ({ Ast.it = `Var receiver; _ }, name)
         when (not (S.mem receiver locals)) && Hashtbl.mem aliases receiver ->
-        `Var (Hashtbl.find aliases receiver name)
+        `Var (qualified_at e.Ast.span receiver name)
       (* `Log.log(…)` names the operation of an effect, which settles which one
          a bare `log` would have been. *)
       | `Method_call ({ Ast.it = `Var receiver; _ }, name, _, args, _)
@@ -648,6 +678,7 @@ let rewrite
   and stmt locals (s : Ast.stmt) : Ast.stmt =
     let it : Ast.stmt_kind =
       match s.Ast.it with
+      | `Pre_checked _ as it -> it
       | `Attributed (attrs, inner) -> `Attributed (attrs, stmt locals inner)
       | `Type_members (decl, members) ->
         `Type_members (stmt locals decl, List.map (stmt locals) members)
@@ -844,6 +875,10 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
     (* Each operation of an effect trait this file may call bare, and every
        trait it could be: two is a call the file has to qualify. *)
     let trait_ops = Hashtbl.create 8 in
+    (* Each operation of an effect trait in a module this file imported whole,
+       by the trait and the name the module is bound under: called bare, it is
+       a name the file has to qualify. *)
+    let foreign = Hashtbl.create 8 in
     let reach_trait trait methods =
       List.iter
         (fun m ->
@@ -896,20 +931,56 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
             | Some (path, _) when String.equal path target_unit.path -> ()
             | Some _ -> fail span "'%s' is already bound. Import one of them with `as`." under
             | None ->
+              (* `signal.stop(…)` performs the operation of the one effect in
+                 `signal` that has it: an operation is no declaration of its own. *)
+              let operation name =
+                if List.mem name target_exports
+                then None
+                else
+                  match
+                    List.filter
+                      (fun (_, methods) -> List.mem name methods)
+                      (List.concat_map effect_traits_of target_unit.program)
+                  with
+                  | [ (trait, _) ] -> Some (Ast.operation_name (renamed target_unit ~entry:is_entry trait) name)
+                  | [] -> None
+                  | matches ->
+                    raise
+                      (Ambiguous_operation
+                         (Printf.sprintf
+                            "Ambiguous operation '%s.%s': %s. Import the one you mean by name and write '%s.%s(…)'."
+                            under
+                            name
+                            (String.concat " or " (List.map (fun (t, _) -> t ^ "." ^ name) matches))
+                            (fst (List.hd matches))
+                            name))
+              in
               Hashtbl.replace
                 aliases
                 under
-                (target_unit.path, fun name -> renamed target_unit ~entry:is_entry name)
+                ( target_unit.path
+                , fun name ->
+                    match operation name with
+                    | Some op -> op
+                    | None -> renamed target_unit ~entry:is_entry name )
           in
-          let imported_whole () =
-            whole := List.map (renamed target_unit ~entry:is_entry) target_exports @ !whole
+          let imported_whole under =
+            whole := List.map (renamed target_unit ~entry:is_entry) target_exports @ !whole;
+            if not global
+            then
+              List.iter
+                (fun (trait, methods) ->
+                  List.iter
+                    (fun m -> if not (Hashtbl.mem foreign m) then Hashtbl.replace foreign m (trait, under))
+                    methods)
+                (List.concat_map effect_traits_of target_unit.program)
           in
           (match decl with
            | Ast.Qualified _ ->
-             imported_whole ();
+             imported_whole target;
              bind target
            | Ast.Aliased (_, alias) ->
-             imported_whole ();
+             imported_whole alias;
              bind alias
            | Ast.Selective (names, _) ->
              List.iter
@@ -917,15 +988,21 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
                  if not (List.mem name target_exports)
                  then fail span "Module '%s' does not export '%s'." target name;
                  let bound = renamed target_unit ~entry:is_entry name in
-                 if global && from_prelude from then Hashtbl.replace core name bound;
+                 let traits =
+                   List.filter
+                     (fun (trait, _) -> String.equal trait name)
+                     (List.concat_map effect_traits_of target_unit.program)
+                 in
+                 if global && from_prelude from
+                 then (
+                   Hashtbl.replace core name bound;
+                   List.iter
+                     (fun (_, methods) ->
+                       List.iter (fun m -> Hashtbl.replace core m (Ast.operation_name bound m)) methods)
+                     traits);
                  if not global then Hashtbl.replace locally name ();
                  if not (shadowed name)
-                 then
-                   List.iter
-                     (fun (_, methods) -> reach_trait bound methods)
-                     (List.filter
-                        (fun (trait, _) -> String.equal trait name)
-                        (List.concat_map effect_traits_of target_unit.program));
+                 then List.iter (fun (_, methods) -> reach_trait bound methods) traits;
                  if not (shadowed name) then begin
                  (match Hashtbl.find_opt direct name with
                   | Some earlier when not (String.equal earlier bound) ->
@@ -954,6 +1031,7 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
       ~own
       ~whole:!whole
       ~trait_ops
+      ~foreign
       ~effect_traits
       ~rename:(fun name -> renamed u ~entry name)
       ~from:u.path

@@ -1,1 +1,0 @@
-[2:12] Cannot call 'len': the receiver's type is not known here. Array, String, List, Map, Set and StringBuilder declare one, so this needs a bound or an annotation.

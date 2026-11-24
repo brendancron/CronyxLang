@@ -1,4 +1,4 @@
-effect Log {
+trait Log {
     fn emit(msg: String): Unit;
 }
 
@@ -18,9 +18,9 @@ fn go<T, E>(t: Task<T, E>): <E> T {
 
 print(plain().start());
 print(go(plain()));
-run {
+run<Unit> {
     print(logged().start());
     print(go(logged()));
-} handle Log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }

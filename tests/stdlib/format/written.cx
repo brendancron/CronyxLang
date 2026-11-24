@@ -19,9 +19,9 @@ print(price);
 print("costs " + str(price));
 
 var err: List<String> = [];
-run {
+run<Unit> {
     printerr(price);
-} handle Console {
+} handle<Console> {
     fn write(to, text) {
         match to {
             Stream.Out => {}

@@ -1,8 +1,8 @@
-effect A { ctl get(): Int; }
-effect B { ctl get(x: String): Int; }
+trait A { @ctl fn get(): Int; }
+trait B { @ctl fn get(x: String): Int; }
 
 fn main(): Unit {
-    run { print(get()); } handle A { ctl get() { resume 1; } }
+    run<Unit> { print(get()); } handle<A> { fn get(resume) { resume(1); } }
 }
 
 main();

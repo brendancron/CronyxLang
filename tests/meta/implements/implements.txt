@@ -1,0 +1,10 @@
+true
+false
+true
+true
+false
+true
+false
+false
+box of $2
+Box { held: Point { x: 2 } }

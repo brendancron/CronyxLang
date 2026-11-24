@@ -55,6 +55,20 @@ type Result<T, X> {
     Err(X)
 }
 
+/** `Ok(1)`, `Err("bad")`. */
+impl Debug for Result<T, X> {
+    fn debug(self): String {
+        match self {
+            Result.Ok(v) => { return "Ok(" + debug(v) + ")"; }
+            Result.Err(e) => { return "Err(" + debug(e) + ")"; }
+        }
+    }
+}
+
+impl Display for Result<T, X> {
+    fn fmt(self): String { return debug(self); }
+}
+
 /** The work's value, or the failure it threw, kept rather than handled. */
 fn attempt<X, T, E>(f: () -> <Throw<X>, E> T): <E> Result<T, X> {
     var outcome: Option<Result<T, X>> = Option.None;
@@ -110,8 +124,11 @@ fn derive(shape: TypeShape) for Wraps {
     }
 }
 
-/** Any failure, for code that reports one rather than telling them apart. */
-trait Failure {
+/**
+ * Any failure, for code that reports one rather than telling them apart. It is
+ * written as its message: an object of it has no structure of its own to show.
+ */
+trait Failure: Display {
     /** What went wrong, for a person to read. */
     fn message(self): String;
 }

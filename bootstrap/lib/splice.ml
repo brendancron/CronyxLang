@@ -69,6 +69,42 @@ let rec reify_with ~names span (v : Value.value) : Ast.expr option =
 
 let reify = reify_with ~names:false
 
+(* The expression that builds a value, at run time as at compile time: a
+   syntax value is built as one rather than written as the code it holds. A
+   span is asked for at its own location, which the call carries. *)
+let span_here = "__span_here"
+
+let rec built span (v : Value.value) : Ast.expr =
+  let at it = Ast.at span it in
+  let built = built span in
+  match v with
+  | Value.Span sp -> Ast.at sp (`Call (Ast.at sp (`Var span_here), []))
+  | Value.Name n -> at (`Name n)
+  | Value.Tuple items -> at (`Tuple (List.map built items))
+  | Value.Array items -> at (`Collection_lit (List.map built (Array.to_list items)))
+  | Value.Record (Some name, fields) when String.equal name Core.list ->
+    (match List.assoc_opt "items" fields with
+     | Some { contents = Value.Array items } -> at (`Collection_lit (List.map built (Array.to_list items)))
+     | _ -> fail span "This list has no items to build it from.")
+  | Value.Record (named, fields) ->
+    let fields = List.map (fun (l, v) -> l, built !v) fields in
+    (match named with
+     | Some name -> at (`New (name, fields))
+     | None -> at (`Record_lit fields))
+  | Value.Variant (Some ty, variant, fields) ->
+    let positional = List.for_all Fun.id (List.mapi (fun i (l, _) -> String.equal l (string_of_int i)) fields) in
+    let payload : Ast.expr Ast.payload =
+      match fields with
+      | [] -> Ast.P_none
+      | _ when positional -> Ast.P_tuple (List.map (fun (_, v) -> built v) fields)
+      | _ -> Ast.P_fields (List.map (fun (l, v) -> l, built v) fields)
+    in
+    at (`New_variant (ty, variant, payload))
+  | _ ->
+    (match reify span v with
+     | Some e -> e
+     | None -> fail span "This value has no literal to build it with.")
+
 (* A settled type written back as the annotation that denotes it. A type still
    open where processed code is read is written as [Ast.open_type]. *)
 let rec type_expr_of ?(opened = false) span (t : Types.ty) : Ast.type_expr =

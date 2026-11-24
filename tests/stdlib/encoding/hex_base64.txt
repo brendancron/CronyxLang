@@ -1,8 +1,8 @@
 6869
 [104, 105]
 [255, 0]
-Err(Unexpected(1, 'g'))
-Err(Truncated(3))
+Err(DecodeError.Unexpected(1, 'g'))
+Err(DecodeError.Truncated(3))
 
 Zg==
 Zm8=
@@ -14,5 +14,5 @@ aGk_
 [102, 111, 111, 98, 97]
 [102, 111, 111, 98, 97]
 [104, 105, 63]
-Err(Unexpected(4, '!'))
-Err(Truncated(1))
+Err(DecodeError.Unexpected(4, '!'))
+Err(DecodeError.Truncated(1))

@@ -1,6 +1,4 @@
-// A `return` inside a loop of a function converted for an effect it may
-// perform still hands its value to the caller, whether or not it suspended.
-effect Tick { ctl tick(): Unit; }
+trait Tick { @ctl fn tick(): Unit; }
 
 fn find(xs: List<Int>, v: Int): <Tick> Bool {
     for (x in xs) {
@@ -19,10 +17,10 @@ fn first_over(xs: List<Int>, limit: Int): <Tick> Int {
     return 0;
 }
 
-run {
+run<Unit> {
     print(find([1, 2], 2));
     print(find([1, 2], 3));
     print(first_over([1, 5, 9], 4));
-} handle Tick {
-    ctl tick() { resume; }
+} handle<Tick> {
+    fn tick(resume) { resume(()); }
 }

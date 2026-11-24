@@ -1,0 +1,25 @@
+type Celsius { degrees: Int }
+impl Display for Celsius { fn fmt(self): String { return str(self.degrees) + "C"; } }
+impl Debug for Celsius { fn debug(self): String { return "Celsius(" + str(self.degrees) + ")"; } }
+
+type Box<T> { held: T }
+impl Display for Box<T: Display> { fn fmt(self): String { return "box of " + str(self.held); } }
+
+type Reading { at: Int, temp: Celsius }
+
+type Level { Low, High(Celsius) }
+
+fn shown<T: Display>(label: String, v: T) { print(label + ": " + str(v)); }
+
+print(Celsius { degrees: 21 });
+print([Celsius { degrees: 1 }, Celsius { degrees: 2 }]);
+print(Option.Some(Celsius { degrees: 3 }));
+print(Box { held: 1 });
+print(Box { held: "two" });
+print(Reading { at: 9, temp: Celsius { degrees: 4 } });
+print(debug(Level.High(Celsius { degrees: 5 })));
+print((1, "a", 'c', Celsius { degrees: 6 }));
+print({ name: "x", level: Level.Low });
+print(debug(()));
+shown("int", 7);
+shown("tuple", (true, 2.5));

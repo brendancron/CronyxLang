@@ -13,13 +13,13 @@
  * ```
  */
 
-import { Async } from "../async/Task";
+import { Async, suspend } from "../async/Task";
 import { Throw, Result, Failure } from "../core/Error";
 import { Reader, IoError } from "Io";
 import { decode } from "../text/Utf8";
 
 /** The process's standard input. */
-effect Stdin {
+trait Stdin {
     /** Standard input, as a stream. Getting it never waits; reading it may. */
     fn stdin(): Reader;
 }

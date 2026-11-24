@@ -1,7 +1,4 @@
-// `&&` and `||` do not evaluate their right operand unconditionally, so an
-// operation there suspends only on the branch that reaches it: `short` performs
-// nothing at all.
-effect Ask { ctl get(): Bool; }
+trait Ask { @ctl fn get(): Bool; }
 
 fn any(): <Ask> Bool {
     return false || get();
@@ -15,13 +12,13 @@ fn short(): <Ask> Bool {
     return true || get();
 }
 
-run {
+run<Unit> {
     print(any());
     print(both());
     print(short());
-} handle Ask {
-    ctl get() {
-        resume true;
+} handle<Ask> {
+    fn get(resume) {
+        resume(true);
         print("after");
     }
 }

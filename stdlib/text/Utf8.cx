@@ -25,6 +25,10 @@ type Utf8Error {
     Invalid(Int)
 }
 
+impl Display for Utf8Error {
+    fn fmt(self): String { return self.message(); }
+}
+
 impl Failure for Utf8Error {
     fn message(self): String {
         match self {

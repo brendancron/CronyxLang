@@ -9,7 +9,7 @@ meta {
             Dot
         },
         code type Point { x: Int, y: Int },
-        code effect Log { fn log(s: String): Unit; },
+        code trait Log { fn log(s: String): Unit; },
         code impl Point {
             fn sum(self): Int { return self.x + self.y; }
         },
@@ -52,7 +52,7 @@ meta {
             }
             run<Unit> {
                 log("hello");
-            } handle Log {
+            } handle<Log> {
                 fn log(s) { said.push(s); }
             }
             print(said);

@@ -697,7 +697,32 @@ let rec rewrite_row label args (r : infer_row) : infer_row =
     v := RLink (RCons (label, args, tail));
     tail
   | RVar { contents = RLink _ } -> assert false
+  | REmpty when unsettled_label args ->
+    defaulted args;
+    REmpty
   | REmpty -> error "This code does not handle the effect '%s'." label
+
+(* A label at arguments nothing has settled, meeting a row that cannot hold it,
+   is one whose parameter stands only in labels nothing performs: it is at
+   `absent`, and so no label. *)
+and unsettled_label args =
+  args <> []
+  && List.for_all
+       (fun a ->
+         match repr a with
+         | IVar { contents = Unbound (_, Any) } -> true
+         | _ -> false)
+       args
+
+and defaulted args =
+  List.iter
+    (fun a ->
+      match repr a with
+      | IVar ({ contents = Unbound (_, Any) } as cell) ->
+        note cell;
+        cell := Link (INamed (absent_name, []))
+      | _ -> ())
+    args
 
 and row_within (inner : infer_row) (outer : infer_row) : unit =
   match repr_row inner with
@@ -728,6 +753,9 @@ and unify_row (a : infer_row) (b : infer_row) : unit =
   | RCons (label, args, rest_a), (RCons _ as b) ->
     let rest_b = rewrite_row label args b in
     unify_row rest_a rest_b
+  | REmpty, RCons (_, args, rest) | RCons (_, args, rest), REmpty when unsettled_label args ->
+    defaulted args;
+    unify_row REmpty rest
   | REmpty, RCons (label, _, _) | RCons (label, _, _), REmpty ->
     error "This code does not handle the effect '%s'." label
   | RVar { contents = RLink _ }, _ | _, RVar { contents = RLink _ } -> assert false

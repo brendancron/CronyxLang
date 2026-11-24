@@ -6,7 +6,9 @@ while (true) {
 }
 
 for (x in [1]) {
-    run { break; } handle Never { fn never() {} }
+    run<Unit> { break; } handle<Never> { fn never() {} }
 }
 
-effect Never { fn never(): Unit; }
+trait Never { fn never(): Unit; }
+
+f();

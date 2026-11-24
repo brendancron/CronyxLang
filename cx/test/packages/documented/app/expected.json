@@ -17,17 +17,32 @@
               "package": "app",
               "unit": "ink",
               "name": "Missing",
-              "kind": "effect",
+              "kind": "trait",
               "line": 28,
               "exported": true,
               "doc": "Asking for a colour that was never set.",
               "attrs": [],
               "generics": [],
-              "ops": [
+              "supers": [],
+              "assoc": [],
+              "methods": [
                 {
                   "name": "absent",
-                  "kind": "final ctl",
-                  "generics": [],
+                  "doc": "Reports the name that was asked for, and does not come back.",
+                  "attrs": [
+                    {
+                      "name": "abort",
+                      "args": []
+                    }
+                  ],
+                  "static": [
+                    {
+                      "name": "T",
+                      "form": "type",
+                      "type": null,
+                      "pack": false
+                    }
+                  ],
                   "params": [
                     {
                       "name": "what",
@@ -39,9 +54,78 @@
                       }
                     }
                   ],
-                  "ret": null,
-                  "doc": "Reports the name that was asked for, and does not come back.",
-                  "attrs": []
+                  "ret": {
+                    "kind": "name",
+                    "name": "T",
+                    "ref": null,
+                    "param": true
+                  },
+                  "row": null
+                }
+              ],
+              "impls": []
+            },
+            {
+              "id": "app#ink#Quiet",
+              "package": "app",
+              "unit": "ink",
+              "name": "Quiet",
+              "kind": "type",
+              "line": 34,
+              "exported": true,
+              "doc": null,
+              "attrs": [],
+              "generics": [],
+              "body": {
+                "form": "fields",
+                "fields": []
+              },
+              "impls": [
+                "app#ink#Quiet#impl"
+              ]
+            },
+            {
+              "id": "app#ink#Quiet#impl",
+              "package": "app",
+              "unit": "ink",
+              "name": "Quiet",
+              "kind": "impl",
+              "line": 34,
+              "exported": true,
+              "doc": "Reports a missing colour and carries on.",
+              "attrs": [],
+              "trait": null,
+              "for": {
+                "kind": "name",
+                "name": "Quiet",
+                "ref": "app#ink#Quiet"
+              },
+              "generics": [],
+              "assoc": [],
+              "methods": [
+                {
+                  "name": "absent",
+                  "doc": null,
+                  "attrs": [],
+                  "static": [],
+                  "params": [
+                    {
+                      "name": "what",
+                      "type": {
+                        "kind": "name",
+                        "name": "String",
+                        "ref": null,
+                        "param": false
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "kind": "name",
+                    "name": "Unit",
+                    "ref": null,
+                    "param": false
+                  },
+                  "row": null
                 }
               ]
             },
@@ -164,31 +248,6 @@
                     "param": false
                   },
                   "row": null
-                }
-              ]
-            },
-            {
-              "id": "app#ink#quiet",
-              "package": "app",
-              "unit": "ink",
-              "name": "quiet",
-              "kind": "handler",
-              "line": 34,
-              "exported": true,
-              "doc": "Reports a missing colour and carries on.",
-              "attrs": [],
-              "handles": {
-                "name": "Missing",
-                "ref": "app#ink#Missing",
-                "args": []
-              },
-              "arms": [
-                {
-                  "name": "absent",
-                  "kind": "final ctl",
-                  "params": [
-                    "what"
-                  ]
                 }
               ]
             }

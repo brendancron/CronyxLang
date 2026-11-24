@@ -54,6 +54,10 @@ type DecodeError {
     Duplicate(String)
 }
 
+impl Display for DecodeError {
+    fn fmt(self): String { return self.message(); }
+}
+
 impl Failure for DecodeError {
     fn message(self): String {
         match self {

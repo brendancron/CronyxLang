@@ -102,6 +102,7 @@ let signature (sg : Ast.signature) =
     [ "ret", option type_expr sg.Ast.ret
     ; "row", option (list (fun a -> applied a type_expr)) sg.Ast.row
     ; "static_params", list static_param sg.Ast.static_params
+    ; "inline", bool sg.Ast.inline
     ]
 
 let pattern (p : Ast.pattern) =
@@ -134,10 +135,77 @@ let typer : (Ast.expr -> Ast.type_expr option) ref = ref (fun _ -> None)
 (* What processed code shows in a run's place: the run it was lowered to. *)
 let expansion : (Ast.expr -> Ast.expr option) ref = ref (fun _ -> None)
 
+(* While processed code is shown: the code a pass-through was checked from,
+   shown in its place; what a meta block generated, shown in the block's place;
+   and the pass-through a statement was checked to, if it can be one. *)
+let viewed : (int -> [ `Expr of Ast.expr | `Stmt of Ast.stmt | `Stmts of Ast.stmt list ] option) ref =
+  ref (fun _ -> None)
+let generated : (Ast.stmt -> Ast.stmt list option) ref = ref (fun _ -> None)
+let kept : (Ast.stmt -> int option) ref = ref (fun _ -> None)
+
+(* Each node processed code handed out that the checker can pass through, by
+   the node's identity, with its kind as handed out: one handed back as it was
+   given is passed through rather than read. Only the node's own kind is
+   compared, which holds because a transform builds what it changes rather than
+   assigning into a node it was handed. *)
+module Handed = Hashtbl.Make (struct
+    type t = Value.value
+
+    let equal = ( == )
+
+    let hash (v : Value.value) =
+      match v with
+      | Value.Record (_, fields) ->
+        (match List.assoc_opt "span" fields with
+         | Some { contents = Value.Span s } -> Hashtbl.hash (Source_map.Span.offsets s)
+         | _ -> 0)
+      | _ -> 0
+  end)
+
+let handed : (Value.value * int) Handed.t = Handed.create 64
+
+let hand_out (v : Value.value) n =
+  match v with
+  | Value.Record (_, fields) ->
+    (match List.assoc_opt "kind" fields with
+     | Some kind -> Handed.replace handed v (!kind, n)
+     | None -> ())
+  | _ -> ()
+
+let handed_back (v : Value.value) =
+  match Handed.find_opt handed v, v with
+  | Some (kind, n), Value.Record (_, fields) ->
+    (match List.assoc_opt "kind" fields with
+     | Some current when !current == kind -> Some n
+     | _ -> None)
+  | _ -> None
+
+let rec shown_stmts (body : Ast.stmt list) =
+  List.concat_map
+    (fun (s : Ast.stmt) ->
+      match s.Ast.it, !generated s with
+      | `Pre_checked n, _ ->
+        (match !viewed n with
+         | Some (`Stmts body) -> shown_stmts body
+         | _ -> [ s ])
+      | _, Some made -> shown_stmts made
+      | _, None -> [ s ])
+    body
+
 let rec expr (e : Ast.expr) : Value.value =
-  match !expansion e with
-  | Some lowered -> expr lowered
-  | None -> written_expr e
+  match e.Ast.it, !expansion e with
+  | `Pre_checked n, _ ->
+    (match !viewed n with
+     | Some (`Expr v) ->
+       let shown = expr v in
+       hand_out shown n;
+       shown
+     | _ ->
+       record
+         "Expr"
+         [ "kind", variant "ExprKind" "Processed" [ int n ]; "span", span e.Ast.span; "ty", option type_expr None ])
+  | _, Some lowered -> expr lowered
+  | _, None -> written_expr e
 
 and written_expr (e : Ast.expr) : Value.value =
   let k label values = variant "ExprKind" label values in
@@ -181,7 +249,7 @@ and written_expr (e : Ast.expr) : Value.value =
       k "NewGeneric" [ name t; list static_arg static_args; field_inits fields ]
     | `New_variant (t, v, payload) -> k "NewVariant" [ name t; name v; args payload ]
     | `Collection_lit items -> k "Collection" [ list expr items ]
-    | `Lambda (params, sg, body) -> k "Lambda" [ list param params; signature sg; list stmt body ]
+    | `Lambda (params, sg, body) -> k "Lambda" [ list param params; signature sg; stmts body ]
     | `Run_expr (ty, body, clauses) ->
       k "Run" [ option type_expr ty; valued_block body; list handler_clause clauses ]
     | `Match_expr (scrutinee, arms) ->
@@ -198,6 +266,7 @@ and written_expr (e : Ast.expr) : Value.value =
     | `Code inner -> k "QuoteExpr" [ expr inner ]
     | `Code_stmts body -> k "QuoteStmts" [ list stmt body ]
     | `Code_decl d -> k "QuoteDecl" [ decl d ]
+    | `Pre_checked n -> k "Processed" [ int n ]
   in
   record "Expr" [ "kind", kind; "span", span e.Ast.span; "ty", option type_expr (!typer e) ]
 
@@ -215,7 +284,7 @@ and static_arg (a : Ast.expr Ast.static_arg) =
   | Ast.St_value v -> variant "StaticArg" "Value" [ expr v ]
 
 and valued_block (b : (Ast.expr, Ast.stmt) Ast.valued_block) =
-  record "ValuedBlock" [ "stmts", list stmt b.Ast.vb_stmts; "value", option expr b.Ast.vb_value ]
+  record "ValuedBlock" [ "stmts", stmts b.Ast.vb_stmts; "value", option expr b.Ast.vb_value ]
 
 and handler_clause (c : Ast.stmt Ast.handler_clause) =
   match c with
@@ -223,14 +292,32 @@ and handler_clause (c : Ast.stmt Ast.handler_clause) =
   | Ast.Handle (t, defs) -> variant "HandlerClause" "Handle" [ type_expr t; list method_def defs ]
   | Ast.Bound (label, handler, value) -> variant "HandlerClause" "Bound" [ name label; name handler; option stmt value ]
 
+and stmts (body : Ast.stmt list) = list stmt (shown_stmts body)
+
 and stmt (s : Ast.stmt) : Value.value =
+  match s.Ast.it, !generated s with
+  | `Pre_checked n, _ ->
+    (match !viewed n with
+     | Some (`Stmt v) ->
+       let shown = stmt v in
+       hand_out shown n;
+       shown
+     | Some (`Stmts body) -> node "Stmt" (variant "StmtKind" "Block" [ stmts body ]) s.Ast.span
+     | _ -> node "Stmt" (variant "StmtKind" "Processed" [ int n ]) s.Ast.span)
+  | _, Some made -> node "Stmt" (variant "StmtKind" "Block" [ stmts made ]) s.Ast.span
+  | _, None ->
+    let shown = written_stmt s in
+    Option.iter (hand_out shown) (!kept s);
+    shown
+
+and written_stmt (s : Ast.stmt) : Value.value =
   let k label values = variant "StmtKind" label values in
   let kind =
     match s.Ast.it with
     | `Expr e -> k "Expression" [ expr e ]
     | `Var_decl (n, t, init) -> k "Let" [ name n; option type_expr t; option expr init ]
     | `Var_tuple (names, init) -> k "LetTuple" [ list name names; expr init ]
-    | `Block body -> k "Block" [ list stmt body ]
+    | `Block body -> k "Block" [ stmts body ]
     | `If (c, t, e) -> k "If" [ expr c; stmt t; option stmt e ]
     | `While (c, body) -> k "While" [ expr c; stmt body ]
     | `For_in (names, over, body) -> k "ForIn" [ list name names; expr over; stmt body ]
@@ -242,7 +329,7 @@ and stmt (s : Ast.stmt) : Value.value =
       k
         "Match"
         [ expr scrutinee
-        ; list (fun (p, body) -> record "MatchArm" [ "pattern", pattern p; "body", list stmt body ]) arms
+        ; list (fun (p, body) -> record "MatchArm" [ "pattern", pattern p; "body", stmts body ]) arms
         ]
     | `Meta body -> k "Meta" [ list stmt body ]
     | `Gen inner -> k "Gen" [ stmt inner ]
@@ -265,7 +352,7 @@ and decl (s : Ast.stmt) : Value.value =
         "Fn"
         [ record
             "FnDecl"
-            [ "name", name n; "params", list param params; "signature", signature sg; "body", list stmt body ]
+            [ "name", name n; "params", list param params; "signature", signature sg; "body", stmts body ]
         ]
     | `Type_decl (n, params, body) -> k "Type" [ type_decl n params body ]
     | `Type_members ({ Ast.it = `Type_decl (n, params, body); _ }, members) ->
@@ -507,6 +594,7 @@ let read_signature r v : Ast.signature =
   { Ast.ret = read_option (read_type r) (field "ret" v)
   ; row = read_option (read_list (read_applied (read_type r))) (field "row" v)
   ; static_params = read_list (read_static_param r) (field "static_params" v)
+  ; inline = read_bool (field "inline" v)
   }
 
 let read_pattern v : Ast.pattern =
@@ -534,6 +622,11 @@ let read_import v : Ast.import =
   | l, _ -> malformed "'%s' is not an import." l
 
 let rec read_expr r v : Ast.expr =
+  match handed_back v with
+  | Some n -> { Ast.it = `Pre_checked n; span = read_span r (field "span" v); ann = () }
+  | None -> read_written_expr r v
+
+and read_written_expr r v : Ast.expr =
   let sp = read_span r (field "span" v) in
   let e = read_expr r in
   let es = read_list e in
@@ -607,6 +700,7 @@ let rec read_expr r v : Ast.expr =
     | "QuoteExpr", [ x ] -> `Code (e x)
     | "QuoteStmts", [ body ] -> `Code_stmts (read_list s body)
     | "QuoteDecl", [ d ] -> `Code_decl (read_decl r d)
+    | "Processed", [ n ] -> `Pre_checked (read_int n)
     | l, _ -> malformed "'%s' is not an expression." l
   in
   { Ast.it; span = sp; ann = () }
@@ -633,6 +727,11 @@ and read_clause r v : Ast.stmt Ast.handler_clause =
   | l, _ -> malformed "'%s' is not a handler." l
 
 and read_stmt r v : Ast.stmt =
+  match handed_back v with
+  | Some n -> { Ast.it = `Pre_checked n; span = read_span r (field "span" v); ann = () }
+  | None -> read_written_stmt r v
+
+and read_written_stmt r v : Ast.stmt =
   let sp = read_span r (field "span" v) in
   let e = read_expr r in
   let s = read_stmt r in
@@ -661,6 +760,7 @@ and read_stmt r v : Ast.stmt =
       | "Meta", [ body ] -> `Meta (ss body)
       | "Gen", [ inner ] -> `Gen (s inner)
       | "Derive", [ traits; target ] -> `Derive (read_list read_name traits, read_name target)
+      | "Processed", [ n ] -> `Pre_checked (read_int n)
       | l, _ -> malformed "'%s' is not a statement." l
     in
     { Ast.it; span = sp; ann = () }

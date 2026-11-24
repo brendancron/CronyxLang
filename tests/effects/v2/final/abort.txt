@@ -1,2 +1,0 @@
-42 zero
-caught: not an int: nope

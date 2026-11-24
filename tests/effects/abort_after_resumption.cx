@@ -1,5 +1,5 @@
-effect Error { final ctl throw(msg: String); }
-effect E { ctl op(): Unit; }
+trait Error { @ctl fn throw<T>(msg: String): T; }
+trait E { @ctl fn op(): Unit; }
 
 fn work(): <Error, E, Console> Unit {
     print("w1");
@@ -8,19 +8,17 @@ fn work(): <Error, E, Console> Unit {
     print("UNREACHABLE");
 }
 
-var pending: List<() -> Unit> = [];
-
-run {
-    run {
+run<Unit> {
+    var pending: List<() -> <Error, Console> Unit> = [];
+    run<Unit> {
         work();
         print("UNREACHABLE TOO");
-    } handle E {
-        ctl op() { pending.push { resume; }; }
+    } handle<E> {
+        fn op(resume) { pending.push(() => { resume(()); }); }
     }
-} handle Error {
-    final ctl throw(msg) { print("caught: " + msg); }
+    print("drain");
+    pending[0]();
+} handle<Error> {
+    fn throw(msg, resume) { print("caught: " + msg); }
 }
-
-print("drain");
-pending[0]();
 print("done");

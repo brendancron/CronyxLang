@@ -8,10 +8,10 @@ fn greet(name: String) {
 var out: List<String> = [];
 var err: List<String> = [];
 
-run {
+run<Unit> {
     greet("ada");
     greet("bo");
-} handle Console {
+} handle<Console> {
     fn write(to, text) {
         match to {
             Stream.Out => { out.push(text); }

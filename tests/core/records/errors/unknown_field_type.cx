@@ -3,4 +3,7 @@ type S { Good(Int), Bad(Missing) }
 var r = R { a: 1, b: 2 };
 print(r.a);
 var s = S.Good(3);
-print(s);
+match s {
+    S.Good(n) => { print(n); }
+    _ => {}
+}

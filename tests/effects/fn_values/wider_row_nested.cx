@@ -1,6 +1,6 @@
-effect Log { fn log(s: String): Unit; }
-effect Tick { fn tick(): Unit; }
-effect Ask { fn ask(): Int; }
+trait Log { fn log(s: String): Unit; }
+trait Tick { fn tick(): Unit; }
+trait Ask { fn ask(): Int; }
 
 fn call_it<E>(f: () -> <Log, Tick, E> Unit): <Log, Tick, E> Unit { f(); }
 
@@ -25,16 +25,16 @@ fn relay<E>(work: () -> <E> Unit): <Log, Tick, E> Unit {
     call_it(go);
 }
 
-run {
+run<Unit> {
     first();
     second();
     passes(() => { tick(); log("the parameter, not the function"); });
     relay(() => { print("pure work"); });
     relay(() => { print("asked " + str(ask())); });
-} handle Log {
+} handle<Log> {
     fn log(s) { print(s); }
-} handle Tick {
+} handle<Tick> {
     fn tick() { }
-} handle Ask {
+} handle<Ask> {
     fn ask() { return 7; }
 }

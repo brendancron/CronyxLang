@@ -21,17 +21,17 @@ type Options {
 }
 derive Cli for Options;
 
-fn launch(arguments: Array<String>) {
+fn launch(arguments: Array<String>): <Console> Unit {
     print("$ serve " + str(arguments));
     var written: List<String> = [];
-    run {
+    run<Unit> {
         var o: Options = from_args();
         print(o.host + " " + str(o.port) + " " + str(o.verbose) + " " + str(o.header) + " " + str(o.max_connections) + " " + str(o.cache));
-    } handle Args {
+    } handle<Args> {
         fn args() { return arguments; }
-    } handle Exit {
-        final ctl exit(status) { written.push("[exit " + str(status) + "]\n"); }
-    } handle Console {
+    } handle<Exit> {
+        fn exit(status) { written.push("[exit " + str(status) + "]\n"); }
+    } handle<Console> {
         fn write(to, text) {
             match to {
                 Stream.Out => { written.push(text); }

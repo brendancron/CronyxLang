@@ -4,12 +4,14 @@
  * ```
  * import { Yield } from "std/iter/Yield";
  *
- * fn counted(upto: Int) <Yield<Int>> {
+ * fn counted(upto: Int): <Yield<Int>> Unit {
  *     var i = 0;
  *     while (i < upto) { yield(i); i = i + 1; }
  * }
  *
- * handle Yield<Int> { ctl yield(v) { print(v); resume; } } with { counted(3); }
+ * run<Unit> { counted(3); } handle<Yield<Int>> {
+ *     fn yield(v, resume) { print(v); resume(()); }
+ * }
  * ```
  *
  * One row holds one instantiation per effect, so every `yield` in a body hands
@@ -17,9 +19,9 @@
  */
 
 /** Values produced as the work goes, rather than collected and returned. */
-effect Yield<T> {
+trait Yield<T> {
     /** Hands one value over. The handler resumes to ask for the next. */
-    ctl yield(value: T): Unit;
+    @ctl fn yield(value: T): Unit;
 }
 
 /**
@@ -40,7 +42,7 @@ fn iterator<T, E>(producer: () -> <Yield<T>, E> Unit): Iter<T, E> {
     var out: Option<T> = Option.None;
     var started = false;
     var rest: Option<() -> <E> Unit> = Option.None;
-    var abandon: Option<() -> Unit> = Option.None;
+    var abandon: Option<() -> <E> Unit> = Option.None;
     var next = () => {
         out = Option.None;
         match rest {
@@ -52,11 +54,11 @@ fn iterator<T, E>(producer: () -> <Yield<T>, E> Unit): Iter<T, E> {
             Option.None => {
                 if (!started) {
                     started = true;
-                    run { producer(); } handle Yield {
-                        ctl yield(v) {
+                    run<Unit> { producer(); } handle<Yield<T>> {
+                        fn yield(v, resume) {
                             out = Option.Some(v);
-                            rest = Option.Some(() => { resume; });
-                            abandon = Option.Some(() => { discontinue; });
+                            rest = Option.Some(() => { resume(()); });
+                            abandon = Option.Some(() => { discontinue(resume); });
                         }
                     }
                 }

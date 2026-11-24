@@ -1,0 +1,75 @@
+import { Mode, File, Fs, Dirs, open_file, read_all, read_text, write_text, make_dirs, list_dir, is_dir, exists, remove_all } from "std/fs/File";
+import { IoError, Reader, Writer, Closer, using, lines } from "std/io/Io";
+import { buffer } from "std/io/Buffer";
+import { Throw, Result, attempt } from "std/core/Error";
+import { Async } from "std/async/Task";
+
+fn on_disk(): <Fs, Dirs, Async, Throw<IoError>, Console> Unit {
+    var dir = "v2_io_files_scratch";
+    if (exists(dir)) { remove_all(dir); }
+    make_dirs(dir + "/inner");
+    write_text(dir + "/notes.txt", "first\r\nsecond\nthird");
+    var log = open_file(dir + "/notes.txt", Mode.Append);
+    log.write("\nfourth".bytes());
+    log.close();
+    print(read_text(dir + "/notes.txt").len());
+    using(open_file(dir + "/notes.txt", Mode.Read)) { f ->
+        for (line in lines(f)) {
+            print("line: " + line);
+            if (line == "third") { break; }
+        }
+    };
+    print(list_dir(dir));
+    print(is_dir(dir + "/inner"));
+    remove_all(dir);
+    print(exists(dir));
+}
+
+type Canned { text: String, read: Bool }
+
+impl Reader for Canned {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
+        if (self.read) { return Option.None; }
+        self.read = true;
+        return Option.Some(self.text.bytes());
+    }
+}
+
+impl Writer for Canned {
+    fn write(self, data: Array<Byte>): <Async, Throw<IoError>> Unit {}
+}
+
+impl Closer<IoError> for Canned {
+    fn close(self): <Async, Throw<IoError>> Unit {}
+}
+
+impl File for Canned {}
+
+fn faked(): <Async, Throw<IoError>, Console> Unit {
+    run<Unit> {
+        print(read_text("anything.txt"));
+        var missing = attempt(() => { return read_text("missing.txt"); });
+        match missing {
+            Result.Ok(_) => { print("unexpected"); }
+            Result.Err(e) => { print("caught: " + str(e)); }
+        }
+    } handle<Fs> {
+        fn open(path, mode) {
+            if (path == "missing.txt") { return Result.Err(IoError.NotFound(path)); }
+            var file: File = Canned { text: "canned text", read: false };
+            return Result.Ok(file);
+        }
+    }
+}
+
+var outcome = attempt(() => {
+    on_disk();
+    faked();
+    var b = buffer();
+    b.write_bytes("buffered".bytes());
+    print(b.bytes().len());
+});
+match outcome {
+    Result.Ok(_) => { print("done"); }
+    Result.Err(e) => { print("failed: " + str(e)); }
+}

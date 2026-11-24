@@ -1,3 +1,5 @@
 fn label(n: Int): String {
   return n;
 }
+
+print(label(1));

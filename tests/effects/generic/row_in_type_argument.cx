@@ -1,4 +1,4 @@
-effect Log { fn log(s: String): Unit; }
+trait Log { fn log(s: String): Unit; }
 
 fn each<E>(actions: List<() -> <E> Unit>): <E> Unit {
     for (action in actions) { action(); }
@@ -10,12 +10,12 @@ fn apply<E>(actions: Array<(Int) -> <E> Unit>, n: Int): <E> Unit {
 
 fn task() { log("task"); }
 
-run {
+run<Unit> {
     var actions: List<() -> <Log> Unit> = [];
     actions.push(task);
     actions.push(task);
     each(actions);
     apply([ (n) => { log(str(n)); } ], 3);
-} handle Log {
+} handle<Log> {
     fn log(s) { print(s); }
 }

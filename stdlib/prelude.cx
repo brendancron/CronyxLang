@@ -10,13 +10,24 @@
  * throws runs under `__throwing` inside it, so each catches its own failure.
  */
 
+import { Async, block_on } from "std/async/Task";
+import { Expr, ExprKind, HandlerClause, Stmt, StmtKind, TypeExpr, TypeKind, ValuedBlock } from "std/compiler/Ast";
 import { Throw } from "std/core/Error";
 import { Stream } from "std/io/Console";
+import { __stdin_of_process } from "std/io/Stdin";
+import {
+    Fs, Dirs, __open_on_disk, __read_dir_on_disk, __stat_on_disk, __create_dir_on_disk, __remove_on_disk,
+    __rename_on_disk
+} from "std/fs/File";
 import { Args } from "std/os/Args";
 import { Env, __env_var_of_process } from "std/os/Env";
 import { Time, Timestamp, Instant } from "std/os/Time";
 import { Random } from "std/random/Random";
 import { Logger, __written_line } from "std/log/Logger";
+import { Process, Exit, __start_on_system } from "std/os/Process";
+import { Net, __lookup_on_system } from "std/net/Net";
+import { __connect_on_system, __listen_on_system } from "std/net/Tcp";
+import { __bind_on_system } from "std/net/Udp";
 
 global import { Assertion, assert } from "std/core/Assert";
 global import { Iter, Iterable } from "std/core/Iter";
@@ -32,18 +43,99 @@ global import {
     AttrArg, Attr, TypeRef, TypeField, TypeVariant, TypeShape, Type, Module, Declaration, DeclarationKind
 } from "std/meta/Reflect";
 global import { Set } from "std/collections/Set";
-global import { Display, Debug } from "std/text/Format";
+global import { Display, Debug, str, debug } from "std/text/Format";
 global import { EffectHandler } from "std/core/EffectHandler";
 global import { Console } from "std/io/Console";
+global import { Stdin, read_line } from "std/io/Stdin";
 global import { print, printerr } from "std/io/Print";
 
 /**
- * Runs the top level: under the terminal, the process's arguments and
- * environment, the system's clocks and its entropy.
+ * Runs the top level under a handler of each system effect it performs: the
+ * terminal, the scheduler, the file system, the system's programs and its
+ * network, the process's arguments and environment, the clocks and the
+ * entropy. A program that performs none of the file system's effects never
+ * reaches the file system's code. The top level is the scheduler's main task
+ * when it suspends, and `exit` ends it.
  */
-fn __root<Rest>(main: () -> <Console, Logger, Args, Env, Time, Random, Rest> Unit): <Rest> Unit {
-    run<Unit> {
-        main();
+inline fn __root<E>(main: () -> <E> Unit) {
+    meta {
+        var performed: List<Name> = effects_of(E);
+        var scheduled = __performs(performed, __named(code(Async)));
+        var body = code(main());
+        if (scheduled) { body = code(block_on(main)); }
+        var wanted = __wanted(performed, scheduled);
+        var exits = wanted.contains(__named(code(Exit)));
+        if (exits) { gen var ended: Option<Int> = Option.None; }
+        gen __system_run(wanted, body);
+        // The process ends once the run is left, so the `defer`s between
+        // `exit` and here have run.
+        if (exits) {
+            gen match ended {
+                Option.Some(status) => { __exit(status); }
+                Option.None => {}
+            }
+        }
+    }
+}
+
+/**
+ * What a meta block runs under, wherever it is written: the top level's
+ * handlers for the system effects it performs, but `Exit`, since a meta block
+ * cannot end the compiler.
+ */
+inline fn __meta_root<E>(main: () -> <E> Unit) {
+    meta {
+        var performed: List<Name> = effects_of(E);
+        var scheduled = __performs(performed, __named(code(Async)));
+        var body = code(main());
+        if (scheduled) { body = code(block_on(main)); }
+        var wanted: List<String> = [];
+        for (l in __wanted(performed, scheduled)) {
+            if (l != __named(code(Exit))) { wanted.push(l); }
+        }
+        gen __system_run(wanted, body);
+    }
+}
+
+// What the roots' meta blocks reach has no meta block of its own, which is
+// why these read a name with `__display` and not `str`: a meta block runs
+// under the meta root, and `str`'s, reached from the meta root's own, would
+// need that instance finished first.
+fn __performs(performed: List<Name>, label: String): Bool {
+    for (l in performed) { if (__display(l) == label) { return true; } }
+    return false;
+}
+
+/** The labels to handle: those performed, and the clock when scheduling, since the scheduler reads it. */
+fn __wanted(performed: List<Name>, scheduled: Bool): List<String> {
+    var wanted: List<String> = [];
+    for (l in performed) { wanted.push(__display(l)); }
+    if (scheduled) { wanted.push(__named(code(Time))); }
+    return wanted;
+}
+
+/** A run of `body` under the handler of each system effect `wanted` names. */
+fn __system_run(wanted: List<String>, body: Expr): Stmt {
+    var every = code(run<Unit> {
+    } handle<Fs> {
+        fn open(path, mode) { return __open_on_disk(path, mode); }
+    } handle<Dirs> {
+        fn read_dir(path) { return __read_dir_on_disk(path); }
+        fn stat(path) { return __stat_on_disk(path); }
+        fn create_dir(path) { return __create_dir_on_disk(path); }
+        fn remove(path) { return __remove_on_disk(path); }
+        fn rename(from, to) { return __rename_on_disk(from, to); }
+    } handle<Process> {
+        fn start(command) { return __start_on_system(command); }
+    } handle<Net> {
+        fn connect(host, port) { return __connect_on_system(host, port); }
+        fn listen(host, port) { return __listen_on_system(host, port); }
+        fn bind(host, port) { return __bind_on_system(host, port); }
+        fn lookup(host) { return __lookup_on_system(host); }
+    } handle<Exit> {
+        fn exit(status) { ended = Option.Some(status); }
+    } handle<Stdin> {
+        fn stdin() { return __stdin_of_process(); }
     } handle<Logger> {
         fn record(level, message) { __write_err(__written_line(level, message)); }
     } handle<Args> {
@@ -60,25 +152,59 @@ fn __root<Rest>(main: () -> <Console, Logger, Args, Env, Time, Random, Rest> Uni
     } handle<Random> {
         fn random_bits() { return __random_bits(); }
     } handle<Console> {
-        fn write(to, text) {
+        inline fn write(to, text) {
             match to {
                 Stream.Out => { __write_out(text); }
                 Stream.Err => { __write_err(text); }
             }
         }
+    });
+    var inside = ValuedBlock { stmts: [Stmt.of(StmtKind.Expression(body))], value: Option.None };
+    match every.kind {
+        ExprKind.Run(ty, _, clauses) => {
+            var kept: List<HandlerClause> = [];
+            for (c in clauses) {
+                match c {
+                    HandlerClause.Handle(t, _) => {
+                        if (wanted.contains(__handled_name(t))) { kept.push(c); }
+                    }
+                    _ => {}
+                }
+            }
+            return Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Run(ty, inside, kept))));
+        }
+        _ => { return Stmt.of(StmtKind.Expression(body)); }
+    }
+}
+
+/** The name a quoted variable reads. */
+fn __named(e: Expr): String {
+    match e.kind {
+        ExprKind.Var(n) => { return __display(n); }
+        _ => { return ""; }
+    }
+}
+
+/** The effect a handler clause handles, as a name. */
+fn __handled_name(t: TypeExpr): String {
+    match t.kind {
+        TypeKind.Named(n) => { return __display(n); }
+        TypeKind.Applied(n, _) => { return __display(n); }
+        _ => { return ""; }
     }
 }
 
 /**
  * Runs one top-level statement that throws and hands back its value: a
- * failure nothing catches stops the program with its value.
+ * failure nothing catches stops the program with its value, reported where it
+ * was thrown.
  */
 fn __throwing<T, X, Rest>(main: () -> <Throw<X>, Rest> T): <Rest> T {
     var out: Option<T> = Option.None;
     run<Unit> {
         out = Option.Some(main());
     } handle<Throw<X>> {
-        fn throw(e) { panic("uncaught failure: " + str(e)); }
+        fn throw(e) { panic_at(aborted_at(), "uncaught failure: " + str(e)); }
     }
     match out {
         Option.Some(value) => { return value; }

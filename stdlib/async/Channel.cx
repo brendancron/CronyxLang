@@ -52,17 +52,17 @@ type Case<R> {
 
 impl Channel<T> {
     /** Puts a value at the back, waiting for room while the channel is full. Panics if it is closed. */
-    fn send(self, value: T) {
+    fn send(self, value: T): <Async> Unit {
         while (self.len() >= self.capacity && !self.closed) {
-            suspend { self.writers.push(() => { it(()); }); };
+            park((wake: () -> Unit) => { self.writers.push(wake); });
         }
         self.__put(value);
     }
 
     /** The value at the front, waiting for one while the channel is empty, or `None` once it is closed and empty. */
-    fn recv(self): Option<T> {
+    fn recv(self): <Async> Option<T> {
         while (self.len() == 0 && !self.closed) {
-            suspend { self.readers.push(() => { it(()); }); };
+            park((wake: () -> Unit) => { self.readers.push(wake); });
         }
         return self.__take();
     }
@@ -137,21 +137,21 @@ impl Channel<T> {
  * Waits until one of the cases is ready, takes it, and returns what it gives.
  * Of several ready at once, the first listed is taken.
  */
-fn select<R>(cases: List<Case<R>>): R {
+fn select<R>(cases: List<Case<R>>): <Async> R {
     while (true) {
         for (case in cases) {
             if (case.ready()) { return case.take(); }
         }
-        suspend {
+        park((wake: () -> Unit) => {
             var woken = false;
             var once = () => {
                 if (!woken) {
                     woken = true;
-                    it(());
+                    wake();
                 }
             };
             for (case in cases) { case.watch(once); }
-        };
+        });
     }
     panic("unreachable");
 }

@@ -1,4 +1,0 @@
-parent a
-child a
-parent b
-child b

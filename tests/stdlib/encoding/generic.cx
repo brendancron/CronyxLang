@@ -8,7 +8,6 @@ type Tree<T> { Leaf(T), Branch(List<Tree<T>>) }
 derive Encode, Decode for Item;
 derive Encode, Decode for Page;
 derive Encode, Decode for Tree;
-derive Display for Page;
 
 var page = Page { items: [Item { name: "a" }, Item { name: "b" }], total: 2 };
 print(to_json(page));

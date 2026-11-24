@@ -1,8 +1,8 @@
 import "lib";
 import { Signal } from "signal";
 
-run {
+run<Unit> {
     print(lib.halt());
-} handle Signal {
-    final ctl stop(reason) { print("stopped: " + reason); }
+} handle<Signal> {
+    fn stop(reason) { print("stopped: " + reason); }
 }

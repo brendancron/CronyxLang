@@ -12,21 +12,24 @@
  * print(xs);           // ["a", ""]
  * ```
  *
- * A type with neither impl is written as its structure, each part through its
- * own impl if it has one. `derive Display` and `derive Debug` write that same
- * structure under the type's name:
+ * Every value can be written. An impl of either trait is how a type chooses
+ * its own form; a type with none is written as its structure, under its name,
+ * each part as `debug` writes it. A tuple and an anonymous record are written
+ * as their structure, and a function as `<fn>`:
  *
  * ```
  * type Point { x: Int, y: Int }
- * derive Display for Point;
  * print(Point { x: 1, y: 2 });   // Point { x: 1, y: 2 }
+ * print((1, "a"));               // (1, "a")
  * ```
  *
  * An impl's method is called wherever the value is printed, including inside
  * another value, so it may not perform an effect.
  */
 
-import { with_params } from "../meta/Derive";
+import { Expr, ExprKind, Stmt, StmtKind, MatchArm, Pattern, Bindings, NamedBinding, ValuedBlock, Decl, DeclKind, processed, declared_call, fresh } from "../compiler/Ast";
+import { Option } from "../core/Option";
+import { Ordering } from "../core/Ops";
 
 /** A value as a person reads it. */
 trait Display {
@@ -40,58 +43,246 @@ trait Debug {
     fn debug(self): String;
 }
 
-fn derive(shape: TypeShape) for Display {
-    match shape {
-        TypeShape.Product(t, params, fields) => {
-            var label = str(t);
-            if (fields.len() == 0) {
-                var made = with_params(code impl Display for t {
-                    fn fmt(self): String { return label; }
-                }, params, false);
-                gen made;
-            } else {
-                var made = with_params(code impl Display for t {
-                    fn fmt(self): String { return label + " " + __written(self); }
-                }, params, false);
-                gen made;
+/** The value as `print` writes it: through its `Display` impl, else its `Debug` impl, else as its structure. */
+inline fn str<T>(value: T): String {
+    meta {
+        if (implements(T, Display)) {
+            // A short `fmt` is written in place, its receiver bound to the value.
+            match __short_body(code(value.fmt())) {
+                Option.Some(inlined) => { for (st in inlined) { gen st; } }
+                _ => { gen return value.fmt(); }
             }
+        } else if (implements(T, Debug)) {
+            gen return value.debug();
+        } else {
+            gen return __structure(value);
         }
-        TypeShape.Sum(t, params, variants) => {
-            var label = str(t);
-            var made = with_params(code impl Display for t {
-                fn fmt(self): String { return label + "." + __written(self); }
-            }, params, false);
-            gen made;
-        }
-        _ => {}
     }
 }
 
-fn derive(shape: TypeShape) for Debug {
-    match shape {
-        TypeShape.Product(t, params, fields) => {
-            var label = str(t);
-            if (fields.len() == 0) {
-                var made = with_params(code impl Debug for t {
-                    fn debug(self): String { return label; }
-                }, params, false);
-                gen made;
-            } else {
-                var made = with_params(code impl Debug for t {
-                    fn debug(self): String { return label + " " + __written(self); }
-                }, params, false);
-                gen made;
+/** A value with neither impl, written as its structure. */
+fn __structure<T>(value: T): String {
+    meta {
+        var shaped = __shaped(typeof(T), false);
+        gen shaped;
+    }
+}
+
+/** The body of the method `call` reaches, written in place: none when it is not short enough to be worth it. */
+fn __short_body(call: Expr): Option<List<Stmt>> {
+    var typed = processed(ValuedBlock { stmts: [], value: Option.Some(call) });
+    match typed.value {
+        Option.Some(e) => { return __inlined(e); }
+        _ => { return Option.None; }
+    }
+}
+
+/** A call of a declared method on one receiver, as that method's body. */
+fn __inlined(e: Expr): Option<List<Stmt>> {
+    match e.kind {
+        ExprKind.Call(callee, args) => {
+            if (args.len() != 1) { return Option.None; }
+            match declared_call(callee) {
+                Option.Some(d) => { return __bound_body(d, args[0]); }
+                _ => { return Option.None; }
             }
         }
-        TypeShape.Sum(t, params, variants) => {
-            var label = str(t);
-            var made = with_params(code impl Debug for t {
-                fn debug(self): String { return label + "." + __written(self); }
-            }, params, false);
-            gen made;
+        _ => { return Option.None; }
+    }
+}
+
+/** At most two statements, after one binding the method's receiver to `receiver`. */
+fn __bound_body(d: Decl, receiver: Expr): Option<List<Stmt>> {
+    match d.kind {
+        DeclKind.Fn(f) => {
+            if (f.body.len() > 2 || f.params.len() != 1) { return Option.None; }
+            var out: List<Stmt> = [Stmt.of(StmtKind.Let(f.params[0].name, Option.None, Option.Some(receiver)))];
+            for (st in f.body) { out.push(st); }
+            return Option.Some(out);
+        }
+        _ => { return Option.None; }
+    }
+}
+
+/** The value in the form that tells values apart: through its `Debug` impl, or as its structure where it has none. */
+inline fn debug<T>(value: T): String {
+    meta {
+        if (implements(T, Debug)) {
+            gen return value.debug();
+        } else {
+            gen return __debug_structure(value);
+        }
+    }
+}
+
+/** A value with no `Debug` impl, written as its structure: not inline, since a recursive type's parts reach it again. */
+fn __debug_structure<T>(value: T): String {
+    meta {
+        var shaped = __shaped(typeof(T), true);
+        gen shaped;
+    }
+}
+
+// The text is built a part per statement, so each `debug` of a part is a call
+// standing alone, which an `inline` one can be written in place of.
+fn __started(first: String): List<Stmt> {
+    return [Stmt.of(StmtKind.Let(__text_name(), Option.None, Option.Some(code(first))))];
+}
+
+fn __appended(part: Expr): Stmt {
+    var text = Expr.of(ExprKind.Var(__text_name()));
+    return Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(__text_name(), code(text + part)))));
+}
+
+/** A part that is a call: given a statement of its own first, then appended. */
+fn __appended_call(out: List<Stmt>, call: Expr): Unit {
+    var part = fresh("part");
+    out.push(Stmt.of(StmtKind.Let(part, Option.None, Option.Some(call))));
+    out.push(__appended(Expr.of(ExprKind.Var(part))));
+}
+
+fn __finished(out: List<Stmt>, last: String): List<Stmt> {
+    out.push(__appended(code(last)));
+    out.push(Stmt.of(StmtKind.Return(Option.Some(Expr.of(ExprKind.Var(__text_name()))))));
+    return out;
+}
+
+fn __text_name(): Name { return "__text".as_name(); }
+
+// A record is written under its type's name, `Point { x: 1, label: "a" }`, and
+// a variant under its type's and its own, `Shape.Rect(2, 3)`, `Shape.Empty`.
+// Each part goes through `debug` rather than by its field's type, so it is an
+// instance of its own and its impl is used. Nothing here may reach `str` or
+// `debug`: their meta blocks call this, so reaching them while this is being
+// metaprocessed is a cycle. Hence `__display`, and no `numbered`.
+fn __shaped(t: Type, quoted: Bool): List<Stmt> {
+    match t.shape {
+        TypeShape.Product(name, _, fields) => {
+            var label = __display(name);
+            if (fields.len() == 0) { return code { return label; }; }
+            var out = __started(label + " { ");
+            for (var i = 0; i < fields.len(); i += 1) {
+                var field = fields[i].name;
+                var lead = __display(field) + ": ";
+                if (i > 0) { lead = ", " + lead; }
+                out.push(__appended(code(lead)));
+                __appended_call(out, code(debug(value.field)));
+            }
+            return __finished(out, " }");
+        }
+        TypeShape.Sum(name, _, variants) => {
+            var arms: List<MatchArm> = [];
+            for (v in variants) {
+                var head = __display(name) + "." + __display(v.name);
+                var bound: List<Name> = [];
+                for (var i = 0; i < v.arity; i += 1) { bound.push(("__p" + __display(i)).as_name()); }
+                var bindings = Bindings.None;
+                if (v.fields.len() > 0) {
+                    var named: List<NamedBinding> = [];
+                    for (var i = 0; i < v.fields.len(); i += 1) {
+                        named.push(NamedBinding { field: v.fields[i], bound: bound[i] });
+                    }
+                    bindings = Bindings.Named(named);
+                } else if (v.arity > 0) {
+                    bindings = Bindings.Positional(bound);
+                }
+                var body = code { return head; };
+                if (v.arity > 0) {
+                    body = __started(head + "(");
+                    for (var i = 0; i < bound.len(); i += 1) {
+                        var each = Expr.of(ExprKind.Var(bound[i]));
+                        if (i > 0) { body.push(__appended(code(", "))); }
+                        __appended_call(body, code(debug(each)));
+                    }
+                    body = __finished(body, ")");
+                }
+                arms.push(MatchArm { pattern: Pattern.Variant(name, v.name, bindings), body: body });
+            }
+            var matched = Stmt.of(StmtKind.Match(code(value), arms));
+            return code {
+                matched;
+                return "";
+            };
+        }
+        TypeShape.Scalar => {
+            if (quoted) { return code { return __debug(value); }; }
+            return code { return __display(value); };
         }
         _ => {}
     }
+    // A tuple, an anonymous record or a function: the checker writes its
+    // structure, `(1, "a")`, `{ x: 1 }`, `<fn>`.
+    return code { return value.debug(); };
+}
+
+impl Display for Int { fn fmt(self): String { return __display(self); } }
+impl Debug for Int { inline fn debug(self): String { return __debug(self); } }
+impl Display for Float { fn fmt(self): String { return __display(self); } }
+impl Debug for Float { inline fn debug(self): String { return __debug(self); } }
+impl Display for Bool { fn fmt(self): String { return __display(self); } }
+impl Debug for Bool { inline fn debug(self): String { return __debug(self); } }
+/** A byte is written as its number, `65`, not as a character. */
+impl Display for Byte { fn fmt(self): String { return __display(self); } }
+impl Debug for Byte { inline fn debug(self): String { return __debug(self); } }
+impl Display for Char { fn fmt(self): String { return __display(self); } }
+/** Quoted: `'a'`. */
+impl Debug for Char { inline fn debug(self): String { return __debug(self); } }
+impl Display for String { fn fmt(self): String { return self; } }
+/** Quoted, so `""` and `[]` read differently inside a list: `"a"`. */
+impl Debug for String { inline fn debug(self): String { return __debug(self); } }
+impl Display for Unit { fn fmt(self): String { return __display(self); } }
+impl Debug for Unit { inline fn debug(self): String { return __debug(self); } }
+/** A name from another module is written as the program wrote it. */
+impl Display for Name { fn fmt(self): String { return __display(self); } }
+impl Debug for Name { inline fn debug(self): String { return __display(self); } }
+impl Display for Span { fn fmt(self): String { return __display(self); } }
+impl Debug for Span { inline fn debug(self): String { return __display(self); } }
+
+/** The elements in order, each as `Debug` writes it: `[1, 2, 3]`. */
+impl Debug for Array<T> {
+    fn debug(self): String {
+        var out = "[";
+        var i = 0;
+        while (i < self.len()) {
+            if (i > 0) { out = out + ", "; }
+            out = out + debug(self[i]);
+            i = i + 1;
+        }
+        return out + "]";
+    }
+}
+
+impl Display for Array<T> {
+    fn fmt(self): String { return debug(self); }
+}
+
+/** `Some(1)`, `None`. */
+impl Debug for Option<T> {
+    fn debug(self): String {
+        match self {
+            Option.Some(v) => { return "Some(" + debug(v) + ")"; }
+            Option.None => { return "None"; }
+        }
+    }
+}
+
+impl Display for Option<T> {
+    fn fmt(self): String { return debug(self); }
+}
+
+/** `Less`, `Equal`, `Greater`. */
+impl Debug for Ordering {
+    fn debug(self): String {
+        match self {
+            Ordering.Less => { return "Less"; }
+            Ordering.Equal => { return "Equal"; }
+            Ordering.Greater => { return "Greater"; }
+        }
+    }
+}
+
+impl Display for Ordering {
+    fn fmt(self): String { return debug(self); }
 }
 
 /**

@@ -1,0 +1,12 @@
+type Rect impl Display {
+    w: Int,
+    /** The height. */
+    h: Int,
+    /** Its area. */
+    fn area(self): Int { return self.w * self.h; }
+    @cheap
+    fn fmt(self): String { return "rect"; }
+}
+var r = Rect { w: 3, h: 2 };
+print(r.area());
+print(r);

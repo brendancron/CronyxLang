@@ -1,0 +1,1 @@
+[1:1] 'countdown' is declared inline, but it calls itself, so it can never be inlined.

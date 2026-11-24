@@ -1,12 +1,12 @@
-effect Ask {
+trait Ask {
     fn ask<T>(fallback: T): T;
 }
 
 fn answering<A>(given: A, work: () -> <Ask> A): A {
     var kept = given;
-    run {
+    run<Unit> {
         kept = work();
-    } handle Ask {
+    } handle<Ask> {
         fn ask(fallback) {
             kept = fallback;
             return fallback;
@@ -14,3 +14,5 @@ fn answering<A>(given: A, work: () -> <Ask> A): A {
     }
     return kept;
 }
+
+print(answering(1, () => { return ask(2); }));

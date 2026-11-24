@@ -1,0 +1,2 @@
+trait Signal { @abort fn stop<T>(reason: String): T; }
+trait Halt { @abort fn stop<T>(reason: String): T; }

@@ -1,0 +1,14 @@
+type Temp { c: Int }
+impl Debug for Temp { fn debug(self): String { return str(self.c) + "°C"; } }
+
+type Both { n: Int }
+impl Display for Both { fn fmt(self): String { return "display"; } }
+impl Debug for Both { fn debug(self): String { return "debug"; } }
+
+type Point { x: Int, y: Int }
+
+print(Temp { c: 20 });
+print([Temp { c: 1 }, Temp { c: 2 }]);
+print(Both { n: 1 });
+print(debug(Both { n: 1 }));
+print(Point { x: 1, y: 2 });

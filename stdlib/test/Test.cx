@@ -87,11 +87,11 @@ fn run_tests<E>(names: List<String>, body: (Int) -> <Assertion, E> Unit): <Conso
     if (selected >= names.len()) { return; }
     var name = names[selected];
     print(mark + ">" + name);
-    run {
+    run<Unit> {
         body(selected);
         print(mark + "+" + name);
-    } handle Assertion {
-        final ctl failed(msg) {
+    } handle<Assertion> {
+        fn failed(msg) {
             print(mark + "-" + name);
             print(mark + "!" + msg);
         }

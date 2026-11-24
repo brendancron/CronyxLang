@@ -1,5 +1,5 @@
-effect Logger { fn log(msg: String): Unit; }
-effect Counter { fn tick(): Unit; }
+trait Logger { fn log(msg: String): Unit; }
+trait Counter { fn tick(): Unit; }
 
 fn greet(name: String) { log("hi " + name); tick(); }
 fn indirect() { greet("x"); }

@@ -25,12 +25,26 @@ while i < len(args):
 if rest: root = rest[0]
 exe = os.path.join(root, "bootstrap/_build/default/bin/main.exe")
 env = dict(os.environ, CRONYX_STDLIB=os.path.join(root, "stdlib"))
-GROUPS = ["tests/effects/v2", "tests/core/defer/v2", "tests/stdlib/v2", "tests/meta"]
+GROUPS = ["tests/effects", "tests/core/defer", "tests/stdlib", "tests/meta"]
+
+# Read from the suite's own lists, so this agrees with it: the arguments some
+# fixtures are run with, and the fixtures that are meant to fail.
+suite = open(os.path.join(root, "bootstrap/test/test_bootstrap.ml"), encoding="utf-8").read()
+ARGS = {}
+m = re.search(r"let arguments_for =\s*\[(.*?)\]\s*\n\n", suite, re.S)
+if m:
+    for name, args in re.findall(r'"([^"]+)",\s*\[([^\]]*)\]', m.group(1)):
+        ARGS[name] = re.findall(r'"([^"]*)"', args)
+m = re.search(r"let expected_failing[^=]*=(.*?)\n\s*\]", suite, re.S)
+EXPECTED_FAILING = set(re.findall(r'"(tests/[^"]+)"', m.group(1))) if m else set()
 
 def norm(s):
     return "\n".join(l for l in s.replace("\r", "").split("\n") if l != "").strip()
 
-def diags(stderr):
+def diags(stderr, entry):
+    """`[l:c] message`, or `[path l:c] message` for a place in another file,
+    the path relative to the entry's directory, as the suite writes them."""
+    entry_dir = os.path.dirname(os.path.abspath(entry))
     out, msg = [], None
     for line in stderr.split("\n"):
         m = re.match(r"\s*× \S+ error: (.*)", line)
@@ -39,14 +53,20 @@ def diags(stderr):
             msg = m.group(1); continue
         m = re.match(r"\s*┌─ (\S+):(\d+):(\d+)", line)
         if m and msg is not None:
-            out.append(f"[{m.group(2)}:{m.group(3)}] {msg}"); msg = None
+            where = os.path.abspath(os.path.join(entry_dir, m.group(1)))
+            if where == os.path.abspath(entry):
+                out.append(f"[{m.group(2)}:{m.group(3)}] {msg}")
+            else:
+                out.append(f"[{os.path.relpath(where, entry_dir)} {m.group(2)}:{m.group(3)}] {msg}")
+            msg = None
     if msg is not None: out.append(msg)
     return "\n".join(out)
 
 def run(stem):
     kind = "txt" if os.path.exists(stem + ".txt") else "err"
     try:
-        p = subprocess.run([exe, stem + ".cx"], capture_output=True, text=True,
+        extra = ARGS.get(os.path.relpath(stem, root), [])
+        p = subprocess.run([exe, stem + ".cx"] + (["--"] + extra if extra else []), capture_output=True, text=True,
                            timeout=30, env=env, cwd=os.path.dirname(stem),
                            stdin=subprocess.DEVNULL)
         so, se, code = p.stdout, p.stderr, p.returncode
@@ -58,8 +78,10 @@ def run(stem):
         ok = norm(so) == exp
         why = "" if ok else (first or "stdout differs")[:200]
     else:
-        ok = code != 0 and norm(diags(se)) == exp
+        ok = code != 0 and norm(diags(se, stem + ".cx")) == exp
         why = "" if ok else (first or "accepted")[:200]
+    if os.path.relpath(stem, root) in EXPECTED_FAILING:
+        ok, why = (not ok), ("" if not ok else "expected to fail, and passes")
     return stem, kind, ok, why
 
 stems = []

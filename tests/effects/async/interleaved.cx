@@ -1,5 +1,5 @@
-effect Async { ctl suspend<T>(register: ((T) -> Unit) -> Unit): T; }
-effect Log { fn log(s: String): Unit; }
+trait Async { @ctl fn suspend<T>(register: ((T) -> Unit) -> Unit): T; }
+trait Log { fn log(s: String): Unit; }
 
 fn pause() { suspend { it(()) }; }
 
@@ -7,11 +7,11 @@ fn interleaved<E>(actions: List<() -> <Async, E> Unit>): <E> Unit {
     var ready: List<() -> <E> Unit> = [];
 
     fn strand(action: () -> <Async, E> Unit): <E> Unit {
-        run {
+        run<Unit> {
             action();
-        } handle Async {
-            ctl suspend(register) {
-                register { ready.push { resume it; }; };
+        } handle<Async> {
+            fn suspend(register, resume) {
+                register { ready.push { resume(it); }; };
             }
         }
     }
@@ -33,8 +33,8 @@ fn counter(name: String) {
     }
 }
 
-run {
+run<Unit> {
     interleaved([ () => { counter("A"); }, () => { counter("B"); } ]);
-} handle Log {
+} handle<Log> {
     fn log(s) { print(s); }
 }

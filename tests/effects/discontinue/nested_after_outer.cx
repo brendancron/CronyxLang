@@ -1,25 +1,25 @@
-import { Throw } from "std/core/Error";
+trait Throw<X> { @ctl fn throw<T>(err: X): T; }
 
-effect Park { ctl park(): Unit; }
+trait Park { @ctl fn park(): Unit; }
 
-var stops: List<() -> Unit> = [];
-var wakes: List<() -> Unit> = [];
+var stops: List<() -> <Console> Unit> = [];
+var wakes: List<() -> <Console> Unit> = [];
 
 fn parked<E>(task: () -> <Park, Throw<String>, E> Unit): <Console, E> Unit {
-    run {
-        run {
+    run<Unit> {
+        run<Unit> {
             task();
-        } handle Throw {
-            final ctl throw(e) {
+        } handle<Throw<String>> {
+            fn throw(e, resume) {
                 print("failed: " + e);
                 stops[2]();
                 stops[1]();
             }
         }
-    } handle Park {
-        ctl park() {
-            stops.push(() => { discontinue; });
-            wakes.push(() => { resume; });
+    } handle<Park> {
+        fn park(resume) {
+            stops.push(() => { discontinue(resume); });
+            wakes.push(() => { resume(()); });
         }
     }
 }

@@ -89,6 +89,8 @@ let static_params (cs : Ast.static_param list) =
               (if c.Ast.sp_pack then "..." else "") ^ c.Ast.sp_name ^ annotation c.Ast.sp_ty)
             cs))
 
+let inline (sg : Ast.signature) = if sg.Ast.inline then "inline " else ""
+
 let signature (sg : Ast.signature) =
   match sg.Ast.ret with
   | None -> ""
@@ -102,6 +104,7 @@ let signature (sg : Ast.signature) =
 
 let rec expr (e : Ast.expr) : string =
   match e.Ast.it with
+  | `Pre_checked n -> Printf.sprintf "processed#%d" n
   | `Unit -> "()"
   | `Int n -> string_of_int n
   | `Float n -> Token.float_to_string n
@@ -266,6 +269,7 @@ and stmt depth (s : Ast.stmt) : string =
   let line = line depth in
   let braced head body = line (Printf.sprintf "%s {" head) ^ block (depth + 1) body ^ line "}" in
   match s.Ast.it with
+  | `Pre_checked n -> line (Printf.sprintf "processed#%d;" n)
   | `Attributed (list, inner) ->
     (match String.trim (attrs ~depth list) with
      | "" -> ""
@@ -314,7 +318,8 @@ and stmt depth (s : Ast.stmt) : string =
   | `Fn (name, params, sg, body) ->
     braced
       (Printf.sprintf
-         "fn %s%s(%s)%s%s"
+         "%sfn %s%s(%s)%s%s"
+         (inline sg)
          (match Ast.deriver_trait name with
           | Some _ -> "derive"
           | None -> name)
@@ -502,9 +507,24 @@ and attrs ?(depth = 0) (list : Ast.attr list) =
 
 and type_decl ?(members = []) depth name params body =
   let line = line depth in
+  (* The parser stands each trait of `type X impl A, B` among the members as an
+     impl with no methods, so they are written back into the header. *)
+  let implemented, members =
+    List.partition_map
+      (fun (m : Ast.stmt) ->
+        match m.Ast.it with
+        | `Impl_decl (Some (trait, args), owner, _, { Ast.ib_assoc = []; ib_methods = [] })
+          when String.equal owner name ->
+          Left
+            (match args with
+             | [] -> trait
+             | args -> Printf.sprintf "%s<%s>" trait (String.concat ", " (List.map type_expr args)))
+        | _ -> Right m)
+      members
+  in
   let head =
     Printf.sprintf
-      "type %s%s {"
+      "type %s%s%s {"
       name
       (match params with
        | [] -> ""
@@ -519,6 +539,9 @@ and type_decl ?(members = []) depth name params body =
                    ^ p.Ast.tp_name
                    ^ annotation p.Ast.tp_ty)
                  ps)))
+      (match implemented with
+       | [] -> ""
+       | traits -> " impl " ^ String.concat ", " traits)
   in
   line head
   ^ (match body with
@@ -590,8 +613,9 @@ and method_def depth (m : (Ast.stmt, unit) Ast.method_def) =
   let line = line depth in
   line
     (Printf.sprintf
-       "%sfn %s%s(%s)%s {"
+       "%s%sfn %s%s(%s)%s {"
        (attrs ~depth m.Ast.md_attrs)
+       (inline m.Ast.md_signature)
        m.Ast.md_name
        (static_params m.Ast.md_signature.Ast.static_params)
        (String.concat ", " (List.map param m.Ast.md_params))

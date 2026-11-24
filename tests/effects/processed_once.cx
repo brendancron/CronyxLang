@@ -1,0 +1,30 @@
+import { Throw, attempt } from "std/core/Error";
+
+trait Ask { @ctl fn ask(): Int; }
+
+fn check(n: Int): <Throw<String>> Int { if (n < 0) { throw("negative"); } return n; }
+fn helper(n: Int): Int { meta { print("helper"); } return n + 1; }
+fn show(n: Int) { meta { print("show"); } print(n); }
+
+var r = attempt(() => {
+    meta { print("lambda"); }
+    print(helper(1));
+    var x = check(2);
+    print(helper(x));
+    return x;
+});
+print(r);
+
+var v = run<Int> {
+    meta { print("before the split"); }
+    print(helper(5));
+    var a = ask();
+    meta { print("after the split"); }
+    var b = a + helper(a);
+    b
+} handle<Ask> {
+    fn ask(resume) { return resume(10); }
+};
+print(v);
+
+show(check(3));

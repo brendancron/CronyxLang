@@ -1,21 +1,19 @@
-// `resume` inside a match arm. Two arms resume with different values, so
-// selecting the wrong one is wrong output rather than an error.
 type Choice { Yes, No }
 
-effect Ask { ctl get(): Int; }
+trait Ask { @ctl fn get(): Int; }
 
 fn use(): <Ask> Int {
     return get();
 }
 
-run {
+run<Unit> {
     print(use());
-} handle Ask {
-    ctl get() {
+} handle<Ask> {
+    fn get(resume) {
         var c = Choice.No;
         match c {
-            Choice.Yes => { resume 1; }
-            Choice.No => { resume 2; }
+            Choice.Yes => { resume(1); }
+            Choice.No => { resume(2); }
         }
     }
 }

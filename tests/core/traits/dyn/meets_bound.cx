@@ -1,4 +1,4 @@
-effect Log { fn emit(msg: String): Unit; }
+trait Log { fn emit(msg: String): Unit; }
 
 trait Named {
     fn name(self): String;
@@ -30,12 +30,12 @@ fn label<N: Named>(n: N): String {
 }
 
 var all: List<Speaker> = [Cat, Dog];
-run {
+run<Unit> {
     for (sp in all) {
         print(announce(sp));
         print(label(sp));
     }
     print(announce(Cat));
-} handle Log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }

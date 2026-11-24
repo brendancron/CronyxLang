@@ -1,8 +1,8 @@
-// Each `run` installs its own handler, so the second's evidence may not stand
-// in for the first's just because both are in flight in one expression.
-effect Ask { ctl ask(): Int; }
+trait Ask {
+    @ctl fn ask(): Int;
+}
 
 fn probe(): <Ask> Int { return ask(); }
 
-print(run { probe() } handle Ask { ctl ask() { resume 5; print("a done"); } }
-    + run { probe() } handle Ask { ctl ask() { resume 6; print("b done"); } });
+print(run<Int> { probe() } handle<Ask> { fn ask(resume) { var r = resume(5); print("a done"); return r; } }
+    + run<Int> { probe() } handle<Ask> { fn ask(resume) { var r = resume(6); print("b done"); return r; } });

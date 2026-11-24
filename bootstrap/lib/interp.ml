@@ -20,6 +20,7 @@ type pending_call =
   { p_fn : Value.fn
   ; p_args : Value.value list
   ; p_discards : bool
+  ; p_span : Ast.span
   }
 
 let pending : pending_call option ref = ref None
@@ -300,10 +301,8 @@ and bounce ?(discards = false) span v =
   | Some p ->
     pending := None;
     entering := Some p.p_fn;
-    bounce ~discards:(discards || p.p_discards) span (p.p_fn.apply span p.p_args)
+    bounce ~discards:(discards || p.p_discards) span (p.p_fn.apply p.p_span p.p_args)
 
-(* Deferred statements run when the block is left, however it is left, and in
-   reverse. *)
 and run_block env body =
   (* In scope for its whole block, as the checker assumed. *)
   List.iter
@@ -312,27 +311,15 @@ and run_block env body =
       | `Fn _ -> exec env s
       | _ -> ())
     body;
-  let deferred = ref [] in
-  let run_deferred () = not_tail (fun () -> List.iter (fun (scope, s) -> exec scope s) !deferred) in
   let rec walk = function
     | [] -> ()
-    | { Ast.it = `Defer inner; _ } :: rest ->
-      deferred := (env, inner) :: !deferred;
-      walk rest
     | { Ast.it = `Fn _ | `Type_decl _; _ } :: rest -> walk rest
-    (* What this block defers runs when it is left, which has to be after the
-       call rather than before it. *)
-    | [ s ] when !deferred <> [] -> not_tail (fun () -> exec env s)
     | [ s ] -> exec_last env s
     | s :: rest ->
       not_tail (fun () -> exec env s);
       walk rest
   in
-  (match walk body with
-   | () -> run_deferred ()
-   | exception e ->
-     run_deferred ();
-     raise e)
+  walk body
 
 (* A branch of an `if` in tail position is in tail position too, so a function
    ending in one whose branch is a bare call makes that call from its caller. *)
@@ -342,7 +329,7 @@ and exec_last env (s : Ast.resolved_stmt) =
   let hand_back ~discards span f args ~otherwise =
     match f with
     | Fn f when (match f.arity with Some n -> n <= List.length args | None -> true) ->
-      pending := Some { p_fn = f; p_args = fitted span f args; p_discards = discards }
+      pending := Some { p_fn = f; p_args = fitted span f args; p_discards = discards; p_span = span }
     | f -> otherwise (call span f args)
   in
   let call_of env (e : Ast.resolved_expr) =
@@ -393,7 +380,7 @@ and exec env (s : Ast.resolved_stmt) : unit =
   | `Block body ->
     let scope = new_env (Some env) in
     run_block scope body
-    | `Defer _ -> ()
+    | `Defer _ -> fail span "A 'defer' reached the interpreter unlowered."
   | `If (cond, then_branch, else_branch) ->
     if as_bool span (eval env cond)
     then exec_last env then_branch
@@ -447,9 +434,20 @@ and exec env (s : Ast.resolved_stmt) : unit =
     in
     first cases
 
+(* A meta block runs from inside a builtin of the program around it, which may
+   be in tail position: its own last statement is not, and a call it handed
+   back would be made after the builtin returned, in place of its value. *)
 let run env (program : Ast.resolved_stmt list) : (int, error) result =
+  let outer_tail = !tail
+  and outer_pending = !pending in
+  tail := false;
+  pending := None;
   try
-    run_block env program;
+    Fun.protect
+      ~finally:(fun () ->
+        tail := outer_tail;
+        pending := outer_pending)
+      (fun () -> run_block env program);
     Ok 0
   with
   | Exited code -> Ok code

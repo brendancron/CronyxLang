@@ -7,7 +7,7 @@ fn sig_named(name: String, ret: String): MethodSig {
         signature: Signature {
             ret: Option.Some(TypeExpr.of(TypeKind.Named(ret.as_name()))),
             row: Option.None,
-            static_params: []
+            static_params: [], inline: false
         },
         attrs: []
     };

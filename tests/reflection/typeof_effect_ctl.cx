@@ -1,8 +1,5 @@
-// A row is written between the arrow and the result, which is where the
-// effect an arrow carries belongs.
-
-effect Stream {
-    ctl yield(i: Int): Unit;
+trait Stream {
+    @ctl fn yield(i: Int): Unit;
 }
 
 fn range(low: Int, high: Int) {

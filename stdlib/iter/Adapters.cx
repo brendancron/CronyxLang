@@ -93,22 +93,14 @@ fn take<T, E>(source: Iter<T, E>, n: Int): Iter<T, E> {
             source.close();
         }
     };
-    // Not through `shut`: calling that from here would give it this
-    // function's row, and an `Iter`'s `close` performs nothing.
     var next = () => {
         if (left <= 0) {
-            if (!closed) {
-                closed = true;
-                source.close();
-            }
+            shut();
             return Option.None;
         }
         left = left - 1;
         var v = source.next();
-        if (left == 0 && !closed) {
-            closed = true;
-            source.close();
-        }
+        if (left == 0) { shut(); }
         return v;
     };
     return Iter { next: next, close: shut };

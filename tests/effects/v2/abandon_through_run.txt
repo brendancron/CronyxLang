@@ -1,4 +1,0 @@
-stopped through a ctl block
-stopped through a final ctl block
-stopped through two blocks that need no continuation
-end

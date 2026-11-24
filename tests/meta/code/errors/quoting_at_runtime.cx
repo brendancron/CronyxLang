@@ -4,6 +4,6 @@ fn make(): Expr {
     return code(1 + 2);
 }
 meta {
-    print(make());
+    print(make().span);
 }
-print(make());
+print(make().span);

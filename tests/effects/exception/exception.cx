@@ -1,5 +1,5 @@
-effect Exception {
-    ctl throw(msg: String): Unit;
+trait Exception {
+    @ctl fn throw(msg: String): Unit;
 }
 
 fn divide(n, d) {
@@ -9,12 +9,12 @@ fn divide(n, d) {
     return n / d;
 }
 
-run {
+run<Unit> {
     print(divide(10, 2));
     print(divide(5, 0));
     print("unreachable");
-} handle Exception {
-    ctl throw(msg) {
+} handle<Exception> {
+    fn throw(msg, resume) {
         print(msg);
     }
 }

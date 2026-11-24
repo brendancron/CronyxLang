@@ -1,13 +1,13 @@
-effect Yield<T> {
-    ctl yield(value: T): Unit;
+trait Yield<T> {
+    @ctl fn yield(value: T): Unit;
 }
 
 fn spelled(text: String): <Yield<Int>> Unit {
     yield(text);
 }
 
-run {
+run<Unit> {
     spelled("a");
-} handle Yield {
-    ctl yield(v) { print(str(v)); resume; }
+} handle<Yield<Int>> {
+    fn yield(v, resume) { print(str(v)); resume(()); }
 }

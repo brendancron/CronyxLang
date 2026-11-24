@@ -7,17 +7,15 @@ fn work() {
     error("gave up");
 }
 
-// Only what is at least a warning, as a program quieting its logs would.
 var kept: List<String> = [];
-run {
+run<Unit> {
     work();
-} handle Logger {
+} handle<Logger> {
     fn record(level, message) {
         if (level.rank() >= Level.Warn.rank()) { kept.push(level.label() + " " + message); }
     }
 }
 print(kept);
 
-// Unhandled, it reaches the root, which writes to standard error.
 info("to standard error");
 print("done");

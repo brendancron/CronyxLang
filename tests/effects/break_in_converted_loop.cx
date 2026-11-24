@@ -1,4 +1,4 @@
-effect Tick { ctl tick(): Int; }
+trait Tick { @ctl fn tick(): Int; }
 
 fn with_defer(): <Tick, Console> Unit {
     var i = 0;
@@ -51,9 +51,9 @@ fn plain_inside(): <Tick, Console> Unit {
     print("total " + str(total));
 }
 
-run {
+run<Unit> {
     with_defer();
     in_match();
     nested();
     plain_inside();
-} handle Tick { ctl tick() { resume 1; } }
+} handle<Tick> { fn tick(resume) { resume(1); } }

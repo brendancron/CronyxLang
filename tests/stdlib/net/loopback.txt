@@ -1,0 +1,8 @@
+["one", "two"]
+refused once the port is closed
+server got ping
+client got pong
+200 hello there
+404 nothing at /missing
+fake: connection refused: example.invalid:80
+done

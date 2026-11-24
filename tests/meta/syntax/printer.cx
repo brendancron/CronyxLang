@@ -25,5 +25,5 @@ meta {
             }
         }
     }));
-    print(decl_source(code effect Log { fn log(s: String): Unit; ctl ask<T>(): T; }));
+    print(decl_source(code trait Log { fn log(s: String): Unit; @ctl fn ask<T>(): T; }));
 }

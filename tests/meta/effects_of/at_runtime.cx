@@ -1,0 +1,9 @@
+trait Log { fn log(msg: String): Unit; }
+
+fn performs<E>(work: () -> <E> Unit): List<Name> { return effects_of(E); }
+
+print(performs(() => { print("x"); }).len());
+run<Unit> {
+    print(performs(() => { log("y"); print("z"); }).len());
+} handle<Log> { fn log(msg) { } }
+print(performs(() => { }).len());

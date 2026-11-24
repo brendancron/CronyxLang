@@ -1,0 +1,7 @@
+import { Throw } from "std/core/Error";
+fn check(n: Int): <Throw<String>> Int { if (n < 0) { throw("negative"); } return n; }
+if (true) {
+    meta { print("compiling"); }
+    print(check(1));
+}
+print(check(meta { print("expr"); gen code(1); }));

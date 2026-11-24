@@ -27,9 +27,9 @@ fn greet_all(): <Stdin, Console, Async, Throw<IoError>> Unit {
 
 var given = Given { data: "ada\nbo\r\ncy".bytes(), at: [0] };
 
-run {
+run<Unit> {
     greet_all();
-} handle Stdin {
+} handle<Stdin> {
     fn stdin() {
         var input: Reader = given;
         return input;

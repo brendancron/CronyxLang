@@ -1,0 +1,46 @@
+trait Out { fn emit(text: String): Unit; }
+
+trait Fails<X> { @ctl fn fails<T>(err: X): T; }
+
+trait Wait { @ctl fn pause(): Unit; }
+
+fn block_on<X, E>(main: () -> <Wait, Fails<X>, E> Unit): <Console, E> Unit {
+    var ready: List<() -> <Console, E> Unit> = [];
+    run<Unit> {
+        run<Unit> {
+            main();
+        } handle<Fails<X>> {
+            fn fails(e, resume) { panic("uncaught failure: " + str(e)); }
+        }
+    } handle<Wait> {
+        fn pause(resume) { ready.push { resume(()); }; }
+    }
+    while (ready.len() > 0) {
+        var next = ready[0];
+        ready = ready[1:];
+        next();
+    }
+}
+
+fn root<T, X, E>(main: () -> <Wait, Fails<X>, Out, Console, E> T): <Console, E> T {
+    var out: Option<T> = Option.None;
+    run<Unit> {
+        block_on(() => { out = Option.Some(main()); });
+    } handle<Out> {
+        fn emit(text) { print("> " + text); }
+    }
+    match out {
+        Option.Some(value) => { return value; }
+        Option.None => { panic("a top-level statement finished without a value"); }
+    }
+}
+
+fn twice(name: String): <Wait, Out> Unit {
+    emit(name + " 1");
+    pause();
+    emit(name + " 2");
+}
+
+root(() => { emit("before"); });
+root(() => { emit("again"); pause(); fails("boom"); emit("never"); });
+print("never");

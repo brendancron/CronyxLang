@@ -1,7 +1,4 @@
-// The arm is the only thing that reveals `Log`, and refining must not lose it:
-// nothing else would ask for a handler, and `ev#note` would be missing at run
-// time rather than reported here.
-effect Log { fn note(m: String): Unit; }
+trait Log { fn note(m: String): Unit; }
 
 type Q<T> { Num -> Q<Int>, Text -> Q<String> }
 

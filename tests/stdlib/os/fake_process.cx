@@ -21,13 +21,13 @@ fn branch(): <Process, Async, Throw<IoError>> String {
 }
 
 var asked: List<String> = [];
-run {
+run<Unit> {
     print(branch());
-} handle Process {
-    ctl start(command) {
+} handle<Process> {
+    fn start(command) {
         asked.push(command.program + " " + str(command.arguments));
         var child: Child = Canned { text: "main" };
-        resume Result.Ok(child);
+        return Result.Ok(child);
     }
 }
 print(asked);

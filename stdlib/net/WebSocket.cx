@@ -169,16 +169,16 @@ impl WebSocket {
         if (said.len() > 123) { throw(IoError.Other("a WebSocket close reason holds at most 123 bytes")); }
         if (self.ended) { return; }
         if (!self.sent_close) {
-            run {
+            run<Unit> {
                 self.__send_close(__close_payload(number, said));
-            } handle Throw {
-                final ctl throw(e) {}
+            } handle<Throw<IoError>> {
+                fn throw(e) {}
             }
         }
         // What arrives in the meantime is dropped: the close has been sent,
         // so nothing can answer it.
         timeout(Duration.seconds(5), () => {
-            run {
+            run<Unit> {
                 while (!self.received_close && !self.ended) {
                     match self.__frame() {
                         Option.None => { self.ended = true; }
@@ -190,8 +190,8 @@ impl WebSocket {
                         }
                     }
                 }
-            } handle Throw {
-                final ctl throw(e) {}
+            } handle<Throw<IoError>> {
+                fn throw(e) {}
             }
         });
         if (self.status == Option.None) { self.status = Option.Some((1006, "")); }
@@ -232,7 +232,7 @@ impl WebSocket {
 
     fn __write(self, opcode: Int, payload: Array<Byte>): <Async, Throw<IoError>> Unit {
         while (self.writing) {
-            suspend { self.waiting.push(() => { it(()); }); };
+            park((wake: () -> Unit) => { self.waiting.push(wake); });
         }
         self.writing = true;
         defer {
@@ -329,10 +329,10 @@ impl WebSocket {
         // for that, and is never sent.
         var echo: Array<Byte> = [];
         if (payload.len() >= 2) { echo = payload[0:2]; }
-        run {
+        run<Unit> {
             self.__send_close(echo);
-        } handle Throw {
-            final ctl throw(e) {}
+        } handle<Throw<IoError>> {
+            fn throw(e) {}
         }
         self.__release();
     }
@@ -340,10 +340,10 @@ impl WebSocket {
     // Sends the close that says what the peer did wrong, lets the connection
     // go, and throws.
     fn __fail(self, number: Int, why: String): <Async, Throw<IoError>> Unit {
-        run {
+        run<Unit> {
             self.__send_close(__close_payload(number, []));
-        } handle Throw {
-            final ctl throw(e) {}
+        } handle<Throw<IoError>> {
+            fn throw(e) {}
         }
         if (self.status == Option.None) { self.status = Option.Some((number, why)); }
         self.__release();
@@ -359,10 +359,10 @@ impl WebSocket {
         if (self.ended) { return; }
         self.ended = true;
         if (!self.owns_stream) { return; }
-        run {
+        run<Unit> {
             self.stream.close();
-        } handle Throw {
-            final ctl throw(e) {}
+        } handle<Throw<IoError>> {
+            fn throw(e) {}
         }
     }
 }
@@ -410,10 +410,10 @@ fn connect_with(url: String, headers: Headers): <Net, Random, Async, Throw<IoErr
     var opened = false;
     defer {
         if (!opened) {
-            run {
+            run<Unit> {
                 conn.close();
-            } handle Throw {
-                final ctl throw(e) {}
+            } handle<Throw<IoError>> {
+                fn throw(e) {}
             }
         }
     }
@@ -520,10 +520,10 @@ fn __upgraded<E>(
     socket.owns_stream = false;
     socket.chosen = chosen;
     var number = 1000;
-    run {
+    run<Unit> {
         session(request, socket);
-    } handle Throw {
-        final ctl throw(e) { number = 1011; }
+    } handle<Throw<IoError>> {
+        fn throw(e) { number = 1011; }
     }
     socket.close_with(number, "");
     return __Upgrade.Taken;
@@ -543,10 +543,10 @@ fn __handshake(request: Request): Result<String, Response> {
     match request.headers.get("Sec-WebSocket-Key") {
         Option.Some(key) => {
             var length = -1;
-            run {
+            run<Unit> {
                 length = decode_with(key, Alphabet.Standard).len();
-            } handle Throw {
-                final ctl throw(e) {}
+            } handle<Throw<IoError>> {
+                fn throw(e) {}
             }
             if (length != 16 || key.len() != 24) { return Result.Err(Response.text(400, "a Sec-WebSocket-Key that is not 16 bytes")); }
             return Result.Ok(__accept(key));

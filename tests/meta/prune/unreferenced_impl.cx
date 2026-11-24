@@ -6,7 +6,12 @@ type Square { side: Int }
 type Circle { r: Int }
 
 impl Area for Square {
-    fn area(self): Int { return self.side * self.side; }
+    fn area(self): Int {
+        var total = 0;
+        var i = 0;
+        while (i < self.side) { total = total + self.side; i = i + 1; }
+        return total;
+    }
 }
 
 impl Area for Circle {

@@ -59,6 +59,7 @@ let string_of_param (p : Ast.param) = p.Ast.name ^ annotation p.Ast.ty
 
 let rec string_of_expr (e : Ast.expr) : string =
   match e.Ast.it with
+  | `Pre_checked n -> Printf.sprintf "(processed %d)" n
   | `Unit -> "()"
   | `Int n -> string_of_int n
   | `Bytes b -> Printf.sprintf "(bytes %d)" (String.length b)
@@ -204,6 +205,7 @@ let rec write_stmt buf indent (s : Ast.stmt) =
     line "%s)\n" pad
   in
   match s.Ast.it with
+  | `Pre_checked n -> line "%s(processed %d)\n" pad n
   | `Attributed (list, inner) ->
     nested
       (String.concat " " (List.map (fun (a : Ast.attr) -> "@" ^ a.Ast.a_name) list))
@@ -244,7 +246,8 @@ let rec write_stmt buf indent (s : Ast.stmt) =
   | `Fn (name, params, signature, body) ->
     nested
       (Printf.sprintf
-         "fn %s (%s)%s%s"
+         "%sfn %s (%s)%s%s"
+         (if signature.Ast.inline then "inline " else "")
          name
          (String.concat " " (List.map string_of_param params))
          (match signature.Ast.ret with
@@ -447,4 +450,226 @@ let rec write_processed_stmt buf indent (s : Ast.resolved_stmt) =
 let string_of_processed_program (program : Ast.resolved_stmt list) : string =
   let buf = Buffer.create 256 in
   List.iter (write_processed_stmt buf 0) program;
+  Buffer.contents buf
+
+(* ---- processed code, written as Cronyx ---- *)
+
+module Str_find = struct
+  let after hay needle =
+    let n = String.length needle and h = String.length hay in
+    let rec go i = if i + n > h then None else if String.sub hay i n = needle then Some (String.sub hay (i + n) (h - i - n)) else go (i + 1) in
+    go 0
+end
+
+(* A module's names carry its path, `std#Format#str#0`; the instance's own
+   number is kept, since it says which instance a call reaches. *)
+let readable name =
+  let parts = String.split_on_char '#' name in
+  let rec drop = function
+    | "std" :: _ :: rest -> drop rest
+    | p :: rest -> p :: drop rest
+    | [] -> []
+  in
+  match drop parts with
+  | [] -> name
+  | kept -> String.concat "#" kept
+
+let string_of_cronyx_ty t =
+  let s = Types.string_of_ty t in
+  let b = Buffer.create (String.length s) in
+  let n = String.length s in
+  let i = ref 0 in
+  while !i < n do
+    if !i + 4 <= n && String.sub s !i 4 = "std#"
+    then (
+      (* `std#Module#` *)
+      let j = try String.index_from s (!i + 4) '#' with Not_found -> n - 1 in
+      i := j + 1)
+    else (
+      Buffer.add_char b s.[!i];
+      incr i)
+  done;
+  Buffer.contents b
+
+let rec cronyx_of_expr ?(depth = 0) (e : Ast.resolved_expr) : string =
+  let go = cronyx_of_expr ~depth in
+  let args xs = String.concat ", " (List.map go xs) in
+  match e.Ast.it with
+  | `Unit -> "()"
+  | `Int n -> string_of_int n
+  | `Bytes b -> Printf.sprintf "<%d bytes>" (String.length b)
+  | `Name n -> Printf.sprintf "`%s`" (readable n)
+  | `Float n -> Token.float_to_string n
+  | `Str s -> Printf.sprintf "%S" (Utf8.encode s)
+  | `Char c -> Printf.sprintf "'%s'" (Token.literal_to_string (Token.Char c))
+  | `Bool b -> string_of_bool b
+  | `Var name -> readable name
+  | `Assign (name, v) -> Printf.sprintf "%s = %s" (readable name) (go v)
+  | `Unop (op, a) -> Printf.sprintf "%s%s" (string_of_unop op) (go a)
+  | `Binop (op, a, b) -> Printf.sprintf "(%s %s %s)" (go a) (string_of_binop op) (go b)
+  | `And (a, b) -> Printf.sprintf "(%s && %s)" (go a) (go b)
+  | `Or (a, b) -> Printf.sprintf "(%s || %s)" (go a) (go b)
+  | `Call (({ Ast.it = `Lambda _; _ } as callee), xs) -> Printf.sprintf "(%s)(%s)" (go callee) (args xs)
+  | `Call (callee, xs) -> Printf.sprintf "%s(%s)" (go callee) (args xs)
+  | `Dyn_call (receiver, name, _, xs) -> Printf.sprintf "%s.%s(%s)" (go receiver) name (args xs)
+  | `Tuple items -> Printf.sprintf "(%s)" (args items)
+  | `Tuple_get (t, i) -> Printf.sprintf "%s.%d" (go t) i
+  | `Record_lit fields ->
+    if fields = [] then "{}" else Printf.sprintf "{ %s }" (String.concat ", " (List.map (fun (l, v) -> readable l ^ ": " ^ go v) fields))
+  | `Field (r, label) -> Printf.sprintf "%s.%s" (go r) (readable label)
+  | `Field_assign (r, label, v) -> Printf.sprintf "%s.%s = %s" (go r) (readable label) (go v)
+  | `Array_lit items -> Printf.sprintf "[%s]" (args items)
+  | `Array_new (length, fill) -> Printf.sprintf "Array.filled(%s, %s)" (go length) (go fill)
+  | `Array_get (t, i) | `Str_get (t, i) -> Printf.sprintf "%s[%s]" (go t) (go i)
+  | `Array_set (t, i, v) -> Printf.sprintf "%s[%s] = %s" (go t) (go i) (go v)
+  | `Array_len t | `Str_len t -> Printf.sprintf "%s.len()" (go t)
+  | `Variant (variant, []) -> readable variant
+  | `Variant (variant, fields) ->
+    Printf.sprintf "%s(%s)" (readable variant) (String.concat ", " (List.map (fun (_, v) -> go v) fields))
+  | `Object (data, _, _) -> Printf.sprintf "dyn(%s)" (go data)
+  | `Lambda (params, _, body) ->
+    let ps = String.concat ", " (List.map (fun (p : Ast.param) -> readable p.Ast.name) params) in
+    let buf = Buffer.create 64 in
+    List.iter (write_cronyx_stmt buf (depth + 1)) body;
+    Printf.sprintf "(%s) => {\n%s%s}" ps (Buffer.contents buf) (String.make (depth * 4) ' ')
+
+and write_cronyx_stmt buf indent (s : Ast.resolved_stmt) =
+  let pad = String.make (indent * 4) ' ' in
+  let line fmt = Printf.ksprintf (fun str -> Buffer.add_string buf (pad ^ str ^ "\n")) fmt in
+  let expr = cronyx_of_expr ~depth:indent in
+  (* A condition is written in its own parentheses already. *)
+  let bare (e : Ast.resolved_expr) =
+    let shown = expr e in
+    match e.Ast.it with
+    | `Binop _ | `And _ | `Or _ -> String.sub shown 1 (String.length shown - 2)
+    | _ -> shown
+  in
+  let block body =
+    List.iter (write_cronyx_stmt buf (indent + 1)) body
+  in
+  let braced head body =
+    if String.equal head "" then line "{" else line "%s {" head;
+    block body;
+    line "}"
+  in
+  let as_body (s : Ast.resolved_stmt) = match s.Ast.it with `Block b -> b | _ -> [ s ] in
+  match s.Ast.it with
+  | `Expr e -> line "%s;" (expr e)
+  | `Var_tuple (names, init) -> line "var (%s) = %s;" (String.concat ", " (List.map readable names)) (expr init)
+  | `Var_decl (name, _, None) -> line "var %s;" (readable name)
+  | `Var_decl (name, _, Some init) -> line "var %s = %s;" (readable name) (expr init)
+  | `Defer inner ->
+    line "defer {";
+    block [ inner ];
+    line "}"
+  | `Block body -> braced "" body
+  | `If (cond, then_branch, None) -> braced (Printf.sprintf "if (%s)" (bare cond)) (as_body then_branch)
+  | `If (cond, then_branch, Some else_branch) ->
+    line "if (%s) {" (bare cond);
+    block (as_body then_branch);
+    line "} else {";
+    block (as_body else_branch);
+    line "}"
+  | `While (cond, body) -> braced (Printf.sprintf "while (%s)" (bare cond)) (as_body body)
+  | `Fn (name, params, sg, body) ->
+    let inline = if sg.Ast.inline then "inline " else "" in
+    let ty =
+      match s.Ast.ann with
+      | Types.Fn (ps, ret, _) when List.length ps = List.length params -> Some (ps, ret)
+      | _ -> None
+    in
+    let shown =
+      match ty with
+      | Some (ps, ret) ->
+        Printf.sprintf
+          "%sfn %s(%s): %s"
+          inline
+          (readable name)
+          (String.concat
+             ", "
+             (List.map2 (fun (p : Ast.param) t -> readable p.Ast.name ^ ": " ^ string_of_cronyx_ty t) params ps))
+          (string_of_cronyx_ty ret)
+      | None ->
+        Printf.sprintf "%sfn %s(%s)" inline (readable name) (String.concat ", " (List.map (fun (p : Ast.param) -> readable p.Ast.name) params))
+    in
+    braced shown body
+  | `Return None -> line "return;"
+  | `Return (Some v) -> line "return %s;" (expr v)
+  | `Break -> line "break;"
+  | `Continue -> line "continue;"
+  | `Type_decl (name, _, Ast.T_fields fields) ->
+    line
+      "type %s { %s }"
+      (readable name)
+      (String.concat ", " (List.map (fun (f : Ast.field) -> f.Ast.f_name ^ ": " ^ string_of_type_expr f.Ast.f_ty) fields))
+  | `Type_decl (name, _, Ast.T_variants variants) ->
+    line "type %s { %s }" (readable name) (String.concat ", " (List.map (fun (v : Ast.variant) -> v.Ast.v_name) variants))
+  | `Match (scrutinee, cases) ->
+    line "match %s {" (expr scrutinee);
+    List.iter
+      (fun (pattern, body) ->
+        let head =
+          match pattern with
+          | Ast.Pat_wild -> "_"
+          | Ast.Pat_variant (ty, variant, Ast.P_none) -> readable ty ^ "." ^ variant
+          | Ast.Pat_variant (ty, variant, Ast.P_tuple names) ->
+            Printf.sprintf "%s.%s(%s)" (readable ty) variant (String.concat ", " names)
+          | Ast.Pat_variant (ty, variant, Ast.P_fields fields) ->
+            Printf.sprintf "%s.%s { %s }" (readable ty) variant (String.concat ", " (List.map snd fields))
+        in
+        Buffer.add_string buf (Printf.sprintf "%s    %s => {\n" pad head);
+        List.iter (write_cronyx_stmt buf (indent + 2)) body;
+        Buffer.add_string buf (pad ^ "    }\n"))
+      cases;
+    line "}"
+
+(* The whole program after metaprocessing: the entry's own declarations, then
+   each library file's, under its path, then the top level as it runs, the
+   root's call included. A library's types are counted, not written: every
+   declared type is kept, used or not. *)
+let cronyx_of_entry ~entry (program : Ast.resolved_stmt list) : string =
+  let file (s : Ast.resolved_stmt) = Source_map.Span.path s.Ast.span in
+  let is_type (s : Ast.resolved_stmt) = match s.Ast.it with `Type_decl _ -> true | _ -> false in
+  let top_level (s : Ast.resolved_stmt) =
+    match s.Ast.it with
+    | `Fn _ | `Type_decl _ -> false
+    | _ -> true
+  in
+  let shown path =
+    if String.equal path ""
+    then "generated"
+    else (
+      match Str_find.after path "stdlib/" with
+      | Some rest -> "std/" ^ rest
+      | None -> Filename.basename path)
+  in
+  let buf = Buffer.create 4096 in
+  let write s =
+    write_cronyx_stmt buf 0 s;
+    Buffer.add_char buf '\n'
+  in
+  List.iter (fun s -> if String.equal (file s) entry && not (top_level s) then write s) program;
+  let files = ref [] in
+  List.iter
+    (fun s ->
+      let f = file s in
+      if (not (String.equal f entry)) && (not (top_level s)) && not (List.mem f !files) then files := f :: !files)
+    program;
+  List.iter
+    (fun f ->
+      let here = List.filter (fun s -> String.equal (file s) f && not (top_level s)) program in
+      let fns = List.filter (fun s -> not (is_type s)) here in
+      let types = List.length here - List.length fns in
+      if fns <> []
+      then (
+        Buffer.add_string buf (Printf.sprintf "// %s\n" (shown f));
+        List.iter write fns)
+      else ignore types)
+    (List.rev !files);
+  let types =
+    List.length (List.filter (fun s -> is_type s && not (String.equal (file s) entry)) program)
+  in
+  if types > 0 then Buffer.add_string buf (Printf.sprintf "// and %d types the library declares\n\n" types);
+  Buffer.add_string buf "// The top level.\n";
+  List.iter (fun s -> if top_level s then write_cronyx_stmt buf 0 s) program;
   Buffer.contents buf

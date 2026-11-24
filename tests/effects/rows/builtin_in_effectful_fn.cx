@@ -1,5 +1,5 @@
-effect Log { fn log(msg: String): Unit; }
-effect Ask { fn ask(): Int; }
+trait Log { fn log(msg: String): Unit; }
+trait Ask { fn ask(): Int; }
 
 fn helper(n: Int): Int {
     return n + 1;
@@ -21,11 +21,11 @@ fn both(n: Int): String {
     return work(n + extra);
 }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         print(work(1));
         var s: Set<Int> = [1, 2, 2];
         print(counted(s));
         print(both(1));
-    } handle Ask { fn ask() { return 10; } }
-} handle Log { fn log(msg: String) { print(msg); } }
+    } handle<Ask> { fn ask() { return 10; } }
+} handle<Log> { fn log(msg: String) { print(msg); } }

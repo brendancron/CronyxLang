@@ -1,0 +1,6 @@
+(1 + 2)
+adds 1 and 2
+something else
+var x = 1;
+print(x);
+

@@ -1,9 +1,11 @@
-effect Ask { ctl ask(): Int; }
+trait Ask {
+    @ctl fn ask(): Int;
+}
 
 fn doubled(): <Ask> Int { return ask() * 2; }
 
-var total = run { doubled() } handle Ask {
-    ctl ask() { resume 21; }
+var total = run<Int> { doubled() } handle<Ask> {
+    fn ask(resume) { return resume(21); }
 };
 
 print(total);

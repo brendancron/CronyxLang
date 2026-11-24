@@ -1,0 +1,15 @@
+import { Expr, ExprKind } from "std/compiler/Ast";
+import { expr_source, source } from "std/compiler/Printer";
+
+fn describe(c: Expr): String {
+    match c.kind {
+        ExprKind.Binary(_, left, right) => { return "adds " + expr_source(left) + " and " + expr_source(right); }
+        _ => { return "something else"; }
+    }
+}
+
+var c = code(1 + 2);
+print(expr_source(c));
+print(describe(c));
+print(describe(code(print("Hello, World!"))));
+print(source(code { var x = 1; print(x); }));

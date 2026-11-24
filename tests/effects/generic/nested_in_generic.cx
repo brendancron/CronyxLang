@@ -1,4 +1,4 @@
-effect Log { fn log(s: String): Unit; }
+trait Log { fn log(s: String): Unit; }
 
 fn each<E>(actions: List<() -> <E> Unit>): <Console, E> Unit {
     var count = 0;
@@ -14,8 +14,8 @@ fn each<E>(actions: List<() -> <E> Unit>): <Console, E> Unit {
 
 fn task() { log("task"); }
 
-run {
+run<Unit> {
     each([ task, task ]);
-} handle Log {
+} handle<Log> {
     fn log(s) { print(s); }
 }

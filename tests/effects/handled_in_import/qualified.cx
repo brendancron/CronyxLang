@@ -1,10 +1,10 @@
 import "signal";
 
 fn guarded(): String {
-    run {
+    run<Unit> {
         signal.stop("qualified");
-    } handle signal.Signal {
-        final ctl stop(reason) { print("caught " + reason); }
+    } handle<signal.Signal> {
+        fn stop(reason) { print("caught " + reason); }
     }
     return "not stopped";
 }

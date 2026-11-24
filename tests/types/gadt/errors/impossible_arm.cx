@@ -13,3 +13,5 @@ fn first(v: Vec<Succ<Zero>, Int>): Int {
         Vec.Nil => { return 0; }
     }
 }
+
+print(first(Vec.Cons(1, Vec.Nil)));

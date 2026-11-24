@@ -1,16 +1,16 @@
-effect E { ctl op(): Unit; }
+trait E { @ctl fn op(): Unit; }
 
 fn work(): <E, Console> Unit { print("w1"); op(); print("w2"); }
 
 var more: List<() -> <E, Console> Unit> = [];
-var pending: List<() -> Unit> = [];
+var pending: List<() -> <Console> Unit> = [];
 
-run {
+run<Unit> {
     work();
-} handle E {
-    ctl op() {
+} handle<E> {
+    fn op(resume) {
         more.push(() => { work(); });
-        pending.push { resume; };
+        pending.push { resume(()); };
     }
 }
 

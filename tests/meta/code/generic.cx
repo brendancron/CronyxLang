@@ -1,0 +1,7 @@
+import { Expr } from "std/compiler/Ast";
+import { expr_source } from "std/compiler/Printer";
+
+fn quoted<T>(x: T): Expr { return code(x + 1); }
+
+print(expr_source(quoted(1)));
+print(expr_source(quoted(2.5)));

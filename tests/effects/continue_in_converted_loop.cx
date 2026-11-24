@@ -1,4 +1,4 @@
-effect Tick { ctl tick(): Int; }
+trait Tick { @ctl fn tick(): Int; }
 
 fn stepped(): <Tick, Console> Unit {
     for (var i = 0; i < 4; i += 1) {
@@ -31,8 +31,8 @@ fn nested(): <Tick, Console> Unit {
     }
 }
 
-run {
+run<Unit> {
     stepped();
     each();
     nested();
-} handle Tick { ctl tick() { resume 1; } }
+} handle<Tick> { fn tick(resume) { resume(1); } }

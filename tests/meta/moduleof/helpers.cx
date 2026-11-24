@@ -14,7 +14,7 @@ type Point { x: Int, y: Int }
 
 trait Shape { fn area(self): Int; }
 
-effect Log { fn log(s: String): Unit; }
+trait Log { fn log(s: String): Unit; }
 
 fn __helper(): Int { return 1; }
 

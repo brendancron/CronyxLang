@@ -1,9 +1,0 @@
-effect Ask { ctl ask(): Int; }
-
-fn doubled(): <Ask> Int { return ask() * 2; }
-
-var total = run { doubled() } handle Ask {
-    ctl ask() { resume 21; }
-} return (x) { x + 1 };
-
-print(total);

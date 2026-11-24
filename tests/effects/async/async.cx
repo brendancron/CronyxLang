@@ -1,5 +1,5 @@
-effect Async {
-    ctl suspend<T>(register: ((T) -> Unit) -> Unit): T;
+trait Async {
+    @ctl fn suspend<T>(register: ((T) -> Unit) -> Unit): T;
 }
 
 fn pause() {
@@ -10,12 +10,12 @@ fn interleaved(actions: List<() -> <Async, Console> Unit>) {
     var ready: List<() -> <Console> Unit> = [];
 
     fn strand(action: () -> <Async, Console> Unit) {
-        run {
+        run<Unit> {
             action();
-        } handle Async {
-            ctl suspend(register) {
+        } handle<Async> {
+            fn suspend(register, resume) {
                 register {
-                    ready.push { resume it; };
+                    ready.push { resume(it); };
                 };
             }
         }

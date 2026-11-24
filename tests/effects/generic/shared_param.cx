@@ -1,6 +1,4 @@
-// Two operations naming the same parameter agree on it; a call site is what
-// settles what it is.
-effect Store<T> {
+trait Store<T> {
     fn put(v: T);
     fn take(): T;
 }
@@ -10,9 +8,9 @@ fn round_trip(v: Int): Int {
     return take();
 }
 
-run {
+run<Unit> {
     print(round_trip(7));
-} handle Store {
+} handle<Store<Int>> {
     fn put(v) { print("put" + " " + str(v)); }
     fn take() { return 99; }
 }

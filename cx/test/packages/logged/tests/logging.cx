@@ -3,9 +3,9 @@ import { Logger, Level } from "std/log/Logger";
 
 fn logged_by(port: Int): List<String> {
     var lines: List<String> = [];
-    run {
+    run<Unit> {
         server.serve(port);
-    } handle Logger {
+    } handle<Logger> {
         fn record(level, message) { lines.push(level.label() + ": " + message); }
     }
     return lines;

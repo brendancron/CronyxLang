@@ -22,8 +22,12 @@ type Iter<T, E> {
     /** The next value, or `None` at the end. */
     next: () -> <E> Option<T>,
 
-    /** Finishes with the sequence. Asking for more afterwards answers `None`. */
-    close: () -> Unit
+    /**
+     * Finishes with the sequence. Asking for more afterwards answers `None`.
+     * Closing a producer that has not finished unwinds it, which runs its
+     * `defer`s, so it performs what pulling does.
+     */
+    close: () -> <E> Unit
 }
 
 /**

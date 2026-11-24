@@ -1,4 +1,4 @@
-effect Pause { ctl pause(): Unit; }
+trait Pause { @ctl fn pause(): Unit; }
 
 fn inner(): <Pause, Console> Unit {
     defer print("inner cleaned up");
@@ -13,18 +13,18 @@ fn outer(): <Pause, Console> Unit {
     print("outer never");
 }
 
-run { outer(); } handle Pause {
-    ctl pause() {
+run<Unit> { outer(); } handle<Pause> {
+    fn pause(resume) {
         print("arm before");
-        discontinue;
+        discontinue(resume);
         print("arm after");
     }
 }
 print("first done");
 
 var later: List<() -> <Console> Unit> = [];
-run { outer(); } handle Pause {
-    ctl pause() { later.push(() => { discontinue; }); }
+run<Unit> { outer(); } handle<Pause> {
+    fn pause(resume) { later.push(() => { discontinue(resume); }); }
 }
 print("second run returned");
 later[0]();

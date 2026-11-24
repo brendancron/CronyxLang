@@ -1,1 +1,1 @@
-[7:1] Handler for 'Two' is missing operation 'b'.
+[6:1] This handler for 'Two' is missing method 'b'.

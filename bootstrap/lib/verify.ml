@@ -218,7 +218,11 @@ let rec expr (e : Ast.resolved_expr) : unit =
      | Types.Sum _ -> ()
      | other -> fail span "A variant is annotated %s." (Types.string_of_ty other))
     | `Lambda (params, sg, body) ->
-    let control = if Typecheck.is_cps sg then List.length (Typecheck.controlling_ty ann) + 1 else 0 in
+    let control =
+      if Typecheck.is_handed sg
+      then List.length (Typecheck.controlling_ty ann) + Typecheck.handed_count Core.handed
+      else 0
+    in
     let taken = control + if Typecheck.is_plain sg then 0 else evidence ann in
     (match ann with
      | Types.Fn (declared, _, _) when List.length declared + taken = List.length params ->
@@ -287,7 +291,7 @@ let rec expr (e : Ast.resolved_expr) : unit =
        let controlled =
          match Typecheck.controlling_ty callee.Ast.ann with
          | [] -> direct
-         | taken -> direct + List.length taken + 1
+         | taken -> direct + List.length taken + Typecheck.handed_count Core.handed
        in
        if direct <> List.length args && controlled <> List.length args
        then

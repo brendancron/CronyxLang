@@ -24,7 +24,7 @@
  * looked for on `PATH` unless its name has a slash in it.
  */
 
-import { Async } from "../async/Task";
+import { Async, suspend } from "../async/Task";
 import { Throw, Result, Failure } from "../core/Error";
 import { Reader, Writer, IoError } from "../io/Io";
 import { decode } from "../text/Utf8";
@@ -35,9 +35,9 @@ import { __ready } from "../net/Net";
  * `defer`s between here and it have run; a test handles `Exit` to see the code
  * instead.
  */
-effect Exit {
+trait Exit {
     /** Ends the program now: 0 for success, anything else for failure. */
-    final ctl exit(status: Int);
+    @abort fn exit<T>(status: Int): T;
 }
 
 /** Where one of a child's standard streams goes. */
@@ -175,12 +175,12 @@ trait Child {
 }
 
 /** Starting programs. */
-effect Process {
+trait Process {
     /**
      * The started program, or why it could not start. A failure is a value
      * here so it reaches the caller: `spawn` throws it where it was asked.
      */
-    ctl start(command: Command): Result<Child, IoError>;
+    fn start(command: Command): Result<Child, IoError>;
 }
 
 /** The program, started. */

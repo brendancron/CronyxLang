@@ -1,0 +1,11 @@
+26
+line: first
+line: second
+line: third
+["inner", "notes.txt"]
+true
+false
+canned text
+caught: no such file: missing.txt
+8
+done

@@ -37,15 +37,16 @@ impl Show for Pair {
 }
 
 /** Values handed over one at a time. */
-effect Feed {
+trait Feed {
     /** Hands the next one over, and waits to be resumed. */
     @cheap
-    ctl next(): Int;
+    @ctl fn next(): Int;
 }
 
 /** Answers every `next` with the same number. */
-handler steady : Feed {
-    ctl next() { resume 7; }
+type Steady<R> impl EffectHandler<Feed, R> {
+    /** Hands over a seven. */
+    fn next(resume: (Int) -> R): R { return resume(7); }
 }
 
 impl Pair {
@@ -63,8 +64,8 @@ print(count);
 print(Pair { left: 1, right: 2 }.show());
 print(Pair { left: 1, right: 2 }.wider());
 
-run {
+run<Unit> {
     print(next() + next());
-} handle Feed {
-    ctl next() { resume 7; }
+} handle<Feed> {
+    fn next(resume) { resume(7); }
 }

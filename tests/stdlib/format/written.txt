@@ -5,4 +5,4 @@ true
 #alone
 "quoted"
 'c'
-{ pence: 1250 }
+Money { pence: 1250 }

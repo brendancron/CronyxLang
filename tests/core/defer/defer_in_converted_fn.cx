@@ -1,7 +1,4 @@
-// The deferred statement runs when the function's scope is left, which is
-// before the caller sees the result — the same as in a function the CPS pass
-// left alone.
-effect Ask { ctl get(): Int; }
+trait Ask { @ctl fn get(): Int; }
 
 fn f(): <Ask, Console> Int {
     defer print("cleanup");
@@ -9,5 +6,5 @@ fn f(): <Ask, Console> Int {
     return get();
 }
 
-run { print(f()); } handle Ask { ctl get() { resume 1; print("after arm"); } }
+run<Unit> { print(f()); } handle<Ask> { fn get(resume) { resume(1); print("after arm"); } }
 print("after");

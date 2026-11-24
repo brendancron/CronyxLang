@@ -1,4 +1,4 @@
-effect Ask { ctl ask(): Int; }
+trait Ask { @ctl fn ask(): Int; }
 
 type Shape { Point, Circle(Int) }
 
@@ -9,9 +9,9 @@ fn size(s: Shape): Int {
     };
 }
 
-run {
+run<Unit> {
     print(size(Shape.Circle(4)));
     print(size(Shape.Point));
-} handle Ask {
-    ctl ask() { resume 10; }
+} handle<Ask> {
+    fn ask(resume) { resume(10); }
 }

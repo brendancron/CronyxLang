@@ -7,7 +7,7 @@ fn getter(): MethodSig {
         signature: Signature {
             ret: Option.Some(TypeExpr.of(TypeKind.Named("Int".as_name()))),
             row: Option.None,
-            static_params: []
+            static_params: [], inline: false
         },
         attrs: []
     };

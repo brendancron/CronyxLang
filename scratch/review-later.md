@@ -122,7 +122,7 @@ block should be able to name a static param as a value (`str(E)`).
 | R16 | A trait-object method that performs a bound `@ctl` effect is rejected (`methods/suspending_receiver`, `core/traits/dyn/effect_resumes` deferred). REVERSED by the user 2026-11-22: rejection dropped; trait-object methods take handler + continuation under the R1 function-value rule. To build | 03 D6 | How should dynamic dispatch meet the transform? |
 | R17 | Discontinue insertion is syntactic: an arm that never names its continuation gets `discontinue(k)`. CONFIRMED by the user 2026-11-22 (A: stored-then-dropped continuations are the programmer's to discontinue) | 03 D7 | Is syntactic enough, and what about an arm that stores `k` and drops it later? |
 | R18 | One intrinsic, `discontinue(k)`, plus tail calls as an interpreter guarantee. CONFIRMED by the user 2026-11-22: the full list is discontinue, tail calls, the R1 function-value rule, and `@abort` (library first if it can express an exit to the run); no Cont/Frame/Abort | decision log | Is anything else of Cont/Frame/Abort needed? |
-| R19 | Display/Debug impls stay rooted for every type the program constructs. REVISED by the user 2026-11-22: make Display static in the stdlib rework (`str<T: Display>` an ordinary generic call, real impls for built-in types, `List<T>` calling `T`'s; a type without an impl decided when built), then delete this Prune exception. To build | 01 D6 | Goes away once Display is static (Stdlib Plan). |
+| R19 | Display/Debug impls stay rooted for every type the program constructs. REVISED by the user 2026-11-22: make Display static in the stdlib rework (`str<T: Display>` an ordinary generic call, real impls for built-in types, `List<T>` calling `T`'s; a type without an impl decided when built), then delete this Prune exception. To build. Built in S5b (I235–I240); a type without an impl is an error, review after (I236). REPLACED by the user 2026-11-22: every type prints through `str`'s meta block, an impl only overriding; built (I242–I250) | 01 D6 | Goes away once Display is static (Stdlib Plan). |
 | R20 | An effect is a trait whose methods take no `self`; a trait mixing both is not an effect. CONFIRMED by the user 2026-11-22 | 03 D4 | Right boundary? |
 | R21 | Named `@ctl` handlers are generic in R, except the 2 whose arms fall off their end (`unit`). REVISED by the user 2026-11-22: rewrite those 2 generic (`return resume(())`) in the rework; no special rule, falling off the end is `Unit` as for any function. To build | 04 A7 | Should a handler's arm be allowed to fall off its end? |
 | R22 | `self` stays recognized by name. CONFIRMED by the user 2026-11-22 | conversation | Positional like the continuation? |
@@ -1896,7 +1896,7 @@ instance's parameters are (`stdlib/v2/rethrow`: `cx30#rethrow#0`'s `hv#Throw: { 
 changed. **Review after:** (b) lets the body's view of a handed handler stay generic in its arguments however the
 body uses it; tying it to the caller's (I207) would make it exact.
 
-I212. **S4: a return-type-only parameter of a discarded call is `Unit` (I90), as built.** `infer_stmt` marks the
+I212. **S4: a return-type-only parameter of a discarded call is `Unit` (I90), as built.** (Its found-not-fixed part is FIXED by I317.) `infer_stmt` marks the
 call an `Expr` statement holds (`discarded`, by its offsets), and `key_of_use` settles a parameter still open there
 that the scheme mentions only in its result (`only_returned`: not in a parameter, not in the row) to `unit`, keyed
 `Key.Type Unit` (`types/expected/discarded_return_param`, new: `empty();` and `fn sizes() { empty(); … }`). Only a
@@ -2124,6 +2124,889 @@ built-in methods' `"Byte.to_int"`, `"String.to_upper"`, …), because both cases
 `dune test cx` deletes `cx/test/registry/app/cronyx.lock` (the registry case removes the lock first, and its build,
 red for now, never writes it back); it was restored from `HEAD` after the run, and a later step should check
 `git status` for it after running the suite.
+
+I231. **S5b: one `__root` for the whole top level (A5-Q1, I162).** `Compile.root_call` hands every top-level
+statement, in order, to the prelude's `__root<Rest>(main: () -> <Console, Logger, Args, Env, Time, Random, Rest> Unit)`
+as one lambda; `Precheck` sees the same through `Compile.under_root`. Each top-level `var` stays a global, declared
+without a value ahead of the call (`Compile.globals`), and its initializer is an assignment in place inside the body
+(`Typecheck.root_stmt`); the name is bound at the top level only once its initializer is checked, so a function reached
+before it reports it undefined (`core/top_level/errors/before_initializer`). `Typecheck.root_block` checks each statement
+with a row of its own, so an error still names its statement and the next one is checked (`errors/each_statement`); a
+statement reading a `var` whose initializer failed is skipped (`root_failed`). The consequences I162 listed: (a) a later
+statement settles an earlier `var`'s type, so the A5-Q1 annotations came out (Fixture changes in S5b); (b) a statement
+whose row holds `Throw` is checked again inside `__throwing<T, X: Display, Rest>`, so each catches its own failure and
+two statements may throw different types (`core/top_level/one_root`); one statement throwing two types is an error, as
+it is in a function body; (c) `__root` has no `X` any more, so U4's default is not needed there: a program that never
+throws makes no `__throwing` instance; (d) `block_on` is not in the prelude (dropped in S1), so nothing runs the top
+level as a task yet; when 5c brings `async` back, the one lambda is its one main task. Reviewed against A5-Q1 and I162:
+it matches the decision except for I232, fixed.
+
+I232. **S5b: a top-level meta block is a statement of the root's body.** As first built, each run of statements between
+two top-level meta blocks was its own `__root` call, so the top level was one function only for a program without
+one, and a `var` settled across a meta block failed (`var xs = []; meta { … } xs.push(1);` gave "Verify error: This is
+annotated 'a, which is still generic."). Now the walk hands the whole top level, meta blocks included, to one root
+call, and `root_block` runs a meta block where its check reaches it, through a new walk op `top_meta`: the block is
+spliced at the top level, the declarations it generates are registered there as before, and its statements come back
+to be checked in place; a generated `var` is a global too. The order is unchanged: a meta block runs after what the
+statements above it reach. Fixture: `core/top_level/across_meta`.
+
+I233. **S5b: a throwing top-level statement is checked twice (review after).** `root_block` learns that a statement
+throws from its row, so a statement that does is checked once on its own and again inside `__throwing`. Instances are
+memoized, so the cost is the second check; but a meta block written inside such a statement (a `meta` expression)
+runs twice at compile time. Alternatives: check every statement inside `__throwing` and drop the wrapper when the row
+holds no `Throw` (one `__throwing` instance and transform per statement otherwise, which I161 measured as the slow
+path), or find `Throw` in a cheaper pre-pass over the statement's calls.
+
+I234. **S5b: why `types/expected/written_key.txt` changed.** `var h = helper<Int>; print(h(5)); print(typeof(h).name);`
+now prints `(Int) -> <Console> Int` where it printed `(Int) -> Int`. A top-level `var` is a variable of one function
+body now, so its function type's open row is closed with the body's row rather than when its own statement ended,
+exactly as for a local: the same three lines inside a function print `(Int) -> <Console> Int` too (checked, at HEAD as
+well). It is the reading A5-Q1 chose (the top level is one function body), so the expected output was updated rather
+than the checker. **Review after:** whether a function value's open row should close to the empty row when nothing it
+holds performs, here and in a function body alike. Also from the one body: instances the top level makes are finished
+(`finish_root`) once, at its end, rather than after each statement.
+
+I235. **S5b: static `Display` (R19).** `str<T: Display>(value: T): String { return value.fmt(); }` and
+`debug<T: Debug>` are library functions in `std/text/Format`, globally imported by the prelude with the traits;
+`print` and `printerr` are `<T: Display>`. A call is an ordinary generic call, so each type printed is an instance
+(`std#Format#str#0`, …) calling that type's impl directly. Impls: in `Format`, `Int`, `Float`, `Bool`, `Byte` (its
+number), `Char` and `String` (quoted by `Debug`), `Unit` (`unit`, the value as before), `Name`, `Span`, `Array<T: Debug>`,
+`Option<T: Debug>` (`Some(1)`, `None`), `Ordering`; `Result<T: Debug, X: Debug>` in `core/Error`; `AttrArg`, `Attr`,
+`TypeRef`, `TypeField`, `TypeVariant`, `TypeShape` (their structure, as the old printer wrote them) and `Debug for
+Type` in `meta/Reflect`. `List`, `Set` and `Map` already wrote each element with `debug`, which is now `T`'s impl. The
+built-in types' impls call two natives, `__display` and `__debug`, that format only a built-in value. Deleted: the
+interpreter's lookup of an impl by its method's name (`Builtins.written`'s `method_of`) and the `CX_PRINT_PROBE` code
+beside it; `__written`; `Metaprocess.printed` (an instance of every `Display`/`Debug` method, made whether or not
+called), the printers `reached` added to a meta block's program, Prune's exception (`constructed`, `build`: a printer
+kept for every type a reached body builds), and `is_printer`'s first-key instance name (I223: the `Box<Unit>` copy in
+`core/types/copies` is gone). The derivers generate each part's `debug` call (`Point { x: 1, label: "a" }`,
+`Shape.Circle(1.5)`, as before) with every type parameter bounded by `Debug` (`Derive.with_bound`), rather than calling
+`__written`. Kept: the rule that a `Display` or `Debug` impl performs no effect (`format/errors/effectful_display`),
+since a part is written inside another value's impl; its comments no longer name a printer.
+
+I236. **S5b: a type with no `Display` impl is an error where it is printed. REPLACED by the user's decision of 2026-11-22: every type prints, through metaprogramming (I242).** `print(Point { x: 1 })`
+with no impl reports "Expected Display, got Point." (the message every unmet bound already gives), at the call; a
+function value likewise (`format/errors/no_impl`). Taken because it is the static reading of R19 and the rule recorded
+for the native backend (`str<T: Display>`, no structural fallback, 2026-10-26). Alternatives: (B) the Stdlib Plan's
+fallback, the built-in structure for a type with no impl, which statically means the compiler deriving an impl for
+every printed type that has none (a built-in derive, decided per type at the call); (C) a run-time structural form
+that writes parts without their impls, which prints a part with its own impl wrongly. **Review after:** inside a
+generic function written without the bound (`fn show<T>(v: T) { print(v); }`) the error is at the `print` in the
+instance, and does not name the call that made the instance; and an impl's own parameter bound is checked only when
+its method is (I240).
+
+I237. **S5b: tuples and anonymous records have a built-in form.** Neither has a declaration to implement a trait on.
+A tuple or a closed anonymous record meets `Display` and `Debug` when every part meets `Debug` (`Typecheck.admits`,
+`structural_parts`), and `v.fmt()` or `v.debug()` on a variable of one is checked as its parts through `debug`
+between the brackets (`structurally_written`): `(1, "a")`, `{ x: 1, y: "b" }`, `()` and `{}` when empty. Only a
+variable is taken apart, which is how `str` and `debug` call it; on any other receiver the ordinary lookup fails.
+**Review after:** an anonymous record's fields are written in label order (the order the checker keeps), where the old
+printer wrote the value's order; a tuple of a function value is refused like the function value.
+
+I238. **S5b: `absent` meets every bound.** I25 defaults an effect parameter nobody settles to `absent`, so an instance of
+a handler arm that writes its failure (`str(e)` in `effects/v2/root/root_shaped`, `stdlib/v2/block_on`) reached
+`str<T: Display>` at `T = absent`. No value has the type, so `admits` accepts it under any bound, and a method call on a
+variable of that type is checked as `__unreachable()` (a new native whose type is free and which fails if it runs).
+
+I239. **S5b: an uncaught failure is written through `Display`. REPLACED by I247: any failure is written through `str`.** `__throwing<T, X: Display, Rest>` writes the failure
+with `str`, as before. So a top-level statement may only throw a type that implements `Display`, and one that does not
+gets "This throws Bad, and nothing catches it, so the top level reports it through Display, which Bad does not
+implement." (`Typecheck.reported_uncaught`, `core/top_level/errors/uncaught_without_display`) rather than a row
+mismatch. `trait Failure: Display` now, so a `Failure` object can be written, and the library's failure types implement
+`Display` as their message (`DecodeError`, `IoError`, `Utf8Error`, `CliError`). **Review after:** whether an uncaught
+failure of a type without `Display` should be reported without its value instead of refused.
+
+I240. **S5b: an impl's parameter bounds are not checked at the call (review after).** `satisfies` finds `impl Display for
+List<T>` for `List<Point>` without checking `T: Debug`, so `str([Point { x: 2 }])` with no `Debug` for `Point` reports
+"Expected Debug, got Point." at `value.fmt()` in `Format.cx`, inside the instance, not at the call. The fix is to check
+the impl's own bounds in `satisfies`, as `worktree-compilation` did (`ctx_impl_bounds`).
+
+I241. **S5b: cost.** Compile and run, median of 11, ms, this machine, HEAD (`fcc7db5`, built in a copy) → S5b: `hello`
+41 → 51, `effects/v2/working_example` 61 → 73, `core/types/copies` 41 → 54. Not profiled. Likely the larger
+`text/Format` (a deriver pair that generates code, and impls for twelve more types) checked by `Precheck` with every
+program, and one `str`/`debug` instance per printed type. **Review after.**
+
+I242. **S5b: every type prints, through metaprogramming (the user's decision of 2026-11-22, Zig `std.fmt` style), as
+built.** `str<T>(value: T): String` and `debug<T>` in `text/Format` carry no bound; each body is one statement `meta`
+block over `T`. If `implements(T, Display)` (`Debug` for `debug`), it generates `return value.fmt();` (`.debug()`);
+otherwise it generates the body from `typeof(T).shape` through `__shaped`: a Product writes `Name` or `Name { x: …, y: … }`,
+a Sum a `match` with one arm per variant writing `Name.V` or `Name.V(…)` (named payloads positionally, as the derivers
+did), a Scalar the native (`__display`, or `__debug` for `debug`), and anything else `value.debug()`, which the checker
+writes structurally (I246). Every part is `debug(value.x)`, so each part is an instance of its own and a written impl
+on a nested type is used; a recursive type (`Tree.Node(Tree.Leaf, 1, …)`) is met by the instance's in-progress hit.
+`print` and `printerr` are `<T>`. Deleted: `derive(shape) for Display` and `for Debug`, `Derive.with_bound` (Derive.cx
+is as at HEAD), and the `T: Debug` bounds on the `Array`, `Option` and `Result` impls (I248). The output of every
+formerly derived type is unchanged. No hook: this runs only because a program calls `str`, `debug` or `print`.
+
+I243. **S5b: `implements(T, Trait): Bool` (review after).** A reflection query, alongside `typeof`, `moduleof` and
+`declof`, allowed only inside a meta block ("'implements' is only allowed inside a meta block, with a type and a
+trait." elsewhere, `meta/implements/errors/at_runtime`). The loader renames a call to it, in a module that declares no
+`implements` of its own, to `__implements`, so a program's own `implements` does not capture the library's call
+(`meta/implements/own_name`); the checker answers it (`Typecheck.implements`) and splices a `Bool` literal, as
+`typeof` is spliced. The first argument is read as `typeof` reads its operand (a type, a static parameter, a value);
+the second must name a trait, bare: a trait with arguments (`implements(T, Add<Int>)`) is not taken yet. It answers
+for the impls declared when the block runs, so an impl a later meta block generates is not seen. A tuple, an
+anonymous record and a function never implement anything (they have no declaration to implement on), `absent` (I238)
+implements everything, a trait object its own trait and each supertrait. Fixture: `meta/implements/implements`.
+
+I244. **S5b: `implements` checks a generic impl's own bounds (review after).** `impl Display for Box<T: Display>` answers
+`implements(Box<Money>, Display)` true and `implements(Box<Point>, Display)` false when `Point` has no impl, so
+`print(Box { held: Point { x: 2 } })` writes the structure, `Box { held: Point { x: 2 } }`, rather than failing inside the
+impl. Each parameter bounded by a bare trait is checked, recursively, against the type's argument at its position
+(`ctx_impl_params`, recorded beside `ctx_impls`); any other bound is taken as met. `satisfies` itself is unchanged, so
+I240 stands for an ordinary bound.
+
+I245. **S5b: `str` falls back to `Debug`. REVIEWED by the user 2026-11-22: built.** `str` tries a `Display` impl, then
+a `Debug` impl, then the structure, as `internal-docs/Data Structures.md` (line 198) says: `print(Temp { c: 20 })` with
+only `impl Debug for Temp` writes its `Debug` form. `debug` does not fall back to `Display`: a type with only `Display`
+still writes its structure under `debug`, so `debug` always tells values apart. `stdlib/format/debug_fallback`.
+
+I246. **S5b: a function value prints as `<fn>`; tuples and records meet a printing bound outright.** `v.fmt()` or
+`v.debug()` on a variable holding a function is checked as the literal `"<fn>"`, beside I237's structural form, so
+`debug` of a function type reaches it through `__shaped`'s last case (`{ act: <fn>, mark: 'c' }`). `admits` no longer
+asks each part of a tuple or an anonymous record to meet `Debug` under a `Display` or `Debug` bound, since `debug`
+takes any type now.
+
+I247. **S5b: an uncaught failure is written through `str` (I239's question, simplest consistent option).**
+`__throwing<T, X, Rest>` has no bound, and `Typecheck.reported_uncaught` and its error are deleted: `Bad.Oops` with no
+impl is reported as `uncaught failure: Bad.Oops` (`core/top_level/uncaught_structure`, `.rt`, the former
+`errors/uncaught_without_display`). Kept: `trait Failure: Display`, and the `Display` impls on `DecodeError`,
+`IoError`, `Utf8Error` and `CliError` (their message), because a `Failure` object has no structure of its own: without
+the supertrait it would print as the trait's name.
+
+I248. **S5b: which impls stay.** Every `Display`/`Debug` impl in the stdlib writes something other than the shape form,
+so none was deleted: the built-ins (natives), `Array`, `List`, `Set`, `Map`, `Option` (`Some(1)`, not
+`Option.Some(1)`), `Result`, `Ordering` (`Less`), reflection's records (`Named(Int, [])`, no type name), `Type` (its
+name), `Complex`, `Rational`, `BigInt`, `Duration`, `Timestamp`, `Measurement`, and the failure types (I247). The
+`T: Debug` bounds came off `Array`, `Option` and `Result`: with them, `implements(Array<Point>, Debug)` would be false
+by I244 and the array would fall to the shape form.
+
+I249. **S5b: `__shaped` must not reach `str` or `debug` (trap).** Their meta blocks call it, so a call to either inside
+it (directly, or through `numbered`, which builds its names with `str`) is met while `__shaped` is still being
+metaprocessed: "'__shaped' is still being metaprocessed, so a meta block cannot call it yet." It uses `__display` for
+names and builds the `__p0…` names in place. It takes `typeof(T)`, not `T`: a type with no fields standing as a value
+is its one value (I213), so `__shaped(T, …)` of `Origin` is "Expected Type, got Origin". **Review after:** any helper
+a printing meta block calls inherits the rule.
+
+I250. **S5b: cost of I242.** Compile and run, median of 15, ms, this machine, before (the tree at the start of this
+work, built in a copy) → after: `hello` 54 → 50, `effects/v2/working_example` 74 → 69, `core/types/copies` 57 → 52.
+Faster, most likely because the two derivers are no longer prechecked with every program; a printed type now costs
+one meta block run per instance of `str` or `debug`. Not profiled.
+
+I251. **DEFERRED to the Async redesign (2026-11-23).** **S5c: `Async`'s shape (review after).** `trait Async { @ctl fn park(register: (() -> Unit) -> Unit): Unit; fn reactor():
+Reactor; }`. `suspend<T>(register: ((T) -> Unit) -> Unit): <Async> T` is a library function over `park` (the woken value goes
+through a captured slot); `after(delay, wake)` and `when_ready(socket, writing, wake)` are library functions reading
+`reactor()`, a record of pure functions (`after`, `when_ready`, `on_cancel`) that set a wake-up and hand back its cancel.
+`waker()` is gone. Why: (a) an operation with its own static parameter (`@ctl fn suspend<T>`) makes each handler's arm
+generic per call, and a run no call reaches leaves the arm's type unsettled (`async/uncaught`: "This is not settled ...
+{ suspend: ((('b) -> Unit) -> Unit, ...) }"); (b) an arm that forwards an unmarked operation of its own effect to the outer
+handler (`fn after(d, w) { return after(d, w); }`) makes the run take control outward with the effect it binds, which the
+transform types wrongly (I253). Alternatives: keep `suspend<T>` the operation once arms of generic operations settle when
+unreached; keep `after`/`when_ready` operations once I253 is fixed.
+
+I252. **S5c: a scope is a scheduler of its own (R1 lists of tasks; review after).** `__scope` runs each task under a run of its own
+(`__launch`) whose `park` arm stores `() => { resume(()); }` in the scope's queue, typed `List<() -> <E> Unit>` (honest: what
+the task's continuation performs is the scope's `E`), and a pure waker. When none of its tasks can run, the scope parks on the
+scheduler around it, and a waker of one of its tasks wakes it. `block_on` is the same at the root, with timers and sockets in
+place of parking. Wakers are pure, so they compose across scopes. **API change:** `scope`'s `start` is
+`(() -> <Async, Throw<X>, E> Unit) -> Unit` and queues the task, which runs once the task that started it waits or finishes
+(it was `-> <Async, E> Unit` and ran the task to its first wait at once); `all`, `race`, `both`, `interleaved` are unchanged.
+Alternative: a started task runs at once, which makes `start` perform `E`.
+
+I253. **DEFERRED to the Async redesign (user, 2026-11-23).** It only bites a handler that forwards an operation of its own effect outward (I251's `after` arm). **S5c: found, not fixed: a run binding an effect its own function performs outward.** `fn launch(...): <Async, Console> Unit
+{ run<Unit> { task(); } handle<Async> { fn suspend(register, resume) { register((v) => { ready.push(() => { resume(v); }); });
+} } }` inside a run handling `Async` fails "Expected a function performing <Async, Console>, got one performing ." (the prompt
+path, `__tx_prompt`, when the run's outward row holds the effect it binds). I251's `reactor()` design avoids it in the library.
+
+I254. **S5c: cancelling a waiting scope is cooperative (review after).** A failure or `stop` unwinds every parked task of a
+scope by discontinuing its continuation; a task that is itself a scope waiting on this one registered a pure hook through
+`Reactor.on_cancel` while it waits, and is woken instead: it stops its own tasks in ordinary code, then parks once more and is
+discontinued. Why: the scope's own cleanup performs `E`, and a `defer` calling through `E` is "A deferred statement cannot fail"
+(d_open). A task that waits inside a `defer` while it is unwound carries on (`unwinding`), as before
+(`async/timeout_defers`); one that waits after its scope is cancelled is discontinued at once. Alternative: let a `defer`
+call through a row parameter when what it calls only discontinues.
+
+I255. **S5c: the scheduler stamps timers (review after).** `Reactor.after` performs nothing, so it cannot read `Time`; a timer
+records its delay, and `block_on` sets `due = instant() + delay` before it next looks at its timers. A timer set while other
+ready tasks run is due from the end of that batch rather than from when it was set. Alternative: `after` takes the instant
+and `sleep` performs `Time`.
+
+I256. **S5c: `block_on<E>(main: () -> <Async, E> Unit): <Time, E> Unit` (review after).** It no longer catches `Throw<X>`
+and panics "uncaught failure": a failure passes outward like any other effect, and the top level's `__throwing` reports it.
+`timeout(limit, task)` is `race` of the task and a `sleep`, so the task's `defer`s run when it runs out of time. The
+deadlock and woken-twice panics are kept (`async/deadlock`, `async/woken_twice` give them).
+
+I257. **S5c: `Iter`'s `close` row and the `for` loop (I163; review after).** `close: () -> <E> Unit`: closing a producer unwinds
+it, which performs what pulling does. A `for` over an `Iter` closes it in a `defer`, which then calls through `E`; the
+checker exempts that one generated `defer` (`close` on a `seq#` variable) from "A deferred statement cannot fail", since what
+it runs is the producer's own `defer`s. `Adapters.take` calls its `shut` from `next` now that both perform `E`.
+Alternative: a separate close row `Iter<T, E, C>`; or close explicitly on each exit of the loop.
+
+I258. **S5c: the transform splits pulled loops and calls of a record's function (review after).** A `for` over an `Iter` whose
+`next` takes control is lowered by the transform as the checker lowers it (`__tx_pulling`: `var seq; defer seq.close(); while
+(more) { match seq.next() … }`) rather than refused. A method call naming a field that holds a function (`seq.next()`,
+`s.reactor.after(…)`) reaches the transform as a method call with only its result's type; a new reflection query
+`field_type(t, field)` (native `__field_type`, `Typecheck.field_type`) gives the field's type, and the call is split as a call
+of the field. The pattern names `Option` as `next`'s type does.
+
+I259. **S5c: Fs, Dirs, Process, Net, Stdin are unmarked; Exit is `@abort` (review after).** `fn open`, `fn start`, `fn connect`
+… were `ctl` and resumed once; under honest rows they are tail-resumptive. `trait Exit { @abort fn exit<T>(status: Int): T; }`;
+the root's arm records the status and the process ends once the root's run is left, so the `defer`s between `exit` and the
+root run first (`os/exit`). Net's handler cannot wait (its arm would park on the scheduler, not the task's scope), so the
+system's `connect` starts a non-blocking connection and the stream finishes it, trying the next address, where it is first
+used (`OsStream.__connected`). **API change:** "connection refused" is thrown by the first `read`, `write` or `shutdown_write`,
+not by `tcp_connect`, whose row stays `<Net, Throw<IoError>>`. Alternative: `tcp_connect` performs `Async` and waits.
+
+I260. **S5c: the one `__root`, and `__meta_root`.** `__root<Rest>(main: () -> <Console, Stdin, Async, Fs, Dirs, Process, Net,
+Exit, Logger, Args, Env, Time, Random, Rest> Unit)`: one run handling everything but `Async` around `block_on(main)`, so the
+top level is the scheduler's main task. `Stdin` and `read_line` are globally imported again. A meta block's program used to run
+under `__root`; it now runs under `__meta_root` (the S5b root: Console, Logger, Args, Env, Time, Random), because the program's
+root reaches the I/O library, which calls `str`, and a `str` meta block then reached its own instance while it was walking
+("'str' is still being metaprocessed"). `Ast.is_root` covers both; `Ast.is_program_root` finds the program's.
+
+I261. **S5c: a top-level statement's row is contained in the root's, not unified with it.** `Typecheck.root_block` did
+`unify_row row whole`; with `Async` and `Exit` in the root's row, a function value called at the top level took the whole row
+and became a value taking control, while the top level, which splits nowhere, was only wrapped (`core/lambdas/basics`: "fn
+expects 6 argument(s) but got 3"). `row_within` leaves its row to what it performs. `types/expected/written_key` still prints
+`(Int) -> <Console> Int` (I234 unchanged).
+
+I262. **S5c: the root is converted from the body `root_block` checked.** When the top level takes control, the transform used to
+re-check the statements as written, without each `var`'s global or the `__throwing` catchers ("This takes control of 'Throw',
+and no handler of it is in scope here."). `root_block` records the body it checked (`root_rewritten`: a `var` as an assignment
+to its global, a throwing statement under its catcher) and the conversion is handed that.
+
+I263. **S5c: compiler fixes the redesign needed.** In `Metaprocess.surface` (an instance as `declof_call` shows it): a row
+parameter of the key is written back in the body too, as a row and as a type's argument (`Tasks<E>`); types inside row labels
+are substituted (`Throw<X>`); a type no name spells (`(Int, String)`) is substituted into the body; a label at `absent` is
+dropped; a static parameter the key leaves unsettled or generic stays the instance's own. The transform's copies keep those
+static parameters; a copy whose function returns a value ends in `k(__unreachable())` where it falls off its end (a path that
+`panic`s); a `panic` ends a branch for the join; `discontinue` of a continuation from outside the function hands it the
+handlers its type takes. A lambda converted to take control gets the parameter types its context gave it (`written_type`, an
+open or unsettled row written open). The checker orders the handlers a value takes by the effect's name as shown, as the
+transform does (it sorted `std#Error#Throw` after `Wait`, the transform `Throw` before). A label whose arguments are unsettled
+meeting a closed row that lacks it is at `absent` (`Types.unsettled_label`). `instance_at` falls back to the key the call
+recorded at its span when the callee's written type no longer settles it.
+
+I264. **FIXED (2026-11-23, user: "the local var should always shadow the normal decl").** The cause was in the checker,
+not the transform: `admits_row` postponed a call's row to an unchecked top-level function's whenever the callee's *name* was
+in `unchecked`, so `main()` on `block_on`'s parameter, with the program's `fn main` not yet checked, had its `<Async, E>` row
+postponed and the run's outward row lost `Exit`. `unchecked` now holds the scheme each function was hoisted as, and
+`calls_unchecked` postpones only when the name still resolves to that scheme. The renames (`__main`, `__task`,
+`__producer`, `__f`, `__body`, `__session`, `__respond`, `__exchange`) and their comments are gone from `prelude.cx`,
+`Task.cx`, `Yield.cx`, `Error.cx`, `Test.cx`, `WebSocket.cx`, `Http.cx`. New fixture
+`core/modules/shadowing/own_function_param` (fails on the old checker with "This takes control of 'Stop'…"). The
+transform's `Cx.locals` / `__tx_local` guard is kept; it may now be redundant. **S5c: found, not fixed: a program's function captures a library local called in a run body.** `block_on`'s `main()`
+inside its run was taken for a program's `fn main` (`core/defer/defer_basic`: "This takes control of 'Exit'…"). The library
+calls such values through `__main`, `__task`, `__producer`, `__f` and `__body` (`block_on`, `__launch`, `iterator`,
+`attempt`, `run_tests`, the roots). A program with a parameter named like one of its own functions, called in a run's body,
+still hits it. The transform now knows the names a split function binds (`Cx.locals`), which was not enough.
+
+I265. **S5c: found (pre-existing at HEAD): a function value calling a named function that takes control twice. FIXED by I270.**
+`run<Unit> { var g = () => { p(); p(); }; g(); } handle<Wait> {…}` with `fn p(): <Wait, Console> Unit` fails "This code does
+not handle the effect 'Console'"; one call, or the same body in a named function, works. It is why two top-level statements
+that throw, in a program whose top level takes control, fail, and why the new fixtures pass named functions to `attempt`.
+
+I266. **FIXED by I303 (S5d batch 4).** **S5c: found, not fixed (pre-existing): a copy calling its module's private helper that takes control.** `Base64.decode`
+and `Hex.decode` under a run copy their helpers' callers, and the copy names `__value` / `__digit`, which is not in scope
+where copies are declared ("Undefined variable"; `encoding/toml`'s `peek` at baseline). `v2/encoding/digests` encodes only.
+
+I267. **RESOLVED by I276 (S5d).** **S5c: found, not fixed: a named function with an inferred row passed as a value to a scope** (`both(user, count)` with
+`fn user(): String { pause(); … }`): "Unknown type 'open'" (`async/both`). Writing the row works.
+
+I268. **S5c: cost (review after).** Compile and run, median of 11, ms, this machine: `hello` 41 at HEAD (5a, built in a copy),
+about 50 at the end of S5b (I250), 213 now; `effects/v2/working_example` 60 → 211. The main checkout's old root, which handled
+the same effects, takes 110 for `hello`. Most of it is the root's I/O handlers, which make every program reach the io, fs, os
+and net modules (about 150); `block_on` adds about 20. Not profiled. Alternatives: a smaller root with the I/O handlers in a
+module only the programs that use them reach (which needs the root to be chosen, close to a hook), or cheaper Precheck.
+
+I269. **S5c: the rest of the stdlib.** Rows written where the new model needs them (`send`, `recv`, `select`, `await`, `sleep`,
+`resolve`). `Http`, `WebSocket` and `Test` had their runs written out (`run<Unit>`, `handle<Throw<IoError>>`,
+`handle<Assertion>`). `Cli.from_args` writes `parse_args`'s type where it calls it (the trailing block left it unsettled).
+Transitively loading now: `crypto/*`, `encoding/{Hex,Base64}`.
+
+I270. **The continuation of a function value made taking control has a declared row (fixes I265).** `cps_lambda`
+(`typecheck.ml`) bound the value's continuation `k` at `(R) -> <ρ> A` with ρ a plain fresh row. A call of a value whose row
+is an undeclared variable unifies that row with the caller's (`admits_row`), so every continuation of the body that calls
+`k` (each one's `__is_discontinued` branch does) shared one row. In `() => { p(); p(); }` the inner call's continuation is
+among them, and its key closes the copy's continuation row (`close_row`): that closed the outer continuation's row too,
+before the second `p` in it was checked, which performs `Console` ("This code does not handle the effect 'Console'"). A named
+function's copy never hit it because its continuation is written `(R) -> <E> R'` with `E` a static parameter, so declared.
+Fix: ρ is declared (`Types.declare_row`), as the copy's `E` is, so each call of `k` is contained in its caller's row rather
+than tying the callers together. Old fixtures turned green: `stdlib/io/lines_to_end`; `stdlib/utf8/invalid` gets past the
+same error and now fails on its expected output only (`Err(Invalid(4))` against `Err(Utf8Error.Invalid(4))`, and an
+`IoError` printed as `Other("…")`), which is not this. I264 and I267 unchanged (`async/both` still "Unknown type 'open'").
+Workarounds left as they are: `stdlib/v2/os/process` (`attempt(checks)`) and `stdlib/v2/net/loopback`
+(`attempt(everything)`) pass named functions to `attempt`.
+
+I271. **REVIEWED (2026-11-24): accepted; the `v2/` folders were then flattened (I337).** **S5d batch 1: an old `tests/effects` fixture with a `v2` copy is deleted (review after).** 71 fixtures under
+`tests/effects/` (outside `errors/` and `v2/`) already had a copy in `tests/effects/v2/` (or `methods/v2/`) at the same
+path or basename, made by C5a–S4 by the same mechanical rules, with the same expected output; diffing each pair shows only
+the syntax rules and dropped comments. The originals are deleted with their `test_bootstrap.ml` entries, and the copies stay
+where they are (a later batch may move `v2/` up a level). One pair differs in its expected output:
+`final/errors/resumes` expected "A 'final ctl' handler cannot resume", a check of the deleted `final ctl`; its copy
+`v2/final/errors/resumes` expects "This handler settles 'T' at Int, but 'throw' is handled once for every type its call
+sites use", which is what the new model says of the same program. The list is in "Fixture changes in S5d".
+
+I272. **REVIEWED (2026-11-24): accepted.** **S5d batch 1: the rest are rewritten in place (review after).** 30 fixtures (one parked, I275) and the 5 helper
+modules they import (`handled_in_import/{qualified, selective, signal}`, `named_import/signal`, `qualified_op/signal`), by C5a's
+rules: `effect` → `trait`, `ctl op` → `@ctl fn op`, `run {` → `run<Unit> {`, `handle E {` → `handle<E> {`, an arm `ctl
+op(a) { … resume v; }` → `fn op(a, resume) { … resume(v); }`, `resume;` → `resume(());`. Beyond those: `final ctl
+op(…)` that no arm resumes is `@abort fn op<T>(…): T` (R14), its arm written without the continuation (`signal`'s
+`stop`, `generic/row_argument_generalized` and `generic/errors/unconstrained_at_call`'s `throw`); a generic effect's
+handler writes its arguments (R10): `handle<Throw<X>>` inside a generic function, `handle<Yield<Int>>` in
+`generic/errors/{two_instantiations, written_row_arity, written_row_mismatch}`; `nested_decls/handler_in_block`'s
+`handler quiet : Log { … }` + `with quiet` is a local `type Quiet impl Log { … }` + `with Quiet` (I278). The comments in
+`generic/errors/two_instantiations` and `generic/row_argument_generalized` are dropped (CLAUDE.md), so the first's `.err`
+moves from `[8:5]` to `[7:5]`; the other expected outputs are unchanged except I273's.
+
+I273. **REVIEWED (2026-11-24): changed — reported inside the arm (I338).** **S5d batch 1: `handler/errors/arm_without_outer` reports at the run (review after).** `run<Unit> { log("x"); }
+handle<Log> { fn log(s) { log("again " + s); } }` at the top level: the error is the same ("Unhandled effect 'Log': no
+handler encloses this."), and its position moves from the `log` call inside the arm (`[2:44]`) to the `run` (`[2:1]`). A
+handler is a value (R1): the arm is a method checked inside it, its `Log` is that method's row, and it reaches the root's
+row where the processed run calls the handler, a node the transform spans at the `run`. `effect_sites` records the first
+node of the top row to carry a label, and nothing in the arm is one. Taken as the new model's answer; pointing inside the
+arm would mean recording where a handler method's own row first gained the label.
+
+I274. **REVIEWED (2026-11-24): accepted.** **S5d batch 1: `run_value/return_clause` is deleted (review after).** It tested `run { … } handle Ask { … } return
+(x) { x + 1 }`, the clause R15 deleted. Folded into the tail it is `run<Int> { doubled() + 1 } handle<Ask> { … }`, which
+`v2/run_value/value` already is but for the `+ 1`.
+
+I275. **FIXED by I279 (S5d batch 2).** **S5d batch 1: found, not fixed (review after): a loop calling a copy that performs an outward effect (`async/async` in
+`expected_failing`).** Reduced:
+
+```cronyx
+trait Ask { @ctl fn ask(): Int; }
+fn inner(n: Int) { print("inner " + str(n)); print(ask()); }
+fn outer() { for (i in [0, 1]) { inner(i); } }
+run<Unit> { outer(); } handle<Ask> { fn ask(resume) { resume(1); } }
+```
+
+fails with "This code does not handle the effect 'Console'" (at `Transform.cx`'s `declare`). Unrolled (`inner(0);
+inner(1);`) it runs, and so does the loop with `print(ask())` in its body. The loop becomes a local `fn loop<plain#made>`
+whose row is inferred; its body calls `inner`'s copy with a continuation that calls `join`, which calls `loop`, so the
+copy's continuation row `E` ends in `loop`'s own row variable, still open, and `key_of_use` closes it (`close_row`) before
+`inner`'s `Console` reaches `loop`'s row. The same shape as I270, with the open row the loop function's rather than a
+function value's continuation. `async/async` (a scheduler loop calling `counter` → `print_item` → `pause`) hits it;
+`async/interleaved`, the same program with the work inline, passes.
+
+I276. **REVIEWED (2026-11-24): accepted.** **S5d batch 1: a type processed code left open reads back as a fresh variable (fixes I267; review after).** Splice
+writes a type still open where a meta block reads processed code as `Ast.open_type`, and `Typecheck.named_type` read that
+name as an unknown type ("Unknown type 'open'"); it now reads it as a fresh variable, as the `var` annotations of a
+transform's handler values already were. Seen where a function value is made taking control at an expected type the call
+has not settled: `generic/errors/unconstrained_at_call` (`caught(pure)`, `X` unsettled) now gives its real error ("The
+static params of 'caught' are not settled here"), `generic/errors/two_instantiations` loses a second, cascading error, and
+`stdlib/async/both` (I267: a named function with an inferred row passed to a scope) passes unchanged. No program that
+checked before reads differently, since every one that met the name failed.
+
+I277. **REVIEWED (2026-11-24): accepted, with the ambiguity error added (I339).** **S5d batch 1: `module.op(…)` performs that module's operation (review after).** `signal.stop("no reason")`, with
+`signal` imported whole, was read as the module's declaration `stop`, which does not exist: an operation is a method of
+its effect trait, not a declaration. The loader's qualifier for a module bound whole (`Loader.resolve_unit`'s `bind`) now
+names the operation when the module declares no export by that name and exactly one of its effect traits has a method of
+it (`handled_in_import`, `qualified_op`). Two of its traits with the method fall back to the old reading, an undefined
+name; an "ambiguous operation" error there is left for later.
+
+I278. **REVIEWED (2026-11-24): accepted.** **S5d batch 1: a type with members in a function body (review after).** `type Quiet impl Log { fn log(…) { … } }`
+inside `fn main` hit `assert false` in the checker: `implemented_in_types` and `types_of` split a type's members into a
+declaration and impls only at the top level. Both now reach function bodies (`Metaprocess.in_bodies`, used by
+`implemented_in_types` and the new `split_local_members`, which `types_of` and `Precheck.program` call); a local type
+taking a value or holding a meta block is an error ("declared only at the top level"). Two more were needed for `with
+Quiet` in that body: the substitution that renames a local type after its owner now renames a `with` clause's name too
+(`Ast.Named`), and a named handler's method is looked up in the scope of the call (`bound_operation` takes `env`) rather
+than the top level's, where a local type's impl methods are not.
+
+I279. **REVIEWED (2026-11-24): accepted.** **S5d batch 2: a continuation the transform made is contained in a call of a function still being checked (fixes
+I275; review after).** The loop the transform makes (`fn loop<plain#made>`) is a local function in `unchecked`, so the
+call of it inside the continuation handed to `inner`'s copy was a pending containment of `loop`'s row in the continuation's
+row; that row is the copy's `E`, which `key_of_use` closes at the call, and `loop` gained `Console` only after, from the
+copy's own row, which failed the pending containment. A named function calling itself after a copy call
+(`fn outer(n: Int): Unit { if (n < 2) { inner(n); outer(n + 1); } }`) failed the same way through `walk_admits`, which
+ties a walking instance's row to its caller's. Fix (`typecheck.ml`, `made_rows` and `is_made_row` near `admits_row`, used
+by `admits_row` and `walk_admits`, filled where a `plain#made` lambda is checked): a call whose caller row is a lambda's
+the transform made is contained at once (`row_within`), neither pending nor tied. What the callee gains later is its own and
+reaches the function around the continuation through the callee; a made lambda takes no evidence (it performs through
+what is around it), so a continuation row smaller than what it reaches costs nothing at run time. New fixtures:
+`v2/loop_calling_copy` (I275's reproduction), `v2/recursion_calling_copy` (the named-recursion form). `async/async`
+leaves `expected_failing` and passes.
+
+I280. **REVIEWED (2026-11-24): accepted.** **S5d batch 2: `tests/effects/errors/` rewritten (review after).** By I272's rules: `effect` → `trait`, `ctl` →
+`@ctl fn`, `run` → `run<Unit>`, `handle E` → `handle<E>` (with its arguments, `handle<Spawn<E>>`), an arm's `resume x` →
+`resume(x)` with the continuation a parameter, `final ctl stop(r)` → `@abort fn stop<T>(r: String): T` with an arm
+written without the continuation; header and explanatory comments dropped (CLAUDE.md). Two beyond those:
+`arm_settles_op_param`'s arm no longer resumes inside the `wake` callback, since the continuation now performs `Console`
+and `register`'s parameter type is written pure, a second error the old fixture never meant (the arm still settles `T`
+at `Int` with `value + 0`); `unimported_effect` binds `var n = ready();` instead of `print(ready())`, which drew a
+cascading error from `str`'s instance at an unknown type (I289). Expected output changed, each the same mistake:
+columns moved by `run<Unit>`/`handle<…>` (`pure_parameter` 25 → 31, `closed_row_argument` 11 → 17, `unimported_effect`
+7 → 9); lines moved by dropped comments (`leaked_effect`, `purity_violated`, `unhandled`, `non_exhaustive`); the
+trait vocabulary (`non_exhaustive`: "This handler for 'Two' is missing method 'b'."; `no_such_operation`: "Trait 'One'
+has no method 'b'."); R30 case (`unknown_handler`: 'Nope'); `handler_widens`: an arm taking a continuation for an
+unmarked operation is now "'yield' takes 0 parameter(s) in this handler, but 1 are written." (the arm's shape is the
+mistake; `ctl` in an arm is gone); `duplicate_operation`: two effect traits may now share a method name (traits do), so
+the mistake is reported where it bites, the bare call: "[5:23] Ambiguous operation 'get': A.get or B.get." (as
+`v2/errors/ambiguous_operation`, kept because it is the `@ctl` form inside a run of one of them).
+
+I281. **REVIEWED (2026-11-24): accepted.** **S5d batch 2: `handle<Nope>` with no such name says "Unknown effect 'Nope'." (review after).** `check_bindings`'
+`effect_named` said "'Nope' is not a trait, so it has no operations to handle." for any name not an effect; it now keeps
+that message for a name that is a type (declared or built-in) and says "Unknown effect" for one that names nothing,
+as the old fixture `unknown_effect` expected (its position moves to the name, `[3:10]`).
+
+I282. **REVIEWED (2026-11-24): accepted.** **S5d batch 2: an effect trait's error is reported once (review after).** `Typecheck.program` declares every effect
+trait's operations up front (so a handler in another module can be checked first) and again at the trait's statement;
+both ran the "an effect's parameter cannot stand in a row" check, so `effect_param_in_row` reported it twice. The
+up-front pass now drops what it finds, and the statement reports it.
+
+I283. **REVIEWED (2026-11-24): accepted.** **S5d batch 2: a bare operation of a module imported whole says how to reach it (review after).**
+`across_modules/lib.cx` imports `"signal"` whole and calls `stop(…)` bare; I277's `signal.stop(…)` resolves, but the
+bare name was "Undefined variable 'stop'". The old loader message is back (`Loader.rewrite`'s `foreign`, filled by
+`imported_whole` for a non-global import whole or under `as`): "'stop' is an operation of 'Signal', which this file
+does not import by name. Write 'signal.stop', or import { Signal } from its module." It is tried only after every other
+reading of the name (local, declared, imported by name, an operation in scope).
+
+I284. **REVIEWED (2026-11-24): accepted; misplaced `discontinue` to become a compile error (I340).** **S5d batch 2: `discontinue_outside_ctl` is deleted (review after).** It tested `discontinue;` in a plain function
+and in a `final ctl` arm. `discontinue(k)` is now a function of a continuation; there is no handler-only statement to
+misplace, and an `@abort` arm has no continuation to pass (an unknown name, nothing particular to discontinuing).
+
+I285. **REVIEWED (2026-11-24): changed — a permanent rule, caught in the walk again (I341).** **S5d batch 2: an unmarked operation's handler that takes control is rejected again (review after).**
+`v2/errors/handler_method_takes_control` (rewritten: `trait Stop { @ctl fn stop(): Unit; }`, `handle<Stop>`) ran into a
+run-time arity error: `log`'s arm performs `Stop`, so its method was made taking control while `greet` calls `log`
+tail-resumptively. The arm check in `check_bindings` now fails when an unmarked operation's arm row holds a label that
+takes control, with the message the fixture already expected ("A handler's 'log' that performs 'Stop', which takes
+control, is not supported yet.", at the run). The doc's "an unmarked one is tail-resumptive, and returns exactly once
+whatever handles it" suggests a permanent rule rather than "not supported yet"; the wording is left for review.
+
+I286. **REVIEWED (2026-11-24): accepted.** **S5d batch 2: a meta block run from a builtin in tail position (fixes `match moduleof(m) { … }`; review after).**
+`match moduleof(helpers) { Module.File(…) => … }` as a meta block's last statement matched no case: `moduleof` wakes the
+module and runs its meta block from inside the builtin, `Interp.run` ran that program's last statement in the caller's
+tail position, its call was handed back through `pending`, and the outer `bounce` made it after the builtin returned,
+in place of its value (`()`). `Interp.run` now starts with `tail` false and no `pending` call and restores both after.
+Bound to a variable first, it already worked, which is why `helper_fn` was unaffected.
+
+I287. **REVIEWED (2026-11-24): accepted, with the ambiguity error added (I342).** **S5d batch 2: a bare call of a generated trait's operation (review after).** `round_trip` generates `trait Log`
+from a meta block and its generated `fn exercise` calls `log("hello")` in a `handle<Log>` run. The loader names an
+operation after its trait (I277's machinery) but never sees a generated trait, so the bare name was undefined. In the
+checker, a `Var` or a call's callee that nothing binds (`unbound`: no binding, no walk declaration) is now the operation
+`Ast.operation_name owner name` when exactly one declared effect trait has that method (`bare_operation`, over
+`ctx_op_owner`). Two or none fall through to the old error.
+
+I288. **REVIEWED (2026-11-24): accepted.** **S5d batch 2: reflection and meta fixtures (review after).** `reflection/typeof_effect_{ctl, fn_vs_ctl, multi,
+transitive}`: `effect` → `trait`, `ctl` → `@ctl fn`, header comments dropped; the row `typeof(f).name` prints is
+unchanged, the effect being the trait's name. `meta/moduleof`: `DeclarationKind` has no `Effect` or `Handler` now (an
+effect is a trait), so `helpers.cx`'s `effect Log` is a `trait Log`, `main.cx`'s two arms are gone, and `main.txt` lists
+`trait Log`. `meta/syntax/printer`: the last quote is `code trait Log { fn log(…); @ctl fn ask<T>(): T; }`, printed as
+such; `round_trip`: `code trait Log`, `handle<Log>`, and its `.txt`'s printed `run {` is now `run<Unit> {`, which the
+printer writes for a statement run (the old expected output predates `run<R>`).
+
+I289. **FIXED (2026-11-23, user chose "a key holding an unknown enters no instance").** `Typecheck` tells an unknown an
+error left (`erroneous_ty`: a declaration whose signature failed, and what calling it returns) from one a meta block may still
+declare. A use whose static params hold one is reached at no instance (`at_erroneous`, in `reached` and `value_of`), and
+what it returns is made erroneous too; `processed_expr` does not report one as unsettled. `effects/errors/unimported_effect`
+is back to `print(ready());` (`[5:7]`), with the same two errors. **S5d batch 2: found, not fixed (review after): `str` of a value an error left unknown cascades.** With `Async`
+unimported, `fn ready(): <Async> Int` is declared as something unknown, and `print(ready())` reaches `str`'s instance
+at `Generic 0` (`key_of_use` treats an unknown like a parametric type): its meta block takes the `Display` branch and the
+generated `value.fmt()` fails ("Cannot call 'fmt': the receiver's type is not known here …", at `Format.cx:50`), a
+second error for the one mistake. Before S5b `str` was a builtin. Fix idea: a key holding an unknown in the full check
+enters no instance and answers unknown.
+
+I290. **S5d batch 3: `tests/core` rewritten by I272's rules, and the `defer` originals deleted by I271's (review
+after).** The six failing fixtures in `tests/core/defer/` (`defer_effect`, `defer_in_converted_fn`, `defer_in_run`,
+`defer_multishot`, `defer_multishot_abort`, `defer_performs_effect`) each have a copy in `tests/core/defer/v2/` with the
+same expected output; diffing each pair shows only the syntax rules and dropped header comments, so the originals and
+their `test_bootstrap.ml` entries are deleted (`v2/` stays where it is). The rest are rewritten in place: `effect` →
+`trait`, `ctl op(…): T` → `@ctl fn op(…): T`, `final ctl op(…)` that no arm resumes → `@abort fn op<T>(…): T` with its
+arm written without the continuation (`builtins/conversions`, `traits/try_from`, `defer/errors/defer_cannot_fail`'s
+`Stop`), `run {` → `run<Unit> {`, `handle E {` → `handle<E> {`, `resume x;` → `resume(x);` with the continuation a
+parameter; `builtins/conversions`' header comment is dropped (CLAUDE.md). One expected output changed:
+`control/errors/break_outside_loop.err`'s `[9:11]` → `[9:17]`, the `break` moved by `run<Unit>`.
+
+I291. **REVIEWED (2026-11-24): accepted.** **S5d batch 3: an associated function that takes control is copied like any function (review after).** `Int.from("7")`,
+with `fn from(source: String): <Fallible> Int` in an impl and `Fallible` `@abort` (or `@ctl`), failed at run time inside
+the impl ("fn expects 2 argument(s) but got 1", at the operation): the checker's processed code shows a method call as a
+`Call` of the function it reaches, receiver first, so the transform copies it, but only `when not associated`; an
+associated call stayed a `MethodCall` on the type, which the transform never sees as taking control, so neither the call
+nor the body was converted. `Typecheck` (the `Owner` branch of `Method_call`, the `lowered` table) now records an
+associated call too, without a receiver. Fixes `traits/try_from` (through `T.from` in a generic function) and
+`builtins/conversions` (`Int.from` directly); `stdlib/encoding/toml` turned green in the same run with no edit of its own.
+
+I292. **REVIEWED (2026-11-24): accepted.** **S5d batch 3: `core.op` reaches an operation of an effect trait the prelude imports (review after).**
+`core/modules/shadowing/own_var` declares `var write = 2;` and calls `core.write(Console.Stream.Out, …)`. `core.x` is the
+prelude's `x` whatever the file shadows; at HEAD it reached a prelude trait's operations too (`brought`), which I277's
+operation naming removed, so `core.write` fell back to the bare `write`, the program's `Int` ("Expected Int, got (Stream,
+String) -> …"). `Loader.assemble` now puts each method of an effect trait the prelude imports by name into `core`, as
+its operation (`Ast.operation_name`), whether the file shadows the trait or not. Expected output unchanged.
+
+I293. **REVIEWED (2026-11-24): accepted; `core/syntax/doc_comment` is back to `/** … */ type Steady<R> impl EffectHandler<Feed, R> { … }` (the round-trip and its doc comments pass, output unchanged).** **S5d batch 3: attributes and a doc comment over a member of a type body (review after).** In `type Rect impl
+Display { w: Int, /** Its area. */ fn area(self) … }` (or `@cheap fn …`), the field loop read the doc comment as the
+next field's and then wanted a field name: only a bare `fn` or `meta` ended the fields. `Parser.type_decl` now looks past
+doc comments and `@name(…)` attributes for `fn`/`meta` before reading a field (`member_ahead`). New fixture
+`core/traits/in_type/documented`. Found, not fixed: a doc comment or attribute over `type X impl … { … }` itself is
+"A doc comment belongs to a declaration.", since `attachable` leaves out `Type_members` and every pass reading one
+matches it unwrapped; `syntax/doc_comment`'s `handler steady : Feed { ctl next() { resume 7; } }` became
+`/** … */ type Steady<R>;` + `impl EffectHandler<Feed, R> for Steady<R> { /** … */ fn next(resume: (Int) -> R): R { … } }`
+for that reason (the named form of a `@ctl` effect, as `v2/prompt/named_handler`). Its other expected output is unchanged.
+
+I294. **REVIEWED (2026-11-24): changed — fixed (I343).** **S5d batch 3: `traits/errors/impl_row_inferred` stays in `known_unsound` (review after).** Rewritten (`trait Ask {
+@ctl fn get(): Int; }`), it is still accepted: an impl method that writes no row is bound with a fresh row and
+`conforming_method` compares written rows only, as at HEAD (b79ef7a). The tool counts it red ("accepted"); the suite's
+`known_unsound` list expects exactly that. The four `core/modules/errors/*` fixtures (`imported_type_error`,
+`module_var`, `module_var_assigned`, `module_var_shadowed`) were not failing: their `.err` carries a `[lib.cx 2:37]`
+prefix the tool cannot read, as `effects/errors/across_modules` (left unedited, output matches).
+
+I295. **REVIEWED (2026-11-24): accepted.** **S5d batch 3: `Source` writes `type X impl A, B { … }` back as written (fixes seven round trips; review after).**
+The parser stands each trait of the header among the members as an impl with no methods (R31, I214), and `Source.type_decl`
+printed those as `impl A for X {}` inside the type body, which does not parse: the suite's round trip failed for every
+fixture using the form (`core/traits/in_type/in_type`, `effects/v2/handler/in_type`, `effects/v2/abort/named`,
+`effects/v2/prompt/{named_handler, named_handler_resumes}`, `effects/nested_decls/handler_in_block`, and the new
+`core/traits/in_type/documented`). It now writes each such member, an impl of the type with no methods, back into the
+header as `impl A<…>, B`. Checked by printing each twice; the full suite run here predates this fix.
+
+I296. **FIXED by I312 (S5d batch 5).** **S5d batch 3: found, not fixed (pre-existing): four generic-type fixtures fail when run after others in one process.**
+The suite (one process) reports `meta/declof/generic_type` ("A record literal is annotated Box<Int> but its fields are
+{ all: List<Int>, v: Int }"), `core/traits/generic_impl_two_methods/main`, `core/static_params/parameterized_sums/main`
+and `core/types/copies` ("A record has no field 'v'"), each a verify error; each passes alone. Running the whole `cases`
+list in order in one process reproduces it, with this batch's compiler changes and without them alike, so it predates
+this batch: most likely a table of type copies (I220–I223) that outlives one compile. Not chased.
+
+I297. **REVIEWED (2026-11-24): accepted.** **S5d batch 4: `tests/stdlib` rewritten by I272's rules (review after).** `run {` → `run<Unit> {`, `handle E {` →
+`handle<E> {`, `effect` → `trait`; `handle Throw { final ctl throw(e) … }` → `handle<Throw<X>> { fn throw(e) … }` with `X`
+the type the body throws (`String`, `IoError`, `Failure`) and the `@abort` arm written without its continuation; an arm of an
+operation I259 made unmarked (`Fs.open`, `Process.start`, `Net.connect`/`listen`/`bind`/`lookup`) loses `ctl` and returns
+where it resumed; `handle Fallible` → `handle<Fallible<Int>>` (R10). Explanatory comments dropped (CLAUDE.md):
+`log/logger` (two), `random/seeded` (two), `os/time` (two). Fixtures: `async/{cancel_defers, failure, fake_clock}`,
+`fallible/fallible`, `format/written`, `io/{blank_line, fake_fs, fake_stdin, lines}`, `list/effectful`, `log/logger`,
+`net/{cancelled_accept, fake_net, http_limits, http_wire, websocket, websocket_wire}`, `os/{args, env, fake_process, time}`,
+`random/seeded`, `throw/failure`. Beyond the rules: I301, I304, I305, I306, I307.
+
+I298. **REVIEWED (2026-11-24): accepted.** **S5d batch 4: expected output changed by S5b's printing only (I242, I247; review after).** A value with no written
+impl prints its structure with its type's name, and a failure type with a `Display` impl prints its message under `str`:
+`utf8/invalid` (`Err(Utf8Error.Invalid(4))`; an uncaught `IoError` printed with `print(e)` is its message, not
+`Other("…")`), `fs/directories` (`Metadata { kind: EntryKind.File, … }`, `EntryKind.Directory`, the `NotFound` message),
+`io/files` and `os/process` (`caught no such file: …`), `io/using` (`Err(IoError.Other(…))`, `Err(LockError.Stuck(…))`),
+`encoding/codec` (`Data.Map([Entry { … }])`, `Shape.Circle(2)`), `encoding/hex_base64` (`Err(DecodeError.Unexpected(1,
+'g'))`), `format/written` (`debug(price)` of a type with only `Display`: `Money { pence: 1250 }`, I245), `net/websocket` and
+`net/websocket_wire` (`Some(Message.Text(…))`). Each `.txt` taken from actual output after checking the diff is only that.
+
+I299. **REVIEWED (2026-11-24): accepted.** **S5d batch 4: three fixtures deleted, each covered by its `v2` copy (I271's rule; review after).** `async/scope`
+(the same two programs and output lines as the middle of `v2/async/scopes`, with `attempt` for the `Throw` handler),
+`os/cli` (`v2/os/cli` is it in the new syntax, same `.txt` byte for byte), `test/bench` (`v2/test/bench` likewise).
+
+I300. **FIXED by I317 and I318 (S5d batch 5).** **S5d batch 4: `os/meta_environment` parked in `expected_failing` (review after).** Unchanged (it was already in the new
+syntax): a meta block calling `write_text`, `read_text`, `remove_path`. Two things stand in the way: I212 (a meta block calling
+a function that takes control: "Undefined variable 'write_text'", reproduced with `meta { var r = attempt(() => g()); }` too),
+and `__meta_root` (I260) handles no `Fs`, `Dirs` or `Async`, so even once I212 is fixed a meta block has no file system,
+against "meta blocks can do anything". Fix idea: emit the copies a meta program's split calls name, and give `__meta_root`
+the system handlers and `block_on`, minding I260's `str` cycle.
+
+I301. **S5d batch 4: a cancelled scope starts no queued task (fixes `async/cancel_defers`; review after).** `__scope`'s
+loop launched every queued task in one pass, so in `all([() => { throw("early"); }, () => { … log("E start"); }])` the
+second started after the first had cancelled the scope, against `all`'s doc ("one not yet started never starts") and the
+old output. `stdlib/async/Task.cx:266` now stops launching once `s.cancelled`; the check after it drops the rest of the
+queue, as it already did for tasks started later.
+
+I302. **REVIEWED (2026-11-24): accepted.** **S5d batch 4: a lambda made taking control carries the result its context typed (review after).** `var r: Result<P,
+DecodeError> = attempt(() => decode_data(bad));` failed "The static params of 'decode_data' are not settled here: {T = ?}":
+the result type reached the lambda's checked body through `use_toward`, but the transform checks the value on its own and
+was handed only the parameter types (S5c's `written_type`), so the call in its body had nothing to key `T` from.
+`typecheck.ml:5198` now writes the lambda's result too when its signature has none and the type is writable. Fixes
+`encoding/{codec, json, round_trip}` (with I303); new fixture `effects/v2/result_settles_key`.
+
+I303. **REVIEWED (2026-11-24): changed — local functions get distinct names per owner instance (I344, being built).** **S5d batch 4: a local function's instance is reached per instance of its owner (fixes I266; review after).** Not
+a module's private helper as I266 guessed: `fn decode` with a `while` loop calling a helper that takes control, called under
+two keys (once from a top-level statement, once inside `attempt`), made two copies of `decode`, each with a local
+`fn loop` the transform names the same (`cx8#loop`), each calling its own instance of the helper's copy. `w.by_name` kept
+one instance per name, so `pruned` followed only the second `loop`'s deps, and the first copy's helper instance was never
+emitted ("Undefined variable '__digit'" at run time, spanned at `Transform.cx`'s `declare`). `by_name` is now added to, not
+replaced (`metaprocess.ml:1995`), and `pruned` (`:3422`) and `reached` (`:2510`) visit every instance of a name; a
+lookup still finds the newest. Fixes `encoding/{hex_base64, json, round_trip}` (`hex4`, `peek`: methods with loops) and
+`Base64`/`Hex` `decode`; new fixture `effects/v2/loop_copy_two_keys`.
+
+I304. **S5d batch 4: library parameters called in a run body get `__` names (I264; review after).** `net/websocket`'s own
+`fn session` captured `WebSocket.__upgraded`'s parameter `session` called inside `run<Unit> { session(…); }` ("This takes
+control of 'Async', and no handler of it is in scope here", in `WebSocket.cx`). As `block_on` does: `var __session =
+session;` (`stdlib/net/WebSocket.cx:524`), and the same for `Http`'s `respond` (`Http.cx:323`) and `__closing`'s
+`exchange` (`Http.cx:390`), the two other parameters called in a run body in `net/`. I264 itself stands.
+
+I305. **DEFERRED to the Async redesign (2026-11-23).** The same shape with a user `@ctl` effect handled by a run, not the root, runs (`x`); it needs a `@ctl` effect the root handles at top level, which is only `Async`. **S5d batch 4: found, not fixed: a top-level throwing statement, then a run handling `Throw` around a function that also
+takes control.** Reduced:
+
+```cronyx
+import { Throw } from "std/core/Error";
+import { Async, pause } from "std/async/Task";
+fn g(n: Int): <Async, Throw<String>> Int { pause(); if (n > 0) { return throw("x"); } return 1; }
+g(0);
+run<Unit> { g(1); } handle<Throw<String>> { fn throw(e) { print(e); } }
+```
+
+fails "This is not settled when its statement ends: its type is { throw: (String, (T) -> <Console> Unit) -> <Console> Unit
+}" at the run: the `@abort` arm's `T` is left open. It needs the top level: inside a function it runs; the run first and
+`g(0)` after runs; `print(g(0))` first runs (its row holds `Console`, so the two calls of `g` share one instance of its copy),
+and `g(0);` or `var a = g(0);` fail. So it looks tied to a second instance of the copy made under a different continuation
+row, against the root's converted body (I262). `net/http_wire`'s last part (a `get` at top level after others) hit it and
+now uses `attempt` with a `match` on the error, which tests the same refusal.
+
+I306. **RESOLVED (2026-11-24): superseded by I336 — `tcp_connect` waits, so a refused connection is thrown there.** **S5d batch 4: `net/fake_net`'s refused connection writes first (I259; review after).** `tcp_connect` to a closed port
+no longer throws; the first `read`/`write` does. The run body is `tcp_connect("127.0.0.1", port).write("hi".bytes());`, so
+`refused` is still printed and "connected" still is not. Output unchanged. `net/http_wire`'s `tcp_connect(…).close()` (a
+connection opened and dropped) is unchanged and passes.
+
+I307. **REVIEWED (2026-11-24): accepted.** **S5d batch 4: `throw/failure`'s failure types implement `Display` (I239; review after).** `trait Failure: Display`,
+so `impl Failure for IoError` without one is "missing the supertrait 'Display'". Each type gets `impl Display { fn fmt(self) {
+return self.message(); } }`, as the library's failure types do (I247). Output unchanged.
+
+I308. **REVIEWED (2026-11-24): accepted.** **S5d batch 4: I265's workarounds written as lambdas (review after).** I270 fixed I265, so `v2/os/process`'s
+`fn checks` + `attempt(checks)` is `attempt(() => { programs(); output(…); })` and `v2/net/loopback`'s `fn everything` +
+`attempt(everything)` is `attempt(() => { tcp(); udp(); http(); faked(); })`. Both pass, output unchanged.
+
+I309. **REVIEWED (2026-11-24): accepted, and the tool fixed: it passes `arguments_for`, writes another file's diagnostics as `[path l:c]`, and counts `expected_failing` as the suite does; it now agrees with the suite (935/935).** **S5d batch 4: two fixtures the tool counts red that the suite passes (review after).** `os/args` reads the arguments
+the suite gives it (`arguments_for`: `one`, `two three`), which `scratch/tools/fixtures.py` does not pass (checked by hand
+with `-- one "two three"`); `log/logger` writes one line to standard error by design, which the tool ignores, so it passes
+there.
+
+I310. **REVIEWED (2026-11-24): accepted.** **S5d batch 4: the two failing `.rt` fixtures under `tests/stdlib` (review after).** The tool reads no `.rt`, so these
+showed only in the suite. `async/woken_twice` called `suspend { … }` unimported: it was an operation of `Async`, reached
+through the imported trait, and is a library function since I251, so it is imported by name now; output unchanged.
+`async/uncaught`'s `.rt` is `uncaught failure: LoadError.Missing("config.toml")` (I247 writes the failure through `str`, and
+I242 names the type), where it was `Missing(…)`. `array/filled_arity` and `async/deadlock` already passed.
+
+I311. **REVIEWED (2026-11-24): accepted; the probe's from_array check is back to "kept" only, since inlining is explicit (I333) and from_array is not `inline`.** **S5d batch 5: the prelude-walk probe reads a copy (review after).** `run_prelude_walk` in
+`bootstrap/test/test_bootstrap.ml:1433` looked for `(type std#List#List)`, the generic declaration, which I223 replaced
+in the finished program with the copies it reaches; it now looks for `(type std#List#List<Int>)`, the copy the probe's
+`var xs: List<Int>` names. The other two expectations held (`from_array`'s instances are `…from_array#N`, still a match).
+
+I312. **REVIEWED (2026-11-24): accepted.** **S5d batch 5: `Types.declarations` is reset with each check (fixes I296; review after).** The four fixtures failed
+after `meta/05_order/10_box` in one process (found by running the `cases` list in order through a scratch driver, then
+pairs). `Types.declarations` (each type's fields) and `Types.row_params` are keyed by name, and a copy's name is its
+spelling (I220), so `10_box`'s `Box<Int> { item }` was still there when `declof/generic_type` declared `Box<Int> { v, all }`
+elsewhere and `Verify` read the old fields ("A record literal is annotated Box<Int> but its fields are …"). Both are reset
+in `Typecheck.Session.start` (`typecheck.ml:8731`), beside `Types.reset ()`; `Metaprocess` already reset `Types.copies`.
+The whole `cases` list then passed in one process (694/694).
+
+I313. **REVIEWED (2026-11-24): accepted.** **S5d batch 5: `effects/v2/root/root_failure` writes the handled trait's argument (R10; review after).**
+`} handle<Fails> {` → `} handle<Fails<X>> {` inside `block_on<X, E>`, by I272's rule. Its `.rt` is unchanged.
+
+I314. **REVIEWED (2026-11-24): accepted.** **S5d batch 5: `cx`'s link tells two impls of one trait apart by the trait's arguments (review after).** `Build.link`
+keeps the first declaration of each name, and an impl by `impl <trait> <type> <file>` with the trait's name only
+(`cx/lib/build.ml:389`), so `List.cx`'s `impl Index<Range> for List<T>` was dropped as a copy of `impl Index<Int>`. Every
+package build failed once the one `__root` reached a slice (`Task.cx`'s `pending[1:]`, `Tcp.cx`, `Transform.cx`): "Expected
+Int, got Range", 15 of `dune test cx`'s reds. The key now prints the trait with its arguments (`Index<Range>`).
+
+I315. **Its found-not-fixed part FIXED (2026-11-23).** User: a local type is "coded globally but just cannot be referred to
+outside of their local scope"; then, seeing that moving it out breaks `type Box { v: T }` in `wrap<T>` and a method reading a
+local, "they shouldn't be moved", and chose placing the instance where its type lives. An instance whose key holds a type a
+block still being walked declares (`Typecheck.home_of_key`, from `local_type_home` and `active_blocks`) is checked in that
+block's scope (`check_instance ?home`) and emitted into that block (`local_instances`, collected by `walk_block`), not
+the top level; it is `homed`, so `pruned` and `reached` leave it out. A value returned out of its body still reaches a
+top-level instance and fails as before ("Nothing named 'L' …"). New fixture `core/traits/in_type/local_display` (plain,
+a `fmt` reading a local, `Box` over `wrap`'s `T` through `shout`). **S5d batch 5: a doc comment or attribute over a type with members (review after).** `/** … */ type Quiet impl
+EffectHandler<Missing, Unit> { fn absent(…) { … } }` was "A doc comment belongs to a declaration.": `Parser.attachable`
+did not list `Type_members`. It does now, and `Metaprocess.attributed_first` puts the attributes on the first statement a
+type with members is split into (its declaration) in `split_local_members`, `types_of` and `Precheck`; `in_bodies` leaves
+an attributed type with members whole for them. A type taking a value or holding a meta block is made per argument list,
+and the attributes over it are dropped (nothing reads them yet). New fixture `core/traits/in_type/documented_type` (top
+level, `@cheap` over one, and one in a function body). Found, not fixed: a type in a function body implementing `Display`
+is "Type 'L' has no method 'fmt'" when `str` reaches it (`fn f() { type L impl Display { fn fmt(self) … } print(L {}); }`),
+with or without the doc comment.
+
+I316. **REVIEWED (2026-11-24): accepted.** **S5d batch 5: `cx/test/` in the new syntax (review after).** By I272's rules: `library/Ops.cx`'s `effect Feed<T> { ctl
+next(): T; }` is `trait Feed<T> { @ctl fn next(): T; }` and `handler empty : Feed { ctl next() { panic(…); } }` is `type
+Empty<T, R> impl EffectHandler<Feed<T>, R> { fn next(k: (T) -> R): R { panic(…); } }`; `packages/documented/app/src/ink.cx`'s
+`effect Missing { final ctl absent(what: String); }` is `@abort fn absent<T>(what: String): T` (R14) and `handler quiet` is
+`type Quiet impl EffectHandler<Missing, Unit>`; `packages/logged/tests/logging.cx`'s run is `run<Unit> { … }
+handle<Logger> { … }`. Both `expected.json` were taken from the actual index after reading the difference: R30's ids
+(`builtin#Byte#to_int`, `Int#impl#std#Ops#Into<Float>`), `builtin#str` and `builtin#debug` gone (R19), `Feed` and `Missing`
+are traits with an `@ctl`/`@abort` method, and each handler is a type and its impl (`Empty`, `Empty#impl`).
+
+I317. **REVIEWED (2026-11-24): accepted.** **S5d batch 5: a meta block reads the top level as it is, not a copy of it (fixes I212; review after).**
+`Typecheck.Walk.meta_env` copied the session's bindings when the block's check began, so a declaration the check itself
+made at the top level was invisible to it: a run in a meta block calling a function that takes control is transformed, the
+transform declares the function's copy (`cx2#g`) at the top level, and the block's check of the transformed run then found
+no `cx2#g` ("Undefined variable 'g'"). The meta env is now a scope over the session's env (`parent`) that hides the
+program's run-time variables (`hides`, read by `lookup` and by generalization), and `top_level` keeps it the top level for
+`wd_local` and `runtime_names` (`typecheck.ml:863`, `9318`). `meta { var r = run<Int> { g() } handle<Ask> { … }; }` runs.
+
+I318. **REVIEWED (2026-11-24): changed — every meta block may perform any system effect; one effect-driven meta root (I345).** **S5d batch 5: a meta block at the top level runs under `__meta_root_io` (fixes I300; review after).** `__meta_root`
+handles the terminal, arguments, environment, clocks and entropy only, since a root reaching the I/O library reaches `str`,
+whose own meta block may be what is running (I260). The new `__meta_root_io` (`stdlib/prelude.cx:151`) is `__meta_root`
+around a run of `block_on` handling `Fs`, `Dirs`, `Process`, `Net` and `Stdin` as `__root` does (no `Exit`: a meta block
+cannot end the compiler). The choice is by where the block is written (`meta_stmt ~io`): the entry's top level and a
+module's top level take `__meta_root_io`, a block in a function, a type body or a trait body keeps `__meta_root`, so a
+module's block does not change with who reaches it first. `Ast.is_root` covers it. Unparks `stdlib/os/meta_environment`
+(into `cases`) and turns `cx`'s `package/reads_data` green. Cost: `meta/declof/generic_type` 248 → 252 ms, `hello`
+210 → 213 (median of 5, with and without the root), within noise.
+
+I319. **REVIEWED (2026-11-24): accepted; current figures: suite 1678/1678, cx 131/131, hello 35.7 · 0.0 · 35.8 ms (compile · run · total), known_unsound empty, expected_failing the nine compile/m*; parity to be re-run after I345.** **S5d batch 5: results and cost (review after).** `dune test --force` 1629/1629 (19 min, one process); `dune test cx`
+131/131; `./scripts/cx-parity.sh` 1850/1850 (925 fixtures, both with and without the dump flags), run with a `dune` on
+`PATH` that adds `--root .`, since the script's own `dune build` fails in a worktree. `hello` 213 ms compile and run (median
+of 7), as at the end of S5c (I268); `effects/v2/working_example` 214. Only the deliberate entries are left: the nine
+`tests/compile/m*` in `expected_failing` and `traits/errors/impl_row_inferred` in `known_unsound`.
+
+### Fixture changes in S5d
+
+**Batch 1: `tests/effects/` outside `errors/` and `v2/`.** Paths below are under `tests/effects/`.
+
+- Deleted, each covered by its `v2` copy (I271), 71: `abandon_through_run`, `abort_after_resumption`, `abort_under_conversion`, `ask/ask`, `break_in_converted_loop`, `continue_in_converted_loop`, `deferred/deferred`, `delim/delim`, `discontinue/discontinue`, `discontinue/nested_after_outer`, `exception/exception`, `final/abort`, `final/errors/resumes`, `final/in_loop`, `flip/flip`, `fn_values/closure_in_arm`, `fn_values/in_list`, `fn_values/in_tuple`, `fn_values/multishot_closure`, `fn_values/named_as_value`, `fn_values/nested_spawn`, `fn_values/spawn`, `fn_values/suspending_closure`, `fn_values/through_index`, `fn_values/wider_row`, `fn_values/wider_row_nested`, `generic/generic`, `generic/nested`, `generic/shared_param`, `generic/written_row`, `handler/arm_reaches_outer`, `handler/handler`, `inner_run_suspends_outward`, `log/log`, `logic/multi_guard`, `logic/simple_guard`, `match/resume_in_match`, `match/return_in_match`, `match/suspend_in_scrutinee`, `methods/methods`, `multi_handle/differing_arms`, `multi_handle/multi_handle`, `multishot_sequel`, `nested_aborts`, `nested_return`, `recover/recover`, `resume_through_run`, `return_in_converted_loop`, `return_in_inner_ctl_run`, `return_in_inner_run`, `return_out_of_run`, `return_past_arm_defer`, `return_past_outer_ctl_run`, `run_value/arm_answers`, `run_value/statements_then_value`, `run_value/two_in_one_expr`, `run_value/unit_body`, `run_value/value`, `stream/stream`, `suspend_in_condition`, `suspend_in_field_assign`, `suspend_in_logical`, `suspend_in_logical_nested`, `suspend_in_logical_while`, `suspend_in_record`, `suspend_in_resume`, `suspend_in_tuple_destructure`, `suspend_in_variant`, `suspend_in_while_condition`, `two_runs_one_expr`, `methods/suspending_receiver`.
+- Deleted, testing a construct the new model removed (I274): `run_value/return_clause`.
+- Rewritten in place, passing (I272): `async/interleaved`, `generic/{nested_in_generic, row_argument_generalized,
+  row_in_list_literal, row_in_type_argument, row_through_index}`, `generic/errors/{one_type, two_instantiations,
+  unconstrained_at_call, written_row_arity, written_row_mismatch}`, `handled_in_import/main` (I277),
+  `handler/errors/arm_without_outer` (I273), `named_import/main`, `nested_control/{op_only_in_match, run_in_if,
+  run_in_match, run_in_while}`, `nested_decls/handler_in_block` (I278), `qualified_op/main` (I277), `rows/*` (9).
+- Rewritten and parked in `expected_failing`: `async/async` (I275).
+- Expected output changed: `generic/errors/two_instantiations.err` (a dropped comment moves the line, I272),
+  `handler/errors/arm_without_outer.err` (`[2:44]` → `[2:1]`, I273).
+- Left as they were, already passing: `callee_checked_across_statement`, `callee_checked_after_statement`,
+  `discontinue/signal`, `forward_call_keeps_own_row`, `methods/v2/suspending_receiver`, `nested_decls/variadic_in_block`.
+- Turned green with no edit of its own: `stdlib/async/both` (I276).
+
+`scratch/tools/fixtures.py`: 786/989 → 816/917 overall; `tests/effects` outside `errors/` and `v2/` 6/108 → 35/36
+(the one red is `async/async`, parked); `tests/effects/v2` 133/134 unchanged. No fixture went from passing to failing.
+
+**Batch 2: `tests/effects/errors/`, `tests/reflection/typeof_effect_*`, `tests/meta/{moduleof, syntax}`, and I275.**
+
+- Fixed and unparked: `effects/async/async` (I279), out of `expected_failing` and into the list beside `async/interleaved`.
+- New: `effects/v2/loop_calling_copy`, `effects/v2/recursion_calling_copy` (I279).
+- Rewritten in place, passing (I280): `effects/errors/{across_modules/main (and lib, signal; I283), arm_settles_op_param,
+  arm_settles_op_row, arm_ties_op_param, closed_row_argument, duplicate_operation, effect_param_in_row (I282),
+  handler_widens, leaked_effect, no_such_operation, non_exhaustive, pure_parameter, purity_violated, row_argument_kind,
+  unhandled, unimported_effect (I289), unknown_effect (I281), unknown_handler}`; `effects/v2/errors/handler_method_takes_control`
+  (I285); `reflection/typeof_effect_{ctl, fn_vs_ctl, multi, transitive}` (I288); `meta/moduleof/{main, helpers}` (I286,
+  I288); `meta/syntax/{printer, round_trip}` (I287, I288).
+- Deleted, its construct gone (I284): `effects/errors/discontinue_outside_ctl`.
+- Expected output changed: `effects/errors/{closed_row_argument, duplicate_operation, handler_widens, leaked_effect,
+  no_such_operation, non_exhaustive, pure_parameter, purity_violated, unhandled, unimported_effect, unknown_effect,
+  unknown_handler}.err` (I280, I281); `meta/moduleof/main.txt` (`trait Log`), `meta/syntax/printer.txt` (the trait form),
+  `meta/syntax/round_trip.txt` (`run<Unit> {`) (I288).
+- Turned green with no edit of its own: `meta/moduleof/helper_fn` (its `helpers.cx` parses again).
+
+`scratch/tools/fixtures.py`: 816/917 → 845/918 overall; `tests/effects/errors` 0/19 → 18/18 (the tool counts 17: it
+cannot read `across_modules`'s `[lib.cx 4:12]` prefix, which the suite's comparison writes and the output matches);
+`tests/reflection` 18/22 → 22/22; `tests/meta` 161/165 → 165/165; `tests/effects/v2` 133/134 → 136/136. No fixture went
+from passing to failing. Every fixture is named by a list in `test_bootstrap.ml` (checked by script); the full
+`dune test` did not finish inside ten minutes here and was not read.
+
+**Batch 3: the failing fixtures under `tests/core/`.** Paths below are under `tests/core/`.
+
+- Deleted, each covered by its `defer/v2` copy (I290), 6: `defer/{defer_effect, defer_in_converted_fn, defer_in_run,
+  defer_multishot, defer_multishot_abort, defer_performs_effect}`.
+- Rewritten in place, passing (I290): `builtins/conversions` (I291), `control/errors/break_outside_loop`,
+  `defer/errors/defer_cannot_fail`, `enums/match_expr_effect`, `modules/local_binders/launch` (its `main` turned green),
+  `print/captured`, `records/effectful_field`, `syntax/doc_comment` (I293), `traits/dyn/{effect, effect_resumes,
+  meets_bound}`, `traits/errors/{impl_row_narrower, impl_row_wider}`, `traits/try_from/main` (I291).
+- Rewritten, still in `known_unsound` as before: `traits/errors/impl_row_inferred` (I294).
+- Turned green by a compiler fix with no edit of its own: `modules/shadowing/own_var` (I292), `stdlib/encoding/toml` (I291).
+- New: `traits/in_type/documented` (I293).
+- Left as they were, passing in the suite (the tool cannot read their `[lib.cx …]` prefix, I294):
+  `modules/errors/{imported_type_error, module_var, module_var_assigned, module_var_shadowed}/main`.
+- Expected output changed: `control/errors/break_outside_loop.err` (`[9:11]` → `[9:17]`, `run<Unit>`, I290).
+- Round trips fixed by I295: `traits/in_type/in_type`, `effects/v2/handler/in_type`, `effects/v2/abort/named`,
+  `effects/v2/prompt/{named_handler, named_handler_resumes}`, `effects/nested_decls/handler_in_block`.
+
+`scratch/tools/fixtures.py`: 845/918 → 862/913 overall; `tests/core` 333/359 → 349/354 (the five red are I294's: four the
+tool cannot read, one `known_unsound`); `tests/core/defer/v2` 6/6 unchanged; `tests/effects/v2` 136/136, `tests/meta`
+165/165, `tests/stdlib/v2` 13/13 unchanged. No fixture went from passing to failing. The full suite ran to the end before
+I295 (1552/1629); every red in it beyond the tool's list is old syntax, a `.rt` this batch did not touch, I296, the
+prelude-walk probe, or a round trip I295 then fixed. Every fixture is named by a list in `test_bootstrap.ml` (checked by
+script).
+
+**Batch 4: the failing fixtures under `tests/stdlib/` outside `v2/`.** Paths below are under `tests/stdlib/`.
+
+- Rewritten in place, passing (I297): `async/{cancel_defers (I301), failure, fake_clock}`, `fallible/fallible`,
+  `format/written`, `io/{blank_line, fake_fs, fake_stdin, lines}`, `list/effectful`, `log/logger`, `net/{cancelled_accept,
+  fake_net (I306), http_limits, http_wire (I305), websocket (I304), websocket_wire}`, `os/{args, env, fake_process, time}`,
+  `random/seeded`, `throw/failure` (I307).
+- Turned green by a compiler fix with no edit of the `.cx`: `encoding/{codec, json, round_trip}` (I302, I303),
+  `encoding/hex_base64` (I303).
+- Expected output only, the `.cx` unchanged (I298): `utf8/invalid`, `fs/directories`, `io/{files, using}`, `os/process`.
+- Expected output changed (I298): those five, and `encoding/{codec, hex_base64}`, `format/written`,
+  `net/{websocket, websocket_wire}`.
+- Deleted, each covered by its `v2` copy (I299): `async/scope`, `os/cli`, `test/bench`.
+- Parked in `expected_failing`: `os/meta_environment` (I300).
+- Edited in `v2/`: `os/process`, `net/loopback` (I308), output unchanged.
+- New: `effects/v2/loop_copy_two_keys` (I303), `effects/v2/result_settles_key` (I302).
+- Stdlib fixes: `async/Task.cx` (I301), `net/WebSocket.cx`, `net/Http.cx` (I304).
+- `.rt` (I310): `async/woken_twice` rewritten (imports `suspend`), `async/uncaught.rt` changed (I242, I247).
+
+`scratch/tools/fixtures.py`: 862/913 → 895/912 overall; `tests/stdlib` outside `v2/` 66/102 → 97/99 (the two red are
+`os/args`, which the suite passes (I309), and `os/meta_environment`, parked); `tests/stdlib/v2` 13/13 unchanged;
+`tests/effects/v2` 136/136 → 138/138 (the two new); `tests/meta` 165/165 unchanged. No fixture went from passing to failing.
+Every fixture under `tests/stdlib` is named by a list in `test_bootstrap.ml` (checked by script). The full suite (`dune
+test --force`, round trips included) ran to the end: 1620/1626; the six red are the prelude-walk probe,
+`effects/v2/root/root_failure` (a `.rt` in the old `handle<Fails>` form, outside this batch), and I296's four.
+
+**Batch 5: the last reds.**
+
+- Rewritten, passing: `effects/v2/root/root_failure` (I313); `cx/test/library/Ops.cx`,
+  `cx/test/packages/documented/app/src/ink.cx`, `cx/test/packages/logged/tests/logging.cx` (I316).
+- Expected output taken from actual (I316): `cx/test/library/expected.json`, `cx/test/packages/documented/app/expected.json`.
+- New: `core/traits/in_type/documented_type` (I315).
+- Unparked, out of `expected_failing` and into `cases`: `stdlib/os/meta_environment` (I317, I318).
+- Turned green by a compiler fix with no edit of their own: `meta/declof/generic_type`,
+  `core/traits/generic_impl_two_methods/main`, `core/static_params/parameterized_sums/main`, `core/types/copies` in the suite
+  (I312); 15 `cx` packages (I314); `cx`'s `package/reads_data` (I317, I318).
+- Probe changed: the prelude walk (I311).
+
+`dune test --force` 1620/1626 → 1629/1629; `dune test cx` 116/131 → 131/131; `./scripts/cx-parity.sh` 1850/1850 (first run
+since the migration began). No fixture went from passing to failing.
+
+### Fixture changes in S5c
+
+New, under `tests/stdlib/v2/`: `async/scopes` (`all`, `scope` with a task starting another, a failing task cancelling its
+siblings and the body, `race`, `both`, `interleaved`), `async/waiting` (`sleep`, `timeout` both ways with a `defer`, a
+`Promise`, a `Channel` iterated with `values()`, `select`), `iter/yield` (`iterator`, `close`, a `for` left by `break` and by
+`return`, `map`/`take`/`collect`, `Yield` handled directly), `io/files` (files on disk under a scratch directory, `lines`,
+`using`, `Buffer`, and `Fs` handled by a test), `os/process` (`output`, `spawn` with a pipe, programs inside `all`, `Exit`
+handled by a test with its `defer` run, `Args` and `Env` handled), `os/cli` (the old `os/cli` in the new syntax, same output),
+`net/loopback` (TCP echo, a refused connection, UDP, an HTTP server and client, `Net` handled by a test), `test/bench`
+(`bench` under a test's `Time`), `encoding/digests` (SHA-256, SHA-1, Hex and Base64 encoding). No old fixture was edited.
+No fixture went from passing to failing: `scratch/tools/fixtures.py` 743/978 → 783/987 (the nine new ones, and 31 old
+fixtures that now pass unchanged: `async/{basic, channel, nested, nested_cancel, race, select, skipped_call, sleep, timeout,
+timeout_defers, top_level_scope, trait_object_call}`, `buffer/in_memory`, `crypto/{sha1, sha256}`,
+`effects/{for_iterator, iterator, iterator_suspends}`, `iter/{adapters, lazy_lines}`, `net/{echo, http, ping, silent_peer}`,
+`os/{exit, pipe_wait}`, `core/defer/defer_suspends_on_unwind`, `core/modules/entry_var_shadowed/main`,
+`effects/callee_checked_{across,after}_statement`, `types/inference/local_named_like_method`).
+
+### Fixture changes in I270
+
+New: `effects/v2/fn_values/calls_named_twice` (the I265 reproduction: a function value calling a named function that
+takes control twice, under a run handling `Wait`) and `core/top_level/two_throwing_statements` (two top-level statements
+that each call a function performing `Throw` and `Async`, so the top level takes control). `scratch/tools/fixtures.py`
+783/987 → 786/989: the two new ones and `stdlib/io/lines_to_end`. No fixture went from passing to failing.
+
+### Fixture changes in S5b
+
+`stdlib/format/debug_fallback` (new): `str` of a type with only a `Debug` impl uses it (I245); with both, `str` takes `Display` and `debug` takes `Debug`.
+
+One `__root` (I231): the A5-Q1 annotations came out of `core/lambdas/basics` (`var add = (a, b) => a + b`),
+`core/operators/not_index` (`var visited = []`), `core/ufcs/with_lambda` and `stdlib/list/list` (`var nums = […]`,
+`words`, `a`, `b` unannotated); `core/variadic/packs/erased` and `stdlib/os/pipe_wait` build their lists with `push`
+after an empty literal; `core/collections/narrowing` moves its two lists from a function back to the top level.
+`types/expected/written_key.txt` now ends `(Int) -> <Console> Int` (I234). New: `core/top_level/one_root`,
+`core/top_level/uncaught` (`.rt`), `core/top_level/errors/each_statement`, `errors/before_initializer` (built
+before this step), and `core/top_level/across_meta` (I232). `stdlib/encoding/generic` and `meta/traits/effect_handler`
+throw a `DecodeError` and a `Failure` at the top level, which now need `Display` (I239); both pass unchanged.
+
+Static `Display` (I235–I240): a fixture that printed a type with no impl was changed so it no longer does, since the
+print was not what it tests: `core/traits/errors/impl_method_arity` prints `.radius`,
+`impl_missing_trait_args` and `impl_trait_arg_arity` print `.n`, `core/records/errors/unknown_field_type` matches
+its `S` rather than printing it, `meta/code/errors/quoting_at_runtime` prints `make().span` (expected diagnostics
+unchanged in all five). `stdlib/throw/rethrow` and `stdlib/v2/rethrow` derive `Display` for their `IoError` and
+`ParseError`, so they print `io: IoError.NotFound("missing.toml")` and `parse: ParseError.BadLine(1)` (was
+`NotFound(…)`, `BadLine(1)`: the derived form names the type). New: `stdlib/format/static` (a hand impl inside a list,
+an `Option` and a tuple, a generic type's impl at two keys, a derived record over a hand impl, a derived enum, an
+anonymous record, `unit`, a generic function bounded by `Display`), `stdlib/format/errors/no_impl` (I236),
+`core/top_level/errors/uncaught_without_display` (I239). No fixture went from passing to failing:
+`scratch/tools/fixtures.py` 737/972 → 741/976 (the four new ones), the bootstrap suite run directly 1366/1745 →
+1372/1751 with no case lost, `dune test cx` 116/131 (its four reds are old syntax: `ink.cx`, `fs/File.cx`, `cx docs std`).
+
+Every type prints (I242–I250): the `derive Display`/`derive Debug` lines came out of `stdlib/encoding/generic`,
+`stdlib/format/static`, `stdlib/throw/rethrow` and `stdlib/v2/rethrow`, with output unchanged. `stdlib/format/derived`
+tested the derivers; it is now `stdlib/format/structure` with its derive lines removed and the same output, extended with
+a recursive sum, a variant with named fields through `debug`, a generic type over an `Option` and a `String`, a function
+value and an anonymous record holding one. `stdlib/format/errors/no_impl` is deleted (both of its prints now succeed,
+and `structure` covers them). `core/top_level/errors/uncaught_without_display` became the runtime case
+`core/top_level/uncaught_structure` (`uncaught failure: Bad.Oops`, I247). New: `meta/implements/implements`,
+`meta/implements/own_name`, `meta/implements/errors/at_runtime` (I243). No fixture went from passing to failing:
+`scratch/tools/fixtures.py` 741/976 → 742/977; the bootstrap suite run directly, against the starting tree built in a
+copy, differs only by the renamed, deleted and new cases (1376/1755); `dune test cx` 116/131, as before.
 
 ### Fixture changes in S5a
 
@@ -2380,7 +3263,7 @@ use the stdlib's `Throw`/`attempt` and `async`, which C7b migrates).
 
 ### Questions found while building A5
 
-A5-Q1 (plan gap). **DECIDED by the user 2026-11-22: one `__root` for the whole top level (I162): vars stay globals, initializers assigned in place inside the one main, so the top level is one function body and the annotations come out; per-statement Throw catchers only where a statement throws. To build.** A top-level `var`'s initializer runs under `__root`, so the var's type is
+A5-Q1 (plan gap). **DECIDED by the user 2026-11-22: one `__root` for the whole top level (I162): vars stay globals, initializers assigned in place inside the one main, so the top level is one function body and the annotations come out; per-statement Throw catchers only where a statement throws. To build. Built in S5b (I231–I234).** A top-level `var`'s initializer runs under `__root`, so the var's type is
 `__root`'s `T` and part of its key. Strict R6 then rejects `var xs = []; xs.push(1);` at the top
 level, and any top-level var a later statement settles (`var m = HashMap.new();`, `var add = (a,
 b) => a + b;`). Plan 01 Q2 calls `var xs = []` "fine under both", which misses that the statement
@@ -2529,3 +3412,670 @@ generic enum matched at two keys, a type with a row parameter; I223), `core/type
 ## Reviewer notes (orchestrator)
 - **N1 (C5b): RESOLVED 2026-11-22 (always loaded, I150, I121).** `Transform.cx` is loaded only when a unit's tokens contain `handle <` or `with`. That is a load-time optimization keyed on token sniffing. It doesn't run library code on a condition, but it is close to the no-hooks line, and it is fragile: artifacts, and runs created by `gen`. Review: always load it and make loading cheap, or key it on the parsed AST.
 - **N2 (C5a, I112): ANSWERED 2026-11-22, see I112 (handed form deleted).** an `@ctl` op called with one extra argument is "handed its continuation" and bound by the core. User code can write `ask(k)` by hand. Review whether that should be allowed.
+
+I320. **DECIDED (user, 2026-11-23), REVISED the same day: `defer` stays through metaprocessing and a Zig-style pass
+after Prune lowers what is left (the user, worried a closure per `defer` adds an allocation to `alloc` + `defer free`).
+The library transform keeps handling `defer` in converted code; the pass copies each remaining deferred statement in front
+of every exit of its scope, so the interpreter has no `defer`. The text below, up to "Finalization", is the first version
+it replaces.** `defer` does not exist
+after metaprocessing: it becomes the cleanup written before every way the scope is left (falling off the end, `return`
+with its value computed first, `break`, `continue`), and the lowering marks the cleanups it inserts. The CPS transform
+(`stdlib/core/Transform.cx`) emits the discontinue check (`__is_discontinued`) only in frames holding a marked cleanup, so
+a continuation with nothing to clean up is plain (`hv#Throw.throw("negative", (x) => { return join(()); })`).
+Finalization: an `@abort` handler always finalizes, and the cleanups run before its arm (exception order); a `@ctl`
+resumed several times runs a scope's cleanup once per resumption that leaves it (`defer_multishot`, unchanged); a `@ctl`
+that does not resume never finalizes by itself, since its arm may keep the continuation to resume later (`Async`), as
+Koka's plain `ctl` (only `final ctl` finalizes). `defer_multishot_abort`'s `fail` becomes `@abort`, and its output takes
+the cleanup-before-arm order. Accepted cost: a `@ctl` continuation dropped and never resumed runs no `defer`s. Placement (user): "compiler handles defer, but
+library handles cps. Our rule is the compiler doesn't know CPS is a thing." The compiler lowers `defer D;` to `var
+cleanup#n = __cleanup(() => { D });` (a prelude identity function, the marker) and a call `cleanup#n()` before each exit;
+the transform recognises `__cleanup` and emits the discontinue check only in frames a marked cleanup encloses.
+
+I320 (implementation, 2026-11-23, superseding the `__cleanup` placement above). The closure/marker lowering was dropped
+before landing. As built: `defer` stays a statement through metaprocessing, and `Transform.cx` keeps its own `cleanups`
+for the code it splits. A new pass, `bootstrap/lib/defers.ml`, runs on the walk's resolved output in `Compile.run`, just
+before `Interp.run` (so every program and every meta block): each `Defer` still present is in code the transform never
+split, so it is copied in front of each exit of its block, latest first (fall-through unless the block already leaves;
+`return e` as `var returned#n = e; <copies>; return returned#n;`; `break`/`continue` run the copies declared inside the
+loop they leave; lambda and `fn` bodies are their own scopes; a deferred statement's own body is lowered with nothing
+around it). The interpreter's native defer is gone; `Defer` stays in the resolved type (it is the shared `stmts` group, so
+removing it is a refactor of every stage) and the interpreter fails on one. A panic or runtime error no longer runs
+`defer`s (Zig's behaviour). Discontinue check: a continuation with no cleanup in scope whose whole body is `return k(x)`
+(the frame's own `k`) or, at the run's top, `return x`, gets none: the signal reaches `k` as it is. Every other
+continuation keeps one, cleanups or not, and a frame without cleanups only forwards: `if (__is_discontinued(x)) { return
+k(__discontinued()); }`. A fully plain form is unsound: in `checked` (`if (n < 0) { throw(..); } return n;`) the
+continuation is `return join(())`, and resumed with the signal without a check it would run `join`, which calls `k(n)`,
+so the caller carries on as if `checked` had returned `n`. Removing those checks needs a second continuation per frame
+(an unwinder passed alongside `k`, extended only by frames with cleanups), a calling-convention change to the whole
+transform. `@abort`: inline arms get `discontinue(k)` prepended by `__tx_dropping` (it reads the new `Operation.aborts`);
+named handlers get it from the compiler's `Metaprocess.aborting_impls`, which already encoded discontinuation and now puts
+it first — a standing exception to "the compiler knows no CPS", left in place since a named impl's methods never pass
+through the transform. `@ctl` arms that never resume are no longer discontinued. Output changes: `defer_multishot_abort`
+(cleanup before "caught second") and `effects/v2/abort/abort` (cleanups before "failed: empty").
+I320 (cont.), **DECIDED (user, 2026-11-23): no discontinue signal; double-barrelled CPS.** The transform passes a second
+continuation `u` ("the rest was abandoned, unwind") next to `k`. A converted frame without `defer` forwards `u`; one with
+`defer D` hands on `() => { D; u(); }` inside D's scope. An `@abort` handler calls `u()` then runs its arm and never `k`;
+a `@ctl` handler only has `k`, so never finalizes; a `run` supplies a `u` doing nothing. `u` travels with `k` when a
+continuation is stored (Async). `__discontinued` / `__is_discontinued` are removed. All in `stdlib/core/Transform.cx`.
+I320 (as built, 2026-11-23, superseding the discontinue checks and the `@abort` placement in the implementation note
+above; `defers.ml` stands). `u` is CPS-shaped: `u(then, d)` runs the cleanups between the call and the handler, innermost
+first, each able to take control, then `then(())`. A run supplies `(then, d) => { return then(()); }`; a scope holding a
+`defer` that a split follows binds `var u2 = (then, d) => { D; return u(then, d); }` (D split like any code) and hands
+it on; every other frame forwards the `u` it was given, so code with nothing to clean up asks nothing (`checked`:
+`hv#Throw.throw("negative", u)`, its continuation `(x) => { return join(()); }`). `d` counts runs: a bound run's or a
+prompt's own `u` carries on at `d == 0` and otherwise hands `d - 1` to the one around it, and the outer handlers its code
+is handed are wrapped (`__tx_wrapped`, `__tx_past_run`) to add one, so a handler's own unwinding stops at its run and an
+outer one's goes past it. `@abort` methods are handed only `u` (no `k`) and become `return u((x) => { arm }, 0)`; a
+`@ctl` method gets `u` after `resume`, and its `discontinue(resume)` (also inside a closure the arm makes, as `Task.park`
+and `Yield.abandon` do) becomes `return u((x) => { rest of the block }, 0)`; nothing else unwinds a `@ctl` continuation.
+Inside a prompt the split rewrites a top-level `discontinue(resume)` and an `@abort` method's body runs as the `then`.
+The return-crossing flag is a value variable initialised with `__unanswered()` plus a `Bool` set beside it
+(`remember`ed by name); `__unanswered()` (a new builtin, `() -> 'a`, Unit at run time) also stands for the run's answer
+once a `return` has left through it, which nothing reads. `__discontinued`/`__is_discontinued` and the interpreter's
+`discontinue` are gone (`discontinue` keeps only its type, so arms check before the transform rewrites them; reached at
+run time it fails). Compiler: `aborting_impls`/`aborting_arms` deleted and `@abort` arms and named-handler records take
+only the operation's parameters; what still knows the calling convention, kept minimal: `Typecheck.unwinder` (the `u`
+type) used by `handler_type`, `cps_lambda`, `cps_call`, `cps_shape` (`+2`), dyn calls (`+2`), `wrapped`, the
+handler-record fitting in `run_value`/`bound_value` (a method one parameter longer or shorter than its effect's
+signature), `named_method_call`, and `Verify` (`+2`). Moving those into the library needs the transform to declare the
+shapes it makes, which the checker would read; not done. Accepted cost: `discontinue` written outside a handler's own
+method body (passing `resume` to another function first) is a compile error. Output changes: `defer_multishot_abort`,
+`effects/v2/abort/abort`, `effects/v2/abort/named` (cleanups before the arm); `defer_effect`, `defer_in_run` (their
+exception-style `@ctl` became `@abort`, then the same order); `effects/discontinue/signal` rewritten through a handler.
+
+I321. **REVIEWED (2026-11-24): changed — the query becomes public `effects_of` (no underscore), beside `typeof` and `implements`, working inside and outside meta blocks (I347).** **2026-11-23 (user asked): the root handles only the system effects the top level performs.** `__root<E>(main: () -> <E>
+Unit)` is an instance at the top level's row; its meta block reads it with a new meta-only query `__effects_of(E)` (the
+labels a row parameter of the instance stands for, checked as `implements` is) and keeps, from one quoted `run … handle …`
+of every system handler, only the clauses whose effect is performed, plus `Time` when it schedules. It calls `block_on`
+only when the top level performs `Async`. `hello` 224 → 110 ms, `effects/v2/working_example` 211 → 135 (median of 7); a
+hand-written Console-only root is 106, so the meta block costs about 4. `effects/errors/unimported_effect` loses its
+second error ("Unhandled effect 'Async'", the first one's consequence). `__meta_root_io` is unchanged.
+
+I322. **REVIEWED (2026-11-24): changed — `@abort` operations are handed their call site so an uncaught failure is reported at the `throw` (I348).** **2026-11-23: a failure in a call made from tail position is reported at that call.** `tests/stdlib/async/uncaught`
+reported "uncaught failure: …" at `Transform.cx:2346` (the `declare` making a copy), and `core/top_level/uncaught` at
+`prelude.cx:228` (`__throwing`'s `run`), not at `panic(…)` in `__throwing`'s `throw` arm. Cause: the interpreter's tail
+calls. A call in tail position is handed back as `pending`, and `bounce` applied it with the span of the call that
+started the chain rather than its own, so a builtin failing there (`panic`) took that outer span; under the transform
+the outermost call is generated, and a generated span is read as the meta call that made it. Fix: `pending_call` keeps
+the call's span (`p_span`) and `bounce` applies it with that. Also, in `Transform.cx`, the call `__tx_split_call`
+rewrites a call that takes control to keeps that call's span (`__tx_call_at`), so what fails at it points at the
+program. The location is now the prelude's `panic` (`prelude.cx:231:23`), not the user's `throw`: a handler has no way
+to know where the operation it answers was performed, and reporting the `throw` site would need the runtime to carry
+it into the arm, which nothing does. **Review after:** whether an uncaught failure should name the `throw` site, which
+would need a call-site value handed to the arm. `.rt` fixtures pin a location only when they start with `[`, and only
+in the entry's own file (the prelude's path differs by machine), so `stdlib/async/uncaught.rt` stays message-only. New:
+`core/top_level/uncaught_located` (a catcher of the user's own panicking in its arm, pinned at `[9:23]`; before, `[7:9]`,
+the `main()` call that began the chain).
+
+I323. **REVIEWED (2026-11-24): accepted.** **2026-11-23: a named function passed where its type would take control defaults the effect as a lambda does.**
+`caught<X, T, E>(f: () -> <Throw<X>, E> T)` at `caught(pure)`, `pure` performing nothing, failed in Verify ("A lambda of
+3 parameter(s) is annotated () -> Int") where `caught(() => pure())` printed `Some(7)`. `X` stands only in a label, so
+the key defaults it to `type#absent` and the label is none (I25, I206): that is the intended rule, so the call is not
+"unsettled", and the fix makes the defaulted instance work. Cause: a function named as a value whose use type takes
+control is eta-expanded (`eta`), but `named` was built first, and `value_of` entered `pure`'s instance at the use type,
+with `Throw<X>` in its row; the eta's own call then reached that instance, so the lambda's body performed `Throw`, was
+made taking its handler and continuation, and `pure` was copied taking them, while the key then dropped the label and
+`caught#0`'s `f` was `() -> Int`. Fix: the non-eta branch builds `named` only when it is the result, so the eta is
+checked as the written lambda is. New: `effects/v2/defaulted/named_function` (`caught(pure)` is `Some(7)`,
+`caught(failing)` with `failing` throwing a `String` is `None`).
+
+I325. **2026-11-23 (user: "Remove precheck"): Precheck is gone; only what the walk reaches is checked.** It cost about 75 ms of
+every compile (`hello` 110 → 36 ms, `working_example` 134 → 62, `stdlib/v2/block_on` 149 → 74), since it checked every
+loaded file, the prelude's reach of the library included. `bootstrap/lib/precheck.ml` and `Typecheck.check`/`partial` are
+deleted; `Pipeline.whole` runs the walk alone. Consequences, each fixture handled:
+- An error in code nothing reaches is not reported (Zig's rule): `meta/07_precheck` is renamed `meta/07_unreached`, and
+  its `errors/unreached_value_param` became `unreached_not_checked` (it runs, printing `never called`).
+- `.err` fixtures whose broken function nothing called now call it at the end (positions unchanged): `defer_cannot_fail`,
+  `purity_violated`, `effects/generic/errors/one_type`, `types/errors/return_mismatch`, `gadt/errors/impossible_arm`,
+  `arm_settles_op_row`, `arm_ties_op_param`, `break_outside_loop`, `continue_outside_loop`.
+- Generic code is checked at its key, so three errors that only a generic check of unreached code could give no longer
+  exist: `traits/errors/ambiguous_receiver` (`x.len()` on an unknown `x`), `tuples/errors/unknown_arity`,
+  `gadt/errors/match_expr_unannotated` — deleted. At a key, `arm_settles_op_row`/`arm_ties_op_param` say "settles 'E' at
+  <>" / "settles 'T' at Int", `leaked_constraint` reports only its first error (its stale header comment dropped), and
+  `defer_cannot_fail`'s generic `callback` reports the concrete `Throw<String>`, not "an effect row its caller decides".
+- `declared_twice` reports only the real error (its "missing method" was the first one's consequence).
+- Found: a defer error in a function the transform copied was reported once per copy; identical walk errors are now
+  reported once (`type_errors` in metaprocess.ml).
+- Found: the walk skipped the impossible-arm check at every key, so `'Nil' cannot be a Vec<Succ<Zero>, Int>` was only ever
+  Precheck's; it now runs where the instance has no type parameters (no other key could reach the arm).
+- Found, not fixed (review after): `effects/v2/errors/handler_method_takes_control` — a plain handler's method calling an
+  outer run's `@ctl` operation was rejected only outside the walk; in the walk the call goes straight to the outer
+  handler's value, so nothing in the method's row shows it, and it crashes at run time ("fn expects 4 argument(s)").
+  Moved to `known_unsound`.
+
+I326. **2026-11-23 (internal-docs/Inlining.md): an evidence-passed effect's handler is part of the key, and its
+operations are called directly.** Only effects whose operations are all plain `fn`s; `@ctl`/`@abort` stay the
+library transform's, untouched. Measured, median of 7–9 (`--time`, compile · run · total, ms): `hello` 34.6 · 0.0 ·
+34.7 → 34.4 · 0.0 · 34.4; `working_example` 59.7 · 0.0 · 59.8 → 60.2 · 0.0 · 60.3 (both within noise: they barely
+run). A loop of 200 000 calls of a function performing a captured `Log` plus 20 000 `print`s: run 106.6 → 67.5.
+`print("hello, world")` is now `fn print#0(value: String) { __write_out((str#0(value) + "\n")); }`, called
+`print#0("Hello, World!")`, no `ev#h`.
+- **Key.** `Key.Handler id`, one entry per label, named `<run's handler>@<run number>` (the run number because a run
+  the transform rebuilt re-binds the same handler names, and what was made under the first check is not emitted).
+  Computed in `reached` only (calls; a function named as a value, a vtable slot and an operator entry are never keyed)
+  from `known_handlers !effect_bindings`: each label bound by a run, up to the function's own frame. A call first
+  keys every handler around it; once an instance at those types finishes, the labels it answered are recorded
+  (`answered_labels`, its row plus what it answered through its key) and later calls keep only those, with
+  `handler_alias` mapping the narrow key to the instance (also consulted by `Metaprocess.made`, so `declof` and the
+  transform find it). (review after: the first call at a new type key carries the whole set; with the meta root's six
+  handlers that is long, cosmetic, cost not measured.)
+- **Inside a keyed instance** the frames are the key's bindings before its own frame (`bd_key` marks them). An
+  operation answered there still joins the instance's row (so `purity_violated` and "handles nothing" keep working,
+  and callers pass evidence as the type says).
+- **No `ev#h`.** A processed function whose body never reads `ev#h` (and takes no control) drops the parameter;
+  calls to one processed earlier pass none (`without_evidence`, the callee's annotation loses its row). A call to one
+  not yet processed still passes it; the interpreter drops the extra argument. A recursive function keeps its
+  evidence (its own call passes it). (review after)
+- **The root.** The top level's own frame is `root_frame` (`* = root` in a key, for every evidence label nothing
+  nearer binds); instances reached from it inherit it. The program root's `main()` call records the bindings around it
+  (`root_bindings`); when processing an operation under the root frame, a label whose root handler was lifted calls the
+  lifted function; anything else (the root's `Exit`, which reads `ended`; a scheduled program, `block_on(main)`) reads
+  `ev#h` as before. A handler nearer than the root that no key can name (one in a run the transform takes apart, e.g.
+  with `@abort Exit`) drops the root from the key, or it would answer for that run (`stdlib/v2/os/cli` caught it).
+- **Direct and inlined.** An inline handler (not in a transformed run) whose every method reads only its parameters
+  and top-level names (`names_used` against `runtime_names`), reads no other run's handler value, and checks pure and
+  closed, has each method made a top-level function `handler#N#method` from its checked lambda (`Walk_ops.lift`, a
+  Done instance) — not checked again; the run's value holds those functions. Calls go straight to it, in the run body
+  as well. A call in statement or `return` position is inlined when, after folding a `match` on a parameter given an
+  empty variant, the body is one expression with no lambda and each non-trivial argument is used once (at most one):
+  `handler#7#write(Out, text)` → `__write_out(text)`.
+- **Direct with its environment.** An inline handler reading a run's locals stays a value; an instance keyed by it is
+  emitted at the head of that run's block (`run_instances`, placed after the handler values) and calls
+  `hv#N.write(...)` there, no evidence. A local function's instances are never keyed by such a handler (they are
+  emitted where declared). A named handler (`with T`) calls `T`'s impl method directly; its key home is wherever
+  what its `bd_outer` binds lives.
+- **Kept as evidence:** function values (lambdas, parameters; `twice(f)` is keyed for its own `print`, and keeps
+  `ev#h` for `f`), `dyn` calls, handlers passed as values (`hv#Label` parameters), every handler of a run the
+  transform takes apart (its body is checked again as what the transform made), and every call inside a function a
+  transform made (`in_plain`; it sees its caller's runs but is emitted at the top level). (review after: the
+  transform's runs are where most stdlib runs are; keying them needs the rebuilt run to carry the keyed instances.)
+- **Not done from the plan:** "a named handler with fields, called with the value as `self`" — `with` names a type
+  only, so no handler has a value with fields to pass; nothing to build. Calls inside `__throwing`'s lambda (a
+  top-level statement that throws) are a function value's, so evidence.
+- **Recursion.** A call of a declaration with an instance still being checked keys only handlers that instance's key
+  already holds, so a run inside a recursive function does not make a new instance per level.
+- **Fixtures changed:** `effects/v2/meta_once` prints `report is processed` twice (two handlers, two instances, as the
+  plan says); `meta/declof/processed` runs `made`'s meta block twice (the meta block's instance and the top level's,
+  keyed by the root). (review after: both were written when one instance was the rule.) `meta/prune/unreferenced_impl`
+  matches `(fn Square#Area#area` without the trailing space: an instance whose first call carried handlers it turned
+  out not to answer keeps the `#0` name that key gave it (an unkeyed instance must stay the bare name, which other
+  code names directly). (review after)
+- **New:** `effects/v2/direct/captured_and_root` (one function under a captured `Console` and under the root, two
+  instances), `reads_run_local` (a handler pushing to a function's local, instance emitted in the run),
+  `named_handler` (two `with` types, two instances), `function_value_kept` (`twice`'s own `print` direct, `f`'s by
+  evidence, under a captured handler and the root).
+
+I327. **2026-11-23 (follow-up to I326): the root's dead record, transformed runs, and exact evidence.** Timings
+(`--time`, median of 9, ms, compile · run · total; before is I326's starting point, measured again alongside):
+`hello` 35.6 · 0.0 · 35.6 → 35.1 · 0.0 · 35.1; `working_example` 61.4 · 0.0 · 61.5 → 61.1 · 0.0 · 61.2; the
+200 000-call `Log` loop 35.1 · 108.8 · 144.5 → 36.0 · 70.0 · 106.1. `hello` processes to `fmt#0`, `str#0`,
+`print#0` (`__write_out(...)`), `fn __root#0(main) { main(); }` and `__root#0(() => { print#0("Hello, World!"); })`.
+- **Unread run leftovers.** `processed_block` drops a `hv#N` handler value (a record of lambdas and names) and an
+  `answer#N` with no initializer when nothing else in the block reads it, then splices a block left declaring
+  nothing into its parent (`without_unread`). This covers every run whose operations all went direct, not only the
+  root's.
+- **The root's evidence.** `Metaprocess.finish_root` drains everything but the program root's instance, processes
+  the top level, then the root. Processing the top level's lambda (the argument of a `__root` instance) tells whether
+  its body reads `ev#h`; if not, it takes none (its signature gets the transform's plain marker, so Verify counts no
+  evidence and its type still says what it performs) and the root's `main()` call (found by its span and name,
+  recorded at check) passes none, with the callee's annotation losing its row. (review after: the plain marker
+  stands for "takes no evidence" here, not "a transform made this".)
+- **`Exit` bookkeeping.** `__root` (stdlib/prelude.cx) generates `var ended` and the closing `match ended` only when
+  the top level performs `Exit`, from the same meta block that picks the clauses.
+- **Transformed runs go direct.** The cause of I326's stale instances: a run handling an `@ctl`/`@abort` effect is
+  read as written (the transform asks the checker about it) and then checked again as what the transform made;
+  instances keyed under the first read were made against the run as written, which a call in the rebuilt run then
+  reached. Fix: such a run's handlers are registered for keys only after the transform returns, so the as-written
+  read makes the evidence instances it always made, and only the rebuilt run keys (the `@run` in a key's handler name
+  still separates a rebuilt `Bound` run's instances from an earlier block). Its inline handlers are lifted as any
+  other's. `effects/v2/direct/beside_abort` (a `Log` handler beside an `@abort Throw` in one run) calls the lifted,
+  inlined `List#push#0(lines, …)` from the CPS copy of `work`. Tried and dropped: one key per handler across both
+  reads with the instance put in every block binding it, which shared an as-written instance into the rebuilt code
+  and broke `stdlib/async/failure` and `cancel_defers` ("fn expects 7 argument(s) but got 3"). Cost: a function
+  reached in a transformed run is made twice, once as written (evidence, as before I326) and once keyed —
+  `meta_once` now prints `report is processed` three times. (review after)
+- **Kept as before:** calls inside a function a transform made with the plain marker (`in_plain`) are not keyed —
+  it sees its caller's runs but is emitted at the top level, and its operations already go straight to those runs'
+  values.
+- **Exact evidence.** `Typecheck.exact_stmt` runs over the finished program (`Metaprocess`, after pruning): a call
+  to a function known to take no evidence that still hands it one (processed before its callee) loses the argument
+  and the callee's annotation its row. A recursive function still keeps its evidence when its own call passes it
+  (the decision is made from its body, which holds that call). (review after)
+- **New fixture:** `effects/v2/direct/beside_abort`. Changed: `effects/v2/meta_once.txt`.
+
+I328. **2026-11-23 (user: "code should only ever be processed once unless it's monomorphizing over different
+types"): processed code passes through.** Timings (`scratch/tools/timing.py`, median of 7, ms, compile · run · total):
+`hello` 35.5 · 0.0 · 35.6 → 35.4 · 0.0 · 35.5; `working_example` 61.0 · 0.0 · 61.1 → 63.0 · 0.0 · 63.0 (the cost is the
+notes below; recording them eagerly into a hash table cost 4 ms, so they are lists loaded only when shown).
+- **The node.** `` `Pre_checked of int `` in `Ast.expr_kind` and `Ast.stmt_kind` (new `Ast.pre_checked`), an id into
+  `Typecheck.passed`: the checked code (`Passed_expr` or `Passed_stmts`), the row it performs, its view (the source it
+  was checked from: one expression, one statement, or a statement list), the names it bound (with their schemes), the
+  names it reached (replayed through `refer`), for a whole function body its return type, and its notes (each
+  expression's type and each run's lowering, recorded while checking, loaded into `noted_types`/`noted_runs` the first
+  time the view is shown). Checking one returns the stored node, contains its row in the context's, binds what it
+  bound; nothing inside runs or is checked again. Source walkers (`assigned_names`, `names_used`, `gather`) read the
+  view. In the library tree it is `ExprKind.Processed(Int)` / `StmtKind.Processed(Int)`, which `Syntax` reads back
+  as the node; `std/compiler/Printer` prints `processed#N`.
+- **Shown to a meta block.** Under `processed(...)`, `Syntax` shows a pass-through as its view, with the noted types,
+  and shows a meta block (statement or expression) as what it generated (`meta_stmts`/`meta_exprs`, recorded at
+  every meta block the checker runs), so what a transform makes of the code never runs a meta block again. A node
+  handed out for a pass-through (`Syntax.handed`, by identity, with its kind as handed out) and handed back as the
+  same record with the same kind is read as the pass-through. The library decides by returning the node it was
+  given: `__tx_block` hands back a statement with no split that `__tx_untouched` says the plain path would not
+  change (no exit, `defer`, declaration, own lambda, bound run or unsettled `Let` type), instead of rebuilding it.
+- **Where they are made.** (1) `root_block`: every top-level statement's final check is a pass-through with its own
+  row (the root already checks each with its own); a throwing one is wrapped as `__throwing(() => { <its
+  pass-through> })` and only the wrapper is checked; the globals are bound before, since the transform's output for
+  the catcher's body is checked inside it. (2) `root_rewritten` is the list of those pass-throughs, so the root's
+  conversion re-checks only the statements the transform splits. (3) `typed_block` (what `processed` checks) asks
+  `walk_block` to keep the asked block's statements (`kept_block`: a run's body, or a lambda value's body): each is
+  checked with a row of its own contained in the block's (`kept_stmt`), and becomes a pass-through when the read
+  was whole (no `final_read` gate fired: lambda conversion, eta, controlled slot, lifting, all skipped while
+  recording) and it `stands_alone` (no exit or function declaration, meta blocks judged by what they generated). A
+  block declaring types or functions keeps nothing. (4) A function value the checker converts is shown to
+  `effect_lambda` as its first check (one `Stmts` pass-through of the whole body, with its return type), so the
+  transform's read checks nothing again.
+- **Handler keys through it.** A transformed run's handlers are registered for keys before the transform reads the
+  run (I327 registered them after): what the read checks and the transform keeps is the code emitted, so it is keyed
+  by those handlers, and a call the transform rewrites reaches the same key. The I327 failures (`stdlib/async/failure`,
+  `cancel_defers`) do not recur. (review after)
+- **Copies.** `processed_fn` reads the instance `declof_call` just showed (`declof_shown`, by name) under the frames its
+  key names (`key_frames`, shared with instance checking), so the read reaches the instances already made instead of
+  evidence ones. (review after: matched by name between the two calls, which the transform always makes together.)
+- **The catcher.** A CPS lambda checked as an argument of `__root`/`__throwing` at the top level (`at_root`) takes the
+  root's frame, as the statement did where it was first checked: a function called in a throwing top-level
+  statement is one instance, keyed by the root, not that plus an evidence one (`show` in `processed_once`).
+- **The memo is gone.** `top_generated`/`same_block` removed from metaprocess.ml.
+- **Still processed twice (review after):**
+  - A statement the transform splits is checked as read and again as what the transform made of it, including the
+    parts of it the transform kept (they have no row of their own, so none passes through): the interior of a
+    throwing top-level statement, a split statement of a transformed run, of the root's conversion, and the whole
+    body of a converted function value (checked where written, then as made). Meta blocks inside are not run again
+    (shown as what they generated), and calls reach the same keys, so no instance is made twice.
+  - A run's handler values: read as written for `arms_row`, then checked as the transform rebuilt them.
+  - `processed_fn` still checks a copied instance's body once more for its types (now at the instance's key).
+  - A statement only gets a row of its own at the top of the asked block or the root; giving every nested statement
+    one would change how rows are inferred everywhere (`row_within` is a snapshot, not a constraint).
+  - `__tx_prompt` (a run whose code takes control outward) does not hand untouched statements back.
+- **Fixtures:** new `core/top_level/meta_once` (the reproduction: `compiling` and `expr` once each), new
+  `effects/v2/processed_once` (meta blocks in a converted lambda, before and after a split in a transformed run, and
+  in a function a throwing top-level statement calls: each once). `effects/v2/meta_once.txt` now prints `report is
+  processed` twice and `asking is processed` once: one `report` per handler key (the first run's `Log`, the second
+  run's `Log`, which the transform's read, the kept `report(2)` and the copy of `asking` all reach), one `asking`.
+- **Found, left:** the printer does not round-trip a `meta` statement followed by a run block's value expression
+  (`meta { … } a + b` prints as a call of the meta block); `processed_once` avoids that shape.
+
+I329. **2026-11-23 (user asked): `str` writes a short `Display` method in place (review after).** `str<T>`'s meta block reads
+the method `value.fmt()` reaches (`processed` of the call, then `declared_call`, new: `declof_call` answering `None` for
+what `declof` cannot show, a local function) and, when its body is at most two statements and it takes only the
+receiver, generates `var self = value;` followed by that body; otherwise it generates the call as before. `print("hi")`'s
+`str#0` is `var self = value; return self;` with no `String#Display#fmt` left; a user `Point` with a one-line `fmt`
+inlines likewise, its own `str(self.x)` reaching its own instance. A local type's `fmt` stays a call. Not covered by a
+fixture of its own: output is unchanged, so every `Display` fixture covers it.
+
+I330. **2026-11-23 (user asked): calls inlined in the walk (review after).** Where an instance's processed code is made
+(`processed_of`, metaprocess.ml) and where the root's statements are (`finish_root`, after its drain), `inlined`
+rewrites the resolved code with `Inline.program` (new `bootstrap/lib/inline.ml`) against the instances already
+processed, so `print("hi");` processes to `__write_out(("hi" + "\n"));` and the existing prune drops `str#0`,
+`print#0` and `__root#0`. Not a pass after the walk: nothing in `Compile` changed, and `--dump-processed`/`--dump-code`
+show the inlined program because `on_code` sees what the walk returns. Decisions:
+- **Spliced as resolved code, not through `Pre_checked`.** The callee's body is its `i.processed`, already resolved,
+  so nothing is checked or resolved again; a `Pre_checked` holds checked (unresolved) code, which would have to go
+  through `processed_stmt` a second time. Only the argument bindings are new nodes. (review after)
+- **Order.** An instance is processed after the instances its body reached (drain order), so a callee's body is
+  already inlined when its caller reads it; a callee not processed yet, still walking, homed, local, quoting, or with
+  more than one instance under its name is left as a call. No re-processing, so no fixpoint loop: recursion cannot
+  unfold, because a body is inlined only once it exists and a body naming itself is refused.
+- **What is inlined.** A top-level function whose processed body is at most 3 statements and 40 nodes, holds no
+  `fn`/type/`defer`, has closed types (no `Generic`: Type_mono could not rename what a generic body carries into a
+  concrete caller), is not `cps`-marked, and takes exactly as many parameters as the call passes (so evidence a
+  callee does not take, which the interpreter drops, is never in play). Where a value is wanted: only a single
+  `return e`. As a statement (`f(..);`, `return f(..);`, `var x = f(..);`, `x = f(..);`): also a short body with no
+  `return`/escaping `break`/`continue`. Thresholds are guesses. (review after)
+- **Arguments.** Literals and variables that hold one value (bound once in the caller and never assigned, a
+  function's name, or a binding inlining made) are substituted; an unused lambda is dropped; a lambda the body calls
+  once as a statement is substituted and beta-reduced. Where a value is wanted, a variable that may change, or a
+  pure expression that makes nothing (`s.side`; never an array or record literal, which read twice would be two
+  values), is substituted when every read of it comes before anything that could change it
+  (interpreter evaluation order); one argument with effects is substituted only into a pure expression that reads it
+  exactly once unconditionally. Otherwise (and always as a statement) arguments are bound to fresh locals ahead of
+  the body, in order, and the binding is itself inlined when it is a call.
+- **Copy propagation.** `var x = y;` with `x` bound once and never assigned and `y` as above (or a literal) is dropped
+  and `x` read as `y`, not in a block declaring a `fn` (hoisted above it).
+- **Beta.** `(lambda)(args);` as a statement becomes its statements after the arguments when its arity matches, it has
+  no `return`/escaping `break`, no `fn`/`defer`, and is not `cps`. A lambda taking evidence (the effectful root's
+  `(ev#h) => {…}`) is still called: `__root`'s body calls `main` inside a block, which the substitution rule does not
+  reach. (review after: the effectful root stays a call of a bound lambda.)
+- **Names.** Every binder of a spliced body is renamed `inlined#<name>#<n>`, scope by scope; a callee is refused where a
+  name it reads free is bound anywhere in the caller.
+- **Handler keys (I326/I327) and the transform.** Untouched: inlining runs on processed code after every key is
+  settled, and splices the instance that key named, so a call reaching a handler-keyed instance runs the same code.
+  The transform reads `declof`/`processed`/`processed_fn`, which show the checked source (`i.source`, `kept_stmts`),
+  never `i.processed`, so it never sees inlined code. `i.deps` is unchanged, so a meta block's program still carries
+  an inlined callee (harmless).
+- **Found and fixed:** `names_in_expr` did not read an object's `equal`, so `==` on a trait object kept its `Eq` impl
+  only while a direct `==` also named it (`core/traits/dyn/equal_impl` failed once the direct call was inlined).
+- **Fixtures:** `tests/meta/prune/meta_only_function` no longer expects `(fn shared` kept and
+  `tests/meta/prune/unreferenced_impl` no longer expects `(fn Square#Area#area` kept: both are now inlined at their
+  only call and dropped. The absent lists are unchanged. The prelude-walk probe "a prelude function a later pass
+  calls survives" now accepts `from_array` kept or its body inlined (`count:(array-len`), since `var xs: List<Int> =
+  [1, 2];` inlines it.
+
+I331. **2026-11-24 (user: "yes fix it"): an impl's bounds on the type's own arguments are checked when it is matched.**
+`impl Shout for Box<T: Display>` records, beside the trait arguments naming that impl, that argument 0 must be `Display`
+(`ctx_impl_bounds`, scoped and reset with `ctx_impl_params`); `satisfies` takes the type's arguments and checks them through
+`admits`. `loud(Box { held: Point { x: 2 } })` is now "Expected Shout, got Box<Point>." at the call, not "Expected Display,
+got Point." inside `loud`'s instance. Only a bound written as a bare trait name (`T: Display`) is checked; one with
+arguments (`T: Into<Int>`) is not yet (review after). Fixtures `core/traits/errors/impl_bound_unmet`,
+`core/traits/impl_bound_met`. Resolves I240.
+
+I332. **2026-11-24 (user: "Reflection objects are just objects; the only part that is metaprocess-bound is lowering
+code/typeof to the struct literals"): every reflection form works outside a meta block.** Each is lowered, when the walk
+checks it, to a literal the program builds at run time, as `typeof` already was:
+- `implements(T, Trait)` → `true`/`false`. A generic function's instance is checked at its key, so
+  `fn show<T>(x: T): Bool { return implements(T, Display); }` answers per instance. The guard on `in_meta` is gone, so
+  `gen code(implements(T, Display))` answers in the generated code too.
+- `code(e)` / `code { … }` / `code fn …` → the `Expr` / `List<Stmt>` / `Decl` built as constructor calls
+  (`Syntax.expr`/`stmt`/`decl` of the quote, then `Splice.built`: records `New`, variants `New_variant`, a `List`
+  a collection literal, a `Name` a name literal). A runtime local named in the quote stays a `Var` (no substitution, unlike a
+  meta block's quote, which writes each meta value in) (review after).
+- `declof(f)` / `declof(T)` → the `Decl` value the meta path would hand out (the same `declared_instance`/`declared_type`),
+  built as a literal. Inside a generic function `declof(T)` reads `T` at the instance's key (the meta path had `T`
+  written in by the key already). A run-time value holding a `Name` is "'n' is not a declaration." outside meta.
+- `moduleof(m)` → the `Module` value of `module_record`, as listed when the statement is checked (review after: a
+  later top-level meta block of that module that has not run yet is missed, as in a meta block).
+- Inside meta blocks nothing changed: quotes and `declof` still go through the context table.
+- **Spans** are the source span: each `span` field is `__span_here()` placed at the node's own span, a new builtin
+  returning its call's span (generated nodes stay `<generated>`). Printing a value therefore shows `file:line:col` with
+  the path as the compiler was given it, so the fixtures print through `std/compiler/Printer` instead (review after).
+- **A function quoting code is used by meta blocks or at run time, not both.** One first made outside meta has its
+  quotes as literals; a meta block calling it later is "'make' quotes code at run time, so a meta block cannot call it."
+  (the mirror of the existing "only a meta block can call it"), because the meta block's quote would have written its
+  values in (review after: an instance per mode would lift both errors).
+- **Fixtures:** flipped `meta/code/outside_meta`, `meta/declof/outside_meta`, `meta/moduleof/outside_meta` (with
+  `thing.cx`), `meta/implements/at_runtime` out of `errors/` with run-time output; added `meta/code/generic`,
+  `meta/declof/generic`, `meta/implements/generic`, `meta/code/errors/run_time_quote_in_meta`.
+
+I333. **2026-11-24 (user: "I want inlining to be explicit. … `shown` needs the inline keyword if we want to inline it
+automatically"; and: an `inline` function that cannot be inlined soundly is a compile error saying why): inlining is
+explicit.** Timings (`scratch/tools/timing.py`, median of 9, ms, compile · run · total): `hello` 36.6 · 0.0 · 36.7,
+`working_example` 67.9 · 0.0 · 68.0 (no baseline measured alongside; I328 recorded 35.5 and 63.0 before I329–I332).
+`print("Hello, World!")` still processes to `__write_out(("Hello, World!" + "\n"));`.
+- **Syntax.** `inline fn` on a top-level function, a method in an impl or a type body, and a handler method
+  (`handle<E> { inline fn op(…) { … } }`, which is a `method_def`). `inline` is contextual, like `global`: a keyword
+  only before `fn`, otherwise a name, so the reflected field `sg.inline` and the existing locals named `inline`
+  (`os/Cli.cx`) still read. Not in the scanner's keyword table, as the brief suggested (review after). Not accepted on
+  a trait's method signature.
+- **Carried** as `inline : bool` on `Ast.signature`, so it rides every stage that holds one (`Fn`, `method_def`, the
+  lambda a handler method becomes — `handler_record` copies it from `md_signature` — and the lifted
+  `handler#N#method`, whose walk decl now takes the checked `Fn`'s signature). Reflected as `Signature.inline: Bool`
+  (`Syntax` reads and writes it); every `Signature { … }` literal in the library and fixtures gained `inline: false`
+  (on the `static_params` line, so no `.err` line moved), except `__tx` copying a function, which keeps
+  `fd.signature.inline`. Printed back by `Source`, `Printer` (`--dump-ast`, `--dump-processed`) and
+  `std/compiler/Printer` (`__inline_mark`; the name `__inline` was taken). The s-expression dump (`(fn …`) does not
+  show it.
+- **What is inlined.** Only calls of a function declared `inline`, at every call the walk processes (an instance's
+  body, the root's statements): no size limit. Generic ones per instance, as before. Stays automatic: beta-reduction of
+  a lambda called where written, copy propagation of `var x = y`, and `str`'s meta block writing a short `fmt` (I329).
+  Everything else is a call, including a lifted handler method not declared `inline` (a direct call, I326).
+  `typecheck.ml`'s handler-method folding (`inline_lifted`) runs only for an `inline` method.
+- **Where a body can now stand** (needed once size no longer decides and a refusal is an error): a body whose
+  `return`s all end it or end a branch that ends it (`if (c) { return a; } rest` is read as if/else) is written in a
+  value position as `var x;` followed by the body assigning `x` at each return; `return f(…)` takes the body whole,
+  its returns the caller's; a body with a local `fn` or a `defer` stands in a block of its own (its functions renamed,
+  hoisted as before); an `inline` call nested in an expression is taken out to `var inlined#value#N = f(…)` ahead of
+  its statement, with everything evaluated before it there bound ahead in order (literals, lambdas and names that keep
+  one value stay), then inlined as a statement. Arguments past the parameters that are names or literals (evidence the
+  callee does not take) are dropped. (review after)
+- **Errors** ("'f' is declared inline, but …"). At the declaration: it calls itself; it is declared inside another
+  function. At a call: recursion through other `inline` functions ("it is recursive, and its own body reaches this
+  call"); it takes control; it declares a type; its types are not settled; it quotes code; more than one instance
+  under the name; it returns from inside a loop where its value is used; the call stands where nothing can be taken
+  out (the right of `&&`/`||`, a `while` condition). (review after: the last two could be lifted with a labelled
+  exit.)
+- **Not errors** (review after): an instance emitted inside a body (`homed`, keyed by a local type) stays a call; an
+  `inline` handler method of a handler that stays a value (reads a run's locals, `hv#N.write(…)`) is a field call; a
+  call passing fewer arguments than the callee takes (evidence missing, only in a program already failing); once the
+  session has errors, no inline errors are reported.
+- **Order.** A callee is processed on demand when its call is read (`processed_of` from `inlined`'s `find`; a
+  `processing` table tells recursion), and `reached` (a meta block's program) now processes an instance's callees
+  before it.
+- **Marked in the library:** `print` (`io/Print.cx`), `str` (`text/Format.cx`), `__root` and its Console `write`
+  handler method (`prelude.cx`). Nothing else. `str`'s structural path (no `Display`, no `Debug`) moved to a new plain
+  `__structure<T>`: written in place it made `str` of a recursive type call itself, and its loops return from inside.
+  `printerr` and `__meta_root`'s handler are not marked.
+- **Fixtures:** new `core/functions/inline/not_marked` (the user's example, `shown#0..2` kept), `marked` (`inline fn
+  shown`, no `shown` left), `members` (an `inline` method in a type body and in an impl, a function returning from
+  branches, an `inline` handler method, and `decl_source` printing each back), `errors/recursive` (at the
+  declaration), `errors/mutual`. `pruned` gained the three output fixtures; its existing entries are unchanged and
+  pass (`shared` and `Square#Area#area` are expected kept, which holds: neither is `inline`).
+
+I334. **2026-11-24 (user: "yes make that change"): an argument read once, before any effect, is written in place.** The inliner
+bound every argument that was not a variable, literal or lambda to its own local ahead of the body
+(`var inlined#value#9 = shown#0(…)`). Now the one such argument of a call is substituted when the body reads it exactly
+once, unconditionally, and nothing with an effect or that can fail is evaluated before that read (`first_effect_after`
+in bootstrap/lib/inline.ml; in a statement body, the read must be in its opening statement): it then runs where the
+binding would have. `print(shown(Money { cents: 1 }))` is `__write_out((__display(shown#0({ cents: 1 })) + "\n"));`. A body
+with an effect before the read keeps the binding (fixture `core/functions/inline/argument_order`). A substituted argument
+keeps its own span, so a failure in it points at the call (`core/builtins/chr_invalid`, `operators/negative_shift`
+stayed at `[1:7]`).
+
+I335. **2026-11-24 (user: "This part should probably be explicitly inlined"): `debug` and the primitives' `debug` are `inline`.**
+`debug<T>` is `inline fn`, and its structural case moved to a plain `__debug_structure<T>` (as `str`'s did to
+`__structure<T>`): a recursive type's parts reach it again. The one-line `debug` of `Int`, `Float`, `Bool`, `Byte`, `Char`,
+`String`, `Unit`, `Name` and `Span` are `inline fn`. `__shaped` now writes a structure a part per statement (`__started`,
+`__appended`, `__appended_call`, `__finished`): a part's `debug` call stands alone, `var part = debug(x);`, since the
+inliner will not move a call past an earlier one in the same expression. `Point`'s field is `__debug(value.x)`, with no
+`debug#1` or `Int#Debug#debug#0` left. Found and fixed in the inliner: a callee calling back into its caller
+(`debug<Tree>` → `__debug_structure<Tree>`) was refused as a capture, because the caller's own name is bound in its body;
+`opened` now exempts that name when it is the body's only binding of it (scope field `own`).
+
+I336. **2026-11-24 (user: "do the recommended version"): `tcp_connect` waits for the connection.** `TcpStream` gains
+`established(self): <Async, Throw<IoError>> Unit` (the OS socket's is its existing `__connected()`; `fake_net`'s `Canned` has
+an empty one), and `tcp_connect` calls it before returning, so its row is `<Net, Async, Throw<IoError>>` and a refused
+connection is thrown at `tcp_connect`, not at the first `read`/`write`. The `Net` handler's `connect` stays plain (it still
+only starts the connection). `stdlib/net/fake_net`'s refused case now separates the connect from the write and still prints
+only `refused`. Resolves I259's open choice.
+
+I337. **2026-11-24 (user: "accept and do the rename"): the `v2/` fixture folders are gone.** Every fixture under
+`tests/effects/v2`, `tests/core/defer/v2`, `tests/stdlib/v2`, `tests/effects/methods/v2` and `tests/core/traits/dyn/v2`
+moved to the same path without `v2/` (335 files), and `bootstrap/test/test_bootstrap.ml` follows. Three clashed with an
+existing fixture: `core/traits/dyn/v2/effect_resumes` was the same program as `core/traits/dyn/effect_resumes` (only the
+`handle` clause moved) and is deleted; `stdlib/v2/io/files` (buffering, `using`, `lines`, directories) is
+`stdlib/io/files_and_dirs`; `stdlib/v2/os/process` (args, env, `exit`, `all`) is `stdlib/os/process_effects`. Older log
+entries still name the `v2/` paths.
+
+I338. **2026-11-24 (user: "yes fix it"): an effect a handler's method leaves unhandled is reported at the call inside the
+method.** `note_effect_sites` also records, while a handler value is checked (`run_value`, wrapped in `walk_bindings`'
+`check_values`), where each effect is first performed inside its methods (`arm_sites`), and keeps those once the value is
+checked (`escaping_sites`); when such an effect first reaches the top level's row, its site is that call, not the `run`'s.
+`trait Log { fn log(s: String); } run<Unit> { log("x"); } handle<Log> { fn log(s) { log("again " + s); } }` is now
+`[2:51]` (the inner `log`), for a plain and a `@ctl` handler alike. `effects/handler/errors/arm_without_outer.err`:
+`[2:1]` → `[2:51]`.
+
+I339. **2026-11-24 (user: "accept and add the ambiguity error"): `module.op` naming two effects' operation is an error.**
+Where the module bound whole declares no export by the name and two or more of its effect traits have the method, the
+loader's qualifier raises `Ambiguous_operation`, reported at the use (`qualified_at`, in the `Method_call` and `Field`
+cases): "Ambiguous operation 'signal.stop': Signal.stop or Halt.stop. Import the one you mean by name and write
+'Signal.stop(…)'." (worded as the same-file "Ambiguous operation 'log': Log.log or Journal.log."). The suggestion is
+`import { Signal } from "signal"` and `Signal.stop(…)`, which works; `signal.Signal.stop(…)` does not (questions.md).
+Fixture `effects/errors/ambiguous_module_operation/` (`main.cx`, `signal.cx`, `main.err`).
+
+I340. **2026-11-24: a misplaced `discontinue` is a compile error.** `discontinue(e)` (the builtin, so a binding of the
+same name is untouched) checks only when `e` names, lexically, the continuation parameter of the handler method it is
+written in: that method's body, or a lambda written inside it. Otherwise: "'discontinue' takes the continuation of the
+handler method it is written in, and 'k' is not one here." at the call (a non-name argument: "…, by its name."). In
+`typecheck.ml` the continuation parameter's `Ast.param` record is noted (`note_continuation_param`) wherever a handler's
+methods are made — `handler_record` (inline handlers in the walk), `handle_block` (outside the walk), `note_continuation`
+for an `impl EffectHandler<E, R>` method (walk and non-walk impl checks) — the last parameter of a `@ctl`, non-`@abort`
+operation's method. `bind_param` marks the scheme bound for such a parameter (generic lambdas, keyed walk decls, impl
+methods, `handle_block`), and the check compares `lookup env k` with those schemes physically, so shadowing and a
+parameter it was passed on as both end it. Skipped while `!recording` (a meta block asking about code, i.e. the
+transform reading the arm): that code is rebuilt from quoted values, so the parameter records are new; the final check
+of what the transform generates still catches it. The run-time native stays as a backstop. Fixture
+`effects/discontinue/errors/outside_handler` (the `give_up` example); a lambda inside the arm was already covered by
+`effects/discontinue/discontinue` (`later.push(() => { discontinue(resume); })`). Gap: a named handler type's
+`discontinue(resume)` is accepted statically (as asked) but still fails at run time, since the transform only rewrites
+inline handlers' records (`__tx_discontinuing`).
+
+I341. **2026-11-24: a plain operation's arm that takes control is rejected again, as a permanent rule.** In the walk an
+inline handler's lambda for a plain operation is noted in `handler_record` (`plain_arms`); after the generic `Lambda`
+case checks it, a `controlling_row` of its own row (not the record's, which I325 read) is an error: "A handler's 'log'
+performs 'Stop', which takes control; 'log' is a plain operation, so its handler must return. Mark it `@ctl` if it should
+take control." reported at the arm's span, which is the `run` holding it (`[13:5]`), as before. `handle_block` (outside the
+walk) uses the same message. A helper the arm calls that performs `Stop` is caught too; a lambda in the arm that performs
+it is not (its row is its own, as in Precheck). `effects/errors/handler_method_takes_control` moved from `known_unsound`
+back to the error list, `.err` reworded.
+
+I342. **2026-11-24 (user: "accept and add the ambiguity error"): a bare name two declared effect traits share is an
+error.** `operation_owners` lists every declared effect trait with an operation of the name; where nothing else binds the
+name and two or more do, the checker reports "Ambiguous operation 'log': Journal.log or Log.log." at the use (traits
+sorted), as the loader does for imported and same-file traits. One owner still resolves (`bare_operation`). Fixture
+`meta/02_gen/errors/ambiguous_generated_operation` (two generated traits with `log`).
+
+I343. **2026-11-24 (user: "yes fix it"): a value becomes a trait object only if each method fits what the trait wrote.**
+A call through a trait object's table arranges handlers for the row the trait wrote and nothing more, so where a value
+is made into one (the `Object` slots in typecheck.ml), each slot's method's inferred row must hold only labels the trait's
+method wrote; a row parameter there lets anything through. `var s: Speaker = Cat;`, with `Cat`'s `speak` performing `Ask`
+and `Speaker.speak` writing none, is "Cat cannot become a 'Speaker': its 'speak' performs 'Ask', which Speaker.speak does
+not allow." at `Cat`. The check is at the coercion, not on every impl: a named handler's methods, a static or generic call
+(its instance's real row reaches the caller) and operator traits are sound already, and checking every impl rejected
+eleven fixtures of those kinds. `core/traits/errors/impl_row_inferred` moved from `known_unsound` (now empty) to the
+error list.
+
+I344. **2026-11-24 (replaces I303's shared-name handling): each instance's local functions have names of their own.** A
+local function's `walk_decl` now carries `wd_owner`, the name of the instance being checked when it was declared
+(`Typecheck.checking_instance`, set and restored by `check_instance`); `instance_base` (`metaprocess.ml`) names its
+instances `<owner>#<name>`, then `#<n>` per key as before: `twice#0#cx11#loop` and `twice#1#cx39#loop`, or
+`quadruple#0#twice#0`. A local in code no instance checks (a root `run` body, a meta block) has no owner and keeps its own
+name; those are walked once. Every reference already went through the instance's name, so nothing in the body needed
+rewriting, and `renamed_locals`/`rename_local_types` (types) are unchanged. Removed: `by_name` holding several instances
+under one name (now `Hashtbl.replace`, and `reached`/`pruned` follow the one instance), and the inliner's "it has more
+than one instance under this name", whose only cause this was. Instrumenting `made` and `lift` over every `tests/**/*.cx`
+found no name added twice, so nothing keeps `find_all`. `declared_at` (the transform's `instance_of`, which keys
+`remembered`) uses the owner-prefixed name too, so two owners' locals at one key no longer share a remembered conversion.
+`declof_shown`/`typed_fn` and `declof` look up declarations by their written name and key, not instances, and are
+unchanged. New fixture `core/functions/inline/local_of_same_name` (an `inline fn twice` and a local `fn twice` in another
+function; before: "it has more than one instance under this name" at the top-level call). `effects/loop_copy_two_keys`
+still passes.
+
+I345. **2026-11-24 (user: "anything can use files and the network … not something we should protect against"; replaces
+I318): every meta block runs under one effect-driven meta root, wherever it is written.** `__meta_root<E>(main: () -> <E>
+Unit)` (`stdlib/prelude.cx`) is an `inline` instance keyed by the block's row, as `__root<E>` is (I321): its meta block
+reads `__effects_of(E)` and generates a run with the handlers of exactly the system effects the block performs, calling
+`block_on` (and handling `Time`) only for `Async`. It never handles `Exit`: `exit` in a meta block stays "Unhandled effect
+'Exit'", as before. Both roots now share three plain helpers: `__performs`, `__wanted` (the labels to handle) and
+`__system_run` (the quoted run of every system handler, kept to the wanted clauses); `__root` adds only its `ended`/
+`__exit` around it. Removed: `__meta_root_io`, `Ast.meta_io_root_function`, the walker's `meta_io_root` field and the
+`~io` argument of `meta_stmt`/`run_meta` (the position-based choice). The cycle the split avoided: a meta block in what
+the meta root's own meta block reaches runs under the meta root, so the root's block must reach no meta block. `str` has
+one, so `__named`, `__handled_name`, `__performs` and `__wanted` read a name with the builtin `__display` (what `Name`'s
+`Display` impl calls) instead of `str`; noted at `__performs`. A walker flag making everything the root's block reaches
+run bare was tried and not needed once the root reached no `str`, so it was dropped. New fixture
+`stdlib/os/meta_files_in_function` (a meta block in a function body writes, reads and removes a file at compile time and
+returns what it read); before: "Unhandled effect 'Dirs'" at the meta block. Checked by hand: `sleep` in a function-body
+meta block runs. Results: `fixtures.py` 936/936; `dune test --force` 1680/1680; `dune test cx` 131/131. Timing (median
+of 7, compile ms): `hello` 41.7 → 42.6 (noise), `stdlib/os/meta_environment` 180.2 → 131.2 (the top-level block no longer
+reaches the whole I/O library, only `Fs`/`Dirs`/`Env`/`Time`'s handlers), `meta_files_in_function` 130.0.
+
+I346. **2026-11-24 (I320c: "the compiler doesn't know CPS is a thing"): the transform declares the shapes it builds, and
+the checker reads them.** `stdlib/core/Transform.cx` declares two functions the checker reads (`Core.handed`,
+`Core.handed_method`; hoisting a top-level `fn` of either name records its scheme, parameters and body in
+`Typecheck.shapes`):
+`fn __tx_shape<R, A, K, U>(value: R, k: (R) -> <K> A, u: ((Unit) -> <U> A, Int) -> <U> A): A { return k(value); }` and
+`fn __tx_method_shape<A, P>(value: A, u: ((Unit) -> <P> A, Int) -> <P> A): <P> A`. A shape is read generically
+(`handed_params`): instantiated (every variable and row its own per use, since a hoisted scheme quantifies no rows),
+its first parameter unified with what the item returns as its type shows, its result with what a call answers, its row
+with the item's row; its other parameters are what the item is handed. `__tx_shape`'s body is also the body of a function
+value whose type takes control though nothing in it splits (`wrapped`, which puts the value's result for `value`; only a
+call of parameters is accepted there). Markers: `cps#made` became `handed#made` (`Ast.handed_marker`, library
+`handed_marker()`), and a new `method#made` (`Ast.handed_method_marker`, `handed_method_marker()`) marks the handler
+methods `__tx_dropping` makes (the run's own `@ctl`/`@abort` arms handed `u`).
+- **Removed from the compiler:** `Typecheck.unwinder`; the literal `+ 2` in `cps_shape`, the dyn-call through a table,
+  `cps_lambda`'s parameter split and both counts in `verify.ml` (each now `handed_count Core.handed`, the shape's
+  parameters less `value`); `cps_call`'s and the dyn call's `k`/`u` types; `handler_type`'s appended unwinder (now the
+  method shape's parameters at the method's answer and row); `wrapped`'s own `k(value)` body; `run_value`'s "one
+  parameter longer" (a field whose lambda carries `method#made` is the method's type and the method shape's parameters;
+  any other must match exactly); `bound_value`'s "one shorter", "one longer" and "longer still" cases (a named handler's
+  record of methods as its operations show them is read against `handler_shown`, the same record before the method
+  shape, kept beside `handler_values` by `handler_types`). Renamed: `is_cps` → `is_handed`, `cps_shape`/`cps_call`/
+  `cps_lambda` → `handed_shape`/`handed_call`/`handed_lambda`, the context's `cps_answer` → `handed_answer`.
+- **What remains, and why:** a function value whose type takes control is handed one handler per effect in its row that
+  takes control, before the shape's parameters (`controlling`, `handler_param`, `handled_by`): handlers as values are the
+  checker's own model (evidence, bound runs, `param_binding`), not the transform's. A handler method for a `@ctl`
+  operation is written taking its continuation last and an `@abort` one is not (`handler_types`, `handler_record`,
+  `handler_signature`, I340's `discontinue` check): that is the source language. `plain#made` (takes no evidence) stays.
+  The counts `ps + handlers + handed_count` remain, as arithmetic over the declaration. `eta`, `controlled_slot` and the
+  named handler's forwarding record are unchanged. Grep of `bootstrap/lib/*.ml`: no `unwinder`, no `+ 2`/`- 2` over
+  parameters, no `cps` name; `inline.ml` still says "its body is rewritten into continuations" in a refusal message.
+- **Declared rows (review after):** `cps_lambda` declared only `k`'s row; `handed_lambda` declares every row of the
+  shape's parameters not already in what the lambda returns or answers, so `u`'s row is declared too. All fixtures pass
+  either way; the rule is the simpler one, and needs no field of the shape to be told apart.
+- **Settled leftovers in `wrapped` (review after):** the shape's answer and rows, which nothing there fixes, are settled
+  as `Unit` and closed rows in the annotations, as the old body annotated `k` (`(R) -> Unit`, pure); Verify rejects a
+  generic annotation otherwise.
+- **Checked:** `--dump-code` of every fixture (936), with `#N` suffixes renumbered and `cps#made` read as `handed#made`,
+  is identical to the tree before the change, output and diagnostics included. `fixtures.py` 936/936; `dune test --force`
+  1680/1680; `dune test cx` 131/131. Timing (`timing.py -n 9`, compile · run · total ms, alternating with a copy of the
+  tree before): `hello` 34.3/33.6 · 0.0 · 34.4/33.7 → 34.0/33.9 · 0.0 · 34.0/33.9; `working_example` 64.9/63.8 · 0.0 ·
+  65.0/63.9 → 65.5/64.8 · 0.0 · 65.6/64.9 (about 1 ms, one instantiated shape per handed lambda, call and handler type).
+
+Reviews of the 2026-11-23 design-session items (sections of the review note named I320a … I330c):
+- I320a (a panic runs no `defer`s): REVIEWED (2026-11-24): accepted (Zig behaviour).
+- I320b (`discontinue` only in the handler's own body): RESOLVED (2026-11-24) by I340: a compile error at the call.
+- I320c (the compiler still knows the `u` convention): REVIEWED (2026-11-24): changed — the transform declares its shapes and the checker reads them (I346, built).
+
+I347. **2026-11-24 (user: "yes but no underscore to keep it like the others"): `effects_of` is public.** `effects_of(E)` (the
+loader turns it into `__effects_of`, as it does `implements`) gives the labels a row parameter of the function it is
+written in stands for, as a `List<Name>`, inside and outside meta blocks, decided per instance; `prelude.cx`'s roots use
+it. Outside a function with that row parameter it is "'effects_of' takes a row parameter of the function it is written
+in, as in `fn f<E>(g: () -> <E> Unit)`." Fixture `meta/effects_of/at_runtime` (counts 1, 2 and 0 effects).
+
+I348. **2026-11-24 (user: an uncaught failure reports the position of the `throw`, for `@abort` operations only): an
+`@abort` method is handed where its call was written.** `stdlib/core/Transform.cx` declares a third shape,
+`fn __tx_abort_shape<A, P>(value: A, at: Span, u: ((Unit) -> <P> A, Int) -> <P> A): <P> A`; `__tx_method_shape` is now
+the `@ctl` one only, so ordinary and `@ctl` operations are unchanged. The checker reads it as it reads the others
+(`Core.handed_abort`, hoisted into `Typecheck.shapes`), choosing by the operation's kind (`method_shape`, which
+`handler_types` and `run_value` use; `run_value` finds the operation through a new `handler_labels`, handler → effect).
+- **How the position travels:** `__tx_split_call` hands a call of an `@abort` operation `__span_here()` carrying the
+  call's own span (`__tx_written_at`) before `u`: a constant, nothing captured. Every maker of an `@abort` method takes
+  and forwards it: `__tx_dropping` (a run's own arm), `__tx_prompt_method` (typed `Span`, since that record is open),
+  `__tx_wrapped` and `__tx_past_run`.
+- **What an `@abort` arm sees:** nothing new unless it asks. The builtin `aborted_at(): Span`, written in an `@abort`
+  arm's body (a function value made in it included), is made the handed position by the transform (`__tx_placed`), as
+  `discontinue` is recognised by name. Anywhere else it is a run-time error, "Only the method of an '@abort' operation
+  knows where it was called." (review after: not a compile error, which would mean teaching the checker the name as
+  I340 did `discontinue`; and a named handler's impl method, `type Quit impl EffectHandler<Stop, Int>`, is reached only
+  on the prompt path, so elsewhere it is that error too.) Handler syntax is unchanged.
+- **Reporting:** a new builtin `panic_at(at: Span, message: String)` panics at `at` (at the call when `at` is nowhere),
+  and `prelude.cx`'s `__throwing` writes `panic_at(aborted_at(), "uncaught failure: " + str(e))`. The example
+  `fn load(): <Throw<String>> Int { return throw("missing config"); } print(load());` now reports
+  `uncaught failure: missing config` at `ex.cx:2:41`, underlining `throw`.
+- **Library throws (review after):** `tests/stdlib/async/uncaught` now points at `stdlib/async/Task.cx:294`, the scope's
+  `throw(failure[0])` that rethrows its task's failure, not at the task's `throw`; its `.rt` stays message-only. Carrying
+  the first position through would mean the scope keeping `aborted_at()` beside the failure and an operation to rethrow
+  at a position.
+- **Fixtures:** `core/top_level/uncaught.rt` → `[4:18] …`, `core/top_level/uncaught_structure.rt` → `[5:39] …`; new
+  `core/top_level/uncaught_at_throw` (`[2:41] uncaught failure: missing config`) and `effects/abort/aborted_at` (a
+  run's own arm, an arm across a bound run, through a function value in the arm, and a run's own arm on the prompt
+  path). `cx/test/library/expected.json` gains the two builtins. `effects/root/root_failure` (a user-written `@ctl`
+  root) is unchanged.
+- **Checked:** `fixtures.py` 938/938; `dune test --force` 1685/1685; `dune test cx` 131/131. Timing (`timing.py -n 9`,
+  compile · run · total ms): `hello` 36.2 · 0.0 · 36.2 → 34.6 · 0.0 · 34.6 (noise).
+- I325b (fixtures changed for checking only reached code): REVIEWED (2026-11-24): accepted.
+- I325c (handler method reaching an outer `@ctl`): RESOLVED (2026-11-24) by I341: a compile error again.
+- I325d (the same error is reported once): REVIEWED (2026-11-24): accepted.
+- I326a (a first call's key names every handler): REVIEWED (2026-11-24): accepted.
+- I326b (the interpreter drops extra evidence): REVIEWED (2026-11-24): changed — one rule (a function value whose type performs effects takes evidence, made continuations included) and strict arity in the interpreter (I349, being built). Blocked 2026-11-24: the uniform rule cannot hold for continuations made in shared copies. Decided 2026-11-24 (user: "a method call fails if it has the wrong number of args"; "yes build it"): a continuation takes exactly its value and closes over its handlers; one that escapes as an ordinary function value is wrapped once where it escapes; then strict arity (I349, being built).
+  - Paused 2026-11-24, reverted: patch at scratch/arity/continuations.patch (full files in arity/continuations/, pre-edit copies in arity/orig/). Neutral builtin `__exact(f)` (call hands only the written arguments; processed strips it), Transform.cx `__tx_call` exact by default + `__tx_ordinary_call`, arm rewrite `__tx_resumed_by` (calls of `resume` exact, escapes wrapped `(x) => resume(x)`), Verify accepts no-evidence counts. With strict arity on: 933/938 fixtures; left: effects/named_handler_generic, effects/handler/in_type (exact handler-method call hides `handler_call`), stdlib/async/failure, stdlib/async/cancel_defers, types/expected/written_key (named fn stored at a type that performs). No escaping fixture yet; I350 not started.
+- I326c (one instance per handler): REVIEWED (2026-11-24): accepted — a meta block runs once per handler key.
+- I327a (the plain marker means "takes no evidence"): REVIEWED (2026-11-24): changed — a separate marker for "takes no evidence" (I350, queued after I349).
+- I327b (a recursive function keeps its evidence): REVIEWED (2026-11-24): changed — user: "that is a valid method written as-is. The issue is that the method is getting generated that way… in cases where the handler is stateless cps does not wrap the handler." A function whose calls all go direct to stateless handlers takes no evidence, its own recursive calls included.
+
+I351. **2026-11-24 (I327b, user: "in cases where the handler is stateless cps does not wrap the handler"): a recursive
+function's own evidence hand-off does not keep its parameter.** Deciding whether a function takes evidence
+(`reads_own_evidence` in typecheck.ml) ignores a call of the function itself whose last argument is its `ev#h`;
+`exact_stmt` then drops that argument from the self-calls. `count` (calls `log` direct, recurses) processes to
+`fn count#0(n)` / `count#0((n - 1))` / `count#0(2)`. Review after: only direct self-recursion; a mutually recursive
+pair that only forwards `ev#h` between its members still keeps it (needs a fixed point over the group). No fixture
+pins processed code (the suite compares output only).

@@ -1,7 +1,4 @@
-// The condition is re-evaluated every iteration, so the operation in it is
-// performed every iteration too — hoisting it out of the loop would be a
-// different program, and hoisting it into the body is the same one.
-effect Ask { ctl next(): Int; }
+trait Ask { @ctl fn next(): Int; }
 
 var count = 3;
 
@@ -11,12 +8,12 @@ fn drain(): <Ask, Console> Unit {
     }
 }
 
-run {
+run<Unit> {
     drain();
-} handle Ask {
-    ctl next() {
+} handle<Ask> {
+    fn next(resume) {
         count = count - 1;
-        resume count;
+        resume(count);
         print("h");
     }
 }

@@ -1,8 +1,8 @@
-effect Log {
+trait Log {
     fn emit(msg: String): Unit;
 }
 
-effect Ask {
+trait Ask {
     fn base(): Int;
 }
 
@@ -32,11 +32,11 @@ fn shifted(x: Int): <Ask, Log> Int {
 
 show(map([1, 2, 3], double));
 
-run {
+run<Unit> {
     show(map([1, 2, 3], noted));
     show(map([1, 2, 3], shifted));
-} handle Log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
-} handle Ask {
+} handle<Ask> {
     fn base() { return 10; }
 }

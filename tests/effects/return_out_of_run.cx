@@ -1,12 +1,9 @@
-// Two resumptions, and only the second returns: the first falls through the
-// block and hands control back to the arm, so `return 7` below is never
-// reached and the answer is the one the second resumption carried out.
-effect Logic { ctl choose(): Int; }
+trait Logic { @ctl fn choose(): Int; }
 fn pick(): Int {
-    run {
+    run<Unit> {
         var n = choose();
         if (n == 2) { return n * 10; }
-    } handle Logic { ctl choose() { resume 1; resume 2; } }
+    } handle<Logic> { fn choose(resume) { resume(1); resume(2); } }
     return 7;
 }
 print(pick());

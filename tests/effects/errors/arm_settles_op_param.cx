@@ -1,5 +1,5 @@
-effect Async {
-    ctl suspend<T>(register: ((T) -> Unit) -> Unit): T;
+trait Async {
+    @ctl fn suspend<T>(register: ((T) -> Unit) -> Unit): T;
 }
 
 var ready: List<() -> Unit> = [];
@@ -11,8 +11,8 @@ fn main(): <Async, Console> Unit {
     print("got " + word);
 }
 
-run {
+run<Unit> {
     main();
-} handle Async {
-    ctl suspend(register) { register((value) => { var n = value + 0; resume value; }); }
+} handle<Async> {
+    fn suspend(register, resume) { register((value) => { var n = value + 0; }); }
 }

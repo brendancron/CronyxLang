@@ -14,29 +14,29 @@
  * `std/net/Tcp` and datagrams in `std/net/Udp`.
  */
 
-import { Async } from "../async/Task";
+import { Async, when_ready } from "../async/Task";
 import { Throw, Result } from "../core/Error";
 import { IoError } from "../io/Io";
 import { TcpStream, TcpListener } from "Tcp";
 import { UdpSocket } from "Udp";
 
 /** Reaching the network. */
-effect Net {
+trait Net {
     /**
      * A connection to the host, or why there is none. A failure is a value
      * here so it reaches the caller: `tcp_connect` throws it where it was
      * asked.
      */
-    ctl connect(host: String, port: Int): Result<TcpStream, IoError>;
+    fn connect(host: String, port: Int): Result<TcpStream, IoError>;
 
     /** Listening at the address, or why it cannot. Port 0 lets the system choose. */
-    ctl listen(host: String, port: Int): Result<TcpListener, IoError>;
+    fn listen(host: String, port: Int): Result<TcpListener, IoError>;
 
     /** A socket for datagrams at the address, or why there is none. Port 0 lets the system choose. */
-    ctl bind(host: String, port: Int): Result<UdpSocket, IoError>;
+    fn bind(host: String, port: Int): Result<UdpSocket, IoError>;
 
     /** The addresses the name stands for. */
-    ctl lookup(host: String): Result<List<String>, IoError>;
+    fn lookup(host: String): Result<List<String>, IoError>;
 }
 
 /** The addresses the name stands for, in the order the system gave them. */
@@ -68,16 +68,16 @@ fn __failure(status: Int, address: String, message: String): IoError {
 // Parks the task until the scheduler sees the socket ready. The watch is
 // cancelled however this is left, so a task unwound while waiting leaves the
 // scheduler nothing to watch for it.
-fn __ready(socket: Int, writing: Bool) {
-    var wake: Option<(Unit) -> Unit> = Option.None;
+fn __ready(socket: Int, writing: Bool): <Async> Unit {
+    var wake: Option<() -> Unit> = Option.None;
     var cancel = when_ready(socket, writing, () => {
         match wake {
-            Option.Some(it) => { it(()); }
+            Option.Some(it) => { it(); }
             Option.None => {}
         }
     });
     defer { cancel(); }
-    suspend { wake = Option.Some(it); };
+    park((it: () -> Unit) => { wake = Option.Some(it); });
 }
 
 fn __where(host: String, port: Int): String { return host + ":" + str(port); }

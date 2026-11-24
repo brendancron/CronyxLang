@@ -1,1 +1,0 @@
-[3:1] This handler settles 'T' at Int, but 'throw' is handled once for every type its call sites use.

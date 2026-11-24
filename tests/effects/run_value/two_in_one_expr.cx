@@ -1,6 +1,8 @@
-effect Ask { ctl ask(): Int; }
+trait Ask {
+    @ctl fn ask(): Int;
+}
 
 fn probe(): <Ask> Int { return ask(); }
 
-print(run { probe() } handle Ask { ctl ask() { resume 5; } }
-    + run { probe() } handle Ask { ctl ask() { resume 6; } });
+print(run<Int> { probe() } handle<Ask> { fn ask(resume) { return resume(5); } }
+    + run<Int> { probe() } handle<Ask> { fn ask(resume) { return resume(6); } });

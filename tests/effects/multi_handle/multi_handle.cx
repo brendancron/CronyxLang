@@ -1,9 +1,9 @@
-effect Logger {
+trait Logger {
     fn log(msg: String): Unit;
 }
 
-effect Counter {
-    ctl tick(): Unit;
+trait Counter {
+    @ctl fn tick(): Unit;
 }
 
 fn greet(name: String) {
@@ -12,16 +12,16 @@ fn greet(name: String) {
     log("Bye, " + name);
 }
 
-run {
+run<Unit> {
     greet("Alice");
     greet("Bob");
-} handle Logger {
+} handle<Logger> {
     fn log(msg) {
         print("[LOG] " + msg);
     }
-} handle Counter {
-    ctl tick() {
+} handle<Counter> {
+    fn tick(resume) {
         print("[TICK]");
-        resume;
+        resume(());
     }
 }

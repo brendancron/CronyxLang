@@ -14,14 +14,22 @@
  *
  * A branch holding a split ends by calling what follows it, and a loop holding
  * one is a local function calling itself, so `break` and `continue` are calls
- * too. A `defer` is run by every way out of its scope, the continuations' among
- * them: each continuation first asks whether it was resumed with the
- * discontinue signal, and if so runs the cleanups in scope and hands the signal
- * on. An arm that never names its continuation discontinues it before each
- * way out of the arm. A `return` that leaves the function the run stands in
- * leaves its value in a flag and answers the signal in the run's place; each
- * arm stops once its continuation comes back with the flag set, and the value
- * is returned once the run is done.
+ * too. Beside its continuation, each call that takes control is handed what
+ * unwinds it: a function that runs the cleanups between the call and the
+ * handler, innermost first, then what it is handed to carry on with. A scope
+ * holding a `defer` that a split follows makes its own, running the `defer`
+ * and then the one around it; any other code hands on the one it was given, so
+ * a frame with nothing to clean up asks nothing. A run's own bounds what its
+ * handlers unwind: it carries on at once, unless told the handler stands
+ * further out. Every other way out of a scope runs its `defer`s before it
+ * leaves. An `@abort` method is handed only where its call was written, which
+ * `aborted_at()` in it gives, and what unwinds that call, and unwinds before
+ * its body runs; a `@ctl` method unwinds only when it writes
+ * `discontinue(resume)`, and one that never resumes leaves its continuation as
+ * it is. A `return` that leaves the function the run stands in leaves its
+ * value in a flag and leaves the run unanswered; each arm stops once its
+ * continuation comes back with the flag set, and the value is returned once
+ * the run is done.
  *
  * A run inside the region comes already transformed, as a bound run. One
  * whose code takes control of an effect a run around it handles is made a
@@ -32,8 +40,8 @@
 
 import {
     Expr, ExprKind, Stmt, StmtKind, Param, Signature, StaticParam, ValuedBlock, Decl, DeclKind, FnDecl,
-    FieldInit, Args, ValuedArm, MatchArm, TypeExpr, TypeKind, Applied, BinOp, UnOp, HandlerClause,
-    Operation, operation_of, operation_in, names_function, processed_row, open_type, open_row, plain_marker, cps_marker, handler_param, controls, operations, method_row, bound_arguments, arms_row,
+    FieldInit, Args, ValuedArm, MatchArm, Pattern, Bindings, TypeExpr, TypeKind, Applied, BinOp, UnOp, HandlerClause,
+    Operation, operation_of, operation_in, names_function, processed_row, open_type, open_row, plain_marker, handed_marker, handed_method_marker, handler_param, controls, operations, method_row, field_type, bound_arguments, arms_row,
     processed, processed_fn, fresh, declare, declof_call, named_method, instance_of, remembered, remember
 } from "std/compiler/Ast";
 
@@ -95,7 +103,47 @@ type Cx {
      */
     direct: Bool,
     /** In a method of a run that takes control outward, its continuation: a call to it hands on this run's handlers too. */
-    resumes: List<Name>
+    resumes: List<Name>,
+    /** The names the code being split binds, which mean what they are bound to there and not a function of the program's. */
+    locals: List<Name>,
+    /**
+     * What unwinds the code being split: called with what to do next and how
+     * many runs out the handler stands, it runs the cleanups in scope,
+     * innermost first, up to that run, then what it was given.
+     */
+    unwind: Expr,
+    /** For each of `resumes`, what unwinds it. */
+    unwinds: List<Name>
+}
+
+/**
+ * What a function value this makes is handed after its own parameters and the
+ * handler of each effect it takes control of: the parameters after `value`,
+ * which stands for what its type says it returns. A call to it answers what
+ * this does. The checker reads this declaration's type for that shape, and
+ * its body for a function value whose type takes control though nothing in it
+ * splits, `value` being what that returns, so that body may only call its
+ * parameters.
+ */
+fn __tx_shape<R, A, K, U>(value: R, k: (R) -> <K> A, u: ((Unit) -> <U> A, Int) -> <U> A): A {
+    return k(value);
+}
+
+/**
+ * What a handler's method this makes for a `@ctl` operation is
+ * handed after the parameters the operation shows, `value` standing for what
+ * the method answers and `P` for what it performs. The checker reads only its type.
+ */
+fn __tx_method_shape<A, P>(value: A, u: ((Unit) -> <P> A, Int) -> <P> A): <P> A {
+    return value;
+}
+
+/**
+ * The same for an operation that never resumes: what it is handed is where
+ * its call was written, for `aborted_at()` in the method to give.
+ */
+fn __tx_abort_shape<A, P>(value: A, at: Span, u: ((Unit) -> <P> A, Int) -> <P> A): <P> A {
+    return value;
 }
 
 /** The run's body, split at each call that takes control, in the run `shell` holds the handlers of. */
@@ -117,20 +165,21 @@ fn effect_transform(body: List<Stmt>, value: Option<Expr>, bound: List<Name>, sh
     var applied = __tx_applied(bound, shell);
     var cx = Cx {
         bound: applied, handlers: __tx_run_handlers(shell), answer: answer, ret: Option.None, breaks: Option.None, continues: Option.None,
-        looped: 0, cleanups: [], top: true, held: [], row: __tx_continuation_row(applied, shell), leave: leave, inner: [], direct: false, resumes: []
+        looped: 0, cleanups: [], top: true, held: [], row: __tx_continuation_row(applied, shell), leave: leave, inner: [], direct: false, resumes: [], locals: __tx_bound_names([], typed.stmts),
+        unwind: __tx_run_unwinder(Option.None), unwinds: []
     };
     var transformed = __tx_expr_of(__tx_block(cx, typed.stmts, 0, (c: Cx) => { return __tx_finish(c, 0, typed.value); }));
     match shell.kind {
         ExprKind.Run(ty, _, clauses) => {
             var run_body = ValuedBlock { stmts: [], value: Option.Some(transformed) };
-            var handlers = __tx_discontinuing(clauses);
+            var handlers = __tx_discontinuing(clauses, answer);
             match crossing {
                 Option.Some(at) => {
                     match leave {
                         Option.Some(left) => {
                             var r = __tx_left_run(left, at, transformed);
                             run_body = r.body;
-                            handlers = __tx_cons_clause(r.flag, __tx_stopping(handlers, left));
+                            handlers = __tx_cons_clause(r.flag, __tx_cons_clause(r.set, __tx_stopping(handlers, left, false)));
                         }
                         _ => {}
                     }
@@ -177,10 +226,12 @@ fn effect_lambda(lambda: Expr, taken: List<Name>): Expr {
                         bound.push(found);
                     }
                     var k = fresh("k");
+                    var u = fresh("u");
                     var cx = Cx {
                         bound: bound, handlers: __tx_own_handlers(labels), answer: Option.None, ret: Option.Some(k),
                         breaks: Option.None, continues: Option.None, looped: 0, cleanups: [], top: false, held: [], row: [],
-                        leave: Option.None, inner: [], direct: true, resumes: []
+                        leave: Option.None, inner: [], direct: true, resumes: [], locals: __tx_bound_names(params, body),
+                        unwind: __tx_var(u), unwinds: []
                     };
                     var finish = (c: Cx) => {
                         return __tx_unwind(c, 0, () => { return __tx_tail([], __tx_call(Expr.of(ExprKind.Var(k)), [Expr.of(ExprKind.Unit)])); });
@@ -190,6 +241,7 @@ fn effect_lambda(lambda: Expr, taken: List<Name>): Expr {
                     for (p in params) { ps.push(p); }
                     for (n in labels) { ps.push(Param { name: handler_param(n), ty: Option.None, implicit: false }); }
                     ps.push(Param { name: k, ty: Option.None, implicit: false });
+                    ps.push(Param { name: u, ty: Option.None, implicit: false });
                     var written: List<Applied> = [];
                     for (a in bound) { written.push(a); }
                     for (a in __tx_open_row_of(l.ty)) {
@@ -200,7 +252,8 @@ fn effect_lambda(lambda: Expr, taken: List<Name>): Expr {
                     var sg = Signature {
                         ret: Option.None,
                         row: Option.Some(written),
-                        static_params: [StaticParam { name: cps_marker(), ty: Option.None, pack: false }]
+                        static_params: [StaticParam { name: handed_marker(), ty: Option.None, pack: false }],
+                        inline: false
                     };
                     return Expr { kind: ExprKind.Lambda(ps, sg, made), span: lambda.span, ty: Option.None };
                 }
@@ -279,22 +332,28 @@ fn __tx_prompt(typed: ValuedBlock, bound: List<Name>, shell: Expr, outward: List
         ExprKind.Run(ty, _, clauses) => {
             var answer = fresh("answer");
             var after = fresh("k");
+            var unwound = fresh("unwind");
+            var after_u = fresh("u");
             var outer = __tx_names_of(outward);
-            var made: List<Stmt> = [Stmt.of(StmtKind.Let(answer, Option.None, Option.Some(__tx_var(after))))];
+            var made: List<Stmt> = [
+                Stmt.of(StmtKind.Let(answer, Option.None, Option.Some(__tx_var(after)))),
+                Stmt.of(StmtKind.Let(unwound, Option.None, Option.Some(__tx_var(after_u))))
+            ];
             var handlers: List<Handing> = [];
-            var arms = __tx_discontinuing(clauses);
+            var arms = clauses;
             match crossing {
                 Option.Some(at) => {
                     match leave {
                         Option.Some(left) => {
-                            arms = __tx_cons_clause(__tx_left_run(left, at, Expr.of(ExprKind.Unit)).flag, __tx_stopping(arms, left));
+                            var flagged = __tx_left_run(left, at, Expr.of(ExprKind.Unit));
+                            arms = __tx_cons_clause(flagged.flag, __tx_cons_clause(flagged.set, __tx_stopping(arms, left, true)));
                         }
                         _ => {}
                     }
                 }
                 _ => {}
             }
-            for (m in __tx_prompt_methods(arms, bound, outward, answer, shell.span)) {
+            for (m in __tx_prompt_methods(arms, bound, outward, answer, unwound, shell.span)) {
                 made.push(m.decl);
                 handlers.push(Handing { label: m.label, handler: __tx_var(m.name) });
             }
@@ -304,7 +363,7 @@ fn __tx_prompt(typed: ValuedBlock, bound: List<Name>, shell: Expr, outward: List
                 for (b in bound) { if (b == l) { own = true; } }
                 if (!own) {
                     var w = fresh("hv");
-                    made.push(Stmt.of(StmtKind.Let(w, Option.Some(TypeExpr.of(TypeKind.Named(open_type()))), Option.Some(__tx_wrapped(l, answer)))));
+                    made.push(Stmt.of(StmtKind.Let(w, Option.Some(TypeExpr.of(TypeKind.Named(open_type()))), Option.Some(__tx_wrapped(l, answer, unwound)))));
                     handlers.push(Handing { label: l, handler: __tx_var(w) });
                 }
             }
@@ -312,7 +371,8 @@ fn __tx_prompt(typed: ValuedBlock, bound: List<Name>, shell: Expr, outward: List
             for (a in outward) { all.push(a); }
             var cx = Cx {
                 bound: all, handlers: handlers, answer: Option.None, ret: Option.Some(answer), breaks: Option.None, continues: Option.None,
-                looped: 0, cleanups: [], top: false, held: [], row: [], leave: leave, inner: [], direct: false, resumes: []
+                looped: 0, cleanups: [], top: false, held: [], row: [], leave: leave, inner: [], direct: false, resumes: [], locals: __tx_bound_names([], typed.stmts),
+                unwind: __tx_run_unwinder(Option.Some(__tx_var(unwound))), unwinds: []
             };
             var answered = __tx_var(answer);
             var finish = (c: Cx) => {
@@ -329,6 +389,7 @@ fn __tx_prompt(typed: ValuedBlock, bound: List<Name>, shell: Expr, outward: List
             var params: List<Param> = [];
             for (l in outer) { params.push(Param { name: handler_param(l), ty: Option.None, implicit: false }); }
             params.push(Param { name: after, ty: Option.None, implicit: false });
+            params.push(Param { name: after_u, ty: Option.None, implicit: false });
             var prompt = Expr.of(ExprKind.Lambda(params, __tx_made_sg(outward, true), made));
             var run_body = ValuedBlock { stmts: [], value: Option.Some(__tx_call(prompt, [])) };
             var kept = __tx_unmarked_clauses(clauses, bound);
@@ -338,7 +399,7 @@ fn __tx_prompt(typed: ValuedBlock, bound: List<Name>, shell: Expr, outward: List
                         Option.Some(left) => {
                             var r = __tx_left_run(left, at, __tx_call(prompt, []));
                             run_body = r.body;
-                            kept = __tx_cons_clause(r.flag, kept);
+                            kept = __tx_cons_clause(r.flag, __tx_cons_clause(r.set, kept));
                         }
                         _ => {}
                     }
@@ -418,9 +479,9 @@ fn __tx_made_sg(row: List<Applied>, plain: Bool): Signature {
     var written: List<Applied> = [];
     for (a in row) { written.push(a); }
     written.push(Applied { name: open_row(), args: [] });
-    var marks = [StaticParam { name: cps_marker(), ty: Option.None, pack: false }];
+    var marks = [StaticParam { name: handed_marker(), ty: Option.None, pack: false }];
     if (plain) { marks.push(StaticParam { name: plain_marker(), ty: Option.None, pack: false }); }
-    return Signature { ret: Option.None, row: Option.Some(written), static_params: marks };
+    return Signature { ret: Option.None, row: Option.Some(written), static_params: marks, inline: false };
 }
 
 /** Whether a bound run's body is a run made a function value taking control outward. */
@@ -456,7 +517,7 @@ fn __tx_is_prompt_call(v: Expr): Bool {
 }
 
 fn __tx_is_cps(sg: Signature): Bool {
-    for (p in sg.static_params) { if (p.name == cps_marker()) { return true; } }
+    for (p in sg.static_params) { if (p.name == handed_marker()) { return true; } }
     return false;
 }
 
@@ -474,25 +535,65 @@ fn __tx_args(names: List<Name>): List<Expr> {
     return out;
 }
 
-/** The outer handler of `label` as the run's code is handed it: each method that takes control puts `answer` back when it resumes. */
-fn __tx_wrapped(label: Name, answer: Name): Expr {
+/**
+ * The outer handler of `label` as the run's code is handed it: each method
+ * that takes control puts `answer` and `unwound` back when it resumes or
+ * unwinds, and unwinds past the run on the way to the handler.
+ */
+fn __tx_wrapped(label: Name, answer: Name, unwound: Name): Expr {
     var h = __tx_var(handler_param(label));
     var fields: List<FieldInit> = [];
     for (op in operations(label)) {
         var names: List<Name> = [];
         for (var i = 0; i < op.arity; i += 1) { names.push(fresh("a")); }
         var method = Expr.of(ExprKind.Field(h, op.name));
-        if (op.takes_control) {
+        if (op.takes_control && op.aborts) {
+            var at = fresh("at");
+            var u = fresh("u");
+            var saved_u = fresh("unwind");
+            var then = fresh("then");
+            var depth = fresh("d");
+            var unwinding = __tx_lambda([Param { name: then, ty: Option.None, implicit: false }, __tx_depth_param(depth)], [
+                Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(unwound, __tx_var(saved_u))))),
+                Stmt.of(StmtKind.Return(Option.Some(__tx_call(__tx_var(u), [__tx_var(then), __tx_deeper(depth)]))))
+            ]);
+            var ps = __tx_params(names);
+            ps.push(Param { name: at, ty: Option.None, implicit: false });
+            ps.push(Param { name: u, ty: Option.None, implicit: false });
+            var handed = __tx_snoc(__tx_snoc(__tx_args(names), __tx_var(at)), unwinding);
+            fields.push(FieldInit { name: op.name, value: __tx_lambda(ps, [
+                Stmt.of(StmtKind.Let(saved_u, Option.None, Option.Some(__tx_var(unwound)))),
+                Stmt.of(StmtKind.Return(Option.Some(__tx_call(method, handed))))
+            ]) });
+        } else if (op.takes_control) {
             var k = fresh("k");
+            var u = fresh("u");
             var saved = fresh("answer");
+            var saved_u = fresh("unwind");
             var x = fresh("x");
-            var put_back = Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(answer, __tx_var(saved)))));
-            var resumed = __tx_lambda(__tx_params([x]), [put_back, __tx_return_call(__tx_var(k), __tx_var(x))]);
+            var put_back = [
+                Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(answer, __tx_var(saved))))),
+                Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(unwound, __tx_var(saved_u)))))
+            ];
+            var resumed_body: List<Stmt> = [];
+            for (st in put_back) { resumed_body.push(st); }
+            resumed_body.push(__tx_return_call(__tx_var(k), __tx_var(x)));
+            var resumed = __tx_lambda(__tx_params([x]), resumed_body);
+            var then = fresh("then");
+            var depth = fresh("d");
+            var unwound_body: List<Stmt> = [];
+            for (st in put_back) { unwound_body.push(st); }
+            unwound_body.push(Stmt.of(StmtKind.Return(Option.Some(__tx_call(__tx_var(u), [__tx_var(then), __tx_deeper(depth)])))));
+            var unwinding = __tx_lambda([Param { name: then, ty: Option.None, implicit: false }, __tx_depth_param(depth)], unwound_body);
             var ps = __tx_params(names);
             ps.push(Param { name: k, ty: Option.None, implicit: false });
+            ps.push(Param { name: u, ty: Option.None, implicit: false });
+            var handed = __tx_snoc(__tx_args(names), resumed);
+            handed.push(unwinding);
             var body = [
                 Stmt.of(StmtKind.Let(saved, Option.None, Option.Some(__tx_var(answer)))),
-                Stmt.of(StmtKind.Return(Option.Some(__tx_call(method, __tx_snoc(__tx_args(names), resumed)))))
+                Stmt.of(StmtKind.Let(saved_u, Option.None, Option.Some(__tx_var(unwound)))),
+                Stmt.of(StmtKind.Return(Option.Some(__tx_call(method, handed))))
             ];
             fields.push(FieldInit { name: op.name, value: __tx_lambda(ps, body) });
         } else {
@@ -514,7 +615,7 @@ type PromptMethods {
  * methods made taking control outward. A method stands outside the run, so
  * the outer handlers it is handed are those around the run, unwrapped.
  */
-fn __tx_prompt_methods(clauses: List<HandlerClause>, bound: List<Name>, outward: List<Applied>, answer: Name, span: Span): List<PromptMethods> {
+fn __tx_prompt_methods(clauses: List<HandlerClause>, bound: List<Name>, outward: List<Applied>, answer: Name, unwound: Name, span: Span): List<PromptMethods> {
     var typed = processed(ValuedBlock { stmts: [], value: Option.Some(Expr.of(ExprKind.Run(Option.None, ValuedBlock { stmts: [], value: Option.None }, clauses))) });
     var checked = clauses;
     match typed.value {
@@ -542,9 +643,10 @@ fn __tx_prompt_methods(clauses: List<HandlerClause>, bound: List<Name>, outward:
                                             ExprKind.Record(fields) => {
                                                 if (own) {
                                                     var made: List<FieldInit> = [];
-                                                    for (f in fields) { made.push(FieldInit { name: f.name, value: __tx_prompt_method(label, handler, hv, f, outward, answer, span) }); }
+                                                    for (f in fields) { made.push(FieldInit { name: f.name, value: __tx_prompt_method(label, handler, hv, f, outward, answer, unwound, span) }); }
                                                     var name = fresh("hv");
-                                                    out.push(PromptMethods { label: label, name: name, decl: Stmt.of(StmtKind.Let(name, Option.None, Option.Some(Expr.of(ExprKind.Record(made))))) });
+                                                    var open = Option.Some(TypeExpr.of(TypeKind.Named(open_type())));
+                                                    out.push(PromptMethods { label: label, name: name, decl: Stmt.of(StmtKind.Let(name, open, Option.Some(Expr.of(ExprKind.Record(made))))) });
                                                 }
                                             }
                                             _ => {}
@@ -567,17 +669,22 @@ fn __tx_prompt_methods(clauses: List<HandlerClause>, bound: List<Name>, outward:
 
 /**
  * One method of the run's own handler. One that takes no control calls the
- * run's value. One that does reads where the run's answer goes on the way in
- * and answers through it, and calls its continuation as a function taking
- * control outward, which sets where the answer goes to what follows that call.
+ * run's value. One that does reads where the run's answer goes, and what
+ * unwinds past the run, on the way in and answers through it, and calls its
+ * continuation as a function taking control outward, which sets both to what
+ * follows that call. An `@abort` one unwinds to the run before its body runs.
  * A named handler's method is its impl's, made so as if it were written as
  * the arm: the record's own only calls the impl, which takes no such
  * continuation.
  */
-fn __tx_prompt_method(label: Name, handler: Name, hv: Name, f: FieldInit, outward: List<Applied>, answer: Name, span: Span): Expr {
+fn __tx_prompt_method(label: Name, handler: Name, hv: Name, f: FieldInit, outward: List<Applied>, answer: Name, unwound: Name, span: Span): Expr {
     var control = false;
+    var aborts = false;
     match operation_in(label, f.name) {
-        Option.Some(op) => { control = op.takes_control; }
+        Option.Some(op) => {
+            control = op.takes_control;
+            aborts = op.aborts;
+        }
         _ => {}
     }
     match f.value.kind {
@@ -602,36 +709,69 @@ fn __tx_prompt_method(label: Name, handler: Name, hv: Name, f: FieldInit, outwar
                     _ => { return compile_error(span, "The named handler of '" + str(label) + "' has no method '" + str(f.name) + "' to make taking control outward."); }
                 }
             }
-            var resume = params[params.len() - 1].name;
+            var own = params.len();
+            if (!aborts) { own = params.len() - 1; }
             var given = fresh("k");
+            var given_at = fresh("at");
+            var given_u = fresh("u");
             var entered = fresh("answer");
+            var entered_u = fresh("unwind");
             var outer = __tx_names_of(outward);
-            var x = fresh("x");
-            var then = fresh("k");
-            var cps_params = __tx_params([x]);
-            for (l in outer) { cps_params.push(Param { name: handler_param(l), ty: Option.None, implicit: false }); }
-            cps_params.push(Param { name: then, ty: Option.None, implicit: false });
-            var continuation = Expr.of(ExprKind.Lambda(cps_params, __tx_made_sg(outward, true), [
-                Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(answer, __tx_var(then))))),
-                __tx_return_call(__tx_var(given), __tx_var(x))
-            ]));
+            var made = [
+                Stmt.of(StmtKind.Let(entered, Option.None, Option.Some(__tx_var(answer)))),
+                Stmt.of(StmtKind.Let(entered_u, Option.None, Option.Some(__tx_var(unwound))))
+            ];
+            var resumes: List<Name> = [];
+            var unwinds: List<Name> = [];
+            if (!aborts) {
+                var resume = params[params.len() - 1].name;
+                var x = fresh("x");
+                var then = fresh("k");
+                var then_u = fresh("u");
+                var cps_params = __tx_params([x]);
+                for (l in outer) { cps_params.push(Param { name: handler_param(l), ty: Option.None, implicit: false }); }
+                cps_params.push(Param { name: then, ty: Option.None, implicit: false });
+                cps_params.push(Param { name: then_u, ty: Option.None, implicit: false });
+                var continuation = Expr.of(ExprKind.Lambda(cps_params, __tx_made_sg(outward, true), [
+                    Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(answer, __tx_var(then))))),
+                    Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(unwound, __tx_var(then_u))))),
+                    __tx_return_call(__tx_var(given), __tx_var(x))
+                ]));
+                made.push(Stmt.of(StmtKind.Let(resume, Option.None, Option.Some(continuation))));
+                resumes.push(resume);
+                unwinds.push(given_u);
+                // A function value made in the arm is split on its own, away
+                // from the arm, so its `discontinue` is rewritten here.
+                var closures: List<Stmt> = [];
+                for (st in body) { closures.push(__tx_discontinued_closures(st, resume, given_u)); }
+                body = closures;
+            }
             var handlers: List<Handing> = [];
             for (l in outer) { handlers.push(Handing { label: l, handler: __tx_var(handler_param(l)) }); }
             var cx = Cx {
                 bound: outward, handlers: handlers, answer: Option.None, ret: Option.Some(entered), breaks: Option.None, continues: Option.None,
-                looped: 0, cleanups: [], top: false, held: [], row: [], leave: Option.None, inner: [], direct: false, resumes: [resume]
+                looped: 0, cleanups: [], top: false, held: [], row: [], leave: Option.None, inner: [], direct: false, resumes: resumes, locals: __tx_bound_names(params, body),
+                unwind: __tx_var(entered_u), unwinds: unwinds
             };
             var finish = (c: Cx) => {
                 return __tx_unwind(c, 0, () => { return __tx_tail([], __tx_call(__tx_var(entered), [Expr.of(ExprKind.Unit)])); });
             };
-            var made = [
-                Stmt.of(StmtKind.Let(entered, Option.None, Option.Some(__tx_var(answer)))),
-                Stmt.of(StmtKind.Let(resume, Option.None, Option.Some(continuation)))
-            ];
-            for (st in __tx_body(__tx_block(cx, body, 0, finish))) { made.push(st); }
+            if (aborts) { body = __tx_placed(body, given_at); }
+            var split = __tx_body(__tx_block(cx, body, 0, finish));
+            if (aborts) {
+                // What the operation's call leaves unwinds first, up to the run, as an exception's cleanups do.
+                made.push(Stmt.of(StmtKind.Return(Option.Some(__tx_call(__tx_var(given_u), [__tx_unit_lambda(split), Expr.of(ExprKind.Int(0))])))));
+            } else {
+                for (st in split) { made.push(st); }
+            }
             var ps: List<Param> = [];
-            for (var i = 0; i < params.len() - 1; i += 1) { ps.push(__tx_typed_param(params[i], f.value.ty, i)); }
-            ps.push(Param { name: given, ty: Option.None, implicit: false });
+            for (var i = 0; i < own; i += 1) { ps.push(__tx_typed_param(params[i], f.value.ty, i)); }
+            if (aborts) {
+                ps.push(Param { name: given_at, ty: Option.Some(__tx_named("Span")), implicit: false });
+            } else {
+                ps.push(Param { name: given, ty: Option.None, implicit: false });
+            }
+            ps.push(Param { name: given_u, ty: Option.None, implicit: false });
             return __tx_lambda(ps, made);
         }
         _ => {}
@@ -679,6 +819,8 @@ fn __tx_resumes(cx: Cx, f: Expr): Bool {
 /** The flag a crossing `return` leaves its value in, and the run's body that returns it once the run is done. */
 type Left {
     flag: HandlerClause,
+    /** Whether a `return` has left its value in the flag. */
+    set: HandlerClause,
     body: ValuedBlock
 }
 
@@ -733,10 +875,9 @@ fn __tx_crossing_stmt(s: Stmt): Option<Stmt> {
 
 /**
  * The run's body once a `return` may leave through it: the transformed body's
- * answer is held, and what the flag holds, once it holds a value rather than
- * the discontinue signal it starts as, is returned from the function the run
- * stands in. A bound run's body is not a function of its own, so the `return`
- * there is that function's.
+ * answer is held, and what the flag holds, once a `return` has left a value in
+ * it, is returned from the function the run stands in. A bound run's body is
+ * not a function of its own, so the `return` there is that function's.
  */
 fn __tx_left_run(left: Name, crossing: Stmt, transformed: Expr): Left {
     var held: Option<TypeExpr> = Option.Some(__tx_named("Unit"));
@@ -749,38 +890,52 @@ fn __tx_left_run(left: Name, crossing: Stmt, transformed: Expr): Left {
         }
         _ => {}
     }
-    var decl = Stmt.of(StmtKind.Let(left, held, Option.Some(__tx_signal())));
+    var decl = Stmt.of(StmtKind.Let(left, held, Option.Some(__tx_unanswered())));
+    var set = __tx_set_flag(left);
+    var set_decl = Stmt.of(StmtKind.Let(set, Option.Some(__tx_named("Bool")), Option.Some(Expr.of(ExprKind.Bool(false)))));
     var answer = fresh("answer");
-    var leaving = Stmt.of(StmtKind.If(__tx_holds(left), __tx_block_stmt([Stmt.of(StmtKind.Return(Option.Some(Expr.of(ExprKind.Var(left)))))]), Option.None));
+    var leaving = Stmt.of(StmtKind.If(__tx_holds(left), __tx_block_stmt([Stmt.of(StmtKind.Return(Option.Some(__tx_var(left))))]), Option.None));
     var body = ValuedBlock {
         stmts: [Stmt.of(StmtKind.Let(answer, Option.None, Option.Some(transformed))), leaving],
         value: Option.Some(Expr.of(ExprKind.Var(answer)))
     };
-    return Left { flag: HandlerClause.Bound(left, left, Option.Some(decl)), body: body };
+    return Left { flag: HandlerClause.Bound(left, left, Option.Some(decl)), set: HandlerClause.Bound(set, set, Option.Some(set_decl)), body: body };
 }
 
-fn __tx_signal(): Expr { return __tx_call(Expr.of(ExprKind.Var("__discontinued".as_name())), []); }
+/** What stands for the run's answer once a `return` has left through it, which nothing reads. */
+fn __tx_unanswered(): Expr { return __tx_call(Expr.of(ExprKind.Var("__unanswered".as_name())), []); }
 
 /** Whether the flag holds what a `return` left in it. */
-fn __tx_holds(left: Name): Expr {
-    var test = __tx_call(Expr.of(ExprKind.Var("__is_discontinued".as_name())), [Expr.of(ExprKind.Var(left))]);
-    return Expr.of(ExprKind.Unary(UnOp.Not, test));
-}
+fn __tx_holds(left: Name): Expr { return __tx_var(__tx_set_flag(left)); }
 
-/** A crossing `return`: its value left in the flag, the run's `defer`s run, and the signal answered in the run's place. */
-fn __tx_leaving(cx: Cx, left: Name, v: Expr): Tail {
-    var set = Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(left, v))));
-    var signal = __tx_signal();
-    match cx.ret {
-        // A prompt answers through what follows the run, which tests the flag.
-        Option.Some(answer) => { signal = __tx_call(Expr.of(ExprKind.Var(answer)), [signal]); }
+/** The name of what says the flag is set, beside the flag. */
+fn __tx_set_flag(left: Name): Name {
+    match remembered([left]) {
+        Option.Some(set) => { return set; }
         _ => {}
     }
-    return __tx_prepend([set], __tx_unwind(cx, 0, () => { return __tx_tail([], signal); }));
+    var set = fresh("returned");
+    remember([left], set);
+    return set;
+}
+
+/** A crossing `return`: its value left in the flag, the run's `defer`s run, and the run left unanswered. */
+fn __tx_leaving(cx: Cx, left: Name, v: Expr): Tail {
+    var set = [
+        Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(left, v)))),
+        Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(__tx_set_flag(left), Expr.of(ExprKind.Bool(true))))))
+    ];
+    var none = __tx_unanswered();
+    match cx.ret {
+        // A prompt answers through what follows the run, which tests the flag.
+        Option.Some(answer) => { none = __tx_call(Expr.of(ExprKind.Var(answer)), [none]); }
+        _ => {}
+    }
+    return __tx_prepend(set, __tx_unwind(cx, 0, () => { return __tx_tail([], none); }));
 }
 
 /** The run's methods, each stopping once its continuation comes back with the flag set. */
-fn __tx_stopping(clauses: List<HandlerClause>, left: Name): List<HandlerClause> {
+fn __tx_stopping(clauses: List<HandlerClause>, left: Name, written: Bool): List<HandlerClause> {
     var out: List<HandlerClause> = [];
     for (c in clauses) {
         match c {
@@ -795,7 +950,7 @@ fn __tx_stopping(clauses: List<HandlerClause>, left: Name): List<HandlerClause> 
                                             ExprKind.Record(fields) => {
                                                 var methods: List<FieldInit> = [];
                                                 for (f in fields) {
-                                                    methods.push(FieldInit { name: f.name, value: __tx_stopping_method(label, f.name, f.value, left) });
+                                                    methods.push(FieldInit { name: f.name, value: __tx_stopping_method(label, f.name, f.value, left, written) });
                                                 }
                                                 var made = __tx_rebuilt(record, ExprKind.Record(methods));
                                                 out.push(HandlerClause.Bound(label, h, Option.Some(__tx_restmt(s, StmtKind.Let(hv, ty, Option.Some(made))))));
@@ -818,17 +973,20 @@ fn __tx_stopping(clauses: List<HandlerClause>, left: Name): List<HandlerClause> 
     return out;
 }
 
-fn __tx_stopping_method(label: Name, method: Name, m: Expr, left: Name): Expr {
+/** `written` when the method's continuation is still its last parameter, before what unwinds it is added. */
+fn __tx_stopping_method(label: Name, method: Name, m: Expr, left: Name, written: Bool): Expr {
     match operation_in(label, method) {
         Option.Some(op) => {
-            if (!op.takes_control) { return m; }
+            if (!op.takes_control || op.aborts) { return m; }
         }
         _ => { return m; }
     }
+    var last = 1;
+    if (!written) { last = 2; }
     match m.kind {
         ExprKind.Lambda(params, sg, body) => {
-            if (params.len() == 0) { return m; }
-            var k = params[params.len() - 1].name;
+            if (params.len() < last) { return m; }
+            var k = params[params.len() - last].name;
             return __tx_rebuilt(m, ExprKind.Lambda(params, sg, __tx_stopped(body, k, left)));
         }
         _ => { return m; }
@@ -862,7 +1020,7 @@ fn __tx_stopped(ss: List<Stmt>, k: Name, left: Name): List<Stmt> {
 }
 
 fn __tx_stop_test(left: Name): Stmt {
-    return Stmt.of(StmtKind.If(__tx_holds(left), __tx_block_stmt([Stmt.of(StmtKind.Return(Option.Some(__tx_signal())))]), Option.None));
+    return Stmt.of(StmtKind.If(__tx_holds(left), __tx_block_stmt([Stmt.of(StmtKind.Return(Option.Some(__tx_unanswered())))]), Option.None));
 }
 
 fn __tx_cons_clause(c: HandlerClause, cs: List<HandlerClause>): List<HandlerClause> {
@@ -1022,7 +1180,17 @@ fn __tx_same_effect(a: Applied, b: Applied): Bool {
 fn __tx_cx(cx: Cx, ret: Option<Name>, breaks: Option<Name>, continues: Option<Name>, looped: Int, cleanups: List<Stmt>): Cx {
     return Cx {
         bound: cx.bound, handlers: cx.handlers, answer: cx.answer, ret: ret, breaks: breaks, continues: continues,
-        looped: looped, cleanups: cleanups, top: false, held: cx.held, row: cx.row, leave: cx.leave, inner: cx.inner, direct: cx.direct, resumes: cx.resumes
+        looped: looped, cleanups: cleanups, top: false, held: cx.held, row: cx.row, leave: cx.leave, inner: cx.inner, direct: cx.direct, resumes: cx.resumes, locals: cx.locals,
+        unwind: cx.unwind, unwinds: cx.unwinds
+    };
+}
+
+/** `cx` with `u` what unwinds it. */
+fn __tx_unwinding_cx(cx: Cx, u: Expr): Cx {
+    return Cx {
+        bound: cx.bound, handlers: cx.handlers, answer: cx.answer, ret: cx.ret, breaks: cx.breaks, continues: cx.continues,
+        looped: cx.looped, cleanups: cx.cleanups, top: cx.top, held: cx.held, row: cx.row, leave: cx.leave, inner: cx.inner, direct: cx.direct, resumes: cx.resumes, locals: cx.locals,
+        unwind: u, unwinds: cx.unwinds
     };
 }
 
@@ -1038,11 +1206,12 @@ fn __tx_deferred_cx(cx: Cx, d: Stmt): Cx {
     return __tx_cx(cx, cx.ret, cx.breaks, cx.continues, cx.looped, cleanups);
 }
 
-/** A function this makes, handing what it returns to `ret`. */
-fn __tx_fn_cx(cx: Cx, ret: Name, answer: Option<TypeExpr>, row: List<Applied>, direct: Bool): Cx {
+/** A function this makes, handing what it returns to `ret`, and unwound by `u`. */
+fn __tx_fn_cx(cx: Cx, ret: Name, u: Name, answer: Option<TypeExpr>, row: List<Applied>, direct: Bool): Cx {
     return Cx {
         bound: cx.bound, handlers: cx.handlers, answer: answer, ret: Option.Some(ret), breaks: Option.None, continues: Option.None,
-        looped: 0, cleanups: [], top: false, held: cx.held, row: row, leave: Option.None, inner: cx.inner, direct: direct, resumes: cx.resumes
+        looped: 0, cleanups: [], top: false, held: cx.held, row: row, leave: Option.None, inner: cx.inner, direct: direct, resumes: cx.resumes, locals: cx.locals,
+        unwind: __tx_var(u), unwinds: cx.unwinds
     };
 }
 
@@ -1109,7 +1278,8 @@ fn __tx_inside_run(cx: Cx, clauses: List<HandlerClause>): Cx {
     for (n in cx.inner) { inner.push(n); }
     return Cx {
         bound: bound, handlers: cx.handlers, answer: cx.answer, ret: cx.ret, breaks: cx.breaks, continues: cx.continues,
-        looped: cx.looped, cleanups: cx.cleanups, top: false, held: held, row: cx.row, leave: cx.leave, inner: inner, direct: cx.direct, resumes: cx.resumes
+        looped: cx.looped, cleanups: cx.cleanups, top: false, held: held, row: cx.row, leave: cx.leave, inner: inner, direct: cx.direct, resumes: cx.resumes, locals: cx.locals,
+        unwind: cx.unwind, unwinds: cx.unwinds
     };
 }
 
@@ -1125,14 +1295,22 @@ fn __tx_block(cx: Cx, ss: List<Stmt>, i: Int, finish: (Cx) -> Tail): Tail {
         StmtKind.Continue => { return __tx_jump(cx, s, cx.continues); }
         StmtKind.Defer(d) => {
             if (!cx.top || cx.cleanups.len() > 0 || __tx_splits_from(cx, ss, i + 1)) {
-                return rest(__tx_deferred_cx(cx, d));
+                var deferred = __tx_deferred_cx(cx, d);
+                // Only a split after it can be left unfinished, and so unwound.
+                if (__tx_splits_from(cx, ss, i + 1)) {
+                    var u = fresh("u");
+                    return __tx_prepend([__tx_unwinder_with(cx, d, u)], rest(__tx_unwinding_cx(deferred, __tx_var(u))));
+                }
+                return rest(deferred);
             }
         }
         _ => {}
     }
     if (!__tx_stmt_splits(cx, s)) {
-        var plain = __tx_plain(cx, s);
-        if (__tx_leaves(s)) { return __tx_done([plain]); }
+        // Handed back as it came, it is passed through as processed rather than checked again.
+        var plain = s;
+        if (!__tx_untouched(s)) { plain = __tx_plain(cx, s); }
+        if (__tx_exits(s, false)) { return __tx_done([plain]); }
         return __tx_prepend([plain], rest(cx));
     }
     match s.kind {
@@ -1252,25 +1430,28 @@ fn __tx_joined(cx: Cx, s: Stmt, rest: (Cx) -> Tail, branch: (() -> Tail) -> Tail
     return __tx_prepend([Stmt.of(StmtKind.Let(j, Option.None, Option.Some(joined)))], branch(after));
 }
 
-/** Whether every path through `s` ends in a `return`, `break` or `continue`. */
-fn __tx_leaves(s: Stmt): Bool {
+/** Whether every path through `s` ends in a `return`, `break`, `continue` or `panic`. */
+fn __tx_leaves(s: Stmt): Bool { return __tx_exits(s, true); }
+
+fn __tx_exits(s: Stmt, panics: Bool): Bool {
     match s.kind {
+        StmtKind.Expression(e) => { return panics && __tx_is_panic(e); }
         StmtKind.Return(_) => { return true; }
         StmtKind.Break => { return true; }
         StmtKind.Continue => { return true; }
         StmtKind.Block(ss) => {
-            for (x in ss) { if (__tx_leaves(x)) { return true; } }
+            for (x in ss) { if (__tx_exits(x, panics)) { return true; } }
             return false;
         }
         StmtKind.If(_, t, e) => {
             match e {
-                Option.Some(x) => { return __tx_leaves(t) && __tx_leaves(x); }
+                Option.Some(x) => { return __tx_exits(t, panics) && __tx_exits(x, panics); }
                 _ => { return false; }
             }
         }
         StmtKind.Match(_, arms) => {
             for (a in arms) {
-                if (!__tx_leaves(__tx_block_stmt(a.body))) { return false; }
+                if (!__tx_exits(__tx_block_stmt(a.body), panics)) { return false; }
             }
             return arms.len() > 0;
         }
@@ -1315,6 +1496,7 @@ fn __tx_loop(cx: Cx, s: Stmt, before: List<Stmt>, c: Expr, body: List<Stmt>, res
 
 /** `for (x in xs)` over a list or an array, as the loop over its indices it means. */
 fn __tx_for_in(cx: Cx, s: Stmt, names: List<Name>, over: Expr, body: Stmt, rest: () -> Tail): Tail {
+    if (__tx_pulled(over)) { return __tx_pulling(cx, names, over, body, rest); }
     if (!__tx_indexed(over)) {
         return compile_error(s.span, "A loop over this sequence holding a call that takes control is not supported by the transform yet.");
     }
@@ -1346,6 +1528,70 @@ fn __tx_for_in(cx: Cx, s: Stmt, names: List<Name>, over: Expr, body: Stmt, rest:
         each.push(body);
         return __tx_loop(cx, s, before, c, each, rest);
     });
+}
+
+/** Whether the loop pulls from what it is over, an `Iter`, rather than indexing it. */
+fn __tx_pulled(over: Expr): Bool {
+    match field_type(over.ty, "next".as_name()) {
+        Option.Some(_) => { return true; }
+        _ => { return false; }
+    }
+}
+
+/**
+ * A loop pulling from an `Iter`, as the checker lowers one, so a `next` or a
+ * `close` that takes control is split at:
+ * `var seq = over; defer seq.close(); var more = true;
+ *  while (more) { match seq.next() { Some(x) => { body } None => { more = false; } } }`.
+ */
+fn __tx_pulling(cx: Cx, names: List<Name>, over: Expr, body: Stmt, rest: () -> Tail): Tail {
+    var seq = fresh("seq");
+    var more = fresh("more");
+    var item = fresh("item");
+    var seq_var = Expr { kind: ExprKind.Var(seq), span: over.span, ty: over.ty };
+    var each: List<Stmt> = [];
+    if (names.len() == 1) {
+        each.push(Stmt.of(StmtKind.Let(names[0], Option.None, Option.Some(__tx_var(item)))));
+    } else {
+        for (var n = 0; n < names.len(); n += 1) {
+            var part = Expr.of(ExprKind.TupleGet(__tx_var(item), n));
+            each.push(Stmt.of(StmtKind.Let(names[n], Option.None, Option.Some(part))));
+        }
+    }
+    each.push(body);
+    // `Option` as `next`'s type names it, which is the name the checker reads.
+    var option = "Option".as_name();
+    match field_type(over.ty, "next".as_name()) {
+        Option.Some(t) => {
+            match t.kind {
+                TypeKind.Function(_, r, _) => {
+                    match r.kind {
+                        TypeKind.Applied(n, _) => { option = n; }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    var pulled = Expr { kind: ExprKind.MethodCall(seq_var, "next".as_name(), []), span: over.span, ty: Option.None };
+    var arms = [
+        MatchArm { pattern: Pattern.Variant(option, "Some".as_name(), Bindings.Positional([item])), body: each },
+        MatchArm {
+            pattern: Pattern.Variant(option, "None".as_name(), Bindings.None),
+            body: [Stmt.of(StmtKind.Expression(Expr.of(ExprKind.Assign(more, Expr.of(ExprKind.Bool(false))))))]
+        }
+    ];
+    var closing = Expr { kind: ExprKind.MethodCall(seq_var, "close".as_name(), []), span: over.span, ty: Option.None };
+    var stmts = [
+        Stmt.of(StmtKind.Let(seq, Option.None, Option.Some(over))),
+        Stmt.of(StmtKind.Defer(Stmt.of(StmtKind.Expression(closing)))),
+        Stmt.of(StmtKind.Let(more, Option.None, Option.Some(Expr.of(ExprKind.Bool(true))))),
+        Stmt.of(StmtKind.While(__tx_var(more), Stmt.of(StmtKind.Block([Stmt.of(StmtKind.Match(pulled, arms))]))))
+    ];
+    var base = cx.cleanups.len();
+    return __tx_block(cx, stmts, 0, (c: Cx) => { return __tx_unwind(c, base, rest); });
 }
 
 fn __tx_indexed(over: Expr): Bool {
@@ -1418,10 +1664,11 @@ fn __tx_local_fn(cx: Cx, s: Stmt, d: Decl): Stmt {
     match d.kind {
         DeclKind.Fn(f) => {
             var k = fresh("k");
+            var u = fresh("u");
             var r = fresh("R");
             var row = fresh("E");
             var answer = TypeExpr.of(TypeKind.Named(r));
-            var inner = __tx_fn_cx(cx, k, Option.Some(answer), [], false);
+            var inner = __tx_fn_cx(cx, k, u, Option.Some(answer), [], false);
             var result = __tx_named("Unit");
             match f.signature.ret {
                 Option.Some(t) => { result = t; }
@@ -1431,10 +1678,12 @@ fn __tx_local_fn(cx: Cx, s: Stmt, d: Decl): Stmt {
             for (p in f.params) { params.push(p); }
             var k_ty = TypeExpr.of(TypeKind.Function([result], answer, [Applied { name: row, args: [] }]));
             params.push(Param { name: k, ty: Option.Some(k_ty), implicit: false });
+            params.push(Param { name: u, ty: Option.Some(__tx_unwinder_ty(answer)), implicit: false });
             var sg = Signature {
                 ret: Option.Some(answer),
                 row: Option.None,
-                static_params: [StaticParam { name: r, ty: Option.None, pack: false }, StaticParam { name: row, ty: Option.None, pack: false }]
+                static_params: [StaticParam { name: r, ty: Option.None, pack: false }, StaticParam { name: row, ty: Option.None, pack: false }],
+                inline: false
             };
             var finish = (c: Cx) => {
                 return __tx_unwind(c, 0, () => { return __tx_tail([], __tx_call(Expr.of(ExprKind.Var(k)), [Expr.of(ExprKind.Unit)])); });
@@ -1600,6 +1849,22 @@ fn __tx_bound_run(cx: Cx, e: Expr, r: Option<TypeExpr>, body: ValuedBlock, claus
     var jv = Expr.of(ExprKind.Var(j));
     var after = __tx_lambda([Param { name: v, ty: __tx_written(cx, e.ty), implicit: false }], __tx_body(k(Expr { kind: ExprKind.Var(v), span: e.span, ty: e.ty })));
     var inner = __tx_branch_cx(__tx_run_cx(cx, body, clauses));
+    var before = [Stmt.of(StmtKind.Let(j, Option.None, Option.Some(after)))];
+    if (!__tx_is_prompt(body)) {
+        // The run bounds what its own handlers unwind; one of a run around it
+        // unwinds past it.
+        var outer: List<Handing> = [];
+        for (h in inner.handlers) {
+            var w = fresh("hv");
+            before.push(Stmt.of(StmtKind.Let(w, Option.Some(TypeExpr.of(TypeKind.Named(open_type()))), Option.Some(__tx_past_run(h)))));
+            outer.push(Handing { label: h.label, handler: __tx_var(w) });
+        }
+        inner = Cx {
+            bound: inner.bound, handlers: outer, answer: inner.answer, ret: inner.ret, breaks: inner.breaks, continues: inner.continues,
+            looped: inner.looped, cleanups: inner.cleanups, top: inner.top, held: inner.held, row: inner.row, leave: inner.leave, inner: inner.inner,
+            direct: inner.direct, resumes: inner.resumes, locals: inner.locals, unwind: __tx_run_unwinder(Option.Some(cx.unwind)), unwinds: inner.unwinds
+        };
+    }
     var base = cx.cleanups.len();
     var split = __tx_block(inner, body.stmts, 0, (c: Cx) => {
         match body.value {
@@ -1612,7 +1877,41 @@ fn __tx_bound_run(cx: Cx, e: Expr, r: Option<TypeExpr>, body: ValuedBlock, claus
         }
     });
     var lowered = __tx_rebuilt(e, ExprKind.Run(r, ValuedBlock { stmts: __tx_body(split), value: Option.None }, __tx_lowered_clauses(cx, body, clauses)));
-    return __tx_tail([Stmt.of(StmtKind.Let(j, Option.None, Option.Some(after)))], lowered);
+    return __tx_tail(before, lowered);
+}
+
+/** A handler of a run around a bound one, as the bound run's code is handed it: what it unwinds goes one run further. */
+fn __tx_past_run(h: Handing): Expr {
+    var fields: List<FieldInit> = [];
+    for (op in operations(h.label)) {
+        var names: List<Name> = [];
+        for (var i = 0; i < op.arity; i += 1) { names.push(fresh("a")); }
+        var method = Expr.of(ExprKind.Field(h.handler, op.name));
+        var ps = __tx_params(names);
+        var handed = __tx_args(names);
+        if (op.takes_control) {
+            var u = fresh("u");
+            var then = fresh("then");
+            var depth = fresh("d");
+            var further = __tx_lambda(
+                [Param { name: then, ty: Option.None, implicit: false }, __tx_depth_param(depth)],
+                [Stmt.of(StmtKind.Return(Option.Some(__tx_call(__tx_var(u), [__tx_var(then), __tx_deeper(depth)]))))]
+            );
+            if (op.aborts) {
+                var at = fresh("at");
+                ps.push(Param { name: at, ty: Option.None, implicit: false });
+                handed.push(__tx_var(at));
+            } else {
+                var k = fresh("k");
+                ps.push(Param { name: k, ty: Option.None, implicit: false });
+                handed.push(__tx_var(k));
+            }
+            ps.push(Param { name: u, ty: Option.None, implicit: false });
+            handed.push(further);
+        }
+        fields.push(FieldInit { name: op.name, value: __tx_lambda(ps, [Stmt.of(StmtKind.Return(Option.Some(__tx_call(method, handed))))]) });
+    }
+    return Expr.of(ExprKind.Record(fields));
 }
 
 /** `a && b` or `a || b` with a split in it: the right operand is reached on one branch only. */
@@ -1725,65 +2024,92 @@ fn __tx_args_valued(cx: Cx, e: Expr): Expr {
     }
 }
 
-/** A call that takes control, handed a continuation binding `param` around what `after` makes; its arguments are rewritten already. */
+/**
+ * A call that takes control, handed a continuation binding `param` around what
+ * `after` makes; its arguments are rewritten already. A method's own
+ * `discontinue(resume)` unwinds what `resume` would carry on with, and then
+ * carries on itself.
+ */
 fn __tx_split(cx: Cx, e: Expr, param: Param, after: () -> Tail): Tail {
     if (__tx_is_discontinue(e)) {
-        var answered = Param { name: fresh("r"), ty: Option.None, implicit: false };
-        var unit = Stmt.of(StmtKind.Let(param.name, Option.None, Option.Some(Expr.of(ExprKind.Unit))));
-        var resumed = __tx_lambda([answered], __tx_body(__tx_prepend([unit], after())));
-        return __tx_tail([], __tx_split_call(cx, e, resumed));
+        match e.kind {
+            ExprKind.Call(_, args) => {
+                match __tx_unwinder_of(cx, args[0]) {
+                    Option.Some(u) => {
+                        var unit = Stmt.of(StmtKind.Let(param.name, Option.None, Option.Some(Expr.of(ExprKind.Unit))));
+                        var then = __tx_unit_lambda(__tx_body(__tx_prepend([unit], after())));
+                        return __tx_tail([], __tx_call(u, [then, Expr.of(ExprKind.Int(0))]));
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        return compile_error(e.span, "Only a handler's method discontinues, and only the continuation it was handed.");
     }
-    var k = __tx_lambda([param], __tx_continued(cx, param.name, __tx_body(after())));
+    var k = __tx_lambda([param], __tx_body(after()));
     return __tx_tail([], __tx_split_call(cx, e, k));
 }
 
-/** A continuation's body: resumed with the discontinue signal, it runs the cleanups in scope and hands the signal on. */
-fn __tx_continued(cx: Cx, x: Name, body: List<Stmt>): List<Stmt> {
-    var signal = __tx_call(Expr.of(ExprKind.Var("__discontinued".as_name())), []);
-    var up = __tx_unwind(cx, 0, () => {
-        match cx.ret {
-            Option.Some(k) => { return __tx_tail([], __tx_call(Expr.of(ExprKind.Var(k)), [signal])); }
-            _ => { return __tx_tail([], signal); }
-        }
-    });
-    var test = __tx_call(Expr.of(ExprKind.Var("__is_discontinued".as_name())), [Expr.of(ExprKind.Var(x))]);
-    var out: List<Stmt> = [];
-    var rest = body;
-    // After a prompt a `return` crossed, the signal it answers with is the
-    // flag's to read, before it is taken for a discontinue.
-    if (body.len() > 0 && __tx_is_flag_test(body[0])) {
-        out.push(body[0]);
-        rest = body[1:];
-    }
-    out.push(Stmt.of(StmtKind.If(test, __tx_block_stmt(__tx_body(up)), Option.None)));
-    for (s in rest) { out.push(s); }
-    return out;
-}
-
-fn __tx_is_flag_test(s: Stmt): Bool {
-    match s.kind {
-        StmtKind.If(c, _, _) => {
-            match c.kind {
-                ExprKind.Unary(op, inner) => {
-                    match op {
-                        UnOp.Not => {}
-                        _ => { return false; }
-                    }
-                    match inner.kind {
-                        ExprKind.Call(f, _) => {
-                            match f.kind {
-                                ExprKind.Var(n) => { return str(n) == "__is_discontinued"; }
-                                _ => { return false; }
-                            }
-                        }
-                        _ => { return false; }
-                    }
-                }
-                _ => { return false; }
+/** What unwinds `k`, a continuation a method of the run was handed. */
+fn __tx_unwinder_of(cx: Cx, k: Expr): Option<Expr> {
+    match k.kind {
+        ExprKind.Var(n) => {
+            for (var i = 0; i < cx.resumes.len(); i += 1) {
+                if (cx.resumes[i] == n) { return Option.Some(__tx_var(cx.unwinds[i])); }
             }
         }
-        _ => { return false; }
+        _ => {}
     }
+    return Option.None;
+}
+
+/** `(x: Unit) => { body }`: what an unwinder is handed to carry on with. */
+fn __tx_unit_lambda(body: List<Stmt>): Expr {
+    return __tx_lambda([Param { name: fresh("x"), ty: Option.Some(__tx_named("Unit")), implicit: false }], body);
+}
+
+/**
+ * What unwinds code reaching a run's own boundary: nothing is left to clean up
+ * there, so it carries on, unless the handler stands further out, past
+ * `outer`.
+ */
+fn __tx_run_unwinder(outer: Option<Expr>): Expr {
+    var then = fresh("then");
+    var depth = fresh("d");
+    var here = Stmt.of(StmtKind.Return(Option.Some(__tx_call(__tx_var(then), [Expr.of(ExprKind.Unit)]))));
+    var body = [here];
+    match outer {
+        Option.Some(u) => {
+            var at_run = Expr.of(ExprKind.Binary(BinOp.Equal, __tx_var(depth), Expr.of(ExprKind.Int(0))));
+            var further = Expr.of(ExprKind.Binary(BinOp.Sub, __tx_var(depth), Expr.of(ExprKind.Int(1))));
+            body = [
+                Stmt.of(StmtKind.If(at_run, __tx_block_stmt([here]), Option.None)),
+                Stmt.of(StmtKind.Return(Option.Some(__tx_call(u, [__tx_var(then), further]))))
+            ];
+        }
+        _ => {}
+    }
+    return __tx_lambda([Param { name: then, ty: Option.None, implicit: false }, __tx_depth_param(depth)], body);
+}
+
+fn __tx_depth_param(n: Name): Param { return Param { name: n, ty: Option.Some(__tx_named("Int")), implicit: false }; }
+
+fn __tx_deeper(depth: Name): Expr { return Expr.of(ExprKind.Binary(BinOp.Add, __tx_var(depth), Expr.of(ExprKind.Int(1)))); }
+
+/**
+ * `unwind` with `d`'s cleanup run first: what unwinds the code inside the
+ * `defer`'s scope. The cleanup is split like any other code, so it may take
+ * control while it unwinds.
+ */
+fn __tx_unwinder_with(cx: Cx, d: Stmt, u: Name): Stmt {
+    var then = fresh("then");
+    var depth = fresh("d");
+    var inner = __tx_cx(cx, Option.None, Option.None, Option.None, 0, cx.cleanups);
+    var onward = (c: Cx) => { return __tx_tail([], __tx_call(cx.unwind, [__tx_var(then), __tx_var(depth)])); };
+    var body = __tx_body(__tx_block(inner, [d], 0, onward));
+    var made = __tx_lambda([Param { name: then, ty: Option.None, implicit: false }, __tx_depth_param(depth)], body);
+    return Stmt.of(StmtKind.Let(u, Option.None, Option.Some(made)));
 }
 
 /**
@@ -1793,19 +2119,22 @@ fn __tx_is_flag_test(s: Stmt): Bool {
  * control of.
  */
 fn __tx_split_call(cx: Cx, e: Expr, k: Expr): Expr {
+    var conts = [k, cx.unwind];
     match e.kind {
         ExprKind.Call(f, args) => {
             match operation_of(f) {
                 Option.Some(op) => {
+                    // What never resumes is handed where it was called and what unwinds it.
+                    if (op.aborts) { conts = [__tx_written_at(e), cx.unwind]; }
                     for (h in cx.held) {
                         if (h.label == op.label) {
                             var method = Expr.of(ExprKind.Field(h.value, op.name));
-                            return __tx_call(method, __tx_snoc(__tx_handed(cx, args, __tx_held_takes(h, op.name), e.span), k));
+                            return __tx_call_at(e, method, __tx_append(__tx_handed(cx, args, __tx_held_takes(h, op.name), e.span), conts));
                         }
                     }
                     if (op.takes_control && __tx_binds(cx, op.label)) {
                         match __tx_handler(cx, op.label) {
-                            Option.Some(h) => { return __tx_call(Expr.of(ExprKind.Field(h, op.name)), __tx_snoc(args, k)); }
+                            Option.Some(h) => { return __tx_call_at(e, Expr.of(ExprKind.Field(h, op.name)), __tx_append(args, conts)); }
                             _ => {}
                         }
                     }
@@ -1813,27 +2142,33 @@ fn __tx_split_call(cx: Cx, e: Expr, k: Expr): Expr {
                 }
                 _ => {}
             }
-            if (__tx_is_discontinue(e)) {
-                var through: List<Name> = [];
-                if (__tx_resumes(cx, args[0])) { through = __tx_names_of(cx.bound); }
-                return __tx_call(args[0], __tx_snoc(__tx_handed(cx, [__tx_signal()], through, e.span), k));
-            }
             if (__tx_resumes(cx, f)) {
-                return __tx_call(f, __tx_snoc(__tx_handed(cx, args, __tx_names_of(cx.bound), e.span), k));
+                return __tx_call_at(e, f, __tx_append(__tx_handed(cx, args, __tx_names_of(cx.bound), e.span), conts));
             }
-            if (names_function(f)) {
-                return __tx_call(Expr.of(ExprKind.Var(__tx_copy_of(cx, e, f))), __tx_snoc(__tx_handed(cx, args, __tx_ctl_labels(f.ty), e.span), k));
+            if (names_function(f) && !__tx_local(cx, f)) {
+                return __tx_call_at(e, Expr.of(ExprKind.Var(__tx_copy_of(cx, e, f))), __tx_append(__tx_handed(cx, args, __tx_ctl_labels(f.ty), e.span), conts));
             }
-            return __tx_call(__tx_values(cx, f), __tx_snoc(__tx_handed(cx, args, __tx_ctl_labels(f.ty), e.span), k));
+            return __tx_call_at(e, __tx_values(cx, f), __tx_append(__tx_handed(cx, args, __tx_ctl_labels(f.ty), e.span), conts));
         }
         ExprKind.MethodCall(r, m, args) => {
+            match __tx_field_call(cx, e) {
+                Option.Some(call) => { return __tx_split_call(cx, call, k); }
+                _ => {}
+            }
             var taken: List<Name> = [];
             for (l in __tx_dyn_labels(r, m)) { if (controls(l)) { taken = __tx_sorted_in(taken, l); } }
-            return __tx_rebuilt(e, ExprKind.MethodCall(r, m, __tx_snoc(__tx_handed(cx, args, taken, e.span), k)));
+            return __tx_rebuilt(e, ExprKind.MethodCall(r, m, __tx_append(__tx_handed(cx, args, taken, e.span), conts)));
         }
         _ => {}
     }
     return compile_error(e.span, "Only a call takes control.");
+}
+
+fn __tx_append(xs: List<Expr>, ys: List<Expr>): List<Expr> {
+    var out: List<Expr> = [];
+    for (x in xs) { out.push(x); }
+    for (y in ys) { out.push(y); }
+    return out;
 }
 
 /** What a method called on a trait object writes in its row; nothing when `r` is no trait object. */
@@ -1852,10 +2187,32 @@ fn __tx_dyn_labels(r: Expr, m: Name): List<Name> {
     return out;
 }
 
-/** Whether a method called on a trait object takes control of an effect this run splits at. */
+/** Whether a method called on a trait object, or a function a record holds, takes control of an effect this run splits at. */
 fn __tx_dyn_controls(cx: Cx, r: Expr, m: Name): Bool {
     for (l in __tx_dyn_labels(r, m)) { if (controls(l) && __tx_binds(cx, l)) { return true; } }
-    return false;
+    match field_type(r.ty, m) {
+        Option.Some(t) => { return __tx_performs_ty(cx, Option.Some(t)); }
+        _ => { return false; }
+    }
+}
+
+/** `r.m(args)` as a call of the function the field `m` holds, when that function takes control here. */
+fn __tx_field_call(cx: Cx, e: Expr): Option<Expr> {
+    match e.kind {
+        ExprKind.MethodCall(r, m, args) => {
+            match field_type(r.ty, m) {
+                Option.Some(t) => {
+                    if (__tx_performs_ty(cx, Option.Some(t))) {
+                        var f = Expr { kind: ExprKind.Field(r, m), span: e.span, ty: Option.Some(t) };
+                        return Option.Some(Expr { kind: ExprKind.Call(f, args), span: e.span, ty: e.ty });
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    return Option.None;
 }
 
 /** `args`, then the handler of each of `labels` where `cx` stands. */
@@ -1915,6 +2272,50 @@ fn __tx_sorted_in(xs: List<Name>, x: Name): List<Name> {
     return out;
 }
 
+fn __tx_is_panic(e: Expr): Bool {
+    match e.kind {
+        ExprKind.Call(f, _) => {
+            match f.kind {
+                ExprKind.Var(n) => { return str(n) == "panic"; }
+                _ => { return false; }
+            }
+        }
+        _ => { return false; }
+    }
+}
+
+/** Where `e` was written, as a value. */
+fn __tx_written_at(e: Expr): Expr {
+    return Expr { kind: ExprKind.Call(__tx_var("__span_here".as_name()), []), span: e.span, ty: Option.None };
+}
+
+/** An `@abort` method's statements, each `aborted_at()` in them, a function value's inside them among them, made `at`. */
+fn __tx_placed(ss: List<Stmt>, at: Name): List<Stmt> {
+    var out: List<Stmt> = [];
+    for (s in ss) { out.push(__tx_placed_stmt(s, at)); }
+    return out;
+}
+
+fn __tx_placed_stmt(s: Stmt, at: Name): Stmt {
+    return __tx_stmt_map(s, (e: Expr) => { return __tx_placed_in(e, at); }, (c: Stmt) => { return __tx_placed_stmt(c, at); });
+}
+
+fn __tx_placed_in(e: Expr, at: Name): Expr {
+    match e.kind {
+        ExprKind.Call(f, args) => {
+            match f.kind {
+                ExprKind.Var(n) => {
+                    if (str(n) == "aborted_at" && args.len() == 0) { return Expr { kind: ExprKind.Var(at), span: e.span, ty: e.ty }; }
+                }
+                _ => {}
+            }
+        }
+        ExprKind.Lambda(params, sg, body) => { return __tx_rebuilt(e, ExprKind.Lambda(params, sg, __tx_placed(body, at))); }
+        _ => {}
+    }
+    return __tx_map(e, (c: Expr) => { return __tx_placed_in(c, at); });
+}
+
 fn __tx_is_discontinue(e: Expr): Bool {
     match e.kind {
         ExprKind.Call(f, args) => {
@@ -1941,12 +2342,15 @@ fn __tx_copy_of(cx: Cx, call: Expr, f: Expr): Name {
         Option.Some(copy) => { return copy; }
         _ => {}
     }
-    match processed_fn(__tx_called_at(declof_call(f), f.ty)).kind {
+    var original = processed_fn(__tx_called_at(declof_call(f), f.ty));
+    match original.kind {
         DeclKind.Fn(fd) => {
             var copy = fresh(str(fd.name));
             remember(key, copy);
             remember([copy], copy);
             var k = fresh("k");
+            var u = __tx_unwinder_param();
+            var u_ty: Option<TypeExpr> = Option.None;
             var params: List<Param> = [];
             var own: List<Name> = [];
             for (sp in fd.signature.static_params) { own.push(sp.name); }
@@ -1955,7 +2359,7 @@ fn __tx_copy_of(cx: Cx, call: Expr, f: Expr): Name {
             match f.kind {
                 ExprKind.Var(n) => {
                     match remembered([n]) {
-                        Option.Some(_) => { last = fd.params.len() - 1; }
+                        Option.Some(_) => { last = fd.params.len() - 2; }
                         _ => {}
                     }
                 }
@@ -1966,7 +2370,7 @@ fn __tx_copy_of(cx: Cx, call: Expr, f: Expr): Name {
                 if (i >= last || __tx_names_handler(p.name)) { p = Param { name: p.name, ty: Option.None, implicit: p.implicit }; }
                 params.push(p);
             }
-            var sg = Signature { ret: Option.None, row: Option.None, static_params: [] };
+            var sg = Signature { ret: Option.None, row: Option.None, static_params: [], inline: false };
             var answer: Option<TypeExpr> = Option.None;
             var k_ty: Option<TypeExpr> = Option.None;
             var own_row: List<Applied> = [];
@@ -1978,28 +2382,48 @@ fn __tx_copy_of(cx: Cx, call: Expr, f: Expr): Name {
                     var r_ty = TypeExpr.of(TypeKind.Named(r));
                     answer = Option.Some(r_ty);
                     k_ty = Option.Some(TypeExpr.of(TypeKind.Function([result], r_ty, [Applied { name: row, args: [] }])));
+                    u = fresh("u");
+                    u_ty = Option.Some(__tx_unwinder_ty(r_ty));
                     sg = Signature {
                         ret: answer,
                         row: Option.None,
                         static_params: [
                             StaticParam { name: r, ty: Option.None, pack: false },
                             StaticParam { name: row, ty: Option.None, pack: false }
-                        ]
+                        ],
+                        inline: false
                     };
                 }
                 _ => {}
             }
+            // What no part of the key settled the copy is still generic in, as the instance was.
+            var statics: List<StaticParam> = [];
+            for (sp in sg.static_params) { statics.push(sp); }
+            for (sp in fd.signature.static_params) { statics.push(sp); }
+            sg = Signature { ret: sg.ret, row: sg.row, static_params: statics, inline: fd.signature.inline };
             for (l in labels) { params.push(Param { name: handler_param(l), ty: Option.None, implicit: false }); }
             params.push(Param { name: k, ty: k_ty, implicit: false });
+            params.push(Param { name: u, ty: u_ty, implicit: false });
             var inner = Cx {
                 bound: taken, handlers: __tx_own_handlers(labels), answer: answer, ret: Option.Some(k), breaks: Option.None, continues: Option.None,
-                looped: 0, cleanups: [], top: false, held: [], row: own_row, leave: Option.None, inner: [], direct: false, resumes: []
+                looped: 0, cleanups: [], top: false, held: [], row: own_row, leave: Option.None, inner: [], direct: false, resumes: [], locals: __tx_bound_names(fd.params, fd.body),
+                unwind: __tx_var(u), unwinds: []
             };
+            // Falling off the end of a function that returns a value is a path
+            // that ends in something that never returns, as `panic`.
+            var fell = Expr.of(ExprKind.Unit);
+            match __tx_known(call.ty) {
+                Option.Some(t) => {
+                    if (!__tx_same_type(t, __tx_named("Unit"))) { fell = __tx_call(Expr.of(ExprKind.Var("__unreachable".as_name())), []); }
+                }
+                _ => {}
+            }
             var finish = (c: Cx) => {
-                return __tx_unwind(c, 0, () => { return __tx_tail([], __tx_call(Expr.of(ExprKind.Var(k)), [Expr.of(ExprKind.Unit)])); });
+                return __tx_unwind(c, 0, () => { return __tx_tail([], __tx_call(Expr.of(ExprKind.Var(k)), [fell])); });
             };
             var body = __tx_body(__tx_block(inner, fd.body, 0, finish));
-            declare(Decl.of(DeclKind.Fn(FnDecl { name: copy, params: params, signature: sg, body: body })));
+            // Where the original was written, so an error in the copy, and a reader of it, finds the source.
+            declare(Decl { kind: DeclKind.Fn(FnDecl { name: copy, params: params, signature: sg, body: body }), attrs: [], span: original.span });
             return copy;
         }
         _ => {}
@@ -2213,20 +2637,89 @@ fn __tx_takes_continuation(cx: Cx, e: Expr): Bool {
  */
 fn __tx_taking_continuation(cx: Cx, e: Expr, params: List<Param>, written: Signature, body: List<Stmt>): Expr {
     var k = fresh("k");
+    var u = fresh("u");
     var labels = __tx_ctl_labels(e.ty);
-    var inner = __tx_handing(__tx_fn_cx(cx, k, cx.answer, cx.row, true), labels);
+    var inner = __tx_handing(__tx_fn_cx(cx, k, u, cx.answer, cx.row, true), labels);
     var ps: List<Param> = [];
     for (p in params) { ps.push(p); }
     for (l in labels) { ps.push(Param { name: handler_param(l), ty: Option.None, implicit: false }); }
     ps.push(Param { name: k, ty: Option.None, implicit: false });
+    ps.push(Param { name: u, ty: Option.None, implicit: false });
     var finish = (c: Cx) => {
         return __tx_unwind(c, 0, () => { return __tx_tail([], __tx_call(Expr.of(ExprKind.Var(k)), [Expr.of(ExprKind.Unit)])); });
     };
     var made = __tx_body(__tx_block(inner, body, 0, finish));
-    var marks = [StaticParam { name: cps_marker(), ty: Option.None, pack: false }];
+    var marks = [StaticParam { name: handed_marker(), ty: Option.None, pack: false }];
     if (__tx_is_own(written)) { marks.push(StaticParam { name: plain_marker(), ty: Option.None, pack: false }); }
-    var sg = Signature { ret: Option.None, row: Option.Some(__tx_open_row_of(e.ty)), static_params: marks };
+    var sg = Signature { ret: Option.None, row: Option.Some(__tx_open_row_of(e.ty)), static_params: marks, inline: false };
     return Expr { kind: ExprKind.Lambda(ps, sg, made), span: e.span, ty: Option.None };
+}
+
+/** Whether `e` names something the code being split binds. */
+fn __tx_local(cx: Cx, e: Expr): Bool {
+    match e.kind {
+        ExprKind.Var(n) => {
+            for (l in cx.locals) { if (l == n) { return true; } }
+            return false;
+        }
+        _ => { return false; }
+    }
+}
+
+/** Every name the parameters and the body bind, a function value's inside it among them. */
+fn __tx_bound_names(params: List<Param>, body: List<Stmt>): List<Name> {
+    var out: List<Name> = [];
+    for (p in params) { out.push(p.name); }
+    for (s in body) { __tx_bound_in_stmt(s, out); }
+    return out;
+}
+
+fn __tx_bound_in_stmt(s: Stmt, out: List<Name>): Unit {
+    match s.kind {
+        StmtKind.Let(x, _, _) => { out.push(x); }
+        StmtKind.LetTuple(xs, _) => { for (x in xs) { out.push(x); } }
+        StmtKind.ForIn(ns, _, _) => { for (x in ns) { out.push(x); } }
+        StmtKind.Declare(d) => {
+            match d.kind {
+                DeclKind.Fn(f) => { out.push(f.name); }
+                _ => {}
+            }
+        }
+        StmtKind.Match(_, arms) => {
+            for (a in arms) {
+                match a.pattern {
+                    Pattern.Variant(_, _, bindings) => {
+                        match bindings {
+                            Bindings.Positional(names) => { for (x in names) { out.push(x); } }
+                            Bindings.Named(fields) => { for (f in fields) { out.push(f.bound); } }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    __tx_stmt_map(s, (e: Expr) => {
+        __tx_bound_in_expr(e, out);
+        return e;
+    }, (c: Stmt) => {
+        __tx_bound_in_stmt(c, out);
+        return c;
+    });
+}
+
+fn __tx_bound_in_expr(e: Expr, out: List<Name>): Unit {
+    match e.kind {
+        ExprKind.Lambda(params, _, body) => {
+            for (p in params) { out.push(p.name); }
+            for (s in body) { __tx_bound_in_stmt(s, out); }
+        }
+        _ => {
+            for (c in __tx_children(e)) { __tx_bound_in_expr(c, out); }
+        }
+    }
 }
 
 /** Whether a parameter holds a handler a copy was handed, whose type is the run's that handed it. */
@@ -2241,7 +2734,8 @@ fn __tx_handing(cx: Cx, labels: List<Name>): Cx {
     for (h in cx.handlers) { handlers.push(h); }
     return Cx {
         bound: cx.bound, handlers: handlers, answer: cx.answer, ret: cx.ret, breaks: cx.breaks, continues: cx.continues,
-        looped: cx.looped, cleanups: cx.cleanups, top: cx.top, held: cx.held, row: cx.row, leave: cx.leave, inner: cx.inner, direct: cx.direct, resumes: cx.resumes
+        looped: cx.looped, cleanups: cx.cleanups, top: cx.top, held: cx.held, row: cx.row, leave: cx.leave, inner: cx.inner, direct: cx.direct, resumes: cx.resumes, locals: cx.locals,
+        unwind: cx.unwind, unwinds: cx.unwinds
     };
 }
 
@@ -2341,7 +2835,7 @@ fn __tx_rewrites_all(cx: Cx, ss: List<Stmt>): Bool {
 fn __tx_rewrites(cx: Cx, e: Expr): Bool {
     match e.kind {
         ExprKind.Lambda(_, _, body) => { return __tx_takes_continuation(cx, e) || __tx_rewrites_all(cx, body); }
-        ExprKind.Var(_) => { return __tx_performs_ty(cx, e.ty) && names_function(e); }
+        ExprKind.Var(_) => { return __tx_performs_ty(cx, e.ty) && names_function(e) && !__tx_local(cx, e); }
         ExprKind.Run(_, body, clauses) => {
             if (!__tx_is_bound(clauses)) { return false; }
             if (__tx_is_prompt(body)) { return false; }
@@ -2422,6 +2916,75 @@ fn __tx_inside_stmt(cx: Cx, s: Stmt): Stmt {
 }
 
 // ---- statements no split stands in ----
+
+/**
+ * Whether a statement no split stands in is the same once the plain path is
+ * done with it: nothing in it leaves or defers, declares, holds a function
+ * value or bound run this made, or a type the checker had not settled.
+ */
+fn __tx_untouched(s: Stmt): Bool {
+    match s.kind {
+        StmtKind.Expression(e) => { return __tx_untouched_expr(e); }
+        StmtKind.Let(_, ty, init) => {
+            match ty {
+                Option.Some(t) => { if (!__tx_settled(t)) { return false; } }
+                _ => {}
+            }
+            match init {
+                Option.Some(e) => { return __tx_untouched_expr(e); }
+                _ => { return true; }
+            }
+        }
+        StmtKind.LetTuple(_, e) => { return __tx_untouched_expr(e); }
+        StmtKind.Block(ss) => { return __tx_all_untouched(ss); }
+        StmtKind.If(c, t, e) => {
+            if (!__tx_untouched_expr(c) || !__tx_untouched(t)) { return false; }
+            match e {
+                Option.Some(x) => { return __tx_untouched(x); }
+                _ => { return true; }
+            }
+        }
+        StmtKind.While(c, b) => { return __tx_untouched_expr(c) && __tx_untouched(b); }
+        StmtKind.ForIn(_, over, b) => { return __tx_untouched_expr(over) && __tx_untouched(b); }
+        StmtKind.Match(x, arms) => {
+            if (!__tx_untouched_expr(x)) { return false; }
+            for (a in arms) { if (!__tx_all_untouched(a.body)) { return false; } }
+            return true;
+        }
+        StmtKind.Processed(_) => { return true; }
+        _ => { return false; }
+    }
+}
+
+fn __tx_all_untouched(ss: List<Stmt>): Bool {
+    for (s in ss) { if (!__tx_untouched(s)) { return false; } }
+    return true;
+}
+
+fn __tx_untouched_expr(e: Expr): Bool {
+    match e.kind {
+        ExprKind.Lambda(_, sg, _) => { return !__tx_is_own(sg) || __tx_is_cps(sg); }
+        ExprKind.Run(_, _, clauses) => { return !__tx_is_bound(clauses); }
+        ExprKind.Match(x, arms) => {
+            if (!__tx_untouched_expr(x)) { return false; }
+            for (a in arms) {
+                if (!__tx_all_untouched(a.body.stmts)) { return false; }
+                match a.body.value {
+                    Option.Some(v) => { if (!__tx_untouched_expr(v)) { return false; } }
+                    _ => {}
+                }
+            }
+            return true;
+        }
+        _ => {}
+    }
+    var untouched = true;
+    __tx_map(e, (c: Expr) => {
+        if (!__tx_untouched_expr(c)) { untouched = false; }
+        return c;
+    });
+    return untouched;
+}
 
 /** A statement no split stands in, with each exit to a continuation handed on. */
 fn __tx_plain(cx: Cx, s: Stmt): Stmt {
@@ -2620,7 +3183,7 @@ fn __tx_stmt_splits(cx: Cx, s: Stmt): Bool {
             }
         }
         StmtKind.While(c, b) => { return __tx_splits(cx, c) || __tx_stmt_splits(cx, b); }
-        StmtKind.ForIn(_, over, b) => { return __tx_splits(cx, over) || __tx_stmt_splits(cx, b); }
+        StmtKind.ForIn(_, over, b) => { return __tx_splits(cx, over) || __tx_stmt_splits(cx, b) || __tx_dyn_controls(cx, over, "next".as_name()); }
         StmtKind.Match(x, arms) => {
             if (__tx_splits(cx, x)) { return true; }
             for (a in arms) { if (__tx_all_split(cx, a.body)) { return true; } }
@@ -2832,10 +3395,15 @@ fn __tx_valued_reaches(cx: Cx, b: ValuedBlock): Bool {
     }
 }
 
-// ---- an arm that drops its continuation ----
+// ---- an arm that aborts ----
 
-/** Each handler's methods: one that takes control and never names its continuation discontinues it on its way out. */
-fn __tx_discontinuing(clauses: List<HandlerClause>): List<HandlerClause> {
+/**
+ * Each handler's methods: an `@abort` one discontinues its continuation before
+ * anything else, so what that unwinds runs first, as an exception's cleanups
+ * do. A `@ctl` one that never resumes leaves its continuation as it is: it may
+ * have kept it to resume later.
+ */
+fn __tx_discontinuing(clauses: List<HandlerClause>, answer: Option<TypeExpr>): List<HandlerClause> {
     var out: List<HandlerClause> = [];
     for (c in clauses) {
         match c {
@@ -2850,7 +3418,7 @@ fn __tx_discontinuing(clauses: List<HandlerClause>): List<HandlerClause> {
                                             ExprKind.Record(fields) => {
                                                 var methods: List<FieldInit> = [];
                                                 for (f in fields) {
-                                                    methods.push(FieldInit { name: f.name, value: __tx_dropping(label, f.name, f.value) });
+                                                    methods.push(FieldInit { name: f.name, value: __tx_dropping(label, f.name, f.value, answer) });
                                                 }
                                                 var made = __tx_rebuilt(record, ExprKind.Record(methods));
                                                 out.push(HandlerClause.Bound(label, h, Option.Some(__tx_restmt(s, StmtKind.Let(hv, ty, Option.Some(made))))));
@@ -2873,69 +3441,123 @@ fn __tx_discontinuing(clauses: List<HandlerClause>): List<HandlerClause> {
     return out;
 }
 
-fn __tx_dropping(label: Name, method: Name, m: Expr): Expr {
+/** A handler's method handed what `__tx_method_shape` or `__tx_abort_shape` lists after its operation's parameters. */
+fn __tx_method_sg(sg: Signature): Signature {
+    var marks: List<StaticParam> = [StaticParam { name: handed_method_marker(), ty: Option.None, pack: false }];
+    for (p in sg.static_params) { marks.push(p); }
+    return Signature { ret: sg.ret, row: sg.row, static_params: marks, inline: sg.inline };
+}
+
+/** `answer` is what the run answers, where it is written: what unwinding answers too. */
+fn __tx_dropping(label: Name, method: Name, m: Expr, answer: Option<TypeExpr>): Expr {
+    var aborts = false;
+    var arity = 0;
     match operation_in(label, method) {
         Option.Some(op) => {
             if (!op.takes_control) { return m; }
+            aborts = op.aborts;
+            arity = op.arity;
         }
         _ => { return m; }
     }
     match m.kind {
         ExprKind.Lambda(params, sg, body) => {
-            if (params.len() == 0) { return m; }
+            var ps: List<Param> = [];
+            for (p in params) { ps.push(p); }
+            var u = fresh("u");
+            var u_ty: Option<TypeExpr> = Option.None;
+            if (aborts) {
+                if (params.len() != arity) { return m; }
+                var at = fresh("at");
+                ps.push(Param { name: at, ty: Option.None, implicit: false });
+                ps.push(Param { name: u, ty: u_ty, implicit: false });
+                var unwound = __tx_call(__tx_var(u), [__tx_unit_lambda(__tx_placed(body, at)), Expr.of(ExprKind.Int(0))]);
+                return __tx_rebuilt(m, ExprKind.Lambda(ps, __tx_method_sg(sg), [Stmt.of(StmtKind.Return(Option.Some(unwound)))]));
+            }
+            if (params.len() != arity + 1) { return m; }
             var k = params[params.len() - 1].name;
-            if (__tx_mentions_all(body, k)) { return m; }
-            var dropped = __tx_dropped(body, k);
-            if (body.len() == 0 || !__tx_leaves(body[body.len() - 1])) { dropped.push(__tx_discontinue_stmt(k)); }
-            return __tx_rebuilt(m, ExprKind.Lambda(params, sg, dropped));
+            ps.push(Param { name: u, ty: u_ty, implicit: false });
+            return __tx_rebuilt(m, ExprKind.Lambda(ps, __tx_method_sg(sg), __tx_discontinued_by(body, k, u)));
         }
         _ => { return m; }
     }
 }
 
-fn __tx_discontinue_stmt(k: Name): Stmt {
-    return Stmt.of(StmtKind.Expression(__tx_call(Expr.of(ExprKind.Var("discontinue".as_name())), [Expr.of(ExprKind.Var(k))])));
-}
-
-/** An arm's statements, with `k` discontinued before each `return` that leaves the arm. */
-fn __tx_dropped(ss: List<Stmt>, k: Name): List<Stmt> {
+/**
+ * An arm's statements, each `discontinue(k)` in them, a function value's
+ * inside them among them, made a call to `u` handed the rest of its block:
+ * that runs once the cleanups `k` would have reached have run.
+ */
+fn __tx_discontinued_by(ss: List<Stmt>, k: Name, u: Name): List<Stmt> {
     var out: List<Stmt> = [];
-    for (s in ss) { out.push(__tx_dropped_stmt(s, k)); }
+    for (var i = 0; i < ss.len(); i += 1) {
+        if (__tx_discontinues(ss[i], k)) {
+            var rest: List<Stmt> = [];
+            for (var j = i + 1; j < ss.len(); j += 1) { rest.push(ss[j]); }
+            var then = __tx_unit_lambda(__tx_discontinued_by(rest, k, u));
+            out.push(__tx_restmt(ss[i], StmtKind.Return(Option.Some(__tx_call(__tx_var(u), [then, Expr.of(ExprKind.Int(0))])))));
+            return out;
+        }
+        out.push(__tx_discontinued_stmt(ss[i], k, u));
+    }
     return out;
 }
 
-fn __tx_dropped_stmt(s: Stmt, k: Name): Stmt {
+fn __tx_discontinued_stmt(s: Stmt, k: Name, u: Name): Stmt {
+    var within = (x: Stmt) => { return __tx_block_stmt(__tx_discontinued_by(__tx_stmts_of(x), k, u)); };
+    var fe = (e: Expr) => { return __tx_discontinued_in(e, k, u); };
     match s.kind {
-        StmtKind.Return(value) => {
-            match value {
-                Option.Some(e) => {
-                    var t = fresh("t");
-                    return __tx_block_stmt([
-                        Stmt.of(StmtKind.Let(t, Option.None, Option.Some(e))),
-                        __tx_discontinue_stmt(k),
-                        __tx_restmt(s, StmtKind.Return(Option.Some(Expr { kind: ExprKind.Var(t), span: e.span, ty: e.ty })))
-                    ]);
-                }
-                _ => { return __tx_block_stmt([__tx_discontinue_stmt(k), s]); }
-            }
-        }
-        StmtKind.Block(ss) => { return __tx_restmt(s, StmtKind.Block(__tx_dropped(ss, k))); }
+        StmtKind.Block(body) => { return __tx_restmt(s, StmtKind.Block(__tx_discontinued_by(body, k, u))); }
         StmtKind.If(c, t, e) => {
             var otherwise: Option<Stmt> = Option.None;
             match e {
-                Option.Some(x) => { otherwise = Option.Some(__tx_dropped_stmt(x, k)); }
+                Option.Some(x) => { otherwise = Option.Some(within(x)); }
                 _ => {}
             }
-            return __tx_restmt(s, StmtKind.If(c, __tx_dropped_stmt(t, k), otherwise));
+            return __tx_restmt(s, StmtKind.If(fe(c), within(t), otherwise));
         }
-        StmtKind.While(c, b) => { return __tx_restmt(s, StmtKind.While(c, __tx_dropped_stmt(b, k))); }
-        StmtKind.ForIn(ns, over, b) => { return __tx_restmt(s, StmtKind.ForIn(ns, over, __tx_dropped_stmt(b, k))); }
+        StmtKind.While(c, b) => { return __tx_restmt(s, StmtKind.While(fe(c), within(b))); }
+        StmtKind.ForIn(ns, over, b) => { return __tx_restmt(s, StmtKind.ForIn(ns, fe(over), within(b))); }
         StmtKind.Match(x, arms) => {
             var out: List<MatchArm> = [];
-            for (a in arms) { out.push(MatchArm { pattern: a.pattern, body: __tx_dropped(a.body, k) }); }
-            return __tx_restmt(s, StmtKind.Match(x, out));
+            for (a in arms) { out.push(MatchArm { pattern: a.pattern, body: __tx_discontinued_by(a.body, k, u) }); }
+            return __tx_restmt(s, StmtKind.Match(fe(x), out));
         }
-        _ => { return s; }
+        _ => {}
+    }
+    return __tx_stmt_map(s, fe, (c: Stmt) => { return __tx_discontinued_stmt(c, k, u); });
+}
+
+fn __tx_discontinued_in(e: Expr, k: Name, u: Name): Expr {
+    match e.kind {
+        ExprKind.Lambda(params, sg, body) => { return __tx_rebuilt(e, ExprKind.Lambda(params, sg, __tx_discontinued_by(body, k, u))); }
+        _ => {}
+    }
+    return __tx_map(e, (c: Expr) => { return __tx_discontinued_in(c, k, u); });
+}
+
+/** `s` with each function value made in it discontinuing `k` through `u`; its own statements are left to the split. */
+fn __tx_discontinued_closures(s: Stmt, k: Name, u: Name): Stmt {
+    return __tx_stmt_map(s, (e: Expr) => { return __tx_discontinued_in(e, k, u); }, (c: Stmt) => { return __tx_discontinued_closures(c, k, u); });
+}
+
+fn __tx_discontinues(s: Stmt, k: Name): Bool {
+    match s.kind {
+        StmtKind.Expression(e) => {
+            if (!__tx_is_discontinue(e)) { return false; }
+            match e.kind {
+                ExprKind.Call(_, args) => { return __tx_is_var(args[0], k); }
+                _ => { return false; }
+            }
+        }
+        _ => { return false; }
+    }
+}
+
+fn __tx_is_var(e: Expr, n: Name): Bool {
+    match e.kind {
+        ExprKind.Var(m) => { return m == n; }
+        _ => { return false; }
     }
 }
 
@@ -3168,7 +3790,7 @@ fn __tx_is_own(sg: Signature): Bool {
 
 /** A function this makes for itself binds what it performs where it is written, and is handed no evidence. */
 fn __tx_own_sg(ret: Option<TypeExpr>): Signature {
-    return Signature { ret: ret, row: Option.None, static_params: [StaticParam { name: plain_marker(), ty: Option.None, pack: false }] };
+    return Signature { ret: ret, row: Option.None, static_params: [StaticParam { name: plain_marker(), ty: Option.None, pack: false }], inline: false };
 }
 
 fn __tx_stmts_of(s: Stmt): List<Stmt> {
@@ -3183,6 +3805,20 @@ fn __tx_block_stmt(ss: List<Stmt>): Stmt { return Stmt.of(StmtKind.Block(ss)); }
 fn __tx_return_call(f: Expr, v: Expr): Stmt { return Stmt.of(StmtKind.Return(Option.Some(__tx_call(f, [v])))); }
 
 fn __tx_named(name: String): TypeExpr { return TypeExpr.of(TypeKind.Named(name.as_name())); }
+
+/**
+ * The parameter a function this declares takes what unwinds it in. Named as a
+ * handler's is, so it is read at the type its calls hand it rather than made
+ * a type parameter of the function.
+ */
+fn __tx_unwinder_param(): Name { return handler_param(fresh("u")); }
+
+/** `((Unit) -> answer, Int) -> answer`: what unwinds code answering `answer`, performing whatever it does. */
+fn __tx_unwinder_ty(answer: TypeExpr): TypeExpr {
+    var open = [Applied { name: open_row(), args: [] }];
+    var then = TypeExpr.of(TypeKind.Function([__tx_named("Unit")], answer, open));
+    return TypeExpr.of(TypeKind.Function([then, __tx_named("Int")], answer, open));
+}
 
 fn __tx_typed_var(n: Name, t: TypeExpr): Expr {
     return Expr { kind: ExprKind.Var(n), span: __span_generated(), ty: Option.Some(t) };
@@ -3211,6 +3847,8 @@ fn __tx_literal(e: Expr): Bool {
 }
 
 fn __tx_call(f: Expr, args: List<Expr>): Expr { return Expr.of(ExprKind.Call(f, args)); }
+
+fn __tx_call_at(original: Expr, f: Expr, args: List<Expr>): Expr { return Expr { kind: ExprKind.Call(f, args), span: original.span, ty: Option.None }; }
 
 fn __tx_rebuilt(e: Expr, kind: ExprKind): Expr { return Expr { kind: kind, span: e.span, ty: e.ty }; }
 

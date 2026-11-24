@@ -1,0 +1,14 @@
+var seen = [];
+print("before");
+meta {
+    gen code {
+        var made = [];
+        fn helper(): Int { return 7; }
+        print("generated");
+    };
+}
+seen.push(1);
+made.push(seen.len() + helper());
+print(made[0]);
+fn uses() { print(made.len()); }
+uses();

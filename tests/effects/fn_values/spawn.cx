@@ -1,8 +1,8 @@
-effect Sched {
-    ctl tick(): Unit;
+trait Sched {
+    @ctl fn tick(): Unit;
 }
 
-var queue: List<() -> Unit> = [];
+var queue: List<() -> <Console> Unit> = [];
 
 fn counter(name: String): <Sched, Console> Unit {
     for (var i = 0; i < 3; i += 1) {
@@ -12,10 +12,10 @@ fn counter(name: String): <Sched, Console> Unit {
 }
 
 fn spawn(task: () -> <Sched, Console> Unit) {
-    run {
+    run<Unit> {
         task();
-    } handle Sched {
-        ctl tick() { queue.push { resume; }; }
+    } handle<Sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
     }
 }
 

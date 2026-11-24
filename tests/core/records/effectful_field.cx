@@ -1,11 +1,11 @@
-effect Log { fn log(msg: String): Unit; }
+trait Log { fn log(msg: String): Unit; }
 
 type Job { work: () -> <Log> Unit }
 
 fn go(j: Job): <Log> Unit { j.work(); }
 
-run {
+run<Unit> {
     go(Job { work: () => log("ran") });
-} handle Log {
+} handle<Log> {
     fn log(msg) { print(msg); }
 }

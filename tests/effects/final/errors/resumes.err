@@ -1,1 +1,1 @@
-[3:59] A 'final ctl' handler cannot resume — that is what lets its result be whatever each call site needs.
+[3:1] This handler settles 'T' at Int, but 'throw' is handled once for every type its call sites use.

@@ -36,6 +36,10 @@ type CliError {
     Bad(String)
 }
 
+impl Display for CliError {
+    fn fmt(self): String { return self.message(); }
+}
+
 impl Failure for CliError {
     fn message(self): String {
         match self {
@@ -95,7 +99,11 @@ fn usage(options: List<CliOption>): String { return __usage(options); }
  * usage to standard error and ends it with 2.
  */
 fn from_args<T: Cli>(): <Args, Console, Exit> T {
-    var outcome: Result<T, CliError> = attempt { parse_args(args()) };
+    var given = args();
+    var outcome: Result<T, CliError> = attempt(() => {
+        var parsed: T = parse_args(given);
+        return parsed;
+    });
     match outcome {
         Result.Ok(value) => { return value; }
         Result.Err(e) => {

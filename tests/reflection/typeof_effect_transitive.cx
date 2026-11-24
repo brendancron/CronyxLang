@@ -1,8 +1,5 @@
-// An effect propagates up the call chain: a caller performs whatever its
-// callee does, until something handles it.
-
-effect Stream {
-    ctl yield(i: Int): Unit;
+trait Stream {
+    @ctl fn yield(i: Int): Unit;
 }
 
 fn range(low: Int, high: Int) {

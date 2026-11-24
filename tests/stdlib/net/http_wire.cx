@@ -1,5 +1,5 @@
 import { Async, race, both } from "std/async/Task";
-import { Throw, Result } from "std/core/Error";
+import { Throw, Result, attempt } from "std/core/Error";
 import { IoError } from "std/io/Io";
 import { tcp_listen, tcp_connect } from "std/net/Tcp";
 import { get, serve, Request, Response } from "std/net/Http";
@@ -50,10 +50,9 @@ race([
 listener.close();
 
 var refused = "fetched";
-run {
-    get("https://example.com/");
-} handle Throw {
-    final ctl throw(e) {
+match attempt(() => get("https://example.com/")) {
+    Result.Ok(_) => {}
+    Result.Err(e) => {
         match e {
             IoError.Other(message) => { refused = message; }
             _ => { refused = "another failure"; }

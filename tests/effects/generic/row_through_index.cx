@@ -1,4 +1,4 @@
-effect Log { fn log(s: String): Unit; }
+trait Log { fn log(s: String): Unit; }
 
 fn call<E>(action: () -> <E> Unit): <E> Unit { action(); }
 
@@ -8,8 +8,8 @@ fn first<E>(actions: List<() -> <E> Unit>): <E> Unit {
 
 fn task() { log("task"); }
 
-run {
+run<Unit> {
     first([ task ]);
-} handle Log {
+} handle<Log> {
     fn log(s) { print(s); }
 }

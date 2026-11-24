@@ -31,8 +31,8 @@ impl Show for Shape {
     }
 }
 
-effect Log {
+trait Log {
     fn log(s: String): Unit;
-    ctl ask<T>(): T;
+    @ctl fn ask<T>(): T;
 }
 

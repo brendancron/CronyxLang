@@ -1,4 +1,4 @@
-effect E { ctl op(): Unit; }
+trait E { @ctl fn op(): Unit; }
 
 fn work(): <E, Console> Unit {
     print("before");
@@ -6,13 +6,13 @@ fn work(): <E, Console> Unit {
     print("after");
 }
 
-var pending: List<() -> Unit> = [];
+var pending: List<() -> <Console> Unit> = [];
 
-run {
+run<Unit> {
     var task = () => { work(); };
     task();
-} handle E {
-    ctl op() { pending.push { resume; }; }
+} handle<E> {
+    fn op(resume) { pending.push { resume(()); }; }
 }
 
 print("run finished");

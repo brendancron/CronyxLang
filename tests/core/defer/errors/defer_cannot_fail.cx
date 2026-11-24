@@ -1,6 +1,6 @@
 import { Throw } from "std/core/Error";
 
-effect Stop { final ctl stop(): Unit; }
+trait Stop { @abort fn stop<T>(): T; }
 
 fn risky(): <Throw<String>> Unit { throw("no"); }
 
@@ -19,3 +19,6 @@ fn own_effect(): <Stop> Unit {
 fn callback<E>(close: () -> <E> Unit): <E> Unit {
     defer close();
 }
+
+run<Unit> { direct(); through_call(); callback(() => { risky(); }); } handle<Throw<String>> { fn throw(e) { } }
+run<Unit> { own_effect(); } handle<Stop> { fn stop() { } }

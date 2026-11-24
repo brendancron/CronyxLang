@@ -1,7 +1,7 @@
 finished
 finished: cleanup
-stopped
 stopped: cleanup
+stopped
 discontinued: cleanup
 discontinued
 nested: cleanup

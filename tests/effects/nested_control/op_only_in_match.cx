@@ -1,4 +1,4 @@
-effect Ask { ctl get(): Int; }
+trait Ask { @ctl fn get(): Int; }
 
 type Color { Red, Blue }
 
@@ -9,5 +9,5 @@ fn use(c: Color): <Ask> Int {
     }
 }
 
-run { print(use(Color.Red)); }
-handle Ask { ctl get() { resume 5; print("after"); } }
+run<Unit> { print(use(Color.Red)); }
+handle<Ask> { fn get(resume) { resume(5); print("after"); } }

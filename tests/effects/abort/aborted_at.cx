@@ -1,0 +1,43 @@
+trait Stop {
+    @abort fn stop<T>(why: String): T;
+}
+
+trait Pause { @ctl fn pause(): Unit; }
+
+fn place(at: Span): String {
+    var parts = str(at).split('/');
+    return parts[parts.len() - 1];
+}
+
+fn checked(n: Int): <Stop> Int {
+    if (n > 2) { return stop("too big"); }
+    return n;
+}
+
+run<Unit> {
+    print(checked(1));
+    print(checked(5));
+} handle<Stop> {
+    fn stop(why) { print(why + " at " + place(aborted_at())); }
+}
+
+run<Unit> {
+    run<Unit> {
+        pause();
+        stop("inside");
+    } handle<Pause> { fn pause(resume) { resume(()); } }
+} handle<Stop> {
+    fn stop(why) {
+        var where = () => { return aborted_at(); };
+        print(why + " at " + place(where()));
+    }
+}
+
+run<Unit> {
+    run<Unit> {
+        pause();
+        stop("own");
+    } handle<Stop> {
+        fn stop(why) { print(why + " at " + place(aborted_at())); }
+    }
+} handle<Pause> { fn pause(resume) { resume(()); } }

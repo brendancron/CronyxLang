@@ -1,11 +1,11 @@
-effect Fail { fn fail(): Unit; }
-effect Log { fn log(): Unit; }
+trait Fail { fn fail(): Unit; }
+trait Log { fn log(): Unit; }
 
 fn quiet(): <Log> Unit {}
 
 fn each<E>(f: () -> <Fail, E> Unit): <Fail, E> Unit { f(); }
 
 var g: () -> <Log> Unit = quiet;
-run {
-    run { each(g); } handle Fail { fn fail() {} }
-} handle Log { fn log() {} }
+run<Unit> {
+    run<Unit> { each(g); } handle<Fail> { fn fail() {} }
+} handle<Log> { fn log() {} }

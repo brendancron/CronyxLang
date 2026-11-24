@@ -1,3 +1,3 @@
-effect Signal {
-    final ctl stop(reason: String);
+trait Signal {
+    @abort fn stop<T>(reason: String): T;
 }

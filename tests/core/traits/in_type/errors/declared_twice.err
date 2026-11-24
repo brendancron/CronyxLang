@@ -1,2 +1,1 @@
 [11:5] 'size' is declared by both 'Area' and 'Volume'; write them as separate impls.
-[9:22] 'Volume' for 'Cube' is missing method 'size'.

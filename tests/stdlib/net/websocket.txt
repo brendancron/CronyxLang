@@ -1,5 +1,5 @@
-Some(Text("/chat hello"))
-Some(Text("/chat héllo again"))
+Some(Message.Text("/chat hello"))
+Some(Message.Text("/chat héllo again"))
 70000 bytes back
 200 bytes back
 None

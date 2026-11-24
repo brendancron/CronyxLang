@@ -4,7 +4,7 @@ import { IoError } from "std/io/Io";
 import { tcp_listen } from "std/net/Tcp";
 
 var listener = tcp_listen("127.0.0.1", 0);
-run {
+run<Unit> {
     all([
         () => {
             defer { print("stopped listening"); }
@@ -16,8 +16,8 @@ run {
             throw(IoError.Other("shutting down"));
         }
     ]);
-} handle Throw {
-    final ctl throw(e) { print("scope failed: " + e.message()); }
+} handle<Throw<IoError>> {
+    fn throw(e) { print("scope failed: " + e.message()); }
 }
 listener.close();
 print("done");

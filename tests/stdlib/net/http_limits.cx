@@ -68,11 +68,11 @@ race([
         print("then: " + text(read_all(conn)).split('\n')[5]);
         conn.close();
 
-        run {
+        run<Unit> {
             send("GET", base + "/", Headers.new().set("X-Bad", "a\r\nHost: elsewhere"), []);
             print("sent a bad header");
-        } handle Throw {
-            final ctl throw(e) { print("refused to send: " + e.message()); }
+        } handle<Throw<IoError>> {
+            fn throw(e) { print("refused to send: " + e.message()); }
         }
     }
 ]);

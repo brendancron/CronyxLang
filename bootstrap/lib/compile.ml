@@ -6,7 +6,7 @@ let ( let* ) = Result.bind
 let declared_root (p : Ast.program) =
   let rec root (s : Ast.stmt) =
     match s.Ast.it with
-    | `Fn (name, _, _, _) when Ast.is_root name -> Some name
+    | `Fn (name, _, _, _) when Ast.is_program_root name -> Some name
     | `Attributed (_, inner) -> root inner
     | _ -> None
   in
@@ -30,7 +30,7 @@ let root_call root (body : Ast.stmt list) : Ast.stmt =
     List.fold_left (fun span (s : Ast.stmt) -> Source_map.Span.join span s.Ast.span) Source_map.Span.nowhere body
   in
   let main : Ast.expr =
-    Ast.at span (`Lambda ([], { Ast.ret = None; row = None; static_params = [] }, body))
+    Ast.at span (`Lambda ([], { Ast.ret = None; row = None; static_params = []; inline = false }, body))
   in
   Ast.at span (`Expr (Ast.at span (`Call (Ast.at span (`Var root), [ main ]))))
 
@@ -77,6 +77,6 @@ let back_sharing ~shared ~own : (Ast.resolved_stmt list, Diagnostic.error list) 
 
 (* The exit code the program ended with: 0 unless it asked for another. *)
 let run env (converted : Ast.resolved_stmt list) : (int, Diagnostic.error) result =
-  match Interp.run env converted with
+  match Interp.run env (Defers.program converted) with
   | Ok code -> Ok code
   | Error e -> Error (Diagnostic.at Diagnostic.Runtime e.Value.span e.Value.message)

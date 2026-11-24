@@ -157,6 +157,11 @@ fn __type_params(ps: List<TypeParam>): String {
 
 fn __names(ns: List<Name>): String { return __each(ns, ", ", (n: Name) => str(n)); }
 
+fn __inline_mark(sg: Signature): String {
+    if (sg.inline) { return "inline "; }
+    return "";
+}
+
 fn __signature(sg: Signature): String {
     match sg.ret {
         Option.None => { return ""; }
@@ -268,6 +273,7 @@ fn __expr(e: Expr): String {
         ExprKind.QuoteExpr(inner) => { return "code(" + __expr(inner) + ")"; }
         ExprKind.QuoteStmts(body) => { return "code { " + __inline(body) + "}"; }
         ExprKind.QuoteDecl(d) => { return "code " + __decl(0, d).trim(); }
+        ExprKind.Processed(n) => { return "processed#" + str(n); }
     }
     return "";
 }
@@ -443,6 +449,7 @@ fn __stmt(depth: Int, s: Stmt): String {
             return __line(depth, "derive " + __names(traits) + " for " + str(target) + ";");
         }
         StmtKind.Declare(d) => { return __decl(depth, d); }
+        StmtKind.Processed(n) => { return __line(depth, "processed#" + str(n) + ";"); }
     }
     return "";
 }
@@ -477,7 +484,7 @@ fn __handlers(depth: Int, clauses: List<HandlerClause>): String {
 }
 
 fn __method(depth: Int, m: MethodDef): String {
-    return __member_attrs(depth, m.attrs) + "fn " + str(m.name) + __static_params(m.signature.static_params) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + " {\n"
+    return __member_attrs(depth, m.attrs) + __inline_mark(m.signature) + "fn " + str(m.name) + __static_params(m.signature.static_params) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + " {\n"
         + __block(depth + 1, m.body)
         + __line(depth, "}");
 }
@@ -551,7 +558,7 @@ fn __decl(depth: Int, d: Decl): String {
     var head = __attrs(depth, d.attrs);
     match d.kind {
         DeclKind.Fn(f) => {
-            return head + __line(depth, "fn " + str(f.name) + __static_params(f.signature.static_params) + "(" + __each(f.params, ", ", __param) + ")" + __signature(f.signature) + " {")
+            return head + __line(depth, __inline_mark(f.signature) + "fn " + str(f.name) + __static_params(f.signature.static_params) + "(" + __each(f.params, ", ", __param) + ")" + __signature(f.signature) + " {")
                 + __block(depth + 1, f.body)
                 + __line(depth, "}");
         }

@@ -1,5 +1,5 @@
-effect Fallible {
-    final ctl invalid(text: String);
+trait Fallible {
+    @abort fn invalid<T>(text: String): T;
 }
 
 trait TryFrom<S> {
@@ -30,7 +30,7 @@ fn do_work<S, T: TryFrom<S>>(source: S): <Fallible> T {
     return T.from(source);
 }
 
-run {
+run<Unit> {
     var n: Int = do_work("42");
     print(n);
 
@@ -39,6 +39,6 @@ run {
 
     var bad: Int = do_work("seven");
     print(bad);
-} handle Fallible {
-    final ctl invalid(text) { print("not a value: " + text); }
+} handle<Fallible> {
+    fn invalid(text) { print("not a value: " + text); }
 }

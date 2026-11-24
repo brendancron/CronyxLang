@@ -28,10 +28,10 @@ fn page(request: Request): <Async, Throw<IoError>> Response {
 
 fn failure<E>(task: () -> <Async, Throw<IoError>, E> Unit): <Async, E> String {
     var said = "no failure";
-    run {
+    run<Unit> {
         task();
-    } handle Throw {
-        final ctl throw(e) {
+    } handle<Throw<IoError>> {
+        fn throw(e) {
             match e {
                 IoError.Other(message) => { said = message; }
                 _ => { said = "another failure"; }

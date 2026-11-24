@@ -69,7 +69,8 @@ fn handled(op: MethodSig): MethodSig {
         signature: Signature {
             ret: Option.Some(answer),
             row: Option.Some(performs),
-            static_params: static_params
+            static_params: static_params,
+            inline: false
         },
         attrs: op.attrs
     };

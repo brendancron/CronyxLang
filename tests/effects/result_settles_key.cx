@@ -1,0 +1,24 @@
+trait Stop { @abort fn stop<T>(why: String): T; }
+trait Make { fn make(): Self; }
+
+type Point { x: Int }
+
+impl Make for Point {
+    fn make(): Point { return Point { x: 1 }; }
+}
+
+fn made<T: Make>(): <Stop> T { return T.make(); }
+
+fn kept<T, E>(f: () -> <Stop, E> T): <E> Option<T> {
+    var out: Option<T> = Option.None;
+    var __f = f;
+    run<Unit> {
+        out = Option.Some(__f());
+    } handle<Stop> {
+        fn stop(why) {}
+    }
+    return out;
+}
+
+var p: Option<Point> = kept(() => made());
+print(p);

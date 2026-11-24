@@ -1,4 +1,4 @@
-effect Log { fn log(s: String): Unit; }
+trait Log { fn log(s: String): Unit; }
 
 fn each<E>(actions: List<() -> <E> Unit>): <E> Unit {
     for (action in actions) { action(); }
@@ -7,8 +7,8 @@ fn each<E>(actions: List<() -> <E> Unit>): <E> Unit {
 fn first() { log("first"); }
 fn second() { log("second"); }
 
-run {
+run<Unit> {
     each([ first, () => { log("lambda"); }, second ]);
-} handle Log {
+} handle<Log> {
     fn log(s) { print(s); }
 }

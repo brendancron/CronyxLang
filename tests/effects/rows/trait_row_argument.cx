@@ -1,4 +1,4 @@
-effect Log {
+trait Log {
     fn emit(msg: String): Unit;
 }
 
@@ -37,13 +37,13 @@ fn drain<S: Source<Int, E>, E>(s: S): <E> Int {
     return total;
 }
 
-run {
+run<Unit> {
     print(drain(Counter { n: [0] }));
     var s: Source<Int, <Log>> = Counter { n: [1] };
     print(s.pull());
     var w = Wrapped { inner: () => { emit("wrapped pulled"); return Option.Some("x"); } };
     print(w.pull());
-} handle Log {
+} handle<Log> {
     fn emit(msg) { print(msg); }
 }
 

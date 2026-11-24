@@ -91,3 +91,55 @@ print(a);   // 100
 - **A. Rewrite line 217 to match** (recommended): `resume e` checks `e` against
   the operation's type; the arm's `return` checks against the run's type.
 - **B. Leave it** if `ctl` is being replaced anyway.
+
+## 11. Docs out of date after S5b (one `__root`, static `Display`)
+
+**Found** by the S5b agent, not edited (docs are edited only when asked):
+
+- `internal-docs/Architecture.md`: the Desugar section, and "The root runs every program under `block_on`".
+- `internal-docs/IO.md:34`.
+- `internal-docs/Algebraic Effects.md:62`.
+- `internal-docs/Type System.md:124` ("the row `__root` hands a statement"): the root now takes the whole top level as one body.
+- `internal-docs/Stdlib Plan.md:39,41,49`: describe a deriver per trait and `derive Display`; printing is now reflective, with no derivers (I242), and a type with no impl prints its structure (I236 replaced).
+- The reflection and metaprocessing docs (`Reflection.md`, `Metaprocessing.md`) do not mention `implements(T, Trait)` (I243).
+- `docs/docs/language-metaprogramming/deriving.mdx`, `reflection.mdx`: may show `derive Display`/`derive Debug`, which no longer exist (I242). Not checked.
+
+- Found after S5c: `internal-docs/Async.md`, `IO.md`, `Net.md`, `Stdlib Plan.md`, `stdlib.txt`, `Type System.md`, `CPS Migration.md` (`Iter`'s close row, the root), `Architecture.md` (the meta root), and `docs/docs/language-effects/async.mdx` describe the old async/io shapes (I251–I260).
+
+**Options.** A. Rewrite them now as built (recommended: I236 and I245 are settled). B. Wait for the rest of the S5b review.
+
+## `module.Trait.op` loses a generic operation's type parameter
+
+Found 2026-11-24 while adding the ambiguous-operation error. With `signal.cx` declaring
+`trait Signal { @abort fn stop<T>(reason: String): T; }` and `import "signal";`:
+
+```cronyx
+fn halt(): Int { return signal.Signal.stop("no reason"); }
+```
+
+fails with `Unknown type 'T'.` at `signal.cx:1:51`, while `signal.stop("no reason")` and, after
+`import { Signal } from "signal";`, `Signal.stop("no reason")` both work. The three-part form seems to reach the
+operation without instantiating its own static parameter `T`.
+
+Options: (a) fix it, so `module.Trait.op` works like `Trait.op` (recommended: it is the natural way to pick one
+trait when a module has two with the same operation); (b) make `module.Trait.op` an error pointing at the
+named-import form.
+
+## A named handler type cannot `discontinue`
+
+Found 2026-11-24 by the agent building the misplaced-`discontinue` error. In a named handler type
+(`type T impl EffectHandler<E, R> { fn op(…, resume) { discontinue(resume); } }` used with `with T`),
+`discontinue(resume)` passes the new compile check but fails at run time with "Only a handler's method can
+discontinue its continuation.": the library transform (`__tx_discontinuing` in stdlib/core/Transform.cx) only
+rewrites `discontinue` in inline handlers' records, never in a named handler's impl methods. This predates
+today's change.
+
+Options: (a) make the transform rewrite named handlers' methods too (recommended: named and inline handlers
+should behave the same); (b) make `discontinue` in a named handler a compile error until then.
+
+## Two smaller gaps from the same work
+
+- A lambda written inside a plain operation's arm that performs a `@ctl` effect is not caught by the new
+  "plain operation's handler must return" rule (the lambda's effects are its own). Precheck had the same gap.
+- That rule's error renders as "Meta error" rather than "Type error", because it is raised while the walk's
+  meta-driven check runs; the position and message are right.

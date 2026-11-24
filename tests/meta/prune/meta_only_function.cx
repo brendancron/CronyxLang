@@ -3,7 +3,8 @@ fn doubled(n: Int): Int {
 }
 
 fn shared(n: Int): Int {
-    return n + 1;
+    if (n <= 0) { return 1; }
+    return shared(n - 1) + 1;
 }
 
 meta {

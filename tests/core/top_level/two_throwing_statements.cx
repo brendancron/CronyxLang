@@ -1,0 +1,11 @@
+import { Throw } from "std/core/Error";
+import { Async, pause } from "std/async/Task";
+
+fn checked(n: Int): <Throw<String>, Async> Int {
+    pause();
+    if (n < 0) { throw("negative"); }
+    return n;
+}
+
+print(checked(1));
+print(checked(2));

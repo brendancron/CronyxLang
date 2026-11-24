@@ -7,10 +7,35 @@ type dumps =
   ; ast : bool
   ; types : bool
   ; code : bool
+  ; processed : bool
+  ; show_processed : bool
+  ; time : bool
+  ; sections : bool
   }
 
 let no_dumps =
-  { source = false; tokens = false; ast = false; types = false; code = false }
+  { source = false
+  ; tokens = false
+  ; ast = false
+  ; types = false
+  ; code = false
+  ; processed = false
+  ; show_processed = false
+  ; time = false
+  ; sections = false
+  }
+
+(* Read when the module is initialized, which is as the process starts: total
+   time is measured from here, so it includes loading the toolchain. *)
+let started = Unix.gettimeofday ()
+
+let ms since = (Unix.gettimeofday () -. since) *. 1000.
+
+(* On stderr, so a program's own output is unchanged. *)
+let report_time dumps ~compiled ~ran =
+  flush stdout;
+  if dumps.sections then prerr_endline "-- time --";
+  Printf.eprintf "compile %.1f ms · run %.1f ms · total %.1f ms\n%!" compiled ran (ms started)
 
 let die message =
   prerr_endline message;
@@ -79,6 +104,35 @@ let split_arguments args =
 let roots_for entry =
   { Loader.package = Filename.dirname entry; std = Toolchain.stdlib (); deps = [] }
 
+(* The marker goes on both streams, so that what precedes it on stderr is a
+   compile diagnostic and what follows it is the run's, however the two pipes
+   interleave. *)
+let run_timed dumps ~entry ~compiled converted =
+  if dumps.sections
+  then (
+    print_endline "-- run --";
+    flush stdout;
+    prerr_endline "-- run --";
+    flush stderr);
+  let running = Unix.gettimeofday () in
+  let outcome = Pipeline.run (Builtins.env ~out:Builtins.to_stdout) converted in
+  if dumps.time then report_time dumps ~compiled ~ran:(ms running);
+  match outcome with
+  | Ok 0 -> ()
+  | Ok code -> exit code
+  | Error e -> die_at ~entry [ e ]
+
+let on_code dumps ~entry processed =
+  if dumps.code
+  then (
+    print_endline "-- code --";
+    print_string (Printer.string_of_processed_program processed));
+  if dumps.processed || dumps.show_processed
+  then (
+    print_endline "-- processed --";
+    print_string (Printer.cronyx_of_entry ~entry processed);
+    if dumps.processed then exit 0)
+
 (* A program already linked: what `cx` hands over once every package has been
    compiled and the artifacts concatenated. *)
 let execute_linked ?(dumps = no_dumps) ~entry program =
@@ -88,39 +142,23 @@ let execute_linked ?(dumps = no_dumps) ~entry program =
       print_endline "-- types --";
       print_string (Printer.string_of_processed_program typed))
   in
-  let on_code processed =
-    if dumps.code
-    then (
-      print_endline "-- code --";
-      print_string (Printer.string_of_processed_program processed))
-  in
+  let on_code = on_code dumps ~entry in
+  let compiling = Unix.gettimeofday () in
   match Pipeline.linked ~on_code ~on_types ~out:Builtins.to_stdout program with
   | Error errors -> die_at ~entry errors
-  | Ok converted ->
-    (match Pipeline.run (Builtins.env ~out:Builtins.to_stdout) converted with
-     | Ok 0 -> ()
-     | Ok code -> exit code
-     | Error e -> die_at ~entry [ e ])
+  | Ok converted -> run_timed dumps ~entry ~compiled:(ms compiling) converted
 
 let execute ?(dumps = no_dumps) ?roots entry =
   let roots = match roots with Some roots -> roots | None -> roots_for entry in
   dump_front ~entry dumps (read_source entry);
-  let on_code processed =
-    if dumps.code
-    then (
-      print_endline "-- code --";
-      print_string (Printer.string_of_processed_program processed))
-  in
+  let on_code = on_code dumps ~entry in
   let on_types typed =
     if dumps.types
     then (
       print_endline "-- types --";
       print_string (Printer.string_of_processed_program typed))
   in
+  let compiling = Unix.gettimeofday () in
   match Pipeline.compile ~on_code ~on_types ~roots ~out:Builtins.to_stdout entry with
   | Error errors -> die_at ~entry errors
-  | Ok converted ->
-    (match Pipeline.run (Builtins.env ~out:Builtins.to_stdout) converted with
-     | Ok 0 -> ()
-     | Ok code -> exit code
-     | Error e -> die_at ~entry [ e ])
+  | Ok converted -> run_timed dumps ~entry ~compiled:(ms compiling) converted

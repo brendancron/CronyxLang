@@ -16,7 +16,7 @@
  * to the directory the program was started in.
  */
 
-import { Async } from "../async/Task";
+import { Async, suspend } from "../async/Task";
 import { Throw, Result, Failure } from "../core/Error";
 import { Reader, Writer, Closer, IoError, using } from "../io/Io";
 import { decode } from "../text/Utf8";
@@ -55,12 +55,12 @@ type Metadata {
 trait File: Reader, Writer, Closer<IoError> {}
 
 /** Opening files. */
-effect Fs {
+trait Fs {
     /**
      * The file at the path, or why it could not be opened. A failure is a value
      * here so it reaches the caller: `open_file` throws it where it was asked.
      */
-    ctl open(path: String, mode: Mode): Result<File, IoError>;
+    fn open(path: String, mode: Mode): Result<File, IoError>;
 }
 
 /**
@@ -68,7 +68,7 @@ effect Fs {
  * `Fs`, since a test that hands out files of its own seldom wants to answer
  * for directories too. A failure is a value, as `open`'s is.
  */
-effect Dirs {
+trait Dirs {
     /** The names in the directory, in order, without `.` and `..`. */
     fn read_dir(path: String): Result<Array<String>, IoError>;
 

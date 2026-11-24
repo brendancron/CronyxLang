@@ -148,6 +148,72 @@ type Type {
     doc: String
 }
 
+// Reflection's own records are written as their structure, the way a value
+// read in a meta block is usually inspected: `Named(Int, [])`.
+impl Debug for AttrArg {
+    fn debug(self): String {
+        match self {
+            AttrArg.Str(v) => { return "Str(" + debug(v) + ")"; }
+            AttrArg.Int(v) => { return "Int(" + debug(v) + ")"; }
+            AttrArg.Float(v) => { return "Float(" + debug(v) + ")"; }
+            AttrArg.Bool(v) => { return "Bool(" + debug(v) + ")"; }
+        }
+    }
+}
+impl Display for AttrArg { fn fmt(self): String { return debug(self); } }
+
+impl Debug for Attr {
+    fn debug(self): String { return "{ name: " + debug(self.name) + ", args: " + debug(self.args) + " }"; }
+}
+impl Display for Attr { fn fmt(self): String { return debug(self); } }
+
+impl Debug for TypeRef {
+    fn debug(self): String {
+        match self {
+            TypeRef.Named(name, args) => { return "Named(" + debug(name) + ", " + debug(args) + ")"; }
+            TypeRef.Param(name) => { return "Param(" + debug(name) + ")"; }
+            TypeRef.Other => { return "Other"; }
+        }
+    }
+}
+impl Display for TypeRef { fn fmt(self): String { return debug(self); } }
+
+impl Debug for TypeField {
+    fn debug(self): String {
+        return "{ name: " + debug(self.name) + ", ty: " + debug(self.ty) + ", doc: " + debug(self.doc)
+            + ", attrs: " + debug(self.attrs) + " }";
+    }
+}
+impl Display for TypeField { fn fmt(self): String { return debug(self); } }
+
+impl Debug for TypeVariant {
+    fn debug(self): String {
+        return "{ name: " + debug(self.name) + ", arity: " + debug(self.arity) + ", payload: " + debug(self.payload)
+            + ", fields: " + debug(self.fields) + ", doc: " + debug(self.doc) + ", attrs: " + debug(self.attrs) + " }";
+    }
+}
+impl Display for TypeVariant { fn fmt(self): String { return debug(self); } }
+
+impl Debug for TypeShape {
+    fn debug(self): String {
+        match self {
+            TypeShape.Scalar => { return "Scalar"; }
+            TypeShape.Product(name, params, fields) => {
+                return "Product(" + debug(name) + ", " + debug(params) + ", " + debug(fields) + ")";
+            }
+            TypeShape.Sum(name, params, variants) => {
+                return "Sum(" + debug(name) + ", " + debug(params) + ", " + debug(variants) + ")";
+            }
+            TypeShape.Other => { return "Other"; }
+        }
+    }
+}
+impl Display for TypeShape { fn fmt(self): String { return debug(self); } }
+
+impl Debug for Type {
+    fn debug(self): String { return self.name; }
+}
+
 /** A type is written as its name. */
 impl Display for Type {
     fn fmt(self): String { return self.name; }

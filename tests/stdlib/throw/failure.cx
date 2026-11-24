@@ -2,6 +2,10 @@ import { Throw, Failure, fail } from "std/core/Error";
 
 type IoError { NotFound(String) }
 
+impl Display for IoError {
+    fn fmt(self): String { return self.message(); }
+}
+
 impl Failure for IoError {
     fn message(self): String {
         match self { IoError.NotFound(p) => { return "no such file: " + p; } }
@@ -9,6 +13,10 @@ impl Failure for IoError {
 }
 
 type ParseError { BadLine(Int) }
+
+impl Display for ParseError {
+    fn fmt(self): String { return self.message(); }
+}
 
 impl Failure for ParseError {
     fn message(self): String {
@@ -24,9 +32,9 @@ fn step(n: Int): Int {
 }
 
 for (n in [1, 2, 3, 4]) {
-    run {
+    run<Unit> {
         print(step(n));
-    } handle Throw {
-        final ctl throw(e) { print("failed: " + e.message()); }
+    } handle<Throw<Failure>> {
+        fn throw(e) { print("failed: " + e.message()); }
     }
 }

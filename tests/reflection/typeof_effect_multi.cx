@@ -1,9 +1,6 @@
-// Two operations of one effect are one entry: what a row records is what
-// has to be handled.
-
-effect Io {
-    ctl emit(val: Int): Unit;
-    ctl request(): Int;
+trait Io {
+    @ctl fn emit(val: Int): Unit;
+    @ctl fn request(): Int;
 }
 
 fn ping_pong(n: Int) {

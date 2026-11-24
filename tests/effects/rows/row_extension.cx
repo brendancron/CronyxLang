@@ -1,8 +1,8 @@
-effect Log {
+trait Log {
     fn emit(msg: String): Unit;
 }
 
-effect Ask {
+trait Ask {
     fn base(): Int;
 }
 
@@ -21,11 +21,11 @@ fn asks(): <Ask> Int {
     return base() + 1;
 }
 
-run {
+run<Unit> {
     print(str(traced("quiet", quiet)));
     print(str(traced("asks", asks)));
-} handle Log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
-} handle Ask {
+} handle<Ask> {
     fn base() { return 41; }
 }

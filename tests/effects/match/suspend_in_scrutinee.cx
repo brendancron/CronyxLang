@@ -1,7 +1,6 @@
-// The value being matched is what performs the effect.
 type C { A, B }
 
-effect Ask { ctl pick(): C; }
+trait Ask { @ctl fn pick(): C; }
 
 fn choose(): <Ask> Int {
     match pick() {
@@ -10,11 +9,11 @@ fn choose(): <Ask> Int {
     }
 }
 
-run {
+run<Unit> {
     print(choose());
-} handle Ask {
-    ctl pick() {
-        resume C.B;
+} handle<Ask> {
+    fn pick(resume) {
+        resume(C.B);
         print("h");
     }
 }

@@ -1,4 +1,4 @@
-effect Log {
+trait Log {
     fn emit(msg: String): Unit;
 }
 
@@ -18,9 +18,9 @@ fn shout(x: Int): <Log> Int {
 var quiet = twice(bump, 3);
 print(str(quiet[0]) + " " + str(quiet[1]));
 
-run {
+run<Unit> {
     var noisy = twice(shout, 5);
     print(str(noisy[0]) + " " + str(noisy[1]));
-} handle Log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }

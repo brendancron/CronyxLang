@@ -49,12 +49,12 @@ fn repeated<n: Int, T>(value: T): Array<T> {
 }
 
 /** Values handed out one at a time. */
-effect Feed<T> {
+trait Feed<T> {
     /** Hands the next value over, and waits to be resumed. */
-    ctl next(): T;
+    @ctl fn next(): T;
 }
 
 /** Runs its body with nothing left to give. */
-handler empty : Feed {
-    ctl next() { panic("the feed is empty"); }
+type Empty<T, R> impl EffectHandler<Feed<T>, R> {
+    fn next(k: (T) -> R): R { panic("the feed is empty"); }
 }

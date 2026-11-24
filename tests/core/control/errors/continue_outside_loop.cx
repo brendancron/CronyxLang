@@ -8,3 +8,5 @@ while (true) {
 for (x in [1]) {
     defer { continue; }
 }
+
+f();

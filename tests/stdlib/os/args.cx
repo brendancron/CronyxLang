@@ -9,8 +9,8 @@ fn greet(): <Args> String {
 print(args());
 print(greet());
 
-run {
+run<Unit> {
     print(greet());
-} handle Args {
+} handle<Args> {
     fn args() { return ["ada", "--verbose"]; }
 }

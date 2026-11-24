@@ -1,0 +1,10 @@
+import { Module } from "std/meta/Reflect";
+import "thing";
+
+match moduleof(thing) {
+    Module.File(name, declarations) => {
+        print("module " + str(name));
+        for (d in declarations) { print("  " + str(d.name)); }
+    }
+    Module.Directory(name, _) => { print("directory " + str(name)); }
+}

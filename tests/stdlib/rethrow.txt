@@ -1,0 +1,2 @@
+io: IoError.NotFound("missing.toml")
+parse: ParseError.BadLine(1)

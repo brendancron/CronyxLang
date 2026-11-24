@@ -1,15 +1,15 @@
-effect Deferred {
-    ctl todo(): Unit;
+trait Deferred {
+    @ctl fn todo(): Unit;
 }
 
-var pending: List<() -> Unit> = [];
+var pending: List<() -> <Console> Unit> = [];
 
-run {
+run<Unit> {
     print("before");
     todo();
     print("after");
-} handle Deferred {
-    ctl todo() { pending.push(() => { resume; }); }
+} handle<Deferred> {
+    fn todo(resume) { pending.push(() => { resume(()); }); }
 }
 
 print("run finished");

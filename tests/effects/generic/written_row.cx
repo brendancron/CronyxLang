@@ -1,5 +1,5 @@
-effect Yield<T> {
-    ctl yield(value: T): Unit;
+trait Yield<T> {
+    @ctl fn yield(value: T): Unit;
 }
 
 fn counted(high: Int): <Yield<Int>> Unit {
@@ -16,27 +16,25 @@ fn spelled(text: String): <Yield<String>> Unit {
     }
 }
 
-// Unwritten, so the argument is inferred rather than pinned: this one is
-// `Yield<Int>` because that is what it yields.
 fn doubled(n: Int): <Yield> Unit {
     yield(n);
     yield(n * 2);
 }
 
-run {
+run<Unit> {
     counted(3);
-} handle Yield {
-    ctl yield(n) { print(str(n)); resume; }
+} handle<Yield<Int>> {
+    fn yield(n, resume) { print(str(n)); resume(()); }
 }
 
-run {
+run<Unit> {
     spelled("a b");
-} handle Yield {
-    ctl yield(w) { print(w); resume; }
+} handle<Yield<String>> {
+    fn yield(w, resume) { print(w); resume(()); }
 }
 
-run {
+run<Unit> {
     doubled(5);
-} handle Yield {
-    ctl yield(v) { print(str(v)); resume; }
+} handle<Yield<Int>> {
+    fn yield(v, resume) { print(str(v)); resume(()); }
 }

@@ -29,11 +29,11 @@ using(open_file("io_lines.txt", Mode.Read)) { f ->
     }
 };
 
-run {
+run<Unit> {
     for (line in lines(stdin())) {
         print("you said " + line);
     }
-} handle Stdin {
+} handle<Stdin> {
     fn stdin() {
         var input: Reader = Given { data: "hi\nbye\n".bytes(), at: [0] };
         return input;

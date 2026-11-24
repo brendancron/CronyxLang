@@ -1,4 +1,4 @@
-effect Ask { ctl get(): Int; }
+trait Ask { @ctl fn get(): Int; }
 
 trait Speaker {
     fn speak(self): <Ask> String;
@@ -21,12 +21,12 @@ impl Speaker for Dog {
 
 fn main(): Unit {
     var speakers: List<Speaker> = [Cat, Dog];
-    run {
+    run<Unit> {
         for (s in speakers) {
             print(s.speak());
         }
     }
-    handle Ask { ctl get() { resume 1; print("after the resume"); } }
+    handle<Ask> { fn get(resume) { resume(1); print("after the resume"); } }
 }
 
 main();

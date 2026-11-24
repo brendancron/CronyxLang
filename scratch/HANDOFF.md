@@ -1,7 +1,7 @@
 # CPS Migration: handoff
 
 Branch `cps-migration`. This file is the starting point for a new Claude session. Read it,
-then `CLAUDE.md`, then the design. Work in progress: the suite is red on purpose.
+then `CLAUDE.md`, then the design. Steps 1–5d are built and all three suites are green; nothing past S5a is committed.
 
 ## What this branch does
 It implements `internal-docs/CPS Migration.md`, and only that document. Do **not** pull in plans
@@ -13,7 +13,8 @@ monomorphize, Splice, quote. Avoid "template", "comptime function" and "demote".
 - `internal-docs/CPS Migration.md`: the design, and the source of truth.
 - `scratch/review-later.md`: every decision.
   - R1–R31 are design-level: the user reviewed them all on 2026-11-22.
-  - I1–I230 are implementation entries. Entries marked "To build" are decided and not yet built.
+  - I1–I319 are implementation entries. Entries marked "To build" are decided and not yet built; those marked
+    "review after" are built and wait for the user's review.
 - `scratch/plans/00-unified.md`: the original plan (A1–A10, B1–B6, C1–C10). It has been
   overtaken by the steps below, but it explains the codebase.
 - `scratch/questions.md`: older open questions, from the main checkout.
@@ -29,81 +30,63 @@ From `bootstrap/`: `dune build --root .`, then
 In a git worktree, plain `dune` fails with "No rule found for alias", so pass `--root .`.
 `--dump-code` shows processed code.
 
-## Status (steps 3–5a committed, 5b partly built)
-Steps 3, 4, 4b and 5a are committed on `cps-migration`, together with the half of step 5b below. Pass counts:
-737/972 overall, tests/effects/v2 132/133, tests/core/defer/v2 6/6, tests/stdlib/v2 4/4, tests/meta 158/162; against
-the end of 5a the passing set only gained 5b's three new fixtures. The one red in v2 is
-`errors/handler_method_takes_control` (old syntax, as before); `expected_failing` holds only the parked
-native-compilation fixtures. The rest is red because the stdlib and old fixtures still use the deleted old syntax. The
-user has accepted that red. The checkpoint patches in `scratch/checkpoints/` are superseded by the commit.
-`dune test cx` deletes `cx/test/registry/app/cronyx.lock`; restore it from `HEAD` after running it (I230).
+The three suites (I319):
+- `dune test --root . --force` from `bootstrap/`: about 20 minutes, so run it in the background.
+- `dune test cx --root .` from the worktree root. It deletes `cx/test/registry/app/cronyx.lock`; restore it with
+  `git checkout -- cx/test/registry/app/cronyx.lock` after every run (I230).
+- `./scripts/cx-parity.sh` from the worktree root. Its own `dune build` fails in a worktree, so put a `dune` first on
+  `PATH` that runs `/usr/bin/dune "$@" --root .`.
+
+## Status (steps 3–5a committed; 5b, 5c and 5d built, not committed)
+Steps 3, 4, 4b and 5a and part of 5b are committed on `cps-migration` (`fcc7db5`). Steps 5b, 5c and 5d, I270, and
+everything after them are uncommitted work in the tree. Results at the end of 5d (I319):
+- `dune test --force`: 1629/1629.
+- `dune test cx`: 131/131.
+- `./scripts/cx-parity.sh`: 1850/1850.
+
+The only entries left in `expected_failing` and `known_unsound` are the deliberate ones: `tests/compile/m0`–`m8` (`Parked`,
+native compilation) and `traits/errors/impl_row_inferred` (I294). Cost: `hello` takes 213 ms to compile and run, as at the
+end of 5c (I268). Most of that is the root's I/O handlers.
+`scratch/tools/fixtures.py` still counts a few fixtures red that the suite passes: `[lib.cx …]` prefixes and `os/args` (I294,
+I309). The suite is the authority.
 
 - **Phases A, B and C1–C7a (earlier):** the metaprocessing core, reflection and Splice, effects as
   traits, `@ctl`, `EffectHandler`, and the library `effect_transform` in `stdlib/core/Transform.cx`.
-- **Step 1:** old effect syntax deleted: `cps.ml`, `effect`, `ctl`, `final ctl`, `resume x;`, old
-  handlers, and the interpreter's Cont/Frame/Abort. The prelude's `__root` is rewritten minimally.
-  Async, Fs, Process, Net, Exit and Stdin are dropped from it for now.
-- **Step 2:** handlers are values (the Koka model, R1). A function whose row has a `@ctl` effect
-  takes handler and continuation parameters wherever it is written. Handlers are out of the key
-  (I104). The handed form is deleted (I112). Lists of stored tasks work.
-- **Step 2b:** one CPS form per function value, and runs that take control outward become prompts
-  with a "current answer continuation" (I186, I192–I200).
-- **Step 3 (I201–I208):** `EffectHandler` makes each `@ctl` method generic in its row (`Rho`); an inline
-  handler's value is checked as the record against that signature; rewritten code keeps no false row (R28, for
-  runs); a defaulted effect parameter is `absent` (I25). Left: the call-site display of a handler method
-  (`answered`), named handlers not tied to one ρ, arms checked twice under a transform, `Verify`'s loose arity.
-- **Step 4 (I209–I218):** `run<R>` required (R9), `handle<Throw<X>>` written (R10), the "named by the author"
-  exemption gone (I68), a discarded call settles a return-only parameter to `unit` (I90), a type standing as a value
-  in a meta block is its `Type` (R5), `type X impl A, B { … }` (R31), `@abort` (R14), a `return` crossing a prompt
-  (I197). Found, not fixed: a meta block calling any function that takes control fails when it runs (I212); a named
-  `EffectHandler` impl's untyped parameters do not take the instance's types (I214, R11).
-- **Step 4b (I219–I225):** a named handler of a `@ctl` effect in a prompt (I217): the prompt takes the impl's
-  method (new native `named_method`) and makes it taking control outward as an inline arm (I219). Types are
-  monomorphized like functions (R7) for the program the walk finishes: a plain generic type is copied through the
-  decl cache, spelled as its use prints (`Box<int>`) (I220); written arguments, `declof(Box<int>)`, `typeof(Box<int>)`
-  and keys reach the cache at the node, inferred uses when the walk is done (I221, review against R6); inference
-  stays structural and a copy's name is an alias the checker reads as the generic type at its arguments, which
-  fixes I200 (I222); the finished program's annotations, values and patterns name copies, its type-level section
-  holds the copies it reaches in place of the generic declarations, and `Verify` rejects a generic type left in it
-  (I223). Cost: `hello` 161 → 165 ms, `working_example` 179 → 181 (I225).
-- **Step 5a (I226–I230):** R30's case convention. The compiler's built-in types are `Int`, `Float`, `String`, `Byte`,
-  `Char`, `Bool`, `Unit` (no aliases); every `.cx` under `stdlib/`, `tests/`, `cx/test/` and `benchmarks/` follows,
-  red fixtures included, and the 75 lowercase user types, traits and effects are uppercase (`Async`, `Log`, `Sched`,
-  `ParseError`). Done by a lexer-based script (I227); expected outputs taken from actual output where they differed
-  only in case (I228). Docs and editor keyword lists are listed in I229, not edited.
-- **Step 5b, partly built (no I-entries yet):** the agent was stopped mid-step. One `__root` is in: `stdlib/prelude.cx`
-  has `__root<Rest>(main: () -> <Console, Logger, Args, Env, Time, Random, Rest> Unit)` for the whole top level and
-  `__throwing<T, X, Rest>` wrapping only a statement that throws; the compiler side is in `compile.ml`,
-  `metaprocess.ml`, `typecheck.ml`, `builtins.ml`, `ast.ml`. Per-statement annotations were removed from
-  `core/lambdas/basics`, `core/collections/narrowing`, `core/operators/not_index`, `core/ufcs/with_lambda`,
-  `core/variadic/packs/erased`, `stdlib/list/list`, `stdlib/os/pipe_wait`; `types/expected/written_key.txt` changed.
-  New fixtures: `core/top_level/one_root`, `errors/each_statement`, `errors/before_initializer`, `uncaught` (`.rt`).
-  Not reviewed: the diff has not been read against A5-Q1/I162, and its decisions are not recorded. Static `Display`
-  (R19) is not started.
+- **Step 1:** old effect syntax deleted (`cps.ml`, `effect`, `ctl`, `final ctl`, `resume x;`, old handlers, the
+  interpreter's Cont/Frame/Abort).
+- **Step 2, 2b:** handlers are values (the Koka model, R1). There is one CPS form per function value, and runs that take
+  control outward become prompts (I186, I192–I200).
+- **Step 3 (I201–I208), 4 (I209–I218), 4b (I219–I225):** `EffectHandler` generic in `Rho`, `run<R>`, `handle<Throw<X>>`,
+  `@abort`, `type X impl A, B { … }`, named handlers in prompts, and plain generic types monomorphized (copies named
+  `Box<Int>`).
+- **Step 5a (I226–I230):** R30's case convention (`Int`, `String`, `Unit`, uppercase user types).
+- **Step 5b (I231–I250):** one `__root` for the whole top level, and `__throwing` around a statement that throws. Static
+  `Display` (R19): `str<T: Display>`, and every type prints through metaprogramming (I242). `implements(T, Trait)` (I243).
+- **Step 5c (I251–I269):** the prelude and stdlib redesign (R29). It covers `Async`, scopes, timers, `block_on`, `Iter`'s
+  close row, and Fs/Dirs/Process/Net/Stdin unmarked with `Exit` as `@abort`. `__root` handles the system and
+  `__meta_root` handles meta blocks (I260). I270 fixed I265.
+- **Step 5d (I271–I319):** every old fixture is rewritten in the new syntax or deleted where a `v2` copy covers it.
+  - Batch 1 is `tests/effects`, batch 2 is `effects/errors` with reflection and meta, batch 3 is `tests/core` and batch 4 is
+    `tests/stdlib`. Each batch's rules are in "Fixture changes in S5d".
+  - Batch 5 reached green. I296's state leak (`Types.declarations` outlived a compile) is fixed (I312). `cx`'s link kept
+    `Index<Range>` apart from `Index<Int>` again (I314). A doc comment can stand over a type with members (I315). A meta
+    block sees what its own check declares (I317, which fixes I212). Top-level meta blocks run under `__meta_root_io` with
+    the file system and the scheduler (I318, which fixes I300).
 
 ## Next steps, in order
-Write every type in the R30 case from here on: `Int`, `String`, `Unit`, `run<Unit>`, `Async`.
+Write every type in the R30 case: `Int`, `String`, `Unit`, `run<Unit>`, `Async`.
 
-1. **Step 5b, finish:** review the one-`__root` work against A5-Q1/I162 and record it as I231 on (with a
-   "Fixture changes in S5b" section, explaining `written_key.txt`); then static `Display` (R19): `str<T: Display>` an ordinary generic call, real impls for the
-   built-in types, `List<T>` calling `T`'s, which also removes the printer's first-key instance (I223).
-2. **Step 5c, the prelude and stdlib redesign** (R29: a redesign, not a mechanical migration): rewrite
-   Task/Timer/net/Yield/Iter and async in the prelude and stdlib, with `run<R>`, written handler arguments and
-   `@abort` (`exit`); I163's Iter close row.
-3. **Step 5d:** rewrite every old fixture in the new syntax.
-4. **R7's rest (I224):** a meta block's program is not monomorphized (the readers of meta values compare
-   `Core.list` and reify writes `New (name, …)`); local generic types are not copied; no per-copy impl entries.
-   Also from 4b: a named handler's impl type parameter named in its body is unknown inside a prompt (I219, review
-   after). Doc proposals not made: I201's EffectHandler expansion, I209's `run<Unit>` in the `Console` example;
-   `internal-docs/Metaprocessing.md`'s plain-generic and `Type_mono` lines are out of date (I224 (d)), for the user.
-5. **After:** `docs/` pages and editor keyword lists (`@abort`, `impl` in a type header, and R30's names: I229 lists
-   the files). List the internal-docs and CLAUDE.md rewrites for the user, and do not edit them unasked. Then reach
-   full green (`dune test --force`, `dune test cx`, `./scripts/cx-parity.sh`).
-
-How it has been run: one fresh agent per step, working directly in the tree, never in parallel,
-because the steps share `typecheck.ml` and `Transform.cx`. Each agent records its decisions as new
-I-entries in `scratch/review-later.md`. If an agent fails, do the step in the main session rather than
-relaunching one.
+1. **The user's review of every "review after" entry** in `scratch/review-later.md` (I201 on, and the S5b–S5d ones in
+   particular). Take them one at a time.
+2. **Step "After": the docs and editor keyword lists.** Update the `docs/` pages and the editor keyword lists for `@abort`,
+   `impl` in a type header, R30's names (I229 lists the files), and the removed `effect`/`ctl`/`handler` syntax. List the
+   `internal-docs/` and `CLAUDE.md` rewrites for the user, and do not edit them unasked. These include I201's EffectHandler
+   expansion, I209's `run<Unit>` in the `Console` example, `Metaprocessing.md`'s plain-generic and `Type_mono` lines
+   (I224 (d)), and `__meta_root_io` (I318).
+3. **R7's rest (I224):** a meta block's program is not monomorphized, local generic types are not copied, and there are no
+   per-copy impl entries. A named handler's impl type parameter named in its body is unknown inside a prompt (I219).
+4. **Found, not fixed, still open:** I253, I264, I289, I305, and I315's local `Display` type.
+5. **Committing**, only when the user asks for it in those words. The tree holds everything from 5b on, uncommitted.
 
 ## How the user works (from memory on the other machine)
 - Never commit or push unless asked in those words. Do the thing asked and stop.

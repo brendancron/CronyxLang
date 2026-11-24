@@ -1,0 +1,12 @@
+import { write_text, read_text, remove_path } from "std/fs/File";
+
+fn compiled_with(): String {
+    meta {
+        write_text("meta_files_in_function_data.txt", "read inside a function");
+        var contents = read_text("meta_files_in_function_data.txt");
+        remove_path("meta_files_in_function_data.txt");
+        gen return contents;
+    }
+}
+
+print(compiled_with());

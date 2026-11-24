@@ -1,4 +1,4 @@
-effect Ask { ctl ask(): Int; }
+trait Ask { @ctl fn ask(): Int; }
 
 trait Getter { fn get(self): <Ask> Int; }
 
@@ -15,4 +15,4 @@ fn make(): <Ask> Getter {
 
 fn total(): <Ask> Int { return make().get(); }
 
-run { print(total()); } handle Ask { ctl ask() { resume 7; } }
+run<Unit> { print(total()); } handle<Ask> { fn ask(resume) { resume(7); } }

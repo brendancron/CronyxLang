@@ -1,2 +1,2 @@
-effect Log { fn log(s: String): Unit; }
-run { log("x"); } handle Log { fn log(s) { log("again " + s); } }
+trait Log { fn log(s: String): Unit; }
+run<Unit> { log("x"); } handle<Log> { fn log(s) { log("again " + s); } }

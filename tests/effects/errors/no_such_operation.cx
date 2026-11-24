@@ -1,8 +1,8 @@
-effect One { fn a(): Unit; }
+trait One { fn a(): Unit; }
 
-run {
+run<Unit> {
     a();
-} handle One {
+} handle<One> {
     fn a() { }
     fn b() { }
 }

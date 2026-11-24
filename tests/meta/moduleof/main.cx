@@ -5,8 +5,6 @@ fn kind(k: DeclarationKind): String {
         DeclarationKind.Function => { return "fn"; }
         DeclarationKind.Type => { return "type"; }
         DeclarationKind.Trait => { return "trait"; }
-        DeclarationKind.Effect => { return "effect"; }
-        DeclarationKind.Handler => { return "handler"; }
     }
     return "";
 }

@@ -1,8 +1,0 @@
-trait Ask {
-    @ctl fn ask(): Int;
-}
-
-fn probe(): <Ask> Int { return ask(); }
-
-print(run<Int> { probe() } handle<Ask> { fn ask(resume) { var r = resume(5); print("a done"); return r; } }
-    + run<Int> { probe() } handle<Ask> { fn ask(resume) { var r = resume(6); print("b done"); return r; } });

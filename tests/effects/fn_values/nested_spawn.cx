@@ -1,18 +1,18 @@
-effect Sched {
-    ctl tick(): Unit;
-    ctl spawn(t: () -> <Sched, Console> Unit): Unit;
+trait Sched {
+    @ctl fn tick(): Unit;
 }
 
 var queue: List<() -> <Console> Unit> = [];
 
 fn run_one(task: () -> <Sched, Console> Unit): Unit {
-    run {
+    run<Unit> {
         task();
-    } handle Sched {
-        ctl tick() { queue.push { resume; }; }
-        ctl spawn(t) { queue.push { run_one(t); }; resume; }
+    } handle<Sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
     }
 }
+
+fn spawn(t: () -> <Sched, Console> Unit) { queue.push { run_one(t); }; }
 
 fn child(): <Sched, Console> Unit { print("child a"); tick(); print("child b"); }
 

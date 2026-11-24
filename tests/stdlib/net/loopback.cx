@@ -1,0 +1,118 @@
+import { Async, both, race, all } from "std/async/Task";
+import { Throw, Result, attempt } from "std/core/Error";
+import { IoError } from "std/io/Io";
+import { Net } from "std/net/Net";
+import { TcpStream, TcpListener, tcp_listen, tcp_connect } from "std/net/Tcp";
+import { udp_bind } from "std/net/Udp";
+import { get, serve, Request, Response } from "std/net/Http";
+import { read_all } from "std/fs/File";
+import { decode } from "std/text/Utf8";
+
+fn text(bytes: Array<Byte>): String {
+    match decode(bytes) {
+        Result.Ok(t) => { return t; }
+        Result.Err(_) => { return "not text"; }
+    }
+    return "";
+}
+
+fn echo(conn: TcpStream): <Async, Throw<IoError>> Unit {
+    var done = false;
+    while (!done) {
+        match conn.read(1024) {
+            Option.Some(data) => { conn.write(data); }
+            Option.None => { done = true; }
+        }
+    }
+    conn.close();
+}
+
+fn ask(port: Int, message: String): <Net, Async, Throw<IoError>> String {
+    var conn = tcp_connect("127.0.0.1", port);
+    conn.write(message.bytes());
+    conn.shutdown_write();
+    var reply = text(read_all(conn));
+    conn.close();
+    return reply;
+}
+
+fn route(request: Request): <Async, Throw<IoError>> Response {
+    if (request.target == "/hello") { return Response.text(200, "hello there"); }
+    return Response.text(404, "nothing at " + request.target);
+}
+
+fn tcp(): <Net, Async, Throw<IoError>, Console> Unit {
+    var listener = tcp_listen("127.0.0.1", 0);
+    var port = listener.local_port();
+    var (_, replies) = both(
+        () => all([() => { echo(listener.accept()); }, () => { echo(listener.accept()); }]),
+        () => all([() => ask(port, "one"), () => ask(port, "two")])
+    );
+    print(replies);
+    listener.close();
+    var refused = attempt(() => { return ask(port, "nobody"); });
+    match refused {
+        Result.Ok(_) => { print("unexpected"); }
+        Result.Err(e) => { print("refused once the port is closed"); }
+    }
+}
+
+fn udp(): <Net, Async, Throw<IoError>, Console> Unit {
+    var server = udp_bind("127.0.0.1", 0);
+    var client = udp_bind("127.0.0.1", 0);
+    var port = server.local_port();
+    both(
+        () => {
+            var d = server.receive();
+            print("server got " + text(d.data));
+            server.send_to("pong".bytes(), d.host, d.port);
+        },
+        () => {
+            client.send_to("ping".bytes(), "127.0.0.1", port);
+            print("client got " + text(client.receive().data));
+        }
+    );
+    server.close();
+    client.close();
+}
+
+fn http(): <Net, Async, Throw<IoError>, Console> Unit {
+    var listener = tcp_listen("127.0.0.1", 0);
+    var base = "http://127.0.0.1:" + str(listener.local_port());
+    race([
+        () => { serve(listener, route); },
+        () => {
+            var hello = get(base + "/hello");
+            print(str(hello.status) + " " + hello.body_text());
+            var missing = get(base + "/missing");
+            print(str(missing.status) + " " + missing.body_text());
+        }
+    ]);
+    listener.close();
+}
+
+fn faked(): <Async, Throw<IoError>, Console> Unit {
+    run<Unit> {
+        var found = attempt(() => { return tcp_connect("example.invalid", 80); });
+        match found {
+            Result.Ok(_) => { print("unexpected"); }
+            Result.Err(e) => { print("fake: " + str(e)); }
+        }
+    } handle<Net> {
+        fn connect(host, port) { return Result.Err(IoError.Refused(host + ":" + str(port))); }
+        fn listen(host, port) { return Result.Err(IoError.Denied(host)); }
+        fn bind(host, port) { return Result.Err(IoError.Denied(host)); }
+        fn lookup(host) { return Result.Ok(["10.0.0.1"]); }
+    }
+}
+
+var outcome = attempt(() => {
+    tcp();
+    udp();
+    http();
+    faked();
+});
+match outcome {
+    Result.Ok(_) => { print("done"); }
+    Result.Err(e) => { print("failed: " + str(e)); }
+}

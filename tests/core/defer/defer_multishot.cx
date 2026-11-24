@@ -1,6 +1,4 @@
-// A handler that resumes twice leaves the scope twice, so what was deferred
-// once inside it runs once per exit.
-effect Logic { ctl choose(options: Array<Int>): Int; }
+trait Logic { @ctl fn choose(options: Array<Int>): Int; }
 
 fn pick(): Int {
     defer print("cleanup");
@@ -9,5 +7,5 @@ fn pick(): Int {
     return n;
 }
 
-run { print(pick()); }
-handle Logic { ctl choose(options) { for (x in options) { resume x; } } }
+run<Unit> { print(pick()); }
+handle<Logic> { fn choose(options, resume) { for (x in options) { resume(x); } } }

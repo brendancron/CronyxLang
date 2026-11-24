@@ -1,0 +1,1 @@
+[3:12] 'odd' is declared inline, but this call cannot be inlined: it is recursive, and its own body reaches this call.

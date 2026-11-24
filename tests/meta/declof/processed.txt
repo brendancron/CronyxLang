@@ -4,6 +4,7 @@ fn made() {
     print("written");
 }
 
+made's meta block runs
 generated
 written
 generated

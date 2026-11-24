@@ -32,29 +32,11 @@ let metaprocess ?(on_code = fun _ -> ()) ~out program =
     Ok processed
   | Error errors -> Error errors
 
-let key (e : Diagnostic.error) = Ast.locate ~entry:"" e.Diagnostic.span
-
-(* What the check before the walk found, beside what the walk did. The walk
-   checks at a key, so where both report one place, its account is the one
-   that knows the types. *)
-let merged early late =
-  match late, early with
-  | Ok converted, [] -> Ok converted
-  | Ok _, early -> Error early
-  | Error late, early ->
-    let seen = List.map key late in
-    Error (late @ List.filter (fun e -> not (List.mem (key e) seen)) early)
-
-(* Checked twice: first everything, reached or not, with what meta blocks
-   produce unknown; then as the walk reaches it. An error the first finds in
-   code the walk never reaches is reported all the same. *)
+(* Checked as it is walked: what nothing reaches is never checked. *)
 let whole ?on_code ?(on_types = fun _ -> ()) ~out program =
-  let early = Precheck.program program in
-  merged
-    early
-    (let* processed = metaprocess ?on_code ~out program in
-     on_types processed;
-     Compile.back processed)
+  let* processed = metaprocess ?on_code ~out program in
+  on_types processed;
+  Compile.back processed
 
 (* Artifacts concatenated: every package's declarations, none metaprocessed. *)
 let linked = whole

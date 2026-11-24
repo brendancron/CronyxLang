@@ -80,17 +80,12 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , ""
     , fun () -> [ Types.iarray Types.IByte ], Types.ITuple [ Types.IInt; Types.IStr ] )
   ; ("__write_err", "", fun () -> [ Types.IStr ], Types.IUnit)
-  ; ( "str"
-    , "The value as `print` writes it: through its `Display` impl if it has one, \
-       then its `Debug` impl, and otherwise its structure, each part as `debug` \
-       writes it."
-    , fun () -> [ Types.fresh () ], Types.IStr )
-  ; ( "debug"
-    , "The value in the form that tells values apart: through its `Debug` impl \
-       if it has one, and otherwise its structure, with a string or a char \
-       quoted and a byte as its number."
-    , fun () -> [ Types.fresh () ], Types.IStr )
-  ; ("__written", "", fun () -> [ Types.fresh () ], Types.IStr)
+  ; ("__unreachable", "", fun () -> [], Types.fresh ())
+  (* What a run answers once a `return` has left through it: whatever stands
+     there is never read, since the function returns what the `return` held. *)
+  ; ("__unanswered", "", fun () -> [], Types.fresh ())
+  ; ("__display", "", fun () -> [ Types.fresh () ], Types.IStr)
+  ; ("__debug", "", fun () -> [ Types.fresh () ], Types.IStr)
   ; Ast.generated [ "meta"; "emit_value" ], "", (fun () -> [ Types.fresh () ], Types.IUnit)
   ; Ast.generated [ "meta"; "declof" ], "", (fun () -> [ Types.iname ], Types.INamed (Core.syntax "Decl", []))
   ; ( "__processed"
@@ -111,10 +106,16 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   ; "__names_function", "", (fun () -> [ Types.iname ], Types.IBool)
   ; "__controls", "", (fun () -> [ Types.iname ], Types.IBool)
   ; "__method_row", "", (fun () -> [ Types.iname; Types.iname ], Types.iarray Types.iname)
+  ; ( "__field_type"
+    , ""
+    , fun () ->
+        ( [ Types.ISum (Core.option, [ Types.INamed (Core.syntax "TypeExpr", []) ]); Types.iname ]
+        , Types.ISum (Core.option, [ Types.INamed (Core.syntax "TypeExpr", []) ]) ) )
   ; "__open_row", "", (fun () -> [], Types.iname)
   ; "__open_type", "", (fun () -> [], Types.iname)
   ; "__plain_marker", "", (fun () -> [], Types.iname)
-  ; "__cps_marker", "", (fun () -> [], Types.iname)
+  ; "__handed_marker", "", (fun () -> [], Types.iname)
+  ; "__handed_method_marker", "", (fun () -> [], Types.iname)
   ; "__handler_param", "", (fun () -> [ Types.iname ], Types.iname)
   ; ( "__bound_arguments"
     , ""
@@ -126,6 +127,11 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , fun () ->
         ( [ Types.iname; Types.ISum (Core.option, [ Types.INamed (Core.syntax "TypeExpr", []) ]); Types.ispan ]
         , Types.INamed (Core.syntax "Decl", []) ) )
+  ; ( "__declared_call"
+    , ""
+    , fun () ->
+        ( [ Types.iname; Types.ISum (Core.option, [ Types.INamed (Core.syntax "TypeExpr", []) ]); Types.ispan ]
+        , Types.ISum (Core.option, [ Types.INamed (Core.syntax "Decl", []) ]) ) )
   ; ( "__named_method"
     , ""
     , fun () -> [ Types.iname; Types.iname ], Types.ISum (Core.option, [ Types.INamed (Core.syntax "Decl", []) ]) )
@@ -142,6 +148,7 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , ""
     , fun () -> [ Types.IStr; Types.IStr ], Types.ISum (Core.reflect "Module", []) )
   ; ("__span_generated", "", fun () -> [], Types.ispan)
+  ; ("__span_here", "", fun () -> [], Types.ispan)
   ; ( "compile_error"
     , "Stops the build with the message, reported at the span: how a meta block \
        says that what it was asked to generate from is wrong, where the mistake is."
@@ -163,6 +170,14 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , "Stops the program with a message. Nothing after the call runs, and no \
        handler resumes it."
     , fun () -> [ Types.IStr ], Types.IUnit )
+  ; ( "panic_at"
+    , "Stops the program with a message, reported at the position given rather \
+       than at the call."
+    , fun () -> [ Types.ispan; Types.IStr ], Types.IUnit )
+  ; ( "aborted_at"
+    , "In the method of an `@abort` operation, where the call it answers was \
+       written."
+    , fun () -> [], Types.ispan )
   ; ( "same"
     , "Whether the two are the same value rather than equal ones -- identity, \
        not `==`."
@@ -205,16 +220,9 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
   @ System.functions
   @ Numeric.functions
 
-(* The signal a discontinued continuation is resumed with. A function that never
-   resumes still answers its run, and this stands in for that answer: compared
-   by identity, so no value a program builds is mistaken for it. *)
-let discontinued = Value.Variant (None, "discontinued", [])
-
 (* Typed whole, because the row of the continuation is the row of the call. *)
 let effectful : (string * (unit -> Types.infer_ty)) list =
-  [ ("__discontinued", fun () -> Types.IFn ([], Types.fresh (), Types.fresh_row ()))
-  ; ("__is_discontinued", fun () -> Types.IFn ([ Types.fresh () ], Types.IBool, Types.fresh_row ()))
-  ; ( "discontinue"
+  [ ( "discontinue"
     , fun () ->
         let row = Types.fresh_row () in
         Types.IFn ([ Types.IFn ([ Types.fresh () ], Types.fresh (), row) ], Types.IUnit, row) )
@@ -293,73 +301,16 @@ let quoted ~mark text =
   Buffer.add_char buf mark;
   Buffer.contents buf
 
-(* What `str` and `debug` write. A record or variant whose type implements
-   `Display` or `Debug` is written by that impl, found by the name its method
-   was given rather than chosen where the call was checked: a part of a value
-   is printed wherever it sits, and only the value knows its type there. The
-   method is called directly, so one that performs an effect cannot be
-   reached from here. *)
-let written ~globals =
-  let method_of name trait method_ =
-    match Value.lookup globals (Ast.generated [ name; trait; method_ ]) with
-    | Some { contents = Value.Fn f } -> Some f
-    | _ -> None
-  in
-  let called span (f : Value.fn) v =
-    if f.Value.arity <> Some 1
-    then Value.fail span "'%s' performs an effect, so it cannot write a printed value." f.Value.name;
-    match f.Value.apply span [ v ] with
-    | Value.Str text -> Utf8.encode text
-    | other -> Value.fail span "'%s' answered %s rather than a string." f.Value.name (Value.type_name other)
-  in
-  let rec shown span mode (v : Value.value) =
-    let declared =
-      match v with
-      | Value.Record (Some name, _) | Value.Variant (Some name, _, _) -> Some (Types.declaration name)
-      | _ -> None
-    in
-    let impl =
-      Option.bind declared (fun name ->
-        match mode with
-        | `Display ->
-          (match method_of name Core.display "fmt" with
-           | Some f -> Some f
-           | None -> method_of name Core.debug "debug")
-        | `Debug -> method_of name Core.debug "debug")
-    in
-    match impl, v with
-    | Some f, _ -> called span f v
-    | None, Value.Str s -> if mode = `Debug then quoted ~mark:'"' (Utf8.encode s) else Utf8.encode s
-    | None, Value.Chr c ->
-      let buf = Buffer.create 4 in
-      Buffer.add_utf_8_uchar buf c;
-      if mode = `Debug then quoted ~mark:'\'' (Buffer.contents buf) else Buffer.contents buf
-    | None, Value.Object (data, _, _) -> shown span mode data
-    | None, v -> form span v
-  and form span (v : Value.value) =
-    (match Sys.getenv_opt "CX_PRINT_PROBE" with
-     | Some f ->
-       let kind = match v with
-         | Value.Array _ -> "array" | Value.Tuple _ -> "tuple"
-         | Value.Variant (Some n, _, _) -> "variant:" ^ n | Value.Variant (None, _, _) -> "variant?"
-         | Value.Record (Some n, _) -> "record:" ^ n | Value.Record (None, _) -> "anonrecord"
-         | Value.Byte _ -> "byte" | Value.Object _ -> "object" | Value.Fn _ -> "fn" | _ -> "prim" in
-       let oc = open_out_gen [Open_append; Open_creat] 0o644 f in output_string oc (kind ^ "\n"); close_out oc
-     | None -> ());
-    let part = shown span `Debug in
-    match v with
-    | Value.Array items -> "[" ^ String.concat ", " (Array.to_list (Array.map part items)) ^ "]"
-    | Value.Tuple items -> "(" ^ String.concat ", " (List.map part items) ^ ")"
-    | Value.Variant (_, name, []) -> name
-    | Value.Variant (_, name, fields) ->
-      name ^ "(" ^ String.concat ", " (List.map (fun (_, v) -> part v) fields) ^ ")"
-    | Value.Record (_, fields) ->
-      "{ " ^ String.concat ", " (List.map (fun (l, v) -> l ^ ": " ^ part !v) fields) ^ " }"
-    | Value.Byte b -> string_of_int (Char.code b)
-    | Value.Object (data, _, _) -> form span data
-    | other -> Value.string_of_value other
-  in
-  shown, form
+(* What the built-in types' `Display` and `Debug` impls write. *)
+let written mode (v : Value.value) =
+  match v with
+  | Value.Str s -> if mode = `Debug then quoted ~mark:'"' (Utf8.encode s) else Utf8.encode s
+  | Value.Chr c ->
+    let buf = Buffer.create 4 in
+    Buffer.add_utf_8_uchar buf c;
+    if mode = `Debug then quoted ~mark:'\'' (Buffer.contents buf) else Buffer.contents buf
+  | Value.Byte b -> string_of_int (Char.code b)
+  | v -> Value.string_of_value v
 
 let stdout_is_terminal = lazy (Unix.isatty Unix.stdout)
 
@@ -370,7 +321,6 @@ let to_stdout text =
   if Lazy.force stdout_is_terminal && String.contains text '\n' then flush stdout
 
 let values ~out ~globals =
-  let shown, form = written ~globals in
   let native name arity apply = name, Value.Fn { Value.name; arity; apply } in
   let two name f =
     native name (Some 2) (fun span args ->
@@ -536,10 +486,11 @@ let values ~out ~globals =
         flush stderr;
         Value.Unit
       | _ -> Value.fail span "__write_err takes a string.")
-  ; one "str" (fun span v -> Value.Str (Utf8.decode (shown span `Display v)))
-  ; one "debug" (fun span v -> Value.Str (Utf8.decode (shown span `Debug v)))
-  ; one "__written" (fun span v -> Value.Str (Utf8.decode (form span v)))
+  ; native "__unreachable" (Some 0) (fun span _ -> Value.fail span "A value of no type was used.")
+  ; one "__display" (fun _ v -> Value.Str (Utf8.decode (written `Display v)))
+  ; one "__debug" (fun _ v -> Value.Str (Utf8.decode (written `Debug v)))
   ; native "__span_generated" (Some 0) (fun _ _ -> Value.Span Source_map.Span.nowhere)
+  ; native "__span_here" (Some 0) (fun span _ -> Value.Span span)
   ; native selected_test (Some 0) (fun _ _ -> Value.Int (-1))
   ; native bench_size (Some 0) (fun _ _ -> Value.Int 0)
   ; two "compile_error" (fun span at message ->
@@ -599,23 +550,31 @@ let values ~out ~globals =
       match v with
       | Value.Str s -> Value.fail span "%s" (Utf8.encode s)
       | _ -> Value.fail span "Cannot apply panic to these arguments.")
+  ; two "panic_at" (fun span at message ->
+      match at, message with
+      | Value.Span at, Value.Str message ->
+        let at =
+          match Source_map.Span.view at with
+          | Source_map.Span.Nowhere_in_source -> span
+          | Source_map.Span.Located _ -> at
+        in
+        Value.fail at "%s" (Utf8.encode message)
+      | _ -> Value.fail span "Cannot apply panic_at to these arguments.")
+  ; native "aborted_at" (Some 0) (fun span _ ->
+      Value.fail span "Only the method of an '@abort' operation knows where it was called.")
   ; two "same" (fun span a b -> Value.Bool (Value.same span a b))
   ; native "__open_row" (Some 0) (fun _ _ -> Value.Name Ast.open_row)
   ; native "__open_type" (Some 0) (fun _ _ -> Value.Name Ast.open_type)
   ; native "__plain_marker" (Some 0) (fun _ _ -> Value.Name Ast.plain_marker)
-  ; native "__cps_marker" (Some 0) (fun _ _ -> Value.Name Ast.cps_marker)
+  ; native "__handed_marker" (Some 0) (fun _ _ -> Value.Name Ast.handed_marker)
+  ; native "__handed_method_marker" (Some 0) (fun _ _ -> Value.Name Ast.handed_method_marker)
   ; native "__handler_param" (Some 1) (fun span args ->
       match args with
       | [ Value.Name label ] -> Value.Name (Ast.handler_param label)
       | _ -> Value.fail span "handler_param takes a name.")
-  ; native "__discontinued" (Some 0) (fun _ _ -> discontinued)
-  ; one "__is_discontinued" (fun _ v -> Value.Bool (v == discontinued))
-  ; one "discontinue" (fun span k ->
-      match k with
-      | Value.Fn f ->
-        ignore (f.Value.apply span [ discontinued ]);
-        Value.Unit
-      | other -> Value.fail span "discontinue takes a continuation, not %s." (Value.type_name other))
+  ; native "discontinue" (Some 1) (fun span _ ->
+      Value.fail span "Only a handler's method can discontinue its continuation.")
+  ; native "__unanswered" (Some 0) (fun _ _ -> Value.Unit)
   ; one "__upcast" (fun _ v -> v)
   ; two "__structural_eq" (fun span a b -> Value.Bool (Value.values_equal span a b))
   ; one (Ast.method_name "String" "as_name") (fun span v ->

@@ -1,4 +1,0 @@
-cleanup
-1
-caught failed
-cleanup

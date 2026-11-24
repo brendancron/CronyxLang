@@ -36,6 +36,10 @@ type IoError {
     Other(String)
 }
 
+impl Display for IoError {
+    fn fmt(self): String { return self.message(); }
+}
+
 impl Failure for IoError {
     fn message(self): String {
         match self {

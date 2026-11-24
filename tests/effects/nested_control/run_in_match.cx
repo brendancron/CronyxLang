@@ -1,4 +1,4 @@
-effect Ask { ctl get(): Int; }
+trait Ask { @ctl fn get(): Int; }
 
 type Color { Red, Blue }
 
@@ -8,8 +8,8 @@ fn main(): Unit {
     var c = Color.Red;
     match c {
         Color.Red => {
-            run { print(use()); }
-            handle Ask { ctl get() { resume 5; print("after"); } }
+            run<Unit> { print(use()); }
+            handle<Ask> { fn get(resume) { resume(5); print("after"); } }
         }
         Color.Blue => { }
     }

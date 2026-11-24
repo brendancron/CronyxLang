@@ -1,4 +1,4 @@
-effect Task { fn yield(): Unit; }
+trait Task { fn yield(): Unit; }
 
 fn work(items: Array<Int>): <Task> Int {
     var total = 0;
@@ -9,11 +9,11 @@ fn work(items: Array<Int>): <Task> Int {
     return total;
 }
 
-run {
+run<Unit> {
     print(work([1, 2, 3]));
-} handle Task {
-    ctl yield() {
-        resume;
+} handle<Task> {
+    fn yield(resume) {
+        resume(());
         print("after");
     }
 }

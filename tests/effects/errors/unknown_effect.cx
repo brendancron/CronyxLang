@@ -1,5 +1,5 @@
-run {
+run<Unit> {
     print(1);
-} handle nope {
+} handle<Nope> {
     fn x() { }
 }

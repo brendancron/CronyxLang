@@ -12,7 +12,7 @@
  * ```
  */
 
-import { Async } from "Task";
+import { Async, suspend } from "Task";
 
 /** Either the value, or the callbacks waiting for it. */
 type PromiseState<T> {
@@ -35,7 +35,7 @@ fn promise<T>(): Promise<T> {
 }
 
 /** Settles the promise and wakes whatever is waiting on it. Panics if it is already settled. */
-fn resolve<T>(p: Promise<T>, value: T) {
+fn resolve<T>(p: Promise<T>, value: T): Unit {
     match p.state {
         PromiseState.Resolved(_) => { panic("resolved twice"); }
         PromiseState.Awaiting(waiters) => {
@@ -46,9 +46,9 @@ fn resolve<T>(p: Promise<T>, value: T) {
 }
 
 /** The promise's value, waiting for it if it has none yet. */
-fn await<T>(p: Promise<T>): T {
+fn await<T>(p: Promise<T>): <Async> T {
     match p.state {
         PromiseState.Resolved(value) => { return value; }
-        PromiseState.Awaiting(waiters) => { return suspend { waiters.push(it); }; }
+        PromiseState.Awaiting(waiters) => { return suspend((wake: (T) -> Unit) => { waiters.push(wake); }); }
     }
 }

@@ -254,10 +254,10 @@ let declared_type_params s : Ast.type_param list =
       { Ast.tp_name = p.Ast.sp_name; tp_pack = p.Ast.sp_pack; tp_ty = p.Ast.sp_ty })
     (static_params s)
 
-let signature ?(static_params = []) s : Ast.signature =
+let signature ?(static_params = []) ?(inline = false) s : Ast.signature =
   let returning () =
     let row = if check s Token.Less then Some (row_annotation s) else None in
-    { Ast.ret = Some (type_expr s); row; static_params }
+    { Ast.ret = Some (type_expr s); row; static_params; inline }
   in
   match matches s [ Token.Colon ] with
   | Some _ -> returning ()
@@ -268,7 +268,7 @@ let signature ?(static_params = []) s : Ast.signature =
     ignore (error s (peek s) "A return type follows ':', not '->'.");
     ignore (advance s);
     returning ()
-  | None -> { Ast.ret = None; row = None; static_params }
+  | None -> { Ast.ret = None; row = None; static_params; inline }
 
 (* ---- expressions ---- *)
 
@@ -649,7 +649,7 @@ and trailing_lambda s args : Ast.expr list =
       | exception Parse_error -> restore ()
     in
     args
-    @ [ Ast.at sp (`Lambda (params, { Ast.ret = None; row = None; static_params = [] }, body)) ])
+    @ [ Ast.at sp (`Lambda (params, { Ast.ret = None; row = None; static_params = []; inline = false }, body)) ])
 
 and finish_call s callee : Ast.expr =
   Ast.at callee.Ast.span (`Call (callee, trailing_lambda s (arguments s)))
@@ -722,7 +722,7 @@ and lambda s sp : Ast.expr =
       let e = expression s in
       [ { Ast.it = `Return (Some e); span = e.Ast.span; ann = () } ])
   in
-  Ast.at sp (`Lambda (params, { Ast.ret = None; row = None; static_params = [] }, body))
+  Ast.at sp (`Lambda (params, { Ast.ret = None; row = None; static_params = []; inline = false }, body))
 
 and primary s : Ast.expr =
   let tok = peek s in
@@ -857,7 +857,7 @@ and primary s : Ast.expr =
    attribute, and an `import` names nothing to hang one on. *)
 and attachable (s : Ast.stmt) =
   match s.Ast.it with
-  | `Fn _ | `Type_decl _ | `Trait_decl _ | `Trait_members _ | `Impl_decl _ | `Var_decl _ -> true
+  | `Fn _ | `Type_decl _ | `Type_members _ | `Trait_decl _ | `Trait_members _ | `Impl_decl _ | `Var_decl _ -> true
   | _ -> false
 
 and declaration s : Ast.stmt option =
@@ -865,8 +865,8 @@ and declaration s : Ast.stmt option =
     let tok = peek s in
     let sp = Ast.span_of_token tok in
     match tok.Token.token_type with
-    | Token.Fn ->
-      ignore (advance s);
+    | Token.Fn | Token.Identifier "inline" when is_fn_ahead s ->
+      let inline = inline_fn s in
       (* Registration is by `for Trait`, so every deriver is free to be called
          `derive` — a keyword, hence read here. *)
       let read_name s =
@@ -879,7 +879,7 @@ and declaration s : Ast.stmt option =
         | None -> name
         | Some _ -> Ast.deriver_name (consume_identifier s "Expected a trait name after 'for'.")
       in
-      Some (fn_decl ~read_name ~before_body s sp)
+      Some (fn_decl ~inline ~read_name ~before_body s sp)
     | Token.Var ->
       ignore (advance s);
       Some (var_decl s sp)
@@ -1005,7 +1005,25 @@ and parameters ?(packs = []) s : Ast.param list =
   ignore (consume s Token.Right_paren "Expected ')' after parameters.");
   List.map fst params
 
+(* `inline` means something only before `fn`, so it stays a name. *)
+and is_fn_ahead s =
+  match (peek s).Token.token_type, (peek_at s 1).Token.token_type with
+  | Token.Fn, _ | Token.Identifier "inline", Token.Fn -> true
+  | _ -> false
+
+and inline_fn s =
+  let inline =
+    match (peek s).Token.token_type with
+    | Token.Identifier "inline" ->
+      ignore (advance s);
+      true
+    | _ -> false
+  in
+  ignore (consume s Token.Fn "Expected 'fn'.");
+  inline
+
 and fn_decl
+  ?(inline = false)
   ?(read_name = fun s -> consume_identifier s "Expected function name.")
   ?(before_body = fun _ name -> name)
   s
@@ -1016,7 +1034,7 @@ and fn_decl
   let static_params = static_params s in
   ignore (consume s Token.Left_paren "Expected '(' after function name.");
   let params = parameters ~packs:(pack_names static_params) s in
-  let signature = signature ~static_params s in
+  let signature = signature ~static_params ~inline s in
   let name = before_body s name in
   ignore (consume s Token.Left_brace "Expected '{' before function body.");
   Ast.at sp (`Fn (name, params, signature, block s))
@@ -1322,12 +1340,12 @@ and impl_decl s sp : Ast.stmt =
   Ast.at sp (`Impl_decl (trait, type_name, params, { Ast.ib_assoc = assoc; ib_methods = methods }))
 
 and method_def s attrs : (Ast.stmt, unit) Ast.method_def =
-  ignore (consume s Token.Fn "Expected a method.");
+  let inline = if is_fn_ahead s then inline_fn s else raise (error s (peek s) "Expected a method.") in
   let method_name = consume_identifier s "Expected a method name." in
   let static_params = static_params s in
   ignore (consume s Token.Left_paren "Expected '(' after the method name.");
   let params = parameters ~packs:(pack_names static_params) s in
-  let signature = signature ~static_params s in
+  let signature = signature ~static_params ~inline s in
   ignore (consume s Token.Left_brace "Expected '{' before the method body.");
   { Ast.md_name = method_name
   ; md_params = params
@@ -1423,9 +1441,28 @@ and type_decl s sp : Ast.stmt =
   then Ast.at sp (`Type_decl (name, params, Ast.T_fields []))
   else (
   ignore (consume s Token.Left_brace "Expected '{' after type name.");
-  (* The first member keyword ends the fields: `meta` and `fn` start no field. *)
+  (* The first member keyword ends the fields: `meta` and `fn` start no field,
+     and the attributes and doc comment over a member are read with it. *)
+  let member_ahead () =
+    let rec past_args k =
+      match (peek_at s k).Token.token_type with
+      | Token.Right_paren -> k + 1
+      | Token.Eof -> k
+      | _ -> past_args (k + 1)
+    in
+    let rec at k =
+      match (peek_at s k).Token.token_type with
+      | Token.Doc _ -> at (k + 1)
+      | Token.At when (peek_at s (k + 2)).Token.token_type = Token.Left_paren -> at (past_args (k + 3))
+      | Token.At -> at (k + 2)
+      | Token.Meta | Token.Fn -> true
+      | Token.Identifier "inline" -> (peek_at s (k + 1)).Token.token_type = Token.Fn
+      | _ -> false
+    in
+    at 0
+  in
   let rec loop fields variants =
-    if check s Token.Right_brace || is_at_end s || check s Token.Meta || check s Token.Fn
+    if check s Token.Right_brace || is_at_end s || member_ahead ()
     then List.rev fields, List.rev variants
     else (
       let attrs = attributes s in

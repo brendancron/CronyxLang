@@ -1,20 +1,17 @@
-// Two aborting handlers, one inside the other. An unwind stops at the handler
-// that raised it, not at whatever block happens to stand in between: `stop` is
-// the inner block's, `halt` passes straight through it.
-effect Inner { final ctl stop(): Int; }
-effect Outer { final ctl halt(): Int; }
+trait Inner { @ctl fn stop<T>(): T; }
+trait Outer { @ctl fn halt<T>(): T; }
 
 fn f(which: Bool): <Outer, Console> Unit {
-    run {
+    run<Unit> {
         if (which) { stop(); } else { halt(); }
         print("body done");
-    } handle Inner { final ctl stop() { print("inner stopped"); } }
+    } handle<Inner> { fn stop(resume) { print("inner stopped"); } }
     print("after inner run");
 }
 
-run {
+run<Unit> {
     f(true);
     print("---");
     f(false);
     print("outer done");
-} handle Outer { final ctl halt() { print("outer halted"); } }
+} handle<Outer> { fn halt(resume) { print("outer halted"); } }

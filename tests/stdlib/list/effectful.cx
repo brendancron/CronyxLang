@@ -1,6 +1,6 @@
 import { map, filter, fold } from "std/collections/List";
 
-effect Log {
+trait Log {
     fn emit(msg: String): Unit;
 }
 
@@ -14,7 +14,7 @@ fn big(x: Int): <Log> Bool {
     return x > 2;
 }
 
-run {
+run<Unit> {
     var out = map([1, 2, 3], doubled);
     print(str(out[0]) + " " + str(out[1]) + " " + str(out[2]));
 
@@ -22,6 +22,6 @@ run {
     print(str(kept.len()));
 
     print(str(fold([1, 2, 3], 0, (acc, x) => { return acc + x; })));
-} handle Log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }

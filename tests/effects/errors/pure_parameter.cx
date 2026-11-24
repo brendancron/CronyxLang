@@ -1,4 +1,4 @@
-effect Log { fn emit(msg: String): Unit; }
+trait Log { fn emit(msg: String): Unit; }
 fn apply_twice<T>(f: (T) -> T, x: T): T { return f(f(x)); }
 fn shout(x: Int): <Log> Int { emit("saw"); return x + 1; }
-run { print(apply_twice(shout, 0)); } handle Log { fn emit(msg) { print(msg); } }
+run<Unit> { print(apply_twice(shout, 0)); } handle<Log> { fn emit(msg) { print(msg); } }

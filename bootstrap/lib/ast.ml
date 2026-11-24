@@ -114,6 +114,7 @@ type signature =
   { ret : type_expr option
   ; row : (string * type_expr list) list option
   ; static_params : static_param list
+  ; inline : bool
   }
 
 (* An effect trait's method as the checker reads it. *)
@@ -476,10 +477,16 @@ type ('e, 's) match_expr = [ `Match_expr of 'e * (pattern * ('e, 's) valued_bloc
    indexed or pulled depends on its type. *)
 type ('e, 's) for_in = [ `For_in of binder * 'e * 's ]
 
+(* Code already checked, standing where it was moved to: the checker hands back
+   what it checked under this number, so nothing in it runs or is checked
+   again. *)
+type pre_checked = [ `Pre_checked of int ]
+
 type expr = (expr_kind, unit) node
 
 and expr_kind =
   [ lit
+  | pre_checked
   | expr vars
   | expr ops
   | expr logic
@@ -506,6 +513,7 @@ and stmt = (stmt_kind, unit) node
 
 and stmt_kind =
   [ (expr, stmt) stmts
+  | pre_checked
   | stmt attributed
   | imports
   | stmt meta_blocks
@@ -618,9 +626,14 @@ let open_type = generated [ "type"; "open" ]
 (* The static parameter a transform marks its own functions with. *)
 let plain_marker = generated [ "plain"; "made" ]
 
-(* The static parameter marking a function a transform made taking its
-   handlers and its continuation, after the parameters its type shows. *)
-let cps_marker = generated [ "cps"; "made" ]
+(* The static parameter marking a function a transform made taking more than
+   its type shows: after those parameters, the handler of each effect it takes
+   control of, then what the library's [Core.handed] lists. *)
+let handed_marker = generated [ "handed"; "made" ]
+
+(* The static parameter marking a handler's method a transform made taking,
+   after the parameters its operation shows, what [Core.handed_method] lists. *)
+let handed_method_marker = generated [ "method"; "made" ]
 
 (* The parameter a function taking control takes an effect's handler in. *)
 let handler_param label = generated [ "hv"; label ]
@@ -633,7 +646,12 @@ let handler_param label = generated [ "hv"; label ]
 let root_function = generated [ "std"; "prelude"; "__root" ]
 let root_catcher = generated [ "std"; "prelude"; "__throwing" ]
 
-let is_root name = String.equal name root_function
+(* What a meta block's program runs under, wherever the block is written. *)
+let meta_root_function = generated [ "std"; "prelude"; "__meta_root" ]
+
+let is_program_root name = String.equal name root_function
+
+let is_root name = is_program_root name || String.equal name meta_root_function
 let is_root_or_catcher name = is_root name || String.equal name root_catcher
 
 (* What a parameter written without a type is a static parameter of: the

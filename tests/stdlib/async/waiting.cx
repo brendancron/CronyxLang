@@ -1,0 +1,54 @@
+import { Async, block_on, both, all, pause } from "std/async/Task";
+import { sleep, timeout } from "std/async/Timer";
+import { Promise, promise, resolve, await } from "std/async/Promise";
+import { Channel, channel, select } from "std/async/Channel";
+import { Duration } from "std/os/Time";
+
+block_on {
+    all([
+        () => { sleep(Duration.milliseconds(20)); print("slept 20"); },
+        () => { sleep(Duration.milliseconds(5)); print("slept 5"); }
+    ]);
+
+    var quick = timeout(Duration.seconds(5), () => { pause(); return 7; });
+    print(quick);
+    var slow = timeout(Duration.milliseconds(5), () => {
+        defer { print("gave up"); }
+        sleep(Duration.seconds(5));
+        return 8;
+    });
+    print(slow);
+
+    var ready: Promise<String> = promise();
+    both(() => { print("waiting"); print(await(ready)); }, () => { resolve(ready, "here"); });
+
+    var jobs: Channel<Int> = channel(1);
+    both(
+        () => {
+            for (n in [1, 2, 3]) {
+                jobs.send(n);
+                print("sent " + str(n));
+            }
+            jobs.close();
+        },
+        () => { for (n in jobs.values()) { print("got " + str(n)); } }
+    );
+
+    var a: Channel<String> = channel(1);
+    var b: Channel<String> = channel(1);
+    both(
+        () => { sleep(Duration.milliseconds(5)); b.send("from b"); },
+        () => {
+            var said = select([
+                a.receiving((m: Option<String>) => "a"),
+                b.receiving((m: Option<String>) => {
+                    match m {
+                        Option.Some(text) => { return text; }
+                        Option.None => { return "closed"; }
+                    }
+                })
+            ]);
+            print(said);
+        }
+    );
+};

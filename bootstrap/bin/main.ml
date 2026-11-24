@@ -7,6 +7,14 @@ let usage =
   \  --dump-ast      print the parsed AST\n\
   \  --dump-types    print the type-checked AST\n\
   \  --dump-code     print the program as Cronyx, after metaprocessing\n\
+  \  --dump-processed  print the entry's own code after metaprocessing, as Cronyx, and stop\n\
+  \  --show-processed  the same, then run the program\n\
+  \  --time          print compile, run and total time on stderr\n\
+  \  --sections      split the output for a tool: just before running, write a\n\
+  \                  `-- run --` line on stdout and on stderr. Before it is\n\
+  \                  compile time (meta output, diagnostics, `-- processed --`\n\
+  \                  and its code); after it is the run. With --time, the\n\
+  \                  timing line follows a `-- time --` line on stderr\n\
   \  -h, --help      show this message"
 
 (* Flags may appear in any order, but exactly one positional path is
@@ -29,6 +37,10 @@ let parse_args argv =
         | "--dump-ast" -> dumps := { !dumps with Driver.ast = true }
         | "--dump-types" -> dumps := { !dumps with Driver.types = true }
         | "--dump-code" -> dumps := { !dumps with Driver.code = true }
+        | "--dump-processed" -> dumps := { !dumps with Driver.processed = true }
+        | "--time" -> dumps := { !dumps with Driver.time = true }
+      | "--show-processed" -> dumps := { !dumps with Driver.show_processed = true }
+      | "--sections" -> dumps := { !dumps with Driver.sections = true }
         | "-h" | "--help" ->
           print_endline usage;
           exit 0

@@ -1,4 +1,4 @@
-effect Log { fn emit(msg: String): Unit; }
+trait Log { fn emit(msg: String): Unit; }
 
 type Task<T, E> { start: () -> <E> T }
 type Box<T> { held: T }
