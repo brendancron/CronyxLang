@@ -43,7 +43,11 @@ fn suspending_calls(n: Int) {
 fn suspending_in_run(n: Int) {
     var total = 0;
     for (var i = 0; i < n; i += 1) {
-        run { total += suspending_step(); } handle Throw { final ctl throw(e) {} }
+        run<Unit> {
+            total += suspending_step();
+        } handle<Throw<String>> {
+            fn throw(e) {}
+        }
     }
 }
 

@@ -1,0 +1,30 @@
+fn power#0(x: Int): Int {
+    return (x * power#1(x));
+}
+fn power#1(x: Int): Int {
+    return (x * power#2(x));
+}
+fn power#2(x: Int): Int {
+    return 1;
+}
+fn first<T>(items: List<T>): T {
+    return items[0];
+}
+fn odd_sum(limit: Int): Int {
+    var total = 0;
+    for (var i = 0; (i < limit); i += 1) {
+        if (((i % 2) == 0)) {
+            continue;
+        }
+        total += i;
+    }
+    var j = 0;
+    while ((j < 1)) {
+        j += 1;
+    }
+    return total;
+}
+print(power#0(3));
+print(first([1, 2]));
+print(first(["x"]));
+print(odd_sum(6));

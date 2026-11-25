@@ -1,16 +1,18 @@
 import { scratch } from "benchmarks";
 
-effect Ask { fn ask(): Int; }
-effect Yield { ctl yield(n: Int): Unit; }
+trait Ask { fn ask(): Int; }
+trait Yield { @ctl fn yield(n: Int): Unit; }
 
 @bench(100)
 @time("linear")
 @memory("constant")
 fn evidence_handler(n: Int) {
-    run {
+    run<Unit> {
         var total = 0;
         for (var i = 0; i < n; i += 1) { total += scratch(2000) + ask(); }
-    } handle Ask { fn ask() { return 1; } }
+    } handle<Ask> {
+        fn ask() { return 1; }
+    }
 }
 
 @bench(100)
@@ -18,10 +20,12 @@ fn evidence_handler(n: Int) {
 @memory("constant")
 fn resumed_handler(n: Int) {
     var seen = 0;
-    run {
+    run<Unit> {
         for (var i = 0; i < n; i += 1) {
             scratch(2000);
             yield(i);
         }
-    } handle Yield { ctl yield(v) { seen += 1; resume; } }
+    } handle<Yield> {
+        fn yield(v, resume) { seen += 1; resume(()); }
+    }
 }

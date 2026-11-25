@@ -122,7 +122,10 @@ let run_timed dumps ~entry ~compiled converted =
   | Ok code -> exit code
   | Error e -> die_at ~entry [ e ]
 
+(* Spans carry the path [Loader.normalize] made, so the entry is compared in
+   that form: on Windows the two spellings differ. *)
 let written_code ~entry (written : Ast.program) =
+  let entry = Loader.normalize entry in
   Printer.readable_source
     (Source.program
        (List.filter (fun (s : Ast.stmt) -> String.equal (Source_map.Span.path s.Ast.span) entry) written))
@@ -140,7 +143,7 @@ let on_code dumps ~entry processed =
   if dumps.processed || dumps.show_processed
   then (
     print_endline "-- processed --";
-    print_string (Printer.cronyx_of_entry ~entry processed);
+    print_string (Printer.cronyx_of_entry ~entry:(Loader.normalize entry) processed);
     if dumps.processed then exit 0)
 
 (* A program already linked: what `cx` hands over once every package has been
