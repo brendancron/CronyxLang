@@ -143,3 +143,95 @@ should behave the same); (b) make `discontinue` in a named handler a compile err
   "plain operation's handler must return" rule (the lambda's effects are its own). Precheck had the same gap.
 - That rule's error renders as "Meta error" rather than "Type error", because it is raised while the walk's
   meta-driven check runs; the position and message are right.
+
+## An empty effect row prints as nothing in a mismatch
+
+**Found while updating `docs/docs/language-basics/structs.mdx`.** A field typed
+`(Int) -> Unit` is a pure function type, so a lambda that prints doesn't fit it.
+The rejection is right, but the expected row prints as an empty string:
+
+```cronyx
+type Handler { apply: (Int) -> Unit }
+var h = Handler { apply: (n: Int) => { print(n); } };
+```
+
+`Type error: Expected a function performing , got one performing <Console|_>.`
+
+The docs example was changed to return an `Int` instead, so nothing in the docs
+depends on this.
+
+**Options.**
+
+- **A.** Print the empty row as `<>` or say "a pure function" (recommended:
+  "Expected a function performing nothing, got one performing <Console|_>.").
+- **B.** Leave it.
+
+## Two `throw` gaps found while writing the recursion fixtures
+
+**1. `throw` without importing `Throw` reaches Verify.** With only `attempt` imported:
+
+```cronyx
+import { attempt } from "std/core/Error";
+fn check(n: Int) {
+    if (n < 0) { return throw("negative"); }
+    return n;
+}
+print(attempt(() => check(4)));
+```
+
+fails with "Verify error: A call passes 4 argument(s) to a function of 1." at `throw`. Importing `Throw`
+too prints `Ok(4)`. A Verify error is the compiler's own fault, so either `throw` should not resolve
+without `Throw` in scope ("Undefined function 'throw'"), or it should work. Recommendation: make an
+operation resolve only through its imported trait, and report the missing import at the call.
+
+**2. `throw(...)` as a statement is "not settled".** `if (n < 0) { throw("negative"); }` fails with
+"This is not settled when its statement ends: its type is (String) -> <Throw<String>> T, and nothing
+fixes it. Write the type." even with the function's return written. `return throw(...)` works.
+Options: **A.** default an operation's unsettled result type to `Unit` (or the never type, when there
+is one) where the call is a statement, as nothing reads it (recommended); **B.** leave it, and say
+"write `return throw(…)`" in the message.
+
+## `run … return (x) { … }` is gone from the docs
+
+**Found while updating `resumable-effects.mdx` and `generators.mdx`.** Both
+taught a `return` clause on a `run`, run only when the body finishes on its own:
+
+```cronyx
+var first = run { each() } handle Yield {
+    ctl yield(v) { return v; }
+} return (nothing) { 0 };
+```
+
+The branch has no such clause. The pages now put the fallback as the body's
+last expression, which behaves the same way (an arm that answers skips it):
+
+```cronyx
+var first = run<Int> {
+    each();
+    0
+} handle<Yield> {
+    fn yield(v, resume) { return v; }
+};
+```
+
+**Options.** A. Leave it gone; the body's last expression is the return clause
+(recommended). B. Bring the clause back, and restore the pages.
+
+## `typeof` of an unannotated function: the error talks about static params
+
+**Found while updating `reflection.mdx`.** An unannotated function is generic, so
+`typeof` of it is rejected, which is fair, but the message reads as if the
+function had static parameters:
+
+```cronyx
+fn double(n) { return n * 2; }
+print(typeof(double).name);
+```
+
+`Type error: 'double' is generic and its static params are not settled here; write them or give it a type: {_ = ?}.`
+
+The page now annotates `double` and `greet`.
+
+**Options.** A. For a function generic only through inference, say "'double'
+is generic; annotate it, or take the type of a call" and drop `{_ = ?}`
+(recommended). B. Leave it.

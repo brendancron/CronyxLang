@@ -1,0 +1,9 @@
+fn count_down(from: Int) {
+    fn go(n) {
+        if (n == 0) { return 0; }
+        print(n);
+        return 1 + go(n - 1);
+    }
+    return go(from);
+}
+print(count_down(3));

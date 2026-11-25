@@ -1,0 +1,11 @@
+type Counter { step: Int }
+
+impl Counter {
+    fn steps(self, n: Int) {
+        if (n == 0) { return 0; }
+        return self.step + self.steps(n - 1);
+    }
+}
+
+var c = Counter { step: 3 };
+print(c.steps(4));

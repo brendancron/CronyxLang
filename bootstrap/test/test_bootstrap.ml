@@ -146,6 +146,16 @@ let cases =
   ; "tests/core/functions/generic_captures_bounded"
   ; "tests/core/functions/lambda_param_imported_type"
   ; "tests/core/functions/evaluation_order"
+  ; "tests/core/functions/recursion/plain"
+  ; "tests/core/functions/recursion/plain_typed_param"
+  ; "tests/core/functions/recursion/mutual"
+  ; "tests/core/functions/recursion/nested"
+  ; "tests/core/functions/recursion/generic"
+  ; "tests/core/functions/recursion/throws"
+  ; "tests/core/functions/recursion/control"
+  ; "tests/core/functions/recursion/static_value"
+  ; "tests/core/functions/recursion/static_value_same_key"
+  ; "tests/core/functions/recursion/method"
   ; "tests/core/functions/inline/not_marked"
   ; "tests/core/functions/inline/marked"
   ; "tests/core/functions/inline/argument_order"
@@ -360,6 +370,8 @@ let cases =
   ; "tests/meta/processed/types"
   ; "tests/meta/processed/operation"
   ; "tests/meta/processed/fresh_declare"
+  ; "tests/meta/dump_code/generated"
+  ; "tests/meta/dump_code/instances"
   ; "tests/effects/named_import/main"
   ; "tests/effects/qualified_op/main"
   ; "tests/effects/handled_in_import/main"
@@ -1604,6 +1616,33 @@ let run_pruned root (name, absent, present) =
          (String.concat "\n" (List.map (fun needle -> "    " ^ needle) wrong)));
     wrong = []
 
+(* Cases whose `--dump-code` must be their `.code`. Each is in [cases] too. *)
+let dumped_code = [ "tests/meta/dump_code/generated"; "tests/meta/dump_code/instances" ]
+
+let run_dumped_code root name =
+  let path = Filename.concat root (name ^ ".cx") in
+  let written = ref None in
+  match
+    Pipeline.front
+      ~on_written:(fun w -> written := Some w)
+      ~roots:(Driver.roots_for path)
+      ~out:(fun _ -> ())
+      path
+  with
+  | Error _ ->
+    Printf.printf "FAIL %s (dump-code)\n  does not metaprocess\n" name;
+    false
+  | Ok _ ->
+    let actual = Driver.written_code ~entry:path (Option.value ~default:[] !written) in
+    let expected = read_file (Filename.concat root (name ^ ".code")) in
+    if String.equal actual expected
+    then (
+      Printf.printf "ok   %s (dump-code)\n" name;
+      true)
+    else (
+      Printf.printf "FAIL %s (dump-code)\n  --- expected ---\n%s\n  --- actual ---\n%s\n" name expected actual;
+      false)
+
 (* Every file the library ships, reached by a fixture or not. Two modules under
    `stdlib/lex/` rotted to a syntax the language had dropped, and stayed broken
    because nothing compiled them: no fixture imported either, and both this
@@ -1679,6 +1718,7 @@ let () =
       @ List.map (flushed fst (run_expected_failing root)) expected_failing
       @ List.map (flushed Fun.id (run_known_unsound root)) known_unsound
       @ List.map (flushed (fun (name, _, _) -> name) (run_pruned root)) pruned
+      @ List.map (flushed Fun.id (run_dumped_code root)) dumped_code
       @ [ run_partition root; run_rendering (); run_prelude_walk (); run_stdlib_parses root ]
       @ [ run_prompt_flushed () ]
     in

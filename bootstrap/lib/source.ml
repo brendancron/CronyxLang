@@ -265,6 +265,47 @@ and payload_of (p : Ast.expr Ast.payload) =
 and block depth body =
   String.concat "" (List.map (stmt depth) body)
 
+(* The loop [Lower.c_for] makes of a `for`, told from one written as a `while`
+   by every node of it standing where the `for` does. *)
+and c_for span (body : Ast.stmt list) =
+  let same a b =
+    Source_map.Span.offsets a = Source_map.Span.offsets b
+    && String.equal (Source_map.Span.path a) (Source_map.Span.path b)
+  in
+  let at (s : Ast.stmt) = same s.Ast.span span in
+  let loop (l : Ast.stmt) =
+    match l.Ast.it with
+    | `While (cond, { Ast.it = `Block [ inner; { Ast.it = `Expr step; _ } ]; _ }) when at l -> Some (cond, step, inner)
+    | `Block
+        [ ({ Ast.it = `Var_decl (first, None, Some { Ast.it = `Bool true; _ }); _ } as declared)
+        ; ({ Ast.it =
+               `While
+                 ( { Ast.it = `Bool true; _ }
+                 , { Ast.it =
+                       `Block
+                         [ { Ast.it = `If ({ Ast.it = `Var first'; _ }, _, Some { Ast.it = `Expr step; _ }); _ }
+                         ; { Ast.it = `If ({ Ast.it = `Unop (Ast.Not, cond); _ }, { Ast.it = `Break; _ }, None); _ }
+                         ; inner
+                         ]
+                   ; _
+                   } )
+           ; _
+           } as w)
+        ]
+      when at l && at declared && at w && String.equal first Lower.first && String.equal first' Lower.first ->
+      Some (cond, step, inner)
+    | _ -> None
+  in
+  let cond_of (cond : Ast.expr) =
+    match cond.Ast.it with
+    | `Bool true when same cond.Ast.span span -> ""
+    | _ -> " " ^ expr cond
+  in
+  match body with
+  | [ l ] -> Option.map (fun (cond, step, inner) -> ";", cond_of cond, step, inner) (loop l)
+  | [ init; l ] -> Option.map (fun (cond, step, inner) -> String.trim (stmt 0 init), cond_of cond, step, inner) (loop l)
+  | _ -> None
+
 and stmt depth (s : Ast.stmt) : string =
   let line = line depth in
   let braced head body = line (Printf.sprintf "%s {" head) ^ block (depth + 1) body ^ line "}" in
@@ -296,7 +337,11 @@ and stmt depth (s : Ast.stmt) : string =
          (match init with
           | None -> ""
           | Some v -> " = " ^ expr v))
-  | `Block body -> braced "" body
+  | `Block body ->
+    (match c_for s.Ast.span body with
+     | Some (init, cond, step, inner) ->
+       line (Printf.sprintf "for (%s%s; %s) {" init cond (expr step)) ^ nested depth inner ^ line "}"
+     | None -> line "{" ^ block (depth + 1) body ^ line "}")
   | `If (cond, then_branch, else_branch) ->
     let head = line (Printf.sprintf "if (%s) {" (expr cond)) in
     let then_part = head ^ nested depth then_branch in

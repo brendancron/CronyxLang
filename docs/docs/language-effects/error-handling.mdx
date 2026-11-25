@@ -4,13 +4,13 @@ sidebar_position: 4
 
 # Error handling
 
-An exception is a `ctl` operation whose handler doesn't resume. There is no separate mechanism for it — no `throw` keyword, no `Exception` base class, no `Result` type to unwrap. You declare the effect you want and handle it.
+An exception is a `@ctl` operation whose handler doesn't resume. There is no separate mechanism for it — no `throw` keyword, no `Exception` base class, no `Result` type to unwrap. You declare the effect you want and handle it.
 
 ## `throw` and `catch`, assembled
 
 ```cronyx
-effect exception {
-    ctl throw(msg: string): unit;
+trait Exception {
+    @ctl fn throw(msg: String): Unit;
 }
 
 fn divide(n, d) {
@@ -20,12 +20,12 @@ fn divide(n, d) {
     return n / d;
 }
 
-run {
+run<Unit> {
     print(divide(10, 2));
     print(divide(5, 0));
     print("unreachable");
-} handle exception {
-    ctl throw(msg) {
+} handle<Exception> {
+    fn throw(msg, resume) {
         print(msg);
     }
 }
@@ -38,13 +38,13 @@ division by zero
 
 Line for line this is the shape you already know from other languages:
 
-| Java, JS, Python                    | Cronyx                                |
-| ----------------------------------- | ------------------------------------- |
-| `class DivByZero extends Exception` | `effect exception { ctl throw(...); }` |
-| `throw DivByZero(...)`          | `throw(...)`                          |
-| `try { ... } catch (e) { ... }`     | `run { ... } handle exception { ... }` |
+| Java, JS, Python                    | Cronyx                                         |
+| ----------------------------------- | ---------------------------------------------- |
+| `class DivByZero extends Exception` | `trait Exception { @ctl fn throw(...); }`      |
+| `throw DivByZero(...)`              | `throw(...)`                                   |
+| `try { ... } catch (e) { ... }`     | `run<Unit> { ... } handle<Exception> { ... }`  |
 
-And one difference that isn't cosmetic: `divide` is not annotated. There's no `throws DivByZero`, no `Result<int, Error>`, no `?`. The compiler works out that `divide` can throw because it calls `throw`, and it works out the same for everything that calls `divide`. The bookkeeping other languages ask you to maintain by hand is inferred.
+And one difference that isn't cosmetic: `divide` is not annotated. There's no `throws DivByZero`, no `Result<Int, Error>`, no `?`. The compiler works out that `divide` can throw because it calls `throw`, and it works out the same for everything that calls `divide`. The bookkeeping other languages ask you to maintain by hand is inferred.
 
 What is *not* optional is handling it. Leave off the `run` block and the program doesn't compile — an unhandled effect is a type error, so this is a checked exception with none of the annotation burden that made checked exceptions unpopular.
 
@@ -52,28 +52,28 @@ What is *not* optional is handling it. Leave off the `run` block and the program
 
 `catch` in most languages runs after the stack between `throw` and `catch` has been unwound. The failure site is gone by the time you learn about it, and the only thing you can do is start over from the `catch`.
 
-A `ctl` arm runs *before* anything is unwound. The rest of the computation is sitting there, and resuming it is a choice the arm gets to make:
+A `@ctl` arm runs *before* anything is unwound. The rest of the computation is sitting there, and resuming it is a choice the arm gets to make:
 
 ```cronyx
-effect parse_error {
-    ctl invalid(input: string): int;
+trait ParseError {
+    @ctl fn invalid(input: String): Int;
 }
 
-fn parse_int(str: string): int {
-    if (str == "10") {
+fn parse_int(text: String): Int {
+    if (text == "10") {
         return 10;
     }
-    return invalid(str);
+    return invalid(text);
 }
 
-run {
+run<Unit> {
     print(parse_int("10"));
     print(parse_int("apple"));
     print("recovered");
-} handle parse_error {
-    ctl invalid(input) {
+} handle<ParseError> {
+    fn invalid(input, resume) {
         print("Parse error, invalid string: " + input);
-        resume -1;
+        resume(-1);
     }
 }
 ```
@@ -89,42 +89,42 @@ The arm supplied a value *at the point of failure* and the program carried on fr
 
 Three policies, one `parse_int`:
 
-- `resume -1` — substitute a default and continue.
+- `resume(-1)` — substitute a default and continue.
 - `print(...)` with no `resume` — report and abandon the block.
-- `return 0` — abandon the block, and make `0` the block's value.
+- `return 0` — abandon the block, and make `0` the block's value, in a `run<Int>`.
 
-## `final ctl`, for an operation that never comes back
+## `@abort`, for an operation that never comes back
 
-An operation you never intend to resume has an awkward return type. `throw` above is declared `: unit`, so `return throw(msg)` only typechecks in a function returning `unit` — and a real `throw` wants to be callable from anywhere.
+An operation you never intend to resume has an awkward return type. `throw` above is declared `: Unit`, so `return throw(msg)` only typechecks in a function returning `Unit` — and a real `throw` wants to be callable from anywhere.
 
-`final ctl` says the operation never resumes, so its call site can be read as whatever the surrounding code needs:
+Give it a type parameter for its result, and mark it `@abort`. `@abort` says the operation never resumes, so each call site can read its result as whatever the surrounding code needs:
 
 ```cronyx
-effect Error {
-    final ctl throw(msg: string);
+trait Error {
+    @abort fn throw<T>(msg: String): T;
 }
 
-fn as_int(s: string): int {
+fn as_int(s: String): Int {
     if (s == "42") { return 42; }
     return throw("not an int: " + s);
 }
 
-fn as_word(n: int): string {
+fn as_word(n: Int): String {
     if (n == 0) { return "zero"; }
     return throw("not zero");
 }
 
-run {
+run<Unit> {
     print(str(as_int("42")) + " " + str(as_word(0)));
-} handle Error {
-    final ctl throw(msg) { print("caught: " + msg); }
+} handle<Error> {
+    fn throw(msg) { print("caught: " + msg); }
 }
 
-run {
+run<Unit> {
     print(as_int("nope"));
     print("unreachable");
-} handle Error {
-    final ctl throw(msg) { print("caught: " + msg); }
+} handle<Error> {
+    fn throw(msg) { print("caught: " + msg); }
 }
 ```
 
@@ -133,72 +133,78 @@ run {
 caught: not an int: nope
 ```
 
-The same `throw` stands in for an `int` in `as_int` and a `string` in `as_word`, which is sound precisely because it never produces either. Declaring it `final` is also a promise the compiler holds you to: the arm has no `resume` available.
+The same `throw` stands in for an `Int` in `as_int` and a `String` in `as_word`, which is sound precisely because it never produces either. Marking it `@abort` is also a promise the compiler holds you to: the arm takes no continuation, so there is no `resume` to call.
 
-The standard library declares both shapes, since both are useful: `Throw<X>` in `std/core/Error` is a `final ctl throw(err: X)` whose failure is a typed value, with `attempt`, `rethrow` and a `Failure` catch-all built on it, and `Fallible<T>` in `std/core/Error` is an `fn raise(msg: string): T` — an operation whose handler is expected to supply a `T` and continue.
+The standard library declares both shapes, since both are useful: `Throw<X>` in `std/core/Error` is an `@abort fn throw<T>(err: X): T` whose failure is a typed value, with `attempt`, `rethrow` and a `Failure` catch-all built on it, and `Fallible<T>` in `std/core/Error` is an `fn raise(msg: String): T` — an operation whose handler is expected to supply a `T` and continue.
 
 ## Cleanup on the way out
 
-An abort skips the code after the call, which is exactly the situation `defer` exists for. A deferred block runs when its scope is left, whether that's a normal return or a `final ctl` handler unwinding past it:
+An abort skips the code after the call, which is exactly the situation `defer` exists for. A deferred block runs when its scope is left, whether that's a normal return or an `@abort` operation unwinding past it:
 
 ```cronyx
-effect Error {
-    final ctl throw(msg: string);
+trait Error {
+    @abort fn throw<T>(msg: String): T;
 }
 
-fn risky(fail: bool): int {
+fn risky(fail: Bool): Int {
     defer { print("cleanup"); }
     if (fail) { return throw("boom"); }
     return 1;
 }
 
-run {
+run<Unit> {
     print(risky(false));
     print(risky(true));
     print("unreachable");
-} handle Error {
-    final ctl throw(msg) { print("caught: " + msg); }
+} handle<Error> {
+    fn throw(msg) { print("caught: " + msg); }
 }
 ```
 
 ```
 cleanup
 1
-caught: boom
 cleanup
+caught: boom
 ```
 
-`defer` is the `finally` of this section — it is what runs when a `final ctl` handler decides not to bring you back.
+`defer` is the `finally` of this section — it is what runs when an `@abort` operation doesn't bring you back.
 
-Watch the order on the failing call. `caught: boom` prints *before* the second `cleanup`, because the arm runs while `risky` is still suspended and intact; the deferred block runs afterwards, as the frames the arm declined to resume are discarded. `finally` in a language with unwinding would have run first.
+Watch the order on the failing call. The second `cleanup` prints *before* `caught: boom`: an `@abort` operation unwinds to its `run` before the arm runs, the way a `finally` in the function that threw runs before the `catch` around its caller. That's the other difference from a `@ctl` arm that declines to resume, which runs with the failure site still intact — and so has to say what becomes of the continuation it was handed, which is [`discontinue`](./generators.mdx#stopping-early)'s job.
 
 ## Try it
 
-Declare an effect `validation` with `final ctl reject(field: string, reason: string)`. Write `check_age(age: int): int` that rejects a negative age and rejects one over 150, returning the age otherwise. Call it three times under one handler that prints the field and reason.
+Declare an effect `Validation` with `@abort fn reject<T>(field: String, reason: String): T`. Write `check_age(age: Int): Int` that rejects a negative age and rejects one over 150, returning the age otherwise. Call it three times under one handler that prints the field and reason.
 
 A working answer:
 
 ```cronyx
-effect validation {
-    final ctl reject(field: string, reason: string);
+trait Validation {
+    @abort fn reject<T>(field: String, reason: String): T;
 }
 
-fn check_age(age: int): int {
+fn check_age(age: Int): Int {
     if (age < 0) { return reject("age", "negative"); }
     if (age > 150) { return reject("age", "implausible"); }
     return age;
 }
 
-run { print(check_age(30)); } handle validation {
-    final ctl reject(field, reason) { print(field + ": " + reason); }
+run<Unit> {
+    print(check_age(30));
+} handle<Validation> {
+    fn reject(field, reason) { print(field + ": " + reason); }
 }
 
-run { print(check_age(-2)); } handle validation {
-    final ctl reject(field, reason) { print(field + ": " + reason); }
+run<Unit> {
+    print(check_age(-2));
+} handle<Validation> {
+    fn reject(field, reason) { print(field + ": " + reason); }
 }
 
-run { print(check_age(200)); } handle validation {
-    final ctl reject(field, reason) { print(field + ": " + reason); }
+run<Unit> {
+    print(check_age(200));
+} handle<Validation> {
+    fn reject(field, reason) { print(field + ": " + reason); }
 }
 ```
 

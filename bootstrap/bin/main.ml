@@ -5,9 +5,10 @@ let usage =
   \  --dump-source   echo the source before running\n\
   \  --dump-tokens   print the token stream\n\
   \  --dump-ast      print the parsed AST\n\
-  \  --dump-types    print the type-checked AST\n\
-  \  --dump-code     print the program as Cronyx, after metaprocessing\n\
-  \  --dump-processed  print the entry's own code after metaprocessing, as Cronyx, and stop\n\
+  \  --dump-types    print the type-checked program\n\
+  \  --dump-code     print the entry's own code as Cronyx, as metaprocessing left it\n\
+  \  --dump-processed  print the entry's own code as Cronyx, as the later passes\n\
+  \                  lowered it, and stop\n\
   \  --show-processed  the same, then run the program\n\
   \  --time          print compile, run and total time on stderr\n\
   \  --sections      split the output for a tool: just before running, write a\n\

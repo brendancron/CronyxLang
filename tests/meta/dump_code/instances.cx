@@ -1,0 +1,31 @@
+fn power<n: Int>(x: Int): Int {
+    meta if (n == 0) {
+        gen return 1;
+    } else {
+        gen return x * power<n - 1>(x);
+    }
+}
+
+fn first<T>(items: List<T>): T {
+    return items[0];
+}
+
+fn odd_sum(limit: Int): Int {
+    var total = 0;
+    for (var i = 0; i < limit; i += 1) {
+        if (i % 2 == 0) {
+            continue;
+        }
+        total += i;
+    }
+    var j = 0;
+    while (j < 1) {
+        j += 1;
+    }
+    return total;
+}
+
+print(power<2>(3));
+print(first([1, 2]));
+print(first(["x"]));
+print(odd_sum(6));

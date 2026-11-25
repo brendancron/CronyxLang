@@ -122,11 +122,21 @@ let run_timed dumps ~entry ~compiled converted =
   | Ok code -> exit code
   | Error e -> die_at ~entry [ e ]
 
-let on_code dumps ~entry processed =
+let written_code ~entry (written : Ast.program) =
+  Printer.readable_source
+    (Source.program
+       (List.filter (fun (s : Ast.stmt) -> String.equal (Source_map.Span.path s.Ast.span) entry) written))
+
+let on_written dumps ~entry =
   if dumps.code
-  then (
-    print_endline "-- code --";
-    print_string (Printer.string_of_processed_program processed));
+  then
+    Some
+      (fun written ->
+        print_endline "-- code --";
+        print_string (written_code ~entry written))
+  else None
+
+let on_code dumps ~entry processed =
   if dumps.processed || dumps.show_processed
   then (
     print_endline "-- processed --";
@@ -144,7 +154,7 @@ let execute_linked ?(dumps = no_dumps) ~entry program =
   in
   let on_code = on_code dumps ~entry in
   let compiling = Unix.gettimeofday () in
-  match Pipeline.linked ~on_code ~on_types ~out:Builtins.to_stdout program with
+  match Pipeline.linked ?on_written:(on_written dumps ~entry) ~on_code ~on_types ~out:Builtins.to_stdout program with
   | Error errors -> die_at ~entry errors
   | Ok converted -> run_timed dumps ~entry ~compiled:(ms compiling) converted
 
@@ -159,6 +169,6 @@ let execute ?(dumps = no_dumps) ?roots entry =
       print_string (Printer.string_of_processed_program typed))
   in
   let compiling = Unix.gettimeofday () in
-  match Pipeline.compile ~on_code ~on_types ~roots ~out:Builtins.to_stdout entry with
+  match Pipeline.compile ?on_written:(on_written dumps ~entry) ~on_code ~on_types ~roots ~out:Builtins.to_stdout entry with
   | Error errors -> die_at ~entry errors
   | Ok converted -> run_timed dumps ~entry ~compiled:(ms compiling) converted

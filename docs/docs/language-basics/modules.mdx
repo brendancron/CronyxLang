@@ -120,10 +120,10 @@ That said: cycles often *suggest* a missing third module that both files actuall
 
 ## What importing runs
 
-Importing a module gives you its declarations — nothing more. A module can have statements at its top level too, but those run only when that file is the one you ran:
+Importing a module gives you its declarations — nothing more. A module can have statements at its top level too, but those run only when that file is the one you ran — they are the body of its [`main`](./functions.mdx#the-top-level-is-main):
 
 ```cronyx title="greetings.cx"
-fn greeting(name: string): string {
+fn greeting(name: String): String {
     return "Hello, " + name;
 }
 
@@ -152,7 +152,7 @@ Anything a module's meta blocks generate is part of the module, reached through 
 meta {
     for (n in [1, 2, 3]) {
         var fn_name = ("times_" + str(n)).as_name();
-        gen fn fn_name(x: int): int {
+        gen fn fn_name(x: Int): Int {
             return x * n;
         }
     }
@@ -173,14 +173,14 @@ print(table.times_3(5));
 
 Create two files in the same directory.
 
-In `greetings.cx`, define a function `greeting(name: string): string` that returns `"Hello, " + name`.
+In `greetings.cx`, define a function `greeting(name: String): String` that returns `"Hello, " + name`.
 
 In `main.cx`, import `greetings` and print the result of calling its `greeting` function with your name.
 
 A working answer:
 
 ```cronyx title="greetings.cx"
-fn greeting(name: string): string {
+fn greeting(name: String): String {
     return "Hello, " + name;
 }
 ```

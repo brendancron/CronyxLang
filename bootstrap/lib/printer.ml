@@ -492,6 +492,46 @@ let string_of_cronyx_ty t =
   done;
   Buffer.contents b
 
+(* Source text with each library path, `std#Module#`, left out of the names it
+   qualifies. A string literal is copied as it stands. *)
+let readable_source text =
+  let b = Buffer.create (String.length text) in
+  let n = String.length text in
+  let is_name c =
+    match c with
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '#' -> true
+    | _ -> false
+  in
+  let rec go i quoted =
+    if i < n
+    then (
+      let c = text.[i] in
+      if quoted
+      then (
+        Buffer.add_char b c;
+        if c = '\\' && i + 1 < n
+        then (
+          Buffer.add_char b text.[i + 1];
+          go (i + 2) true)
+        else go (i + 1) (c <> '"'))
+      else if c = '"'
+      then (
+        Buffer.add_char b c;
+        go (i + 1) true)
+      else if i + 4 <= n && String.sub text i 4 = "std#" && (i = 0 || not (is_name text.[i - 1]))
+      then (
+        match String.index_from_opt text (i + 4) '#' with
+        | Some j -> go (j + 1) false
+        | None ->
+          Buffer.add_char b c;
+          go (i + 1) false)
+      else (
+        Buffer.add_char b c;
+        go (i + 1) false))
+  in
+  go 0 false;
+  Buffer.contents b
+
 let rec cronyx_of_expr ?(depth = 0) (e : Ast.resolved_expr) : string =
   let go = cronyx_of_expr ~depth in
   let args xs = String.concat ", " (List.map go xs) in

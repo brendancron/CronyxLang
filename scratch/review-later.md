@@ -4313,3 +4313,54 @@ process, the network, `Async` — inlines `__root`.**
   in `exit(5)` (status 5), `exits` writes, reads and removes a file before `exit(6)`.
 - Review after: `closed` no longer looks inside a local function, so an inline function's own unsettled type that
   appears only inside a function it declares would now be inlined.
+
+I358. **2026-11-25 (user: "fix the recursive return type instead of documenting it"): a recursive function may
+leave its return type to inference again.** Reverses R23/I23's first half (D2, the T9 rule).
+- **The cause:** `Typecheck.enter` refused any call into a `Walking` instance whose signature left its return
+  unwritten ("'fib' is still being metaprocessed and its signature leaves its return type to inference; write
+  it."). It was a rule, not a need: `check_instance` already hands the instance its `IFn (params, ret, row)`
+  through `started` before reading the body, with `ret` the same fresh variable the body's returns unify with,
+  and `enter` instantiates only the instance's declared parameters, so `ret` is shared, as a monomorphic
+  binding is during its own body in HM. Rows were already tied (`walk_admits`' `unify_row`).
+- **Fix:** the check is deleted, and with it `ret_written` on `Metaprocess.instance`, `iv_ret_written` on
+  `instance_view`, and `started`'s second argument. A comptime call at a new key (`tri<n - 1>()`) was never
+  affected: it is another instance, checked to the end before the call reads it. A meta block calling a
+  walking instance keeps its own error ("… so a meta block cannot call it yet."), which is the genuine case.
+- **Fixtures added (10, `tests/core/functions/recursion/`):** `plain` (the example), `plain_typed_param`,
+  `mutual`, `nested` (a local function), `generic`, `throws` (`Throw`, evidence), `control` (`@ctl`),
+  `static_value` (`tri<n - 1>()`, no written return), `static_value_same_key` (`scaled<k>(x - 1)`), `method`.
+- Fixtures the branch annotated only for this, left annotated: `core/functions/fib`, `meta/04_functions/dyn_fib`,
+  `meta/05_order/04_recursion`, `meta/05_order/05_mutual_recursion`.
+- Review after: a function that only ever returns its own recursive call (`fn spin(n: Int) { return spin(n); }`)
+  leaves its return open, reported at the call as "This is not settled when its statement ends: its type is
+  'a". Polymorphic recursion at a new key is still non-termination (the doc's `nest`), not a type error.
+  `internal-docs/CPS Migration.md`'s "Recursion" section still states the old rule; not edited.
+
+I359. **2026-11-25 (user: "fix the dump flag"): `--dump-code` prints the program as Cronyx again, as
+metaprocessing left it.**
+- **The cause:** the walk now checks and lowers as it goes, so `Metaprocess.program` hands back resolved code,
+  and the branch's `--dump-code` printed that as S-expressions (`Printer.string_of_processed_program`, which
+  `--dump-types` prints too, so nothing lost them). `main`'s `Source.program` of the walked surface tree had no
+  tree left to print.
+- **Fix:** `Metaprocess.program ?on_written` builds the surface program at the end of the walk
+  (`written_program`): the entry's types and traits (`w.types`), then each kept instance (`pruned` now returns
+  instances) and the impls their methods group into, then the top-level statements with each meta block
+  replaced by what it generated (`w.top_generated`, recorded where `i.generated` is for instances). A
+  declaration with no static value and no meta block is shown once, as written (`fn first<T>`), since type
+  copies are later passes'; one with several such instances is shown per instance (`power#0`), and uses reach
+  them through `w.reached_at` (owner, name, span → instance, filled by `instance`). The `bind_values` prefix
+  (`var n: Int = 3;`) is dropped. Library names lose `std#Module#` (`Printer.readable_source`, which skips
+  string literals); only the entry file's declarations are printed (`Driver.written_code`).
+- **`for` is printed back as `for`:** the parser lowers a C `for` (`Lower.c_for`), so `Source` recognises that
+  shape, both of `looped`'s forms, by every node standing at the `for`'s span; a hand-written `while` has its
+  own. A bare block now prints `{`, not ` {`.
+- **Decided:** the implicit `main` is shown as the top-level statements, not as `fn main(): Int { … }`, which
+  keeps the docs' listings; a user `fn main` is shown as written.
+- Docs: the ten `--dump-code` listings are checked by `scratch/tools/docs.py`; `deriving.mdx`'s now shows the
+  whole program (trait, type, impl, statements) and its sentence says so; `cli.mdx` and both `--help`s describe
+  the three Cronyx/S-expression dumps as they behave, with a `--dump-code` example.
+- **Fixtures added (2, `tests/meta/dump_code/`):** `generated`, `instances`, each with a `.code` the new
+  `dumped_code` list compares with `Driver.written_code`.
+- Review after: `reached_at` is keyed by span, so a use the checker reached through a span the surface tree no
+  longer carries prints under the declaration's name. A generated `for`-shaped `while` inside a `gen` whose
+  nodes all share the gen's span would print as a `for` (same meaning).

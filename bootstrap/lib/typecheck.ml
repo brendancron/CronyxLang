@@ -340,7 +340,6 @@ type instance_view =
   { iv_name : string
   ; iv_ty : Types.infer_ty
   ; iv_walking : bool
-  ; iv_ret_written : bool
   ; iv_key : Key.t
   }
 
@@ -2614,7 +2613,9 @@ let key_of_use span ~value (u : use) : Key.t =
   k
 
 (* The instance a use reaches, its type unified with the use's. One still being
-   metaprocessed has only its written signature to offer. *)
+   metaprocessed offers its signature with the return and row its body is still
+   inferring, shared rather than instantiated, as a monomorphic binding is
+   during its own body. *)
 let enter ?(handlers = []) span ~value (u : use) : instance_view =
   let key = key_of_use span ~value u in
   let key =
@@ -2651,13 +2652,6 @@ let enter ?(handlers = []) span ~value (u : use) : instance_view =
       full)
   in
   let view = (ops ()).instance span u.u_decl key in
-  if view.iv_walking && not view.iv_ret_written
-  then
-    fail
-      span
-      "'%s' is still being metaprocessed and its signature leaves its return type to \
-       inference; write it."
-      (shown_name u.u_decl.wd_name);
   (* A generic instance is generic in its own variables at every use, as a
      scheme is: a call reaching it at another shape is not that shape. *)
   let own =
@@ -10494,7 +10488,7 @@ let check_instance ?home ~registry (d : walk_decl) (key : Key.t) ~name ~(body : 
         param_types
     in
     let fn_type = Types.IFn (param_types, ret, row) in
-    started fn_type (Option.is_some d.wd_sig.Ast.ret);
+    started fn_type;
     let ctx =
       { registry
       ; return_type = None

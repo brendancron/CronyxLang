@@ -14,8 +14,8 @@ Use the `type` keyword followed by a name and a block of fields:
 
 ```cronyx
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 ```
 
@@ -34,8 +34,8 @@ To create a value of a struct type, write the struct name and `{ field: value, .
 
 ```cronyx
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 var origin = Point { x: 0, y: 0 };
@@ -52,7 +52,7 @@ Sometimes a type carries no data at all — it exists so that you can name it, h
 type Celsius;
 
 impl Celsius {
-    fn unit(self): string {
+    fn unit(self): String {
         return "degrees C";
     }
 }
@@ -73,8 +73,8 @@ Access a field with a dot:
 
 ```cronyx
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 var p = Point { x: 3, y: 4 };
@@ -93,16 +93,16 @@ A field can hold a function, and you call it where it stands — there's no sepa
 
 ```cronyx
 type Handler {
-    label: string,
-    apply: (int) -> unit
+    label: String,
+    apply: (Int) -> Int
 }
 
 var double = Handler {
     label: "double",
-    apply: (n: int) => { print(n * 2); }
+    apply: (n: Int) => { return n * 2; }
 };
 
-double.apply(21);
+print(double.apply(21));
 print(double.label);
 ```
 
@@ -119,11 +119,11 @@ Once `Point` is a type, it works in function parameters and return types like an
 
 ```cronyx
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
-fn translate(p: Point, dx: int, dy: int): Point {
+fn translate(p: Point, dx: Int, dy: Int): Point {
     return Point { x: p.x + dx, y: p.y + dy };
 }
 
@@ -139,7 +139,7 @@ print(moved.y);
 7
 ```
 
-`translate` takes a `Point` and two `int` offsets, and returns a *new* `Point`. We're not modifying `start` — we're constructing a fresh value with the shifted coordinates. This pattern (functions that take a value and return a transformed one) is the bread and butter of struct-based code.
+`translate` takes a `Point` and two `Int` offsets, and returns a *new* `Point`. We're not modifying `start` — we're constructing a fresh value with the shifted coordinates. This pattern (functions that take a value and return a transformed one) is the bread and butter of struct-based code.
 
 ## Methods in the type body
 
@@ -147,14 +147,14 @@ A struct can carry its own functions. Write them inside the braces, after the fi
 
 ```cronyx
 type Point {
-    x: int,
-    y: int,
+    x: Int,
+    y: Int,
 
     fn origin(): Point {
         return Point { x: 0, y: 0 };
     }
 
-    fn sum(self): int {
+    fn sum(self): Int {
         return self.x + self.y;
     }
 }
@@ -175,17 +175,17 @@ This is the same as writing the functions in an `impl Point { ... }` block, like
 
 ## Try it
 
-Define a struct `Rectangle` with `width: int` and `height: int` fields. Write a function `area(r: Rectangle): int` that returns its area, and a function `bigger(a: Rectangle, b: Rectangle): Rectangle` that returns whichever rectangle has the larger area. Test it with two rectangles of your choice.
+Define a struct `Rectangle` with `width: Int` and `height: Int` fields. Write a function `area(r: Rectangle): Int` that returns its area, and a function `bigger(a: Rectangle, b: Rectangle): Rectangle` that returns whichever rectangle has the larger area. Test it with two rectangles of your choice.
 
 A working answer:
 
 ```cronyx
 type Rectangle {
-    width: int,
-    height: int
+    width: Int,
+    height: Int
 }
 
-fn area(r: Rectangle): int {
+fn area(r: Rectangle): Int {
     return r.width * r.height;
 }
 

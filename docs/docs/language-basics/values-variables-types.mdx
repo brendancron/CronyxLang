@@ -51,18 +51,18 @@ Cronyx ships with seven built-in primitive types:
 
 | Type     | What it holds              | Example values        |
 | -------- | -------------------------- | --------------------- |
-| `int`    | Signed integers            | `0`, `42`, `-7`       |
-| `float`  | Floating-point numbers     | `1.5`, `-0.25`        |
-| `bool`   | Booleans                   | `true`, `false`       |
-| `string` | Text                       | `"hello"`, `""`       |
-| `char`   | A single character         | `'a'`, `'!'`          |
-| `byte`   | A single byte              | from `"hi".bytes()`   |
-| `unit`   | The "no value" type        | `()`                  |
+| `Int`    | Signed integers            | `0`, `42`, `-7`       |
+| `Float`  | Floating-point numbers     | `1.5`, `-0.25`        |
+| `Bool`   | Booleans                   | `true`, `false`       |
+| `String` | Text                       | `"hello"`, `""`       |
+| `Char`   | A single character         | `'a'`, `'!'`          |
+| `Byte`   | A single byte              | from `"hi".bytes()`   |
+| `Unit`   | The "no value" type        | `()`                  |
 
 A few notes:
 
-- String literals use double quotes. Single quotes write a `char`, which holds exactly one character.
-- `unit` is the return type of functions that don't return anything meaningful (like `print`). Its one value is written `()`.
+- String literals use double quotes. Single quotes write a `Char`, which holds exactly one character.
+- `Unit` is the return type of functions that don't return anything meaningful (like `print`). Its one value is written `()`.
 
 You can mix them in the same program:
 
@@ -87,9 +87,9 @@ true
 Cronyx infers types when it can, but you can also write them explicitly. The annotation goes after the variable name, separated by `:`:
 
 ```cronyx
-var x: int = 42;
-var name: string = "Alice";
-var flag: bool = true;
+var x: Int = 42;
+var name: String = "Alice";
+var flag: Bool = true;
 
 print(x);
 print(name);
@@ -105,7 +105,7 @@ true
 Annotations are useful in three situations:
 
 1. **Documentation.** A reader can see the intended type without running the inference in their head.
-2. **Locking down a value.** If you mean for `count` to be an `int`, annotating it makes the compiler enforce that.
+2. **Locking down a value.** If you mean for `count` to be an `Int`, annotating it makes the compiler enforce that.
 3. **Function signatures**, which we'll get to next.
 
 ## Annotating functions
@@ -113,11 +113,11 @@ Annotations are useful in three situations:
 Function parameters and return types use the same `: type` syntax:
 
 ```cronyx
-fn add(a: int, b: int): int {
+fn add(a: Int, b: Int): Int {
     return a + b;
 }
 
-fn greet(name: string): unit {
+fn greet(name: String): Unit {
     print("Hello " + name);
 }
 
@@ -131,7 +131,7 @@ greet("World");
 Hello World
 ```
 
-The `: int` after `add`'s parameter list is its return type. `greet` returns `unit` because it doesn't produce a value — it just prints.
+The `: Int` after `add`'s parameter list is its return type. `greet` returns `Unit` because it doesn't produce a value — it just prints.
 
 Function annotations are optional too — Cronyx infers them — but get into the habit of writing them on every function. It makes type errors point at the right place and makes your code easier to read.
 
@@ -139,7 +139,7 @@ Function annotations are optional too — Cronyx infers them — but get into th
 
 A reasonable default:
 
-- **Local `var`s** — let inference do its job. `var i = 0;` is shorter and just as clear as `var i: int = 0;`.
+- **Local `var`s** — let inference do its job. `var i = 0;` is shorter and just as clear as `var i: Int = 0;`.
 - **Function signatures** — annotate everything. The signature is the contract; making it explicit is worth the keystrokes.
 - **When the inferred type would surprise a reader** — annotate, even on a local. If the right-hand side is a long expression, an annotation tells the reader what it evaluates to without making them work it out.
 
@@ -148,17 +148,17 @@ A reasonable default:
 Open a new file and predict the output before you run it:
 
 ```cronyx
-var a: int = 6;
-var b: int = 7;
+var a: Int = 6;
+var b: Int = 7;
 var product = a * b;
 
-var label: string = "answer: ";
+var label: String = "answer: ";
 print(label + product);
 ```
 
 What do you expect to happen?
 
-If you said "it prints `answer: 42`," try running it. You'll find that Cronyx won't let you concatenate a `string` and an `int` directly — `+` on strings only joins strings. This is the type system catching a real bug. To join them, convert the number first: `label + str(product)`.
+If you said "it prints `answer: 42`," try running it. You'll find that Cronyx won't let you concatenate a `String` and an `Int` directly — `+` on strings only joins strings. This is the type system catching a real bug. To join them, convert the number first: `label + str(product)`.
 
 ## What's next
 

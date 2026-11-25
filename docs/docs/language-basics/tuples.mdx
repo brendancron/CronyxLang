@@ -4,7 +4,7 @@ sidebar_position: 7
 
 # Tuples
 
-A **tuple** is a fixed-size group of values, where each value can be a different type. Reach for one when you want to bundle a small handful of values together — return more than one thing from a function, pair an `int` with the `string` that names it, group an x and a y as coordinates — and giving each piece a *name* would be overkill.
+A **tuple** is a fixed-size group of values, where each value can be a different type. Reach for one when you want to bundle a small handful of values together — return more than one thing from a function, pair an `Int` with the `String` that names it, group an x and a y as coordinates — and giving each piece a *name* would be overkill.
 
 ## Creating a tuple
 
@@ -14,9 +14,9 @@ Wrap comma-separated values in parentheses:
 var t = (10, "hello", true);
 ```
 
-`t` is a tuple with three components: an `int`, a `string`, and a `bool`. Tuples can mix types freely — that's the main thing that separates them from arrays and lists.
+`t` is a tuple with three components: an `Int`, a `String`, and a `Bool`. Tuples can mix types freely — that's the main thing that separates them from arrays and lists.
 
-The type of `t` is `(int, string, bool)`. Cronyx writes tuple types the same way you write tuple values: comma-separated inside parens.
+The type of `t` is `(Int, String, Bool)`. Cronyx writes tuple types the same way you write tuple values: comma-separated inside parens.
 
 ## Reading components
 
@@ -36,7 +36,7 @@ hello
 true
 ```
 
-The compiler knows the type of each position — `t.0` is an `int`, `t.1` is a `string`, `t.2` is a `bool`. If you write `t.3` for a three-element tuple, that's a compile error, not a runtime crash.
+The compiler knows the type of each position — `t.0` is an `Int`, `t.1` is a `String`, `t.2` is a `Bool`. If you write `t.3` for a three-element tuple, that's a compile error, not a runtime crash.
 
 ## Returning multiple values
 
@@ -68,18 +68,18 @@ Tuples and structs do something similar — bundle a fixed set of values into on
 | Two or three values, max                                | Three or more meaningful fields                       |
 | The relationship between values is obvious from context | The relationship benefits from documentation          |
 
-A `(int, int)` returned from `divmod` is fine — readers know which is which. A `(string, int, bool, string)` floating around your codebase is begging to become a struct.
+A `(Int, Int)` returned from `divmod` is fine — readers know which is which. A `(String, Int, Bool, String)` floating around your codebase is begging to become a struct.
 
 The next chapter covers structs in detail. The short version: when you find yourself writing comments to explain what each tuple slot means, switch to a struct.
 
 ## Try it
 
-Write a function `min_max(a: int, b: int): (int, int)` that returns its inputs as a tuple, smaller first. Use it on two pairs of numbers and print both components.
+Write a function `min_max(a: Int, b: Int): (Int, Int)` that returns its inputs as a tuple, smaller first. Use it on two pairs of numbers and print both components.
 
 A working answer:
 
 ```cronyx
-fn min_max(a: int, b: int): (int, int) {
+fn min_max(a: Int, b: Int): (Int, Int) {
     if (a < b) {
         return (a, b);
     }
@@ -102,7 +102,7 @@ print(same.1);
 5
 ```
 
-Notice the return type annotation: `(int, int)` looks just like a tuple value, except in a type position. Cronyx is consistent that way — values, types, and the syntax for both lean on the same shape.
+Notice the return type annotation: `(Int, Int)` looks just like a tuple value, except in a type position. Cronyx is consistent that way — values, types, and the syntax for both lean on the same shape.
 
 ## What's next
 

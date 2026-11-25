@@ -25,30 +25,30 @@ let library ?roots ~package paths
 
 (* A whole program, from its roots, checked as it is walked. [on_code] sees
    it once this is done. *)
-let metaprocess ?(on_code = fun _ -> ()) ~out program =
-  match Metaprocess.program ~out program with
+let metaprocess ?on_written ?(on_code = fun _ -> ()) ~out program =
+  match Metaprocess.program ?on_written ~out program with
   | Ok processed ->
     on_code processed;
     Ok processed
   | Error errors -> Error errors
 
 (* Checked as it is walked: what nothing reaches is never checked. *)
-let whole ?on_code ?(on_types = fun _ -> ()) ~out program =
-  let* processed = metaprocess ?on_code ~out program in
+let whole ?on_written ?on_code ?(on_types = fun _ -> ()) ~out program =
+  let* processed = metaprocess ?on_written ?on_code ~out program in
   on_types processed;
   Compile.back processed
 
 (* Artifacts concatenated: every package's declarations, none metaprocessed. *)
 let linked = whole
 
-let front ?on_code ?roots ~out path : (Ast.resolved_stmt list, Diagnostic.error list) result =
+let front ?on_written ?on_code ?roots ~out path : (Ast.resolved_stmt list, Diagnostic.error list) result =
   let* loaded, _ = package ?roots path in
-  metaprocess ?on_code ~out loaded
+  metaprocess ?on_written ?on_code ~out loaded
 
-let compile ?on_code ?on_types ?roots ~out path
+let compile ?on_written ?on_code ?on_types ?roots ~out path
   : (Ast.resolved_stmt list, Diagnostic.error list) result
   =
   let* loaded, _ = package ?roots path in
-  whole ?on_code ?on_types ~out loaded
+  whole ?on_written ?on_code ?on_types ~out loaded
 
 let run = Compile.run

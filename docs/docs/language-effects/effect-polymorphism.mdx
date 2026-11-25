@@ -12,35 +12,35 @@ fn apply_twice<T>(f: (T) -> T, x: T): T {
 }
 ```
 
-That signature says the callback is pure, so `apply_twice` is pure. Hand it a function that logs and the compiler rejects the call: the argument performs `log` and the parameter type says it performs nothing. The combinator works for exactly one kind of callback, and you'd need a second copy of it for every effect you ever want to pass through.
+That signature says the callback is pure, so `apply_twice` is pure. Hand it a function that logs and the compiler rejects the call: the argument performs `Log` and the parameter type says it performs nothing. The combinator works for exactly one kind of callback, and you'd need a second copy of it for every effect you ever want to pass through.
 
 ## A variable that stands for a row
 
 The set of effects in a type is called its **row**, and a row can be a type parameter like any other:
 
 ```cronyx
-effect log {
-    fn emit(msg: string): unit;
+trait Log {
+    fn emit(msg: String): Unit;
 }
 
 fn apply_twice<T, E>(f: (T) -> <E> T, x: T): <E> T {
     return f(f(x));
 }
 
-fn bump(x: int): int {
+fn bump(x: Int): Int {
     return x + 1;
 }
 
-fn shout(x: int): <log> int {
+fn shout(x: Int): <Log> Int {
     emit("saw " + str(x));
     return x + 1;
 }
 
 print(str(apply_twice(bump, 0)));
 
-run {
+run<Unit> {
     print(str(apply_twice(shout, 0)));
-} handle log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }
 ```
@@ -52,44 +52,44 @@ log: saw 1
 2
 ```
 
-`E` is an ordinary type parameter that happens to stand in a row. The signature now reads: *whatever `f` performs, `apply_twice` performs*. The first call settles `E` to the empty row and needs no handler; the second settles it to `log` and does. One definition, both callers.
+`E` is an ordinary type parameter that happens to stand in a row. The signature now reads: *whatever `f` performs, `apply_twice` performs*. The first call settles `E` to the empty row and needs no handler; the second settles it to `Log` and does. One definition, both callers.
 
 Note where `<E>` sits — immediately before the return type, on both the parameter and the result. `(T) -> <E> T` is a function from `T` to `T` performing `E`; `: <E> T` is a return type of `T` performing `E`.
 
 ## Adding to a row
 
-A row variable is a *tail*: it stands for whatever the caller brings, and you can name effects alongside it. `<log, E>` means `log` and whatever else:
+A row variable is a *tail*: it stands for whatever the caller brings, and you can name effects alongside it. `<Log, E>` means `Log` and whatever else:
 
 ```cronyx
-effect log {
-    fn emit(msg: string): unit;
+trait Log {
+    fn emit(msg: String): Unit;
 }
 
-effect ask {
-    fn base(): int;
+trait Ask {
+    fn base(): Int;
 }
 
-fn traced<T, E>(label: string, f: () -> <E> T): <log, E> T {
+fn traced<T, E>(label: String, f: () -> <E> T): <Log, E> T {
     emit("enter " + label);
     var result = f();
     emit("leave " + label);
     return result;
 }
 
-fn quiet(): int {
+fn quiet(): Int {
     return 7;
 }
 
-fn asks(): <ask> int {
+fn asks(): <Ask> Int {
     return base() + 1;
 }
 
-run {
+run<Unit> {
     print(str(traced("quiet", quiet)));
     print(str(traced("asks", asks)));
-} handle log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
-} handle ask {
+} handle<Ask> {
     fn base() { return 41; }
 }
 ```
@@ -103,26 +103,26 @@ log: leave asks
 42
 ```
 
-`traced` performs `log` on its own account whether or not `f` does, so `log` is written down. Everything `f` brings rides along in `E` — nothing for the first call, `ask` for the second — and both handlers are installed by the caller.
+`traced` performs `Log` on its own account whether or not `f` does, so `Log` is written down. Everything `f` brings rides along in `E` — nothing for the first call, `Ask` for the second — and both handlers are installed by the caller.
 
 ## You usually don't write it
 
 Rows are inferred, so a function you leave unannotated is row-polymorphic without your saying so:
 
 ```cronyx
-effect log {
-    fn emit(msg: string): unit;
+trait Log {
+    fn emit(msg: String): Unit;
 }
 
 fn twice(f, x) {
     return [f(x), f(x)];
 }
 
-fn bump(x: int): int {
+fn bump(x: Int): Int {
     return x + 1;
 }
 
-fn shout(x: int): <log> int {
+fn shout(x: Int): <Log> Int {
     emit("saw " + str(x));
     return x * 2;
 }
@@ -130,10 +130,10 @@ fn shout(x: int): <log> int {
 var quiet = twice(bump, 3);
 print(str(quiet[0]) + " " + str(quiet[1]));
 
-run {
+run<Unit> {
     var noisy = twice(shout, 5);
     print(str(noisy[0]) + " " + str(noisy[1]));
-} handle log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }
 ```
@@ -150,12 +150,12 @@ log: saw 5
 You can see what was inferred with `typeof`:
 
 ```cronyx
-effect logger { fn log(msg: string): unit; }
-effect counter { fn tick(): unit; }
+trait Logger { fn log(msg: String): Unit; }
+trait Counter { fn tick(): Unit; }
 
-fn greet(name: string) { log("hi " + name); tick(); }
+fn greet(name: String) { log("hi " + name); tick(); }
 fn indirect() { greet("x"); }
-fn pure_fn(n: int): int { return n + 1; }
+fn pure_fn(n: Int): Int { return n + 1; }
 
 print(typeof(log).name);
 print(typeof(greet).name);
@@ -164,10 +164,10 @@ print(typeof(pure_fn).name);
 ```
 
 ```
-(string) -> <logger> unit
-(string) -> <counter, logger> unit
-() -> <counter, logger> unit
-(int) -> int
+(String) -> <Logger> Unit
+(String) -> <Counter, Logger> Unit
+() -> <Counter, Logger> Unit
+(Int) -> Int
 ```
 
 `indirect` performs both effects because `greet` does, and `pure_fn` performs none — none of which is written in the source.
@@ -178,7 +178,7 @@ The standard library's list combinators are all row-polymorphic:
 
 ```cronyx
 fn map<T, U, E>(items: List<T>, f: (T) -> <E> U): <E> List<U>
-fn filter<T, E>(items: List<T>, f: (T) -> <E> bool): <E> List<T>
+fn filter<T, E>(items: List<T>, f: (T) -> <E> Bool): <E> List<T>
 fn fold<T, A, E>(items: List<T>, start: A, f: (A, T) -> <E> A): <E> A
 ```
 

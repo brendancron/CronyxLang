@@ -1332,7 +1332,6 @@ type instance =
   ; name : string
   ; mutable state : state
   ; mutable ty : Types.infer_ty
-  ; mutable ret_written : bool
   ; mutable checked : Typecheck.checked_stmt option
   ; mutable processed : Ast.resolved_stmt list option
   ; (* The instances its body names, by name. *)
@@ -1416,6 +1415,12 @@ type world =
     generic_decls : (string, comptime_type) Hashtbl.t
   ; (* Each copy of one, newest first. *)
     mutable copies_made : string list
+  ; (* What each top-level meta block generated, as [generated] holds an
+       instance's. *)
+    mutable top_generated : (Ast.stmt list * spliced) list
+  ; (* The instance a use reaches, by the instance it is written in ("" at the
+       top level), the name used and where. *)
+    reached_at : (string * string * string * (int * int), string) Hashtbl.t
   }
 
 and comptime_type =
@@ -1960,7 +1965,6 @@ let view (i : instance) : Typecheck.instance_view =
   { Typecheck.iv_name = i.name
   ; iv_ty = i.ty
   ; iv_walking = i.state = Walking
-  ; iv_ret_written = i.ret_written || i.state = Failed_instance
   ; iv_key = i.key
   }
 
@@ -2215,7 +2219,6 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
       ; name
       ; state = Walking
       ; ty = Types.fresh ()
-      ; ret_written = false
       ; checked = None
       ; processed = None
       ; deps = S.empty
@@ -2315,9 +2318,7 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
              key
              ~name
              ~body
-             ~started:(fun ty written ->
-               i.ty <- ty;
-               i.ret_written <- written))
+             ~started:(fun ty -> i.ty <- ty))
      with
      | checked ->
        i.checked <- Some checked;
@@ -2338,7 +2339,14 @@ let rec made ?(use = true) w span (d : Typecheck.walk_decl) (key : Key.t) : inst
        s.Typecheck.Session.errors := e :: !(s.Typecheck.Session.errors));
     i
 
-and instance w span d key = view (made w span d key)
+and instance w span d key =
+  let i = made w span d key in
+  let owner = match w.current with Some c -> c.name | None -> "" in
+  Hashtbl.replace
+    w.reached_at
+    (owner, d.Typecheck.wd_name, Source_map.Span.path span, Source_map.Span.offsets span)
+    i.name;
+  view i
 
 and lift w name (checked : Typecheck.checked_stmt) =
   incr Typecheck.walk_decl_count;
@@ -2368,7 +2376,6 @@ and lift w name (checked : Typecheck.checked_stmt) =
     ; name
     ; state = Done
     ; ty = checked.Ast.ann
-    ; ret_written = true
     ; checked = Some checked
     ; processed = None
     ; deps = S.empty
@@ -2388,7 +2395,7 @@ and lift w name (checked : Typecheck.checked_stmt) =
    declaration's own name: an instance's is mangled. Only a simple
    type name is written into the body, where a parameter may also stand as a
    value: `T.zero()`. *)
-and surface w (i : instance) : Ast.stmt =
+and surface ?(as_written = false) w (i : instance) : Ast.stmt =
   let d = i.decl in
   let span = d.Typecheck.wd_span in
   let written = Hashtbl.create 4
@@ -2487,7 +2494,7 @@ and surface w (i : instance) : Ast.stmt =
   let param index p =
     let p : Ast.param = param p in
     match p.Ast.ty, List.nth_opt settled index with
-    | None, Some t ->
+    | None, Some t when not as_written ->
       let t = Types.resolve t in
       if Typecheck.holds_generic t then p else { p with Ast.ty = Some (Splice.type_expr_of span t) }
     | _ -> { p with Ast.ty = Option.map expanded p.Ast.ty }
@@ -3805,12 +3812,169 @@ let pruned w (roots : Ast.resolved_stmt list) =
   let named = ref S.empty in
   List.iter (names_in_stmt named) roots;
   S.iter visit !named;
-  List.concat_map
-    (fun i ->
-      if Hashtbl.mem marked i.name && not (i.decl.Typecheck.wd_local || i.quoting || i.homed)
-      then Option.get i.processed
-      else [])
+  List.filter
+    (fun i -> Hashtbl.mem marked i.name && not (i.decl.Typecheck.wd_local || i.quoting || i.homed))
     (List.rev w.emitted)
+
+type written_item =
+  | Written of Ast.stmt
+  | Written_impl of
+      ((string * Ast.type_expr list) option * string * Ast.type_param list)
+      * Ast.span
+      * (Ast.stmt, unit) Ast.method_def list ref
+
+(* The program as the walk left it, in source syntax: the declarations it kept,
+   each meta block replaced by what it generated, then the top level. Only a
+   static value or a meta block makes an instance differ from the declaration as
+   written; the copies a type makes are later passes' and are not shown. A
+   declaration with more than one such instance is named per instance, as
+   processed code names it, and so is each use that reaches one. *)
+let written_program w ~statements (kept : instance list) : Ast.stmt list =
+  let made_by_meta i =
+    i.generated <> [] || List.exists (function _, Key.Value _ -> true | _ -> false) i.key
+  in
+  let shown_name name =
+    match Hashtbl.find_opt w.by_name name with
+    | None -> Printer.readable name
+    | Some i ->
+      let siblings =
+        List.filter
+          (fun j -> j.state = Done && made_by_meta j)
+          (Option.value ~default:[] (Hashtbl.find_opt w.by_decl i.decl.Typecheck.wd_id))
+      in
+      if made_by_meta i && List.length siblings > 1 && not (starts_with ~prefix:"std#" name)
+      then Printer.readable name
+      else Printer.readable (instance_base i.decl)
+  in
+  let named owner =
+    let target (e : Ast.expr) name =
+      Option.map
+        shown_name
+        (Hashtbl.find_opt
+           w.reached_at
+           (owner, name, Source_map.Span.path e.Ast.span, Source_map.Span.offsets e.Ast.span))
+    in
+    let target_of e (callee : Ast.expr) name =
+      match target e name with
+      | Some t -> Some t
+      | None -> target callee name
+    in
+    let hooks =
+      { quiet with
+        var =
+          (fun _ e ->
+            match e.Ast.it with
+            | `Var n ->
+              let t = Option.value ~default:(Printer.readable n) (target e n) in
+              if String.equal t n then e else { e with Ast.it = `Var t }
+            | _ -> e)
+      ; static_call =
+          (fun _ e ->
+            match e.Ast.it with
+            | `Static_call (({ Ast.it = `Var n; _ } as callee), _, args) ->
+              (match target_of e callee n with
+               | Some t -> { e with Ast.it = `Call ({ callee with Ast.it = `Var t }, args) }
+               | None -> e)
+            | `Static_ref (({ Ast.it = `Var n; _ } as callee), _) ->
+              (match target_of e callee n with
+               | Some t -> { e with Ast.it = `Var t }
+               | None -> e)
+            | _ -> e)
+      }
+    in
+    tblock hooks S.empty
+  in
+  let items = ref [] in
+  let add i (params, sg, body) =
+    let d = i.decl in
+    let body = named i.name body in
+    match d.Typecheck.wd_impl with
+    | Some header ->
+      let m =
+        { Ast.md_name = Diagnostic.as_written d.Typecheck.wd_name
+        ; md_params = params
+        ; md_signature = sg
+        ; md_body = body
+        ; md_ann = ()
+        ; md_attrs = []
+        }
+      in
+      (match
+         List.find_map
+           (function
+             | Written_impl (h, _, methods) when h = header -> Some methods
+             | _ -> None)
+           !items
+       with
+       | Some methods -> methods := !methods @ [ m ]
+       | None -> items := Written_impl (header, d.Typecheck.wd_span, ref [ m ]) :: !items)
+    | None -> items := Written (Ast.at d.Typecheck.wd_span (`Fn (shown_name i.name, params, sg, body))) :: !items
+  in
+  (* The bindings [bind_values] put first: each value is already written in. *)
+  let instantiated i =
+    let d = i.decl in
+    let bound =
+      List.length (List.filter (fun (p : Ast.static_param) -> List.mem_assoc p.Ast.sp_name (values_of i.key)) d.Typecheck.wd_values)
+    in
+    match (surface ~as_written:true w i).Ast.it with
+    | `Fn (_, params, sg, body) -> Some (params, sg, List.filteri (fun index _ -> index >= bound) body)
+    | _ -> None
+  in
+  let is_kept = Hashtbl.create 64 in
+  List.iter (fun i -> Hashtbl.replace is_kept i.name ()) kept;
+  let shown_decls = Hashtbl.create 16 in
+  List.iter
+    (fun i ->
+      let d = i.decl in
+      if not (Hashtbl.mem shown_decls d.Typecheck.wd_id)
+      then (
+        Hashtbl.replace shown_decls d.Typecheck.wd_id ();
+        let instances =
+          List.filter
+            (fun j -> Hashtbl.mem is_kept j.name && made_by_meta j)
+            (List.rev (Option.value ~default:[] (Hashtbl.find_opt w.by_decl d.Typecheck.wd_id)))
+        in
+        if instances = []
+        then add i (d.Typecheck.wd_params, d.Typecheck.wd_sig, d.Typecheck.wd_body)
+        else List.iter (fun j -> Option.iter (add j) (instantiated j)) instances))
+    kept;
+  let declarations =
+    List.rev_map
+      (function
+        | Written s -> s
+        | Written_impl ((trait, ty, params), span, methods) ->
+          Ast.at span (`Impl_decl (trait, ty, params, { Ast.ib_assoc = []; ib_methods = !methods })))
+      !items
+  in
+  let h = ref quiet in
+  h
+  := { quiet with
+       meta =
+         (fun scope (s : Ast.stmt) ->
+           match s.Ast.it with
+           | `Meta body ->
+             (match List.assq_opt body w.top_generated with
+              | Some (Spliced_stmts generated) -> tblock !h scope generated
+              | _ -> [])
+           | _ -> [ s ])
+     ; meta_expr =
+         (fun scope (e : Ast.expr) ->
+           match e.Ast.it with
+           | `Meta_expr body ->
+             (match List.assq_opt body w.top_generated with
+              | Some (Spliced_expr generated) -> texpr !h scope generated
+              | _ -> e)
+           | _ -> e)
+     };
+  let top =
+    List.filter
+      (fun (s : Ast.stmt) ->
+        match s.Ast.it with
+        | `Derive _ -> false
+        | _ -> not (Loader.is_declaration s))
+      (tblock !h S.empty statements)
+  in
+  List.rev w.types @ declarations @ named "" top
 
 (* `type X impl A, B { … }`: each method goes to the trait that declares it, and
    one no named trait declares is the type's own. A trait whose meta blocks
@@ -4027,7 +4191,7 @@ let monomorphized w (type_level : Ast.resolved_stmt list) (code : Ast.resolved_s
   in
   plain @ List.concat_map copies_of generic, code
 
-let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error list) result =
+let program ?on_written ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error list) result =
   let p, user_main = entry_main p in
   let p, misplaced = implemented_in_types p in
   let context =
@@ -4072,6 +4236,8 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
     ; type_level = []
     ; generic_decls = Hashtbl.create 32
     ; copies_made = []
+    ; top_generated = []
+    ; reached_at = Hashtbl.create 64
     }
   in
   Hashtbl.reset Types.generic_types;
@@ -4134,6 +4300,9 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
     in
     let top_meta (s : Ast.stmt) =
       let generated = Splice.fit Splice.Top s.Ast.span (meta_stmt w ~statics:[] ~runtime:S.empty ~outer:[] s) in
+      (match s.Ast.it with
+       | `Meta body -> w.top_generated <- (body, Spliced_stmts generated) :: w.top_generated
+       | _ -> ());
       (* Hoisted, since what generated it may stand below its use. *)
       let declarations, statements = List.partition Splice.is_visible_to_meta generated in
       List.iter (register w) declarations;
@@ -4171,6 +4340,7 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
               in
               (match w.current, written.Ast.it with
                | Some i, `Meta body -> i.generated <- (body, Spliced_stmts generated) :: i.generated
+               | None, `Meta body -> w.top_generated <- (body, Spliced_stmts generated) :: w.top_generated
                | _ -> ());
               generated)
       ; top_meta
@@ -4191,7 +4361,9 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
                  lower_expr w.context ~visible:(visible w) ~returns:(returns w) ~params:runtime (fit ~statics:[] ~outer:frame.outer)
                | None ->
                  let generated = fit ~statics:(statics ()) ~outer:[] in
-                 Option.iter (fun i -> i.generated <- (written, Spliced_expr generated) :: i.generated) w.current;
+                 (match w.current with
+                  | Some i -> i.generated <- (written, Spliced_expr generated) :: i.generated
+                  | None -> w.top_generated <- (written, Spliced_expr generated) :: w.top_generated);
                  generated)
             | _ -> e)
       ; declof =
@@ -4301,6 +4473,7 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
           | _ -> Option.is_none user_main && not (Loader.is_declaration s))
         p
     in
+    let written = statements in
     let statements =
       match user_main with
       | None -> statements
@@ -4324,7 +4497,11 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
     match type_errors (Typecheck.Walk.errors session) with
     | [] ->
       let roots = List.rev !roots in
-      let type_level, code = monomorphized w (List.rev w.type_level) (pruned w roots @ roots) in
+      let kept = pruned w roots in
+      Option.iter (fun f -> f (written_program w ~statements:written kept)) on_written;
+      let type_level, code =
+        monomorphized w (List.rev w.type_level) (List.concat_map (fun i -> Option.get i.processed) kept @ roots)
+      in
       let code = List.map Typecheck.exact_stmt code in
       Ok
         (type_level

@@ -1,0 +1,8 @@
+fn tri<n: Int>() {
+    meta if (n == 0) {
+        gen return 0;
+    } else {
+        gen return n + tri<n - 1>();
+    }
+}
+print(tri<4>());

@@ -1,0 +1,6 @@
+fn deepest<T>(x: T, n: Int) {
+    if (n == 0) { return x; }
+    return deepest(x, n - 1);
+}
+print(deepest(7, 3));
+print(deepest("a", 2));
