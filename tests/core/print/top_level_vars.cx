@@ -3,8 +3,8 @@ var count = 0;
 var names: List<String> = ["a"];
 var (left, right) = (1, 2);
 
-fn bump() { count = count + 1; }
-fn add(name: String) { names.push(name); }
+var bump = () => { count = count + 1; };
+var add = (name: String) => { names.push(name); };
 
 bump();
 bump();

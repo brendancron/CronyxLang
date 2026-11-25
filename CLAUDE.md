@@ -77,6 +77,14 @@ one helps, and the options with a recommendation — then say how many there are
 and ask whether to go through them. Take them one at a time, and remove each
 from the file once it is answered.
 
+**Breaking changes are expected; a green suite is a release gate, not a
+per-change gate.** Cronyx is 0.0.x and most changes now break fixtures. Choose
+the better design over the one that keeps tests passing, and never present
+"N fixtures break" as a reason against a change: it is the size of the
+migration. A change does not have to leave every fixture passing — report what
+still fails and move on. Before a release, the suite must pass with no
+regressions against the last release.
+
 **Intel macOS lagging a release is known.** `x86_64-apple-darwin` is
 `"ci": false` in `targets.json` and is cut by hand from an Intel Mac, so its
 archive and its formula entry trail the other platforms whenever that has not

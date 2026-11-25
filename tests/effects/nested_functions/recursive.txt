@@ -1,0 +1,5 @@
+6
+true
+true
+45
+hit 2

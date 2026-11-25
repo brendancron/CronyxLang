@@ -3,10 +3,10 @@ import "std/io/Console";
 var write = 2;
 print(write + 1);
 
-fn twice(): Int {
+fn twice(write: Int): Int {
     return write * 2;
 }
-print(twice());
+print(twice(write));
 
 core.write(Console.Stream.Out, "through core\n");
 Console.write(Console.Stream.Out, "through the module\n");

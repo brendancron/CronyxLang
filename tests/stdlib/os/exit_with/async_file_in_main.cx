@@ -1,0 +1,13 @@
+import { Exit } from "std/os/Process";
+import { all } from "std/async/Task";
+import { write_text, read_text, remove_path } from "std/fs/File";
+
+fn main() {
+    all([
+        () => { write_text("exit_with_async_file_in_main.txt", "written"); },
+        () => { print("beside"); }
+    ]);
+    print(read_text("exit_with_async_file_in_main.txt"));
+    remove_path("exit_with_async_file_in_main.txt");
+    exit(6);
+}

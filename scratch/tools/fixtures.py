@@ -5,7 +5,8 @@ report pass/fail totals, overall and for a few directories.
 usage: fixtures.py [worktree] [--list-fail] [--out results.tsv] [--only PREFIX]
 
 A .err is compared against `[line:col] message` lines scraped from the
-rendered diagnostics on stderr, so it approximates the suite's comparison.
+rendered diagnostics on stderr, each followed by its `  note: …` line when it
+has one, so it approximates the suite's comparison.
 """
 import os, re, subprocess, sys, concurrent.futures as cf
 
@@ -35,6 +36,11 @@ m = re.search(r"let arguments_for =\s*\[(.*?)\]\s*\n\n", suite, re.S)
 if m:
     for name, args in re.findall(r'"([^"]+)",\s*\[([^\]]*)\]', m.group(1)):
         ARGS[name] = re.findall(r'"([^"]*)"', args)
+STATUS = {}
+m = re.search(r"let exit_status_for =\s*\[(.*?)\]\s*\n\n", suite, re.S)
+if m:
+    for name, code in re.findall(r'"([^"]+)",\s*(\d+)', m.group(1)):
+        STATUS[name] = int(code)
 m = re.search(r"let expected_failing[^=]*=(.*?)\n\s*\]", suite, re.S)
 EXPECTED_FAILING = set(re.findall(r'"(tests/[^"]+)"', m.group(1))) if m else set()
 
@@ -51,6 +57,10 @@ def diags(stderr, entry):
         if m:
             if msg is not None: out.append(msg)
             msg = m.group(1); continue
+        m = re.match(r"\s*note: (.*)", line)
+        if m:
+            if msg is not None: out.append(msg); msg = None
+            out.append("  note: " + m.group(1)); continue
         m = re.match(r"\s*┌─ (\S+):(\d+):(\d+)", line)
         if m and msg is not None:
             where = os.path.abspath(os.path.join(entry_dir, m.group(1)))
@@ -75,8 +85,9 @@ def run(stem):
     exp = norm(open(stem + "." + kind, encoding="utf-8", errors="replace").read())
     first = next((l.strip() for l in se.split("\n") if l.strip()), "")
     if kind == "txt":
-        ok = norm(so) == exp
-        why = "" if ok else (first or "stdout differs")[:200]
+        want = STATUS.get(os.path.relpath(stem, root), 0)
+        ok = norm(so) == exp and code == want
+        why = "" if ok else ((first or "stdout differs") if norm(so) != exp else f"exited {code}, expected {want}")[:200]
     else:
         ok = code != 0 and norm(diags(se, stem + ".cx")) == exp
         why = "" if ok else (first or "accepted")[:200]

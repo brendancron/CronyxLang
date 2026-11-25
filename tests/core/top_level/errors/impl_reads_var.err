@@ -1,0 +1,1 @@
+[8:36] 'label' is a variable of the top level, local to it, so a function cannot read it; pass it in as an argument.

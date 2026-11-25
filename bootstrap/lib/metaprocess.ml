@@ -418,7 +418,7 @@ let emit_value context span args =
 (* Fresh across the whole program, so no two generated names meet. *)
 let fresh_names = ref 0
 
-let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~named_method ~declare ~remembered ((shared, own) : Ast.resolved_stmt list * Ast.resolved_stmt list) =
+let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~named_method ~declare ~declare_beside ~remembered ((shared, own) : Ast.resolved_stmt list * Ast.resolved_stmt list) =
   match Compile.back_sharing ~shared ~own with
   | Error [] -> fail Source_map.Span.nowhere "The meta block does not check."
   | Error (e :: _) -> fail e.Diagnostic.span "%s" e.Diagnostic.message
@@ -630,6 +630,14 @@ let run ~out ~codes ~emit ~emit_value ~capture ~reflect ~declof ~declof_call ~na
            | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message }));
           Value.Unit)
       | _ -> Value.fail span "declare takes a declaration.");
+    native "__declare_beside" (Some 3) (fun span args ->
+      match args with
+      | [ Value.Name name; Value.Span at; v ] ->
+        checked span (fun () ->
+          (try declare_beside span ~at name (Syntax.read_decl { Syntax.fallback = span } v) with
+           | Failed e -> raise (Value.Runtime_error { Value.span = e.span; message = e.message }));
+          Value.Unit)
+      | _ -> Value.fail span "declare_beside takes a callee and a declaration.");
     native reflector (Some 2) (fun span args ->
       match args with
       | [ Value.Str prefix; Value.Str shown ] ->
@@ -1926,6 +1934,7 @@ let rec declared_of (s : Ast.stmt) =
 
 (* Set once [register] exists; the walk and registration call each other. *)
 let register_hook : (world -> Ast.stmt -> unit) ref = ref (fun _ _ -> ())
+let implicit_hook : (Ast.stmt -> Ast.stmt) ref = ref Fun.id
 let module_hook : (world -> string -> string -> Value.value) ref = ref (fun _ _ _ -> Value.Unit)
 
 let starts_with ~prefix name =
@@ -1972,6 +1981,142 @@ let referenced w name =
 
 let processing : (string, unit) Hashtbl.t = Hashtbl.create 16
 
+let entry_main (p : Ast.program) =
+  let found = ref None in
+  let p =
+    List.map
+      (fun (s : Ast.stmt) ->
+        match s.Ast.it with
+        | `Attributed ([ { Ast.a_name; _ } ], inner) when String.equal a_name Ast.entry_main_marker ->
+          (match fn_parts inner with
+           | Some (name, params, sg, _) -> found := Some (name, params, sg, inner.Ast.span)
+           | None -> ());
+          inner
+        | _ -> s)
+      p
+  in
+  p, !found
+
+(* Whether the entry's `main` returns the exit code. *)
+let returns_status (_, params, (sg : Ast.signature), span) =
+  if params <> [] then fail span "The entry's 'main' takes no parameters.";
+  if sg.Ast.static_params <> [] then fail span "The entry's 'main' takes no static parameters and is not generic.";
+  match sg.Ast.ret with
+  | None | Some { Ast.it = Ast.Ty_name "Unit"; _ } -> false
+  | Some { Ast.it = Ast.Ty_name "Int"; _ } -> true
+  | Some _ -> fail span "The entry's 'main' returns Int, the exit code, or nothing."
+
+(* Every name processed code reads. A call the transform sent to a copy names
+   the copy, so what reaches the original only while being checked does not
+   keep it. *)
+let rec names_in_expr (acc : S.t ref) (e : Ast.resolved_expr) =
+  let go = names_in_expr acc in
+  match e.Ast.it with
+  | `Unit | `Int _ | `Bytes _ | `Name _ | `Float _ | `Str _ | `Char _ | `Bool _ -> ()
+  | `Var name -> acc := S.add name !acc
+  | `Assign (name, v) ->
+    acc := S.add name !acc;
+    go v
+  | `Unop (_, a) | `Tuple_get (a, _) | `Field (a, _) | `Array_len a | `Str_len a -> go a
+  | `Binop (_, a, b) | `And (a, b) | `Or (a, b) | `Field_assign (a, _, b) | `Array_new (a, b)
+  | `Array_get (a, b) | `Str_get (a, b) ->
+    go a;
+    go b
+  | `Array_set (a, b, c) ->
+    go a;
+    go b;
+    go c
+  | `Call (callee, args) ->
+    go callee;
+    List.iter go args
+  | `Dyn_call (receiver, _, _, args) ->
+    go receiver;
+    List.iter go args
+  | `Tuple items | `Array_lit items -> List.iter go items
+  | `Record_lit fields | `Variant (_, fields) -> List.iter (fun (_, v) -> go v) fields
+  | `Object (data, id, slots) ->
+    go data;
+    Option.iter go id.Ast.equal;
+    List.iter (fun (_, v) -> go v) slots
+  | `Lambda (_, _, body) -> List.iter (names_in_stmt acc) body
+
+and names_in_stmt (acc : S.t ref) (s : Ast.resolved_stmt) =
+  let expr = names_in_expr acc
+  and stmt = names_in_stmt acc in
+  match s.Ast.it with
+  | `Expr e | `Var_tuple (_, e) | `Var_decl (_, _, Some e) | `Return (Some e) -> expr e
+  | `Var_decl (_, _, None) | `Return None | `Break | `Continue | `Type_decl _ -> ()
+  | `Defer inner -> stmt inner
+  | `Block body | `Fn (_, _, _, body) -> List.iter stmt body
+  | `If (c, t, e) ->
+    expr c;
+    stmt t;
+    Option.iter stmt e
+  | `While (c, body) ->
+    expr c;
+    stmt body
+  | `Match (scrutinee, cases) ->
+    expr scrutinee;
+    List.iter (fun (_, body) -> List.iter stmt body) cases
+
+(* An instance homed in a run is emitted into that run's block, which keeps it
+   even once the transform has sent every call of it to a copy. Left there, it
+   is code nothing runs whose types nothing settles: an `inline` function
+   holding one could never be inlined. *)
+let without_unread_homed w (body : Ast.resolved_stmt list) =
+  let homed = Hashtbl.create 8 in
+  let note (s : Ast.resolved_stmt) =
+    match s.Ast.it with
+    | `Fn (name, _, _, fn_body) ->
+      (match Hashtbl.find_opt w.by_name name with
+       | Some i when i.homed -> Hashtbl.replace homed name fn_body
+       | _ -> ())
+    | _ -> ()
+  in
+  Inline.iter_body ~stmt:note body;
+  if Hashtbl.length homed = 0
+  then body
+  else (
+    let rec in_expr drop (e : Ast.resolved_expr) =
+      match e.Ast.it with
+      | `Lambda (params, sg, b) -> { e with Ast.it = `Lambda (params, sg, in_body drop b) }
+      | _ -> Defers.children (in_expr drop) e
+    and in_body drop b =
+      List.filter_map
+        (fun (s : Ast.resolved_stmt) ->
+          match s.Ast.it with
+          | `Fn (name, _, _, _) when drop name -> None
+          | _ -> Some (in_stmt drop s))
+        b
+    and in_stmt drop (s : Ast.resolved_stmt) =
+      let e = in_expr drop
+      and one = in_stmt drop in
+      let it =
+        match s.Ast.it with
+        | `Expr x -> `Expr (e x)
+        | `Var_tuple (ns, x) -> `Var_tuple (ns, e x)
+        | `Var_decl (n, t, x) -> `Var_decl (n, t, Option.map e x)
+        | `Return x -> `Return (Option.map e x)
+        | (`Break | `Continue | `Type_decl _) as it -> it
+        | `Defer inner -> `Defer (one inner)
+        | `Block b -> `Block (in_body drop b)
+        | `Fn (n, ps, sg, b) -> `Fn (n, ps, sg, in_body drop b)
+        | `If (c, t, f) -> `If (e c, one t, Option.map one f)
+        | `While (c, b) -> `While (e c, one b)
+        | `Match (subject, cases) -> `Match (e subject, List.map (fun (p, b) -> p, in_body drop b) cases)
+      in
+      { s with Ast.it }
+    in
+    let read = ref S.empty in
+    List.iter (names_in_stmt read) (in_body (Hashtbl.mem homed) body);
+    let rec spread seen =
+      let more = ref seen in
+      S.iter (fun n -> Option.iter (List.iter (names_in_stmt more)) (Hashtbl.find_opt homed n)) seen;
+      if S.equal !more seen then seen else spread !more
+    in
+    let live = spread !read in
+    in_body (fun n -> Hashtbl.mem homed n && not (S.mem n live)) body)
+
 (* Calls of the instances declared `inline`, replaced by the bodies they run.
    A callee is processed before its body is read, so its own calls have been
    replaced; one already being processed around the call is recursion. *)
@@ -1998,7 +2143,7 @@ let rec inlined w body =
     | Some s -> !(s.Typecheck.Session.errors) = []
     | None -> true
   in
-  Inline.program ~report ~find ~is_function:(Hashtbl.mem w.by_name) body
+  Inline.program ~report ~find ~is_function:(Hashtbl.mem w.by_name) (without_unread_homed w body)
 
 and processed_of w i =
   match i.processed with
@@ -2425,11 +2570,27 @@ and declared_at w span ~at name ty =
   wake w name;
   match Typecheck.instance_at span ~at name ty with
   | Some (d, key) ->
+    let home = if d.Typecheck.wd_local then Some d.Typecheck.wd_env else None in
+    (* Two local functions of one name and owner are two functions. *)
+    let base =
+      if d.Typecheck.wd_local
+      then Ast.generated [ instance_base d; string_of_int d.Typecheck.wd_id ]
+      else instance_base d
+    in
     ( lazy
-        (Typecheck.declof_shown := Some (d.Typecheck.wd_name, key);
+        (Typecheck.declof_shown := Some (d.Typecheck.wd_name, key, home);
          declared_instance w span d key)
-    , instance_base d ^ Key.show key )
+    , base ^ Key.show key )
   | None -> lazy (declared_type w span name None), name
+
+(* Where the function a callee reaches is declared: the top level, or the
+   block that declares it, which is the scope its body reads. *)
+and declare_beside w span ~at name (s : Ast.stmt) =
+  wake w name;
+  match Typecheck.callee_decl ~at name with
+  | Some d when d.Typecheck.wd_local -> Typecheck.declare_local d.Typecheck.wd_env (!implicit_hook s)
+  | Some _ -> !register_hook w s
+  | None -> fail span "'%s' is not a declaration." (Typecheck.shown_name name)
 
 (* A named handler's method as its impl writes it, for a transform to make
    taking control as if it were written as an arm. *)
@@ -2628,6 +2789,7 @@ and run_meta w ~span ~statics ~runtime ~outer body =
        ~declof_call:(declared_at w)
        ~named_method:(named_method w)
        ~declare:(fun d -> !register_hook w d)
+       ~declare_beside:(declare_beside w)
        ~remembered:w.remembered
        program
    with
@@ -3557,6 +3719,7 @@ let register w (s : Ast.stmt) =
     List.iter (check_type_level w) prepared)
 
 let () = register_hook := register
+let () = implicit_hook := implicit
 
 let collect w (s : Ast.stmt) =
   note_declared w s;
@@ -3574,58 +3737,52 @@ let collect w (s : Ast.stmt) =
   List.iter (fun name -> Hashtbl.replace w.known_methods name ()) (method_names s);
   note_written w s
 
-(* Every name processed code reads. A call the transform sent to a copy names
-   the copy, so what reaches the original only while being checked does not
-   keep it. *)
-let rec names_in_expr (acc : S.t ref) (e : Ast.resolved_expr) =
-  let go = names_in_expr acc in
-  match e.Ast.it with
-  | `Unit | `Int _ | `Bytes _ | `Name _ | `Float _ | `Str _ | `Char _ | `Bool _ -> ()
-  | `Var name -> acc := S.add name !acc
-  | `Assign (name, v) ->
-    acc := S.add name !acc;
-    go v
-  | `Unop (_, a) | `Tuple_get (a, _) | `Field (a, _) | `Array_len a | `Str_len a -> go a
-  | `Binop (_, a, b) | `And (a, b) | `Or (a, b) | `Field_assign (a, _, b) | `Array_new (a, b)
-  | `Array_get (a, b) | `Str_get (a, b) ->
-    go a;
-    go b
-  | `Array_set (a, b, c) ->
-    go a;
-    go b;
-    go c
-  | `Call (callee, args) ->
-    go callee;
-    List.iter go args
-  | `Dyn_call (receiver, _, _, args) ->
-    go receiver;
-    List.iter go args
-  | `Tuple items | `Array_lit items -> List.iter go items
-  | `Record_lit fields | `Variant (_, fields) -> List.iter (fun (_, v) -> go v) fields
-  | `Object (data, id, slots) ->
-    go data;
-    Option.iter go id.Ast.equal;
-    List.iter (fun (_, v) -> go v) slots
-  | `Lambda (_, _, body) -> List.iter (names_in_stmt acc) body
-
-and names_in_stmt (acc : S.t ref) (s : Ast.resolved_stmt) =
-  let expr = names_in_expr acc
-  and stmt = names_in_stmt acc in
-  match s.Ast.it with
-  | `Expr e | `Var_tuple (_, e) | `Var_decl (_, _, Some e) | `Return (Some e) -> expr e
-  | `Var_decl (_, _, None) | `Return None | `Break | `Continue | `Type_decl _ -> ()
-  | `Defer inner -> stmt inner
-  | `Block body | `Fn (_, _, _, body) -> List.iter stmt body
-  | `If (c, t, e) ->
-    expr c;
-    stmt t;
-    Option.iter stmt e
-  | `While (c, body) ->
-    expr c;
-    stmt body
-  | `Match (scrutinee, cases) ->
-    expr scrutinee;
-    List.iter (fun (_, body) -> List.iter stmt body) cases
+(* The root's statements, the program's handlers around its top level, are the
+   body of `main`, which the process starts at. When all they do is call the
+   entry's own `main`, that function is `main`. *)
+let as_main ?user (code : Ast.resolved_stmt list) : Ast.resolved_stmt list =
+  let declarations, body =
+    List.partition (fun (s : Ast.resolved_stmt) -> match s.Ast.it with `Fn _ | `Type_decl _ -> true | _ -> false) code
+  in
+  let span = Source_map.Span.nowhere in
+  let sg = { Ast.ret = Some (Ast.at span (Ast.Ty_name "Int")); row = None; static_params = []; inline = false } in
+  let ann = Types.Fn ([], Types.Int, { Types.labels = []; tail = None }) in
+  (* What `__root` makes when every handler it put around the top level has
+     been lowered away: the top level's statements are `main`'s own. *)
+  let body =
+    match body with
+    | [ { Ast.it = `Var_decl (top, _, Some { Ast.it = `Lambda ([], _, statements); _ }); _ }
+      ; { Ast.it = `Var_decl (status, _, Some _); _ }
+      ; { Ast.it = `Expr { Ast.it = `Assign (status', { Ast.it = `Call ({ Ast.it = `Var top'; _ }, []); _ }); _ }; _ }
+      ; { Ast.it = `Return (Some { Ast.it = `Var status''; _ }); _ }
+      ]
+      when top = top' && status = status' && status = status'' -> statements
+    | _ -> body
+  in
+  let generated = { Ast.it = `Fn (Ast.program_main, [], sg, body); span; ann } in
+  let called =
+    match user, body with
+    | Some _, ([ { Ast.it = `Return (Some { Ast.it = `Call ({ Ast.it = `Var f; _ }, []); _ }); _ } ]
+              | [ { Ast.it = `Expr { Ast.it = `Call ({ Ast.it = `Var f; _ }, []); _ }; _ }
+                ; { Ast.it = `Return (Some { Ast.it = `Int 0; _ }); _ }
+                ]) -> Some f
+    | _ -> None
+  in
+  let reads f (s : Ast.resolved_stmt) =
+    let acc = ref S.empty in
+    names_in_stmt acc s;
+    S.mem f !acc
+  in
+  match called with
+  | Some f when not (List.exists (reads f) declarations) ->
+    let own, others =
+      List.partition (fun (s : Ast.resolved_stmt) -> match s.Ast.it with `Fn (g, _, _, _) -> String.equal f g | _ -> false) declarations
+    in
+    (match own with
+     | [ ({ Ast.it = `Fn (_, params, sg, body); _ } as main) ] ->
+       others @ [ { main with Ast.it = `Fn (Ast.program_main, params, sg, body) } ]
+     | _ -> declarations @ [ generated ])
+  | _ -> declarations @ [ generated ]
 
 (* The instances the roots reach through what each one's processed code names,
    in the order they were processed. *)
@@ -3871,6 +4028,7 @@ let monomorphized w (type_level : Ast.resolved_stmt list) (code : Ast.resolved_s
   plain @ List.concat_map copies_of generic, code
 
 let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error list) result =
+  let p, user_main = entry_main p in
   let p, misplaced = implemented_in_types p in
   let context =
     { out
@@ -3919,7 +4077,6 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
   Hashtbl.reset Types.generic_types;
   Hashtbl.reset Types.copies;
   let roots = ref [] in
-  let generated_globals = ref [] in
   let finish_root (checked : Typecheck.checked_stmt list option) =
     let s = session w in
     try
@@ -3952,7 +4109,12 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
         then None
         else (
           Hashtbl.replace seen key ();
-          Some (Diagnostic.at Diagnostic.Type e.Typecheck.span e.Typecheck.message)))
+          Some
+            (Diagnostic.at
+               ?note:(Typecheck.shadowed_note e.Typecheck.span)
+               Diagnostic.Type
+               e.Typecheck.span
+               e.Typecheck.message)))
       errors
   in
   let walk () =
@@ -3976,7 +4138,6 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
       let declarations, statements = List.partition Splice.is_visible_to_meta generated in
       List.iter (register w) declarations;
       let statements = List.map implicit statements in
-      generated_globals := List.rev_append (List.concat_map Compile.globals statements) !generated_globals;
       statements
     in
     let ops =
@@ -4127,11 +4288,9 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
     in
     w.meta_root <- declared Ast.meta_root_function;
     List.iter (register w) of_comptime_traits;
-    (* The whole top level is one root call. A top-level meta block is a
-       statement of its body, so it runs where the check reaches it, after what
-       the statements above it reach. Each `var` is declared at the top level
-       ahead of the call, a generated one included, once the call has settled
-       its type. *)
+    (* The whole top level is `main`, handed to the root. A top-level meta
+       block is a statement of its body, so it runs where the check reaches it,
+       after what the statements above it reach. *)
     let statements =
       List.filter
         (fun (s : Ast.stmt) ->
@@ -4139,18 +4298,21 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
           | `Gen _ -> fail s.Ast.span "'gen' is only allowed inside a meta block."
           | _ when Option.is_some (deferred_prefix s) -> false
           | `Meta _ | `Derive _ -> true
-          | _ -> not (Loader.is_declaration s))
+          | _ -> Option.is_none user_main && not (Loader.is_declaration s))
         p
+    in
+    let statements =
+      match user_main with
+      | None -> statements
+      | Some ((name, _, _, span) as main) ->
+        let returns_status = returns_status main in
+        let call = Ast.at span (`Call (Ast.at span (`Var name), [])) in
+        statements @ [ Ast.at span (if returns_status then `Return (Some call) else `Expr call) ]
     in
     (match w.root, statements with
      | _, [] -> ()
      | Some name, _ ->
-       let checked = Typecheck.Walk.root session (Compile.root_call name statements) in
-       let globals = List.concat_map Compile.globals statements @ List.rev !generated_globals in
-       let before = !roots in
-       finish_root checked;
-       let made = List.rev (List.filteri (fun i _ -> i < List.length !roots - List.length before) !roots) in
-       roots := List.rev_append (globals @ made) before
+       finish_root (Typecheck.Walk.root session (Compile.root_call name statements))
      | None, _ ->
        let rec root (s : Ast.stmt) =
          match s.Ast.it with
@@ -4161,8 +4323,12 @@ let program ~out (p : Ast.program) : (Ast.resolved_stmt list, Diagnostic.error l
     finish_root None;
     match type_errors (Typecheck.Walk.errors session) with
     | [] ->
-      let type_level, code = monomorphized w (List.rev w.type_level) (pruned w (List.rev !roots) @ List.rev !roots) in
-      Ok (type_level @ List.map Typecheck.exact_stmt code)
+      let roots = List.rev !roots in
+      let type_level, code = monomorphized w (List.rev w.type_level) (pruned w roots @ roots) in
+      let code = List.map Typecheck.exact_stmt code in
+      Ok
+        (type_level
+         @ if Option.is_some w.root then as_main ?user:(Option.map (fun (n, _, _, _) -> n) user_main) code else code)
     | errors -> Error errors
   in
   try walk () with

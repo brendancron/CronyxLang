@@ -6,10 +6,12 @@
  * A call to a function that performs such an operation is split the same way,
  * through a copy of the function under a new name, which is handed the
  * handler of every effect it takes control of and then the continuation after
- * its own parameters: one copy serves every run, whichever handles what. A function
- * value whose type takes control is made taking the handler of each such
- * effect and its continuation wherever it is written (`effect_lambda`), so a
- * call through one hands it those. Any other operation is left as written,
+ * its own parameters: one copy serves every run, whichever handles what. The
+ * copy of a function declared in a block is declared beside it, so it reads
+ * the same locals. A function value whose type takes control is made taking
+ * the handler of each such effect and its continuation wherever it is written
+ * (`effect_lambda`), so a call through one hands it those; so is a function
+ * declared in the code being split. Any other operation is left as written,
  * for the checker to reach through the evidence it binds.
  *
  * A branch holding a split ends by calling what follows it, and a loop holding
@@ -42,7 +44,7 @@ import {
     Expr, ExprKind, Stmt, StmtKind, Param, Signature, StaticParam, ValuedBlock, Decl, DeclKind, FnDecl,
     FieldInit, Args, ValuedArm, MatchArm, Pattern, Bindings, TypeExpr, TypeKind, Applied, BinOp, UnOp, HandlerClause,
     Operation, operation_of, operation_in, names_function, processed_row, open_type, open_row, plain_marker, handed_marker, handed_method_marker, handler_param, controls, operations, method_row, field_type, bound_arguments, arms_row,
-    processed, processed_fn, fresh, declare, declof_call, named_method, instance_of, remembered, remember
+    processed, processed_fn, fresh, declare, declare_beside, declof_call, named_method, instance_of, remembered, remember
 } from "std/compiler/Ast";
 
 /** Statements, then the value they finish with; none when every path through them returns. */
@@ -1370,7 +1372,7 @@ fn __tx_block(cx: Cx, ss: List<Stmt>, i: Int, finish: (Cx) -> Tail): Tail {
         }
         StmtKind.While(c, body) => { return __tx_loop(cx, s, [], c, __tx_stmts_of(body), () => { return rest(cx); }); }
         StmtKind.ForIn(names, over, body) => { return __tx_for_in(cx, s, names, over, body, () => { return rest(cx); }); }
-        StmtKind.Declare(d) => { return __tx_prepend([__tx_local_fn(cx, s, d)], rest(cx)); }
+        StmtKind.Declare(d) => { return __tx_prepend([__tx_local_fn(cx, s, d, ss)], rest(cx)); }
         _ => {}
     }
     return compile_error(s.span, __tx_unsupported(cx, s));
@@ -1660,7 +1662,12 @@ fn __tx_return(cx: Cx, s: Stmt, value: Option<Expr>): Tail {
  * taking a continuation, and is generic over what that answers and performs,
  * since it calls itself.
  */
-fn __tx_local_fn(cx: Cx, s: Stmt, d: Decl): Stmt {
+/**
+ * A function declared in the code being split, made taking control as a
+ * function value is: a call to it hands it the handler of each effect its type
+ * takes control of, which its type where `scope` names it says.
+ */
+fn __tx_local_fn(cx: Cx, s: Stmt, d: Decl, scope: List<Stmt>): Stmt {
     match d.kind {
         DeclKind.Fn(f) => {
             var k = fresh("k");
@@ -1668,7 +1675,8 @@ fn __tx_local_fn(cx: Cx, s: Stmt, d: Decl): Stmt {
             var r = fresh("R");
             var row = fresh("E");
             var answer = TypeExpr.of(TypeKind.Named(r));
-            var inner = __tx_fn_cx(cx, k, u, Option.Some(answer), [], false);
+            var labels = __tx_ctl_labels(__tx_type_in_all(scope, f.name));
+            var inner = __tx_handing(__tx_fn_cx(cx, k, u, Option.Some(answer), [], false), labels);
             var result = __tx_named("Unit");
             match f.signature.ret {
                 Option.Some(t) => { result = t; }
@@ -1676,6 +1684,7 @@ fn __tx_local_fn(cx: Cx, s: Stmt, d: Decl): Stmt {
             }
             var params: List<Param> = [];
             for (p in f.params) { params.push(p); }
+            for (l in labels) { params.push(Param { name: handler_param(l), ty: Option.None, implicit: false }); }
             var k_ty = TypeExpr.of(TypeKind.Function([result], answer, [Applied { name: row, args: [] }]));
             params.push(Param { name: k, ty: Option.Some(k_ty), implicit: false });
             params.push(Param { name: u, ty: Option.Some(__tx_unwinder_ty(answer)), implicit: false });
@@ -2423,7 +2432,7 @@ fn __tx_copy_of(cx: Cx, call: Expr, f: Expr): Name {
             };
             var body = __tx_body(__tx_block(inner, fd.body, 0, finish));
             // Where the original was written, so an error in the copy, and a reader of it, finds the source.
-            declare(Decl { kind: DeclKind.Fn(FnDecl { name: copy, params: params, signature: sg, body: body }), attrs: [], span: original.span });
+            declare_beside(f, Decl { kind: DeclKind.Fn(FnDecl { name: copy, params: params, signature: sg, body: body }), attrs: [], span: original.span });
             return copy;
         }
         _ => {}
@@ -2790,7 +2799,7 @@ fn __tx_clause_values(cx: Cx, clauses: List<HandlerClause>): List<HandlerClause>
  */
 fn __tx_rewritten_value(cx: Cx, before: Stmt): Stmt {
     if (!__tx_rewrites_stmt(cx, before)) { return before; }
-    var after = __tx_inside_stmt(cx, before);
+    var after = __tx_inside_stmt(cx, before, [before]);
     match after.kind {
         StmtKind.Let(hv, _, init) => {
             return __tx_restmt(after, StmtKind.Let(hv, Option.Some(TypeExpr.of(TypeKind.Named(open_type()))), init));
@@ -2888,11 +2897,11 @@ fn __tx_is_bound(clauses: List<HandlerClause>): Bool {
 /** Statements inside a function value this run does not split, with what is made in them rewritten. */
 fn __tx_inside(cx: Cx, ss: List<Stmt>): List<Stmt> {
     var out: List<Stmt> = [];
-    for (s in ss) { out.push(__tx_inside_stmt(cx, s)); }
+    for (s in ss) { out.push(__tx_inside_stmt(cx, s, ss)); }
     return out;
 }
 
-fn __tx_inside_stmt(cx: Cx, s: Stmt): Stmt {
+fn __tx_inside_stmt(cx: Cx, s: Stmt, scope: List<Stmt>): Stmt {
     match s.kind {
         StmtKind.Let(x, ty, init) => {
             match init {
@@ -2903,7 +2912,7 @@ fn __tx_inside_stmt(cx: Cx, s: Stmt): Stmt {
         StmtKind.Declare(d) => {
             match d.kind {
                 DeclKind.Fn(f) => {
-                    if (__tx_all_split(cx, f.body)) { return __tx_local_fn(cx, s, d); }
+                    if (__tx_all_split(cx, f.body)) { return __tx_local_fn(cx, s, d, scope); }
                     var inner = FnDecl { name: f.name, params: f.params, signature: f.signature, body: __tx_inside(cx, f.body) };
                     return __tx_restmt(s, StmtKind.Declare(Decl { kind: DeclKind.Fn(inner), attrs: d.attrs, span: d.span }));
                 }
@@ -2912,7 +2921,7 @@ fn __tx_inside_stmt(cx: Cx, s: Stmt): Stmt {
         }
         _ => {}
     }
-    return __tx_stmt_map(s, (e: Expr) => { return __tx_values(cx, e); }, (c: Stmt) => { return __tx_inside_stmt(cx, c); });
+    return __tx_stmt_map(s, (e: Expr) => { return __tx_values(cx, e); }, (c: Stmt) => { return __tx_inside_stmt(cx, c, scope); });
 }
 
 // ---- statements no split stands in ----
@@ -3080,10 +3089,10 @@ fn __tx_exiting(cx: Cx, s: Stmt, looped: Bool, deferred: Bool): Stmt {
             for (a in arms) { out.push(MatchArm { pattern: a.pattern, body: __tx_all_exiting(cx, a.body, looped, deferred) }); }
             return __tx_restmt(s, StmtKind.Match(__tx_values(cx, x), out));
         }
-        StmtKind.Defer(d) => { return __tx_restmt(s, StmtKind.Defer(__tx_inside_stmt(cx, d))); }
+        StmtKind.Defer(d) => { return __tx_restmt(s, StmtKind.Defer(__tx_inside_stmt(cx, d, [d]))); }
         _ => {}
     }
-    return __tx_inside_stmt(cx, s);
+    return __tx_inside_stmt(cx, s, [s]);
 }
 
 fn __tx_all_exiting(cx: Cx, ss: List<Stmt>, looped: Bool, deferred: Bool): List<Stmt> {
@@ -3613,6 +3622,94 @@ fn __tx_mentions(e: Expr, n: Name): Bool {
     }
     for (c in __tx_children(e)) { if (__tx_mentions(c, n)) { return true; } }
     return false;
+}
+
+/** The type of the first mention of `n` in `ss` that has one. */
+fn __tx_type_in_all(ss: List<Stmt>, n: Name): Option<TypeExpr> {
+    for (s in ss) {
+        match __tx_type_in_stmt(s, n) {
+            Option.Some(t) => { return Option.Some(t); }
+            _ => {}
+        }
+    }
+    return Option.None;
+}
+
+fn __tx_type_in_stmt(s: Stmt, n: Name): Option<TypeExpr> {
+    var found: Option<TypeExpr> = Option.None;
+    var keep = (t: Option<TypeExpr>) => {
+        match found {
+            Option.None => { found = t; }
+            _ => {}
+        }
+    };
+    __tx_stmt_map(s, (e: Expr) => {
+        keep(__tx_type_in(e, n));
+        return e;
+    }, (c: Stmt) => {
+        keep(__tx_type_in_stmt(c, n));
+        return c;
+    });
+    match s.kind {
+        StmtKind.Declare(d) => {
+            match d.kind {
+                DeclKind.Fn(f) => { keep(__tx_type_in_all(f.body, n)); }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    return found;
+}
+
+fn __tx_type_in(e: Expr, n: Name): Option<TypeExpr> {
+    match e.kind {
+        ExprKind.Var(x) => {
+            if (x == n) { return e.ty; }
+            return Option.None;
+        }
+        ExprKind.Lambda(_, _, body) => { return __tx_type_in_all(body, n); }
+        ExprKind.Match(x, arms) => {
+            match __tx_type_in(x, n) {
+                Option.Some(t) => { return Option.Some(t); }
+                _ => {}
+            }
+            for (a in arms) {
+                match __tx_type_in_all(a.body.stmts, n) {
+                    Option.Some(t) => { return Option.Some(t); }
+                    _ => {}
+                }
+                match a.body.value {
+                    Option.Some(v) => {
+                        match __tx_type_in(v, n) {
+                            Option.Some(t) => { return Option.Some(t); }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return Option.None;
+        }
+        ExprKind.Run(_, body, _) => {
+            match __tx_type_in_all(body.stmts, n) {
+                Option.Some(t) => { return Option.Some(t); }
+                _ => {}
+            }
+            match body.value {
+                Option.Some(v) => { return __tx_type_in(v, n); }
+                _ => { return Option.None; }
+            }
+        }
+        _ => {}
+    }
+    for (c in __tx_children(e)) {
+        match __tx_type_in(c, n) {
+            Option.Some(t) => { return Option.Some(t); }
+            _ => {}
+        }
+    }
+    return Option.None;
 }
 
 // ---- structure ----

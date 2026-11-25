@@ -88,9 +88,9 @@ let root_errors : error list ref ref = ref (ref [])
    is not checked, since every error it gave would be the first one again. *)
 let root_failed : (string, unit) Hashtbl.t = Hashtbl.create 8
 
-(* The root's body as [root_block] checked it: each `var` an assignment to its
-   global and each statement that throws under the catcher. A transform that
-   takes the body apart is handed this, not the statements as written. *)
+(* The root's body as [root_block] checked it: each statement that throws under
+   the catcher. A transform that takes the body apart is handed this, not the
+   statements as written. *)
 let root_rewritten : Ast.stmt list option ref = ref None
 
 
@@ -433,6 +433,10 @@ let walk_decl_count = ref 0
 
 (* The local functions a block declared, so the block can hold their instances. *)
 let walk_locals : walk_decl list ref = ref []
+
+(* The functions a meta block declared into an enclosing block, by that block's
+   scope: the block holds their instances as it holds its own functions'. *)
+let placed_locals : (env * walk_decl) list ref = ref []
 
 let checking_instance : string option ref = ref None
 
@@ -782,8 +786,9 @@ let without_handlers (key : Key.t) =
 
 (* The instance that `declof` last showed, by the name it showed it under: a
    transform reading that body to copy it reads it under the handlers the
-   instance was made under, so what it reaches is the instances already made. *)
-let declof_shown : (string * Key.t) option ref = ref None
+   instance was made under, so what it reaches is the instances already made.
+   A local function's body reads the scope that declares it. *)
+let declof_shown : (string * Key.t * env option) option ref = ref None
 
 let key_handlers (key : Key.t) =
   List.filter_map
@@ -1297,6 +1302,13 @@ let bind_param env (p : Ast.param) ty =
   if List.memq p !continuation_params then continuations := scheme :: !continuations;
   bind env p.Ast.name scheme
 
+(* The variables the entry's top level declares, which are `main`'s locals,
+   and the scope they are bound in: a function, checked outside that scope,
+   never sees them. *)
+let main_vars : (string, unit) Hashtbl.t = Hashtbl.create 16
+
+let main_scope : env option ref = ref None
+
 let rec lookup env name =
   match Hashtbl.find_opt env.bindings name with
   | Some scheme -> Some scheme
@@ -1472,6 +1484,86 @@ let declarations_of table ~except name =
 
 let fail span fmt =
   Printf.ksprintf (fun message -> raise (Located { span; message })) fmt
+
+let rec within env scope = env == scope || Option.fold ~none:false ~some:(fun p -> within p scope) env.parent
+
+(* A read inside a function of a name the top level also declares as a
+   variable: the declaration it reached, by the span of the read, so an error
+   there can say which one. *)
+let shadowed_reads : (int * int * string, string * Ast.span option) Hashtbl.t = Hashtbl.create 8
+
+let main_file = ref ""
+
+let effect_spans : (string, Ast.span) Hashtbl.t = Hashtbl.create 16
+
+let read_key span =
+  let lo, hi = Source_map.Span.offsets span in
+  lo, hi, Source_map.Span.path span
+
+let rec bound_in env name =
+  match Hashtbl.find_opt env.bindings name with
+  | Some scheme -> Some (env, scheme)
+  | None when Option.fold ~none:false ~some:(List.mem name) env.hides -> None
+  | None -> Option.bind env.parent (fun p -> bound_in p name)
+
+let note_shadowed env span name =
+  match !main_scope with
+  | Some scope
+    when Hashtbl.mem main_vars name
+         && (not (within env scope))
+         && String.equal (Source_map.Span.path span) !main_file ->
+    let declared_at scheme =
+      Option.map
+        (fun (_, d) -> d.wd_span)
+        (List.find_opt (fun (s, _) -> s == scheme) (Option.value ~default:[] (Hashtbl.find_opt walk_decls name)))
+    in
+    let reached =
+      match bound_in env name with
+      | Some (where, scheme) when top_level where -> Some (declared_at scheme)
+      | Some _ -> None
+      | None ->
+        Option.map
+          (fun op -> Option.bind (Hashtbl.find_opt ctx_op_owner op) (Hashtbl.find_opt effect_spans))
+          (bare_operation name)
+    in
+    Option.iter (fun at -> Hashtbl.replace shadowed_reads (read_key span) (name, at)) reached
+  | _ -> ()
+
+let module_shown path =
+  let path = Ast.slashed path in
+  let n = String.length path in
+  let rec find i =
+    if i + 7 > n then None else if String.sub path i 7 = "stdlib/" then Some (i + 7) else find (i + 1)
+  in
+  let stem = Filename.remove_extension in
+  match find 0 with
+  | Some at -> "std/" ^ stem (String.sub path at (n - at))
+  | None -> stem (Filename.basename path)
+
+let shadowed_note span =
+  Option.map
+    (fun (name, reached) ->
+      let what =
+        match reached with
+        | Some at when not (String.equal (Source_map.Span.path at) !main_file) ->
+          Printf.sprintf "%s's `%s`" (module_shown (Source_map.Span.path at)) name
+        | _ -> "a declaration"
+      in
+      Printf.sprintf
+        "'%s' here is %s. The top-level variable '%s' is local to the top level, so a function cannot read it."
+        name
+        what
+        name)
+    (Hashtbl.find_opt shadowed_reads (read_key span))
+
+let undefined env span name =
+  match !main_scope with
+  | Some scope when Hashtbl.mem main_vars name && not (within env scope) ->
+    fail
+      span
+      "'%s' is a variable of the top level, local to it, so a function cannot read it; pass it in as an argument."
+      name
+  | _ -> fail span "Undefined variable '%s'." name
 
 type receiver =
   | Owner of string
@@ -2419,6 +2511,11 @@ let only_returned id (declared : Types.infer_ty) =
    parameter is read back from here. *)
 let keyed_at : (string * (int * int), Key.t list) Hashtbl.t = Hashtbl.create 64
 
+(* The declaration each call reached, the same way: what a callee's name meant
+   where the call was written, which is not always what it means where a meta
+   block asks. *)
+let decl_at : (string * (int * int), walk_decl) Hashtbl.t = Hashtbl.create 64
+
 (* Read once the use's arguments are unified, and never later: a key is settled
    at the call. *)
 let key_of_use span ~value (u : use) : Key.t =
@@ -2512,6 +2609,7 @@ let key_of_use span ~value (u : use) : Key.t =
    | Source_map.Span.Nowhere_in_source -> ()
    | Source_map.Span.Located _ ->
      let at = d.wd_name, Source_map.Span.offsets span in
+     Hashtbl.replace decl_at at d;
      Hashtbl.replace keyed_at at (k :: Option.value ~default:[] (Hashtbl.find_opt keyed_at at)));
   k
 
@@ -4294,8 +4392,8 @@ let rec names_declared (s : Ast.stmt) =
   match s.Ast.it with
   | `Fn (name, _, _, _) | `Var_decl (name, _, _) -> [ Value name ]
   | `Var_tuple (names, _) -> List.map (fun name -> Value name) names
-  (* The root's body declares the top level's globals. *)
   | `Expr { Ast.it = `Call ({ Ast.it = `Var root; _ }, [ { Ast.it = `Lambda (_, _, body); _ } ]); _ }
+  | `Return (Some { Ast.it = `Call ({ Ast.it = `Var root; _ }, [ { Ast.it = `Lambda (_, _, body); _ } ]); _ })
     when Ast.is_root root ->
     List.concat_map names_declared body
   | `Impl_decl (trait, type_name, _, impl) ->
@@ -5047,6 +5145,7 @@ and infer_expr_impl ?expected ?(at_root = false) ?(root_body = false) env ctx (e
   | `Char c -> node Types.IChr (`Char c)
   | `Bool b -> node Types.IBool (`Bool b)
   | `Unit -> node Types.IUnit `Unit
+  | `Var name when (note_shadowed env span name; false) -> assert false
   | `Var name | `Call ({ Ast.it = `Var name; _ }, _)
     when unbound env name && List.length (operation_owners name) > 1 ->
     fail
@@ -5104,7 +5203,7 @@ and infer_expr_impl ?expected ?(at_root = false) ?(root_body = false) env ctx (e
         | _ ->
           if walking () then (ops ()).unknown name span;
           !current.unknown
-            (fun () -> fail span "Undefined variable '%s'." name)
+            (fun () -> undefined env span name)
             (fun () -> node (unknown_ty ()) (`Var name))))
   | `Run_expr (written, body, handlers) ->
     let answer =
@@ -5158,7 +5257,7 @@ and infer_expr_impl ?expected ?(at_root = false) ?(root_body = false) env ctx (e
     (match lookup env name with
      | None ->
        !current.unknown
-         (fun () -> fail span "Undefined variable '%s'." name)
+         (fun () -> undefined env span name)
          (fun () -> node Types.IUnit (`Assign (name, infer_expr env ctx v)))
      | Some scheme ->
        let target = Types.instantiate scheme in
@@ -5206,7 +5305,7 @@ and infer_expr_impl ?expected ?(at_root = false) ?(root_body = false) env ctx (e
     (match lookup env name with
      | None ->
        !current.unknown
-         (fun () -> fail span "Undefined variable '%s'." name)
+         (fun () -> undefined env span name)
          (fun () -> node Types.IUnit (`Compound (op, name, infer_expr env ctx v)))
      | Some scheme ->
        let target = Types.instantiate scheme in
@@ -5708,7 +5807,7 @@ and infer_expr_impl ?expected ?(at_root = false) ?(root_body = false) env ctx (e
   | `Static_ref ({ Ast.it = `Var name; _ }, static_args) ->
     (match lookup env name with
      | Some scheme -> node (written_instance span name scheme static_args) (`Var name)
-     | None -> fail span "Undefined variable '%s'." name)
+     | None -> undefined env span name)
   | `Static_ref _ -> fail span "Only a named function takes static arguments."
   | `Static_call (callee, static_args, args) ->
     let name =
@@ -6335,7 +6434,7 @@ and infer_expr_impl ?expected ?(at_root = false) ?(root_body = false) env ctx (e
           let handed = if is_plain signature then ctx.handed_answer else None in
           let check () =
             in_function_body ?handed ctx ~ret:declared_ret ~row (fun () ->
-              if root_body then root_block env scope ctx body else infer_block scope ctx body)
+              if root_body then root_block scope ctx body else infer_block scope ctx body)
           in
           if may_convert then noted check else check (), ([], { n_types = []; n_runs = [] }))
     in
@@ -7788,7 +7887,11 @@ and walk_block env ctx (body : Ast.stmt list) : checked_stmt list =
         let checked = walk_stmts ~keeping env ctx body in
         let here, elsewhere = List.partition (fun (home, _) -> home == env) !local_instances in
         local_instances := elsewhere;
-        List.rev_map snd here @ List.concat_map (ops ()).instances_of (List.rev !walk_locals) @ checked)
+        let placed, others = List.partition (fun (home, _) -> home == env) !placed_locals in
+        placed_locals := others;
+        List.rev_map snd here
+        @ List.concat_map (ops ()).instances_of (List.rev !walk_locals @ List.rev_map snd placed)
+        @ checked)
   in
   if List.exists declares body then scoped_declarations run else run ()
 
@@ -7865,20 +7968,19 @@ and passed_stmts env ctx span n : checked_stmt list =
   | Passed_stmts checked -> checked
   | Passed_expr checked -> [ Ast.annotated span Types.IUnit (`Expr checked) ]
 
-(* The top level, as the root's body: each statement checked in order with a
+(* The top level, as the body of `main`: each statement checked in order with a
    row of its own, which is how a statement is found to throw. One that throws
    is passed through under the root's catcher, so each throwing statement
-   catches its own failure and two may throw different types. A top-level `var`
-   stays a global: its initializer is an assignment here, and the name is bound
-   at the top level only once the initializer is checked, so a function reached
-   before it does not see it. *)
-and root_block env scope ctx (body : Ast.stmt list) : checked_stmt list =
+   catches its own failure and two may throw different types. A `var` whose
+   initializer throws keeps its name in `main`: only the initializer goes under
+   the catcher, which hands back its value. *)
+and root_block scope ctx (body : Ast.stmt list) : checked_stmt list =
   let body = List.map unattributed body in
   let assigned = assigned_names body in
   let whole = ctx.row in
   let saved_top = !top_row in
   let caught =
-    match Option.map (fun sc -> Types.repr (Types.instantiate sc)) (lookup env Ast.root_catcher) with
+    match Option.map (fun sc -> Types.repr (Types.instantiate sc)) (lookup scope Ast.root_catcher) with
     | Some (Types.IFn ([ main ], _, _)) ->
       (match Types.repr main with
        | Types.IFn (_, _, row) -> List.map fst (fst (Types.labels_of_infer_row row))
@@ -7886,19 +7988,42 @@ and root_block env scope ctx (body : Ast.stmt list) : checked_stmt list =
     | _ -> []
   in
   let throws row = List.exists (fun (l, _) -> List.mem l caught) (fst (Types.labels_of_infer_row row)) in
-  let catcher span ?ret (body : Ast.stmt list) : Ast.expr =
+  let catcher span (body : Ast.stmt list) : Ast.expr =
     Ast.at span
       (`Call
         ( Ast.at span (`Var Ast.root_catcher)
-        , [ Ast.at span (`Lambda ([], { Ast.ret; row = None; static_params = []; inline = false }, body)) ] ))
+        , [ Ast.at span (`Lambda ([], { Ast.ret = None; row = None; static_params = []; inline = false }, body)) ] ))
   in
-  let under_catcher (s : Ast.stmt) : Ast.stmt = Ast.at s.Ast.span (`Expr (catcher s.Ast.span [ s ])) in
-  let passed_on (shown : Ast.stmt) (checked, row, uses) : Ast.stmt =
+  let bound (s : Ast.stmt) =
+    let names =
+      match s.Ast.it with
+      | `Var_decl (name, _, _) -> [ name ]
+      | `Var_tuple (names, _) -> names
+      | _ -> []
+    in
+    List.filter_map (fun name -> Option.map (fun sc -> name, sc) (Hashtbl.find_opt scope.bindings name)) names
+  in
+  let passed_on ?returns (shown : Ast.stmt) (checked, row, uses) : Ast.stmt =
     let n =
       pass_through
         { pc_code = Passed_stmts checked
         ; pc_row = row
         ; pc_view = `Stmt shown
+        ; pc_binds = bound shown
+        ; pc_uses = fst uses
+        ; pc_returns = returns
+        ; pc_notes = snd uses
+        ; pc_shown = false
+        }
+    in
+    Ast.at shown.Ast.span (`Pre_checked n)
+  in
+  let passed_expr (shown : Ast.expr) (checked, row, uses) : Ast.expr =
+    let n =
+      pass_through
+        { pc_code = Passed_expr checked
+        ; pc_row = row
+        ; pc_view = `Expr shown
         ; pc_binds = []
         ; pc_uses = fst uses
         ; pc_returns = None
@@ -7908,6 +8033,17 @@ and root_block env scope ctx (body : Ast.stmt list) : checked_stmt list =
     in
     Ast.at shown.Ast.span (`Pre_checked n)
   in
+  let under_catcher (s : Ast.stmt) (checked, row, uses) : Ast.stmt =
+    let at it : Ast.stmt = { s with Ast.it } in
+    let value init checked_init = catcher init.Ast.span [ at (`Return (Some (passed_expr init (checked_init, row, uses)))) ] in
+    match s.Ast.it, checked with
+    | `Var_decl (name, ty, Some init), [ { Ast.it = `Var_decl (_, _, Some checked_init); _ } ] ->
+      at (`Var_decl (name, ty, Some (value init checked_init)))
+    | `Var_tuple (names, init), [ { Ast.it = `Var_tuple (_, checked_init); _ } ] ->
+      at (`Var_tuple (names, value init checked_init))
+    | `Return (Some e), [ { Ast.it = `Return (Some checked_e); _ } ] -> at (`Return (Some (value e checked_e)))
+    | _ -> at (`Expr (catcher s.Ast.span [ passed_on s (checked, row, uses) ]))
+  in
   let mark_failed s =
     List.iter
       (function
@@ -7916,26 +8052,17 @@ and root_block env scope ctx (body : Ast.stmt list) : checked_stmt list =
       (names_declared s)
   in
   let rewritten = ref [] in
-  let as_assignment (s : Ast.stmt) : Ast.stmt =
-    let at it : Ast.stmt = { s with Ast.it } in
+  let declare_main (s : Ast.stmt) =
     match s.Ast.it with
-    | `Var_decl (name, _, Some init) -> at (`Expr (Ast.at s.Ast.span (`Assign (name, init))))
-    | `Var_decl (_, _, None) -> at (`Block [])
-    | `Var_tuple (names, init) ->
-      let held = Lower.fresh "tuple" in
-      let whole = Ast.at s.Ast.span (`Var held) in
-      at
-        (`Block
-          (at (`Var_decl (held, None, Some init))
-           :: List.mapi
-                (fun i name -> at (`Expr (Ast.at s.Ast.span (`Assign (name, Ast.at s.Ast.span (`Tuple_get (whole, i)))))))
-                names))
-    | _ -> s
+    | `Var_decl (name, _, _) -> Hashtbl.replace main_vars name ()
+    | `Var_tuple (names, _) -> List.iter (fun name -> Hashtbl.replace main_vars name ()) names
+    | _ -> ()
   in
   let rec one assigned (s : Ast.stmt) : checked_stmt list =
     match s.Ast.it with
     | `Meta _ | `Derive _ ->
       let generated = List.map unattributed ((ops ()).top_meta s) in
+      List.iter declare_main generated;
       List.concat_map (one (assigned_names generated @ assigned)) generated
     | _ ->
     if List.exists
@@ -7947,35 +8074,31 @@ and root_block env scope ctx (body : Ast.stmt list) : checked_stmt list =
       mark_failed s;
       [])
     else (
-      let globals =
-        match s.Ast.it with
-        | `Var_decl (name, annotation, _) -> [ name, annotated_or_fresh annotation ]
-        | `Var_tuple (names, _) -> List.map (fun name -> name, Types.fresh ()) names
-        | _ -> []
-      in
       let check (s : Ast.stmt) =
         let row = Types.fresh_row () in
         ctx.row <- row;
         top_row := Some row;
         let checked, uses =
-          noted (fun () -> statement ctx (fun () -> with_pending (fun () -> root_stmt scope ctx assigned globals s)))
+          noted (fun () -> statement ctx (fun () -> with_pending (fun () -> root_stmt scope ctx assigned s)))
         in
         checked, row, uses
       in
+      let saw = ctx.saw_return in
+      ctx.saw_return <- false;
       match
         let checked, row, uses = check s in
-        let shown = as_assignment s in
+        (* A `return` of the top level is `main`'s, which the transform, checking
+           this body again as passed through, has to be told. *)
+        let returns = if ctx.saw_return then ctx.return_type else None in
+        ctx.saw_return <- saw || ctx.saw_return;
         let (checked, row, uses), shown =
           if throws row
           then (
-            (* What the transform makes of the catcher's body is checked
-               there, inside it, so the globals are already bound. *)
-            List.iter (fun (name, ty) -> bind env name (Types.mono ty)) globals;
-            let caught = under_catcher (passed_on shown (checked, row, uses)) in
+            let caught = under_catcher s (checked, row, uses) in
             check caught, caught)
-          else (checked, row, uses), shown
+          else (checked, row, uses), s
         in
-        rewritten := passed_on shown (checked, row, uses) :: !rewritten;
+        rewritten := passed_on ?returns shown (checked, row, uses) :: !rewritten;
         (* Contained, not unified: a function value the statement calls takes
            the statement's row, and the whole top level's would hand it every
            effect the root binds. *)
@@ -7983,9 +8106,7 @@ and root_block env scope ctx (body : Ast.stmt list) : checked_stmt list =
          | Types.Type_error message -> raise (Located { span = s.Ast.span; message }));
         checked
       with
-      | checked ->
-        List.iter (fun (name, ty) -> bind env name (Types.mono ty)) globals;
-        checked
+      | checked -> checked
       | exception Located e ->
         !root_errors := e :: !(!root_errors);
         mark_failed s;
@@ -7996,61 +8117,25 @@ and root_block env scope ctx (body : Ast.stmt list) : checked_stmt list =
       ctx.row <- whole;
       top_row := saved_top;
       root_rewritten := Some (List.rev !rewritten))
-    (fun () -> List.concat_map (one assigned) body)
+    (fun () ->
+      main_scope := Some scope;
+      (match body with
+       | first :: _ -> main_file := Source_map.Span.path first.Ast.span
+       | [] -> ());
+      List.iter declare_main body;
+      List.concat_map (one assigned) body)
 
-
-(* A statement of the root's body. A `var`'s initializer is assigned to the
-   global [root_block] declares for it. *)
-and root_stmt env ctx assigned globals (s : Ast.stmt) : checked_stmt =
-  let span = s.Ast.span in
-  let node it : checked_stmt = Ast.annotated span Types.IUnit it in
-  let assign name (target : Types.infer_ty) (value : checked_expr) : checked_stmt =
-    node (`Expr (Ast.annotated span target (`Assign (name, value))))
-  in
-  let checked () =
-    match s.Ast.it with
-    | `Var_decl (name, annotation, init) ->
-      let target = List.assoc name globals in
-      (match init with
-       | None ->
-         (try Types.unify target Types.IUnit with
-          | Types.Type_error _ ->
-            let written = Types.string_of_infer_ty target in
-            fail
-              span
-              "'%s' is declared as %s but has no value; write 'var %s: %s = …;'."
-              name
-              written
-              name
-              written);
-         node (`Block [])
-       | Some e ->
-         let value = infer_expr ?expected:(Option.map (fun _ -> target) annotation) env ctx e in
-         unify_at value.Ast.span target value.Ast.ann;
-         assign name target value)
-    | `Var_tuple (names, init) ->
-      let value = infer_expr env ctx init in
-      let parts = List.map (fun name -> List.assoc name globals) names in
-      unify_at value.Ast.span (Types.ITuple parts) value.Ast.ann;
-      let held = Lower.fresh "tuple" in
-      let whole : checked_expr = Ast.annotated span value.Ast.ann (`Var held) in
-      node
-        (`Block
-          (node (`Var_decl (held, None, Some value))
-           :: List.mapi
-                (fun i (name, part) -> assign name part (Ast.annotated span part (`Tuple_get (whole, i))))
-                (List.combine names parts)))
-    | _ -> infer_stmt env ctx assigned s
-  in
+(* A statement of `main`'s body. *)
+and root_stmt env ctx assigned (s : Ast.stmt) : checked_stmt =
   match s.Ast.it with
   | `Var_decl _ | `Var_tuple _ ->
     let c =
-      try checked () with
-      | Types.Type_error message -> raise (Located { span; message })
+      try infer_stmt env ctx assigned s with
+      | Types.Type_error message -> raise (Located { span = s.Ast.span; message })
     in
-    note_effect_sites span ctx.row;
+    note_effect_sites s.Ast.span ctx.row;
     c
-  | _ -> checked ()
+  | _ -> infer_stmt env ctx assigned s
 
 (* In [dependency_order], back in source order. Functions calling each other are
    generalized together, once all of them are checked, so none is generalized
@@ -8454,6 +8539,7 @@ and infer_stmt_impl ~generalize env ctx assigned (s : Ast.stmt) : checked_stmt =
 
 and declare_operations env span name params (ops : Ast.op_decl list) =
     Hashtbl.replace ctx_effects.declared name ops;
+    Hashtbl.replace effect_spans name span;
     let bound =
       match Hashtbl.find_opt ctx_effect_params name with
       | Some bound when List.length bound = List.length params -> bound
@@ -10151,6 +10237,9 @@ module Session = struct
     active_blocks := [];
     local_instances := [];
     Hashtbl.reset root_failed;
+    Hashtbl.reset main_vars;
+    main_scope := None;
+    Hashtbl.reset shadowed_reads;
     Hashtbl.reset unobservable;
     Types.extra_admits := admits registry;
     Types.assoc_binding := (fun owner member -> Hashtbl.find_opt ctx_assoc (owner, member));
@@ -10617,12 +10706,21 @@ let arms_row () = settled_labels !arm_rows
    is answered by the evidence it is handed. *)
 let typed_fn name (params : Ast.param list) (sg : Ast.signature) (body : Ast.stmt list) =
   typed_here (fun _ ctx ->
-    let scope = new_env !top_env in
+    let shown =
+      match !declof_shown with
+      | Some (shown, key, home) when String.equal shown name -> Some (key, home)
+      | _ -> None
+    in
+    let scope =
+      match shown with
+      | Some (_, Some home) -> new_env (Some home)
+      | _ -> new_env !top_env
+    in
     let outer = !effect_bindings in
     effect_bindings
-    := (match !declof_shown with
-        | Some (shown, key) when String.equal shown name -> key_frames key
-        | _ -> [ own_frame ]);
+    := (match shown with
+        | Some (key, _) -> key_frames key
+        | None -> [ own_frame ]);
     Fun.protect ~finally:(fun () -> effect_bindings := outer) @@ fun () ->
     (* A copy's own parameters are gone from what declof gives of it, while its
        types still name them: such a type is left to the body. *)
@@ -10639,14 +10737,25 @@ let typed_fn name (params : Ast.param list) (sg : Ast.signature) (body : Ast.stm
         ctx.saw_return <- false)
       (fun () -> ignore (infer_block scope ctx body)))
 
+(* The declaration a callee names: the one its call reached, or else the one
+   its name means where the asking meta block stands. *)
+let callee_decl ~at name =
+  match
+    match Source_map.Span.view at with
+    | Source_map.Span.Located _ -> Hashtbl.find_opt decl_at (name, Source_map.Span.offsets at)
+    | Source_map.Span.Nowhere_in_source -> None
+  with
+  | Some d -> Some d
+  | None ->
+    (match !meta_scope, !top_env with
+     | Some (env, _), _ | None, Some env -> decl_of env name
+     | None, None -> None)
+
 (* The declaration a callee names and the key its type settles, as the call
    branch reads one: a fresh use of the signature unified with the type, rows
    left out, since what the callee performs is no part of a plain key. *)
 let instance_at span ~at name (ty : Ast.type_expr option) : (walk_decl * Key.t) option =
-  match !top_env with
-  | None -> None
-  | Some env ->
-    (match decl_of env name with
+  match callee_decl ~at name with
      | None -> None
      | Some d ->
        let u = use_of d in
@@ -10673,7 +10782,7 @@ let instance_at span ~at name (ty : Ast.type_expr option) : (walk_decl * Key.t) 
           (match Source_map.Span.view at, Hashtbl.find_opt keyed_at (d.wd_name, Source_map.Span.offsets at) with
            | Source_map.Span.Located _, Some (k :: rest) when List.for_all (fun k' -> Key.show k' = Key.show k) rest ->
              Some (d, k)
-           | _ -> raise unsettled)))
+           | _ -> raise unsettled))
 
 (* The type of a record's field at the record's arguments, as written where the
    record's type is. *)
@@ -10713,6 +10822,17 @@ let effect_operations label =
       , Ast.aborts o.Ast.op_attrs
       , List.length o.Ast.op_params ))
     (Option.value ~default:[] (Hashtbl.find_opt ctx_effects.declared label))
+
+(* Declares [s] in the block whose scope is [env], as if it were written there:
+   that block holds its instances. *)
+let declare_local env (s : Ast.stmt) =
+  let outer = !walk_locals in
+  walk_locals := [];
+  Fun.protect
+    ~finally:(fun () -> walk_locals := outer)
+    (fun () ->
+      hoist env [ unattributed s ];
+      List.iter (fun d -> placed_locals := (env, d) :: !placed_locals) !walk_locals)
 
 (* Whether a name, where the asking meta block stands, is a function the walk
    reaches through an instance rather than a value. *)
@@ -10758,6 +10878,8 @@ module Walk = struct
     root_bindings := None;
     root_param := None;
     declof_shown := None;
+    placed_locals := [];
+    Hashtbl.reset decl_at;
     kept_block := None;
     Hashtbl.reset passed;
     Physical.reset noted_types;
@@ -10809,7 +10931,15 @@ module Walk = struct
         check session (fun () ->
           statement session.Session.ctx (fun () ->
             with_pending (fun () ->
-              infer_stmt session.Session.env session.Session.ctx (assigned_names [ s ]) s)))
+              let ctx = session.Session.ctx in
+              let outer = ctx.return_type in
+              (* The root's call is `main`'s body, which returns the exit code. *)
+              (match s.Ast.it with
+               | `Return (Some { Ast.it = `Call ({ Ast.it = `Var f; _ }, _); _ }) when Ast.is_program_root f ->
+                 ctx.return_type <- Some Types.IInt
+               | _ -> ());
+              Fun.protect ~finally:(fun () -> ctx.return_type <- outer) (fun () ->
+                infer_stmt session.Session.env ctx (assigned_names [ s ]) s))))
       in
       if Option.is_none checked
       then

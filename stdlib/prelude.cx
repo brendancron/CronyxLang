@@ -6,8 +6,9 @@
  * `global import` in any of its files. The plain imports are this file's own.
  *
  * `__root` is what a program's top level runs under: the compiler hands it
- * every top-level statement, in order, as one function. A statement that
- * throws runs under `__throwing` inside it, so each catches its own failure.
+ * every top-level statement, in order, as `main`, which returns the exit
+ * code. A statement that throws runs under `__throwing` inside it, so each
+ * catches its own failure.
  */
 
 import { Async, block_on } from "std/async/Task";
@@ -57,23 +58,29 @@ global import { print, printerr } from "std/io/Print";
  * reaches the file system's code. The top level is the scheduler's main task
  * when it suspends, and `exit` ends it.
  */
-inline fn __root<E>(main: () -> <E> Unit) {
+inline fn __root<E>(__main: () -> <E> Int): Int {
     meta {
         var performed: List<Name> = effects_of(E);
         var scheduled = __performs(performed, __named(code(Async)));
-        var body = code(main());
-        if (scheduled) { body = code(block_on(main)); }
+        var body = code(__status = __main());
+        if (scheduled) { body = code(__status = block_on(__main)); }
         var wanted = __wanted(performed, scheduled);
-        var exits = wanted.contains(__named(code(Exit)));
-        if (exits) { gen var ended: Option<Int> = Option.None; }
-        gen __system_run(wanted, body);
-        // The process ends once the run is left, so the `defer`s between
-        // `exit` and here have run.
-        if (exits) {
-            gen match ended {
-                Option.Some(status) => { __exit(status); }
-                Option.None => {}
+        if (wanted.len() == 0) {
+            gen return __main();
+        } else {
+            var exits = wanted.contains(__named(code(Exit)));
+            if (exits) { gen var ended: Option<Int> = Option.None; }
+            gen var __status = 0;
+            gen __system_run(wanted, body);
+            // The process ends once the run is left, so the `defer`s between
+            // `exit` and here have run.
+            if (exits) {
+                gen match ended {
+                    Option.Some(status) => { return status; }
+                    Option.None => {}
+                }
             }
+            gen return __status;
         }
     }
 }

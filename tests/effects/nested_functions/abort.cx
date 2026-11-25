@@ -1,0 +1,15 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn outer() {
+    fn risky(bad: Bool): Int {
+        if (bad) { return throw("failed"); }
+        return 1;
+    }
+    run<Unit> {
+        print(risky(false));
+        print(risky(true));
+    } handle<Error> {
+        fn throw(m) { print("caught " + m); }
+    }
+}
+outer();

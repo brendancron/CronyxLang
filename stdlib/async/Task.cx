@@ -419,19 +419,19 @@ type __Watch {
 }
 
 /**
- * Runs `main` and every task it starts, and returns once they have all
- * finished. When every task is waiting, it waits for the first timer through
- * `Time`, or, while a task waits on a socket, for that socket or the first
- * timer, whichever comes first.
+ * Runs `main` and every task it starts, and returns what `main` returned once
+ * they have all finished. When every task is waiting, it waits for the first
+ * timer through `Time`, or, while a task waits on a socket, for that socket or
+ * the first timer, whichever comes first.
  *
  * The top level runs under one already. Panics if every task is waiting and
  * none is left to wake one.
  */
-fn block_on<E>(main: () -> <Async, E> Unit): <Time, E> Unit {
+fn block_on<T, E>(main: () -> <Async, E> T): <Time, E> T {
+    var result: Option<T> = Option.None;
     var ready: List<() -> <E> Unit> = [];
     var timers: List<__Timer> = [];
     var watches: List<__Watch> = [];
-    var finished = false;
     var reactor = Reactor {
         after: (delay: Duration, wake: () -> Unit) => {
             var timer = __Timer { delay: delay, due: Option.None, wake: wake, cancelled: false };
@@ -446,8 +446,7 @@ fn block_on<E>(main: () -> <Async, E> Unit): <Time, E> Unit {
         on_cancel: (hook: Option<() -> Unit>) => {}
     };
     run<Unit> {
-        main();
-        finished = true;
+        result = Option.Some(main());
     } handle<Async> {
         fn park(register, resume) {
             // A second call would run the rest of the task twice, and finish it twice.
@@ -510,7 +509,10 @@ fn block_on<E>(main: () -> <Async, E> Unit): <Time, E> Unit {
             }
         }
     }
-    if (!finished) { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
+    match result {
+        Option.Some(value) => { return value; }
+        Option.None => { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
+    }
 }
 
 fn __due(timer: __Timer): Instant {

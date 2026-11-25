@@ -1,0 +1,2 @@
+[4:26] No operator * for (Stream, String) -> <Console> Unit and Int: (Stream, String) -> <Console> Unit does not implement Mul<Int>.
+  note: 'write' here is std/io/Console's `write`. The top-level variable 'write' is local to the top level, so a function cannot read it.

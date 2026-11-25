@@ -11,10 +11,10 @@ fn produce(): Iter<Int, <Async>> {
     };
 }
 
-fn consume() {
+fn consume(log: List<String>) {
     for (n in produce()) { log.push(str(n)); }
     log.push("after loop");
 }
 
-consume();
+consume(log);
 for (l in log) { print(l); }

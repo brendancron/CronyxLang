@@ -649,6 +649,8 @@ let root_catcher = generated [ "std"; "prelude"; "__throwing" ]
 (* What a meta block's program runs under, wherever the block is written. *)
 let meta_root_function = generated [ "std"; "prelude"; "__meta_root" ]
 
+let program_main = generated [ "program"; "main" ]
+
 let is_program_root name = String.equal name root_function
 
 let is_root name = is_program_root name || String.equal name meta_root_function
@@ -701,6 +703,13 @@ let deferred ~unit_prefix (s : stmt) : stmt =
   { s with
     it = `Attributed ([ { a_name = deferred_marker; a_args = [ A_str unit_prefix ]; a_span = s.span } ], s)
   }
+
+(* The entry file's own `fn main`, which the program starts at instead of its
+   top level. *)
+let entry_main_marker = generated [ "entry"; "main" ]
+
+let entry_main (s : stmt) : stmt =
+  { s with it = `Attributed ([ { a_name = entry_main_marker; a_args = []; a_span = s.span } ], s) }
 
 let type_head (t : type_expr option) =
   match t with

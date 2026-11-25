@@ -1,4 +1,2 @@
-fn show() { print(late); }
-
-show();
+print(late);
 var late = 1;

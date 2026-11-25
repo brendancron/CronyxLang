@@ -10,7 +10,7 @@ import {
 import { join } from "std/collections/List";
 import { fixed } from "std/text/Format";
 
-var specials = [0.0, -0.0, 1.0, -2.5, infinity(), neg_infinity(), nan()];
+fn specials(): List<Float> { return [0.0, -0.0, 1.0, -2.5, infinity(), neg_infinity(), nan()]; }
 
 // C libraries agree on the exact cases, but not always on an inexact result's
 // last digit.
@@ -21,13 +21,13 @@ fn shown(x: Float): String {
 
 fn row(name: String, f: (Float) -> Float) {
     var parts: List<String> = [];
-    for (x in specials) { parts.push(shown(f(x))); }
+    for (x in specials()) { parts.push(shown(f(x))); }
     print(name + ": " + join(parts, " "));
 }
 
 fn test(name: String, f: (Float) -> Bool) {
     var parts: List<String> = [];
-    for (x in specials) { parts.push(str(f(x))); }
+    for (x in specials()) { parts.push(str(f(x))); }
     print(name + ": " + join(parts, " "));
 }
 

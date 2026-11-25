@@ -1,0 +1,17 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn outer(fallback: String) {
+    fn first<T>(xs: List<T>): T {
+        if (xs.len() == 0) { return throw("empty, so " + fallback); }
+        return xs[0];
+    }
+    run<Unit> {
+        print(first([3, 4]));
+        print(first(["a", "b"]));
+        var none: List<Int> = [];
+        print(first(none));
+    } handle<Error> {
+        fn throw(m) { print(m); }
+    }
+}
+outer("nothing");

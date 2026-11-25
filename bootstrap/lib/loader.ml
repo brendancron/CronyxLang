@@ -1049,7 +1049,17 @@ let assemble roots ~package:own ~plain_entry ~entry_unit ~rest =
       rest
     @ (match entry_unit with
        | None -> []
-       | Some u -> resolve_unit u ~entry:plain_entry ~runs:true)
+       | Some u ->
+         let main = renamed u ~entry:plain_entry "main" in
+         let rec is_main (s : Ast.stmt) =
+           match s.Ast.it with
+           | `Fn (name, _, _, _) -> String.equal name main
+           | `Attributed (_, inner) -> is_main inner
+           | _ -> false
+         in
+         List.map
+           (fun s -> if is_main s then Ast.entry_main s else s)
+           (resolve_unit u ~entry:plain_entry ~runs:true))
   , List.map
       (fun u ->
         { Artifact.namespace = u.namespace

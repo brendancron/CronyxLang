@@ -15,7 +15,7 @@ seen.push("first");
 
 var add = (a, b) => a + b;
 
-fn report() { print(seen.len()); }
+fn report(seen: List<String>) { print(seen.len()); }
 
 defer { print("the top level is done"); }
 
@@ -23,5 +23,5 @@ var small = checked(2);
 var big = counted(3);
 var (low, high) = (small, big);
 seen.push("second");
-report();
+report(seen);
 print(add(low, high));

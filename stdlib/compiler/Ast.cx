@@ -522,7 +522,7 @@ fn declof_call(callee: Expr): Decl {
     }
 }
 
-/** The function a callee of processed code reaches, when it is one `declof` can show: not a local function. */
+/** The function a callee of processed code reaches, when it is one `declof` can show. */
 fn declared_call(callee: Expr): Option<Decl> {
     match callee.kind {
         ExprKind.Var(n) => { return __declared_call(n, callee.ty, callee.span); }
@@ -549,3 +549,15 @@ fn remember(key: List<Name>, value: Name) { __remember(key, value); }
 
 /** Declares `d` at the program's top level, as a `gen` there would. */
 fn declare(d: Decl) { __declare(d); }
+
+/**
+ * Declares `d` where the function a callee of processed code reaches is
+ * declared: at the top level, or beside it in the block declaring it, where
+ * its body sees what that function's sees.
+ */
+fn declare_beside(callee: Expr, d: Decl) {
+    match callee.kind {
+        ExprKind.Var(n) => { __declare_beside(n, callee.span, d); }
+        _ => { compile_error(callee.span, "Only a named function is declared beside."); }
+    }
+}

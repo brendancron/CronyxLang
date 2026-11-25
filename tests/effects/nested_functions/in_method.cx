@@ -1,0 +1,25 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+type Account { balance: Int }
+
+trait Spend { fn spend(self, amounts: List<Int>): Int; }
+
+impl Spend for Account {
+    fn spend(self, amounts: List<Int>): Int {
+        var left = self.balance;
+        fn pay(n: Int) {
+            if (n > left) { throw("cannot pay " + str(n) + " from " + str(left)); }
+            left = left - n;
+        }
+        run<Unit> {
+            for (n in amounts) { pay(n); }
+        } handle<Error> {
+            fn throw(m) { print(m); }
+        }
+        return left;
+    }
+}
+
+var a = Account { balance: 10 };
+print(a.spend([3, 4]));
+print(a.spend([3, 4, 5]));

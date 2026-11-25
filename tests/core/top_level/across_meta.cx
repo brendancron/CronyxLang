@@ -10,5 +10,5 @@ meta {
 seen.push(1);
 made.push(seen.len() + helper());
 print(made[0]);
-fn uses() { print(made.len()); }
-uses();
+fn uses(made: List<Int>) { print(made.len()); }
+uses(made);

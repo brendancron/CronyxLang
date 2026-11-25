@@ -1,0 +1,9 @@
+import { Exit } from "std/os/Process";
+import { udp_bind } from "std/net/Udp";
+
+fn main() {
+    var socket = udp_bind("127.0.0.1", 0);
+    print(socket.local_port() > 0);
+    socket.close();
+    exit(6);
+}

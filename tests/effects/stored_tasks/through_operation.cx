@@ -5,12 +5,12 @@ trait Sched {
 
 var queue: List<() -> <Console> Unit> = [];
 
-fn run_one(task: () -> <Sched, Console> Unit): Unit {
+fn run_one(queue: List<() -> <Console> Unit>, task: () -> <Sched, Console> Unit): Unit {
     run<Unit> {
         task();
     } handle<Sched> {
         fn tick(resume) { queue.push { resume(()); }; }
-        fn spawn(t, resume) { queue.push { run_one(t); }; resume(()); }
+        fn spawn(t, resume) { queue.push { run_one(queue, t); }; resume(()); }
     }
 }
 
@@ -23,10 +23,11 @@ fn parent(): <Sched, Console> Unit {
     print("parent b");
 }
 
-run_one(parent);
+run_one(queue, parent);
 
-while (queue.len() > 0) {
-    var next = queue[0];
-    queue = queue[1:];
+var at = 0;
+while (at < queue.len()) {
+    var next = queue[at];
+    at += 1;
     next();
 }

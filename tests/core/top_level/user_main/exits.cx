@@ -1,0 +1,13 @@
+import "std/io/Console";
+import { Exit } from "std/os/Process";
+import { write_text, read_text, remove_path } from "std/fs/File";
+
+fn main(): Int {
+    defer { print("cleaned up"); }
+    write_text("user_main_exits_fixture.txt", "exiting");
+    Console.write(Console.Stream.Out, read_text("user_main_exits_fixture.txt") + "\n");
+    remove_path("user_main_exits_fixture.txt");
+    exit(6);
+    print("never");
+    return 0;
+}

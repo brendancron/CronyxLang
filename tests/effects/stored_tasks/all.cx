@@ -2,14 +2,14 @@ trait Sched { @ctl fn tick(): Unit; }
 
 var queue: List<() -> <Console> Unit> = [];
 
-fn run_one(task: () -> <Sched, Console> Unit) {
+fn run_one(queue: List<() -> <Console> Unit>, task: () -> <Sched, Console> Unit) {
     run<Unit> { task(); } handle<Sched> {
         fn tick(resume) { queue.push { resume(()); }; }
     }
 }
 
-fn all(tasks: List<() -> <Sched, Console> Unit>) {
-    for (task in tasks) { run_one(task); }
+fn all(queue: List<() -> <Console> Unit>, tasks: List<() -> <Sched, Console> Unit>) {
+    for (task in tasks) { run_one(queue, task); }
 }
 
 fn counter(name: String): <Sched, Console> Unit {
@@ -19,10 +19,11 @@ fn counter(name: String): <Sched, Console> Unit {
     }
 }
 
-all([() => { counter("A"); }, () => { counter("B"); }]);
+all(queue, [() => { counter("A"); }, () => { counter("B"); }]);
 
-while (queue.len() > 0) {
-    var next = queue[0];
-    queue = queue[1:];
+var at = 0;
+while (at < queue.len()) {
+    var next = queue[at];
+    at += 1;
     next();
 }

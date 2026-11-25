@@ -2,7 +2,7 @@ trait Ask { @ctl fn ask(): Int; }
 
 var saved: List<(Int) -> <Console> String> = [];
 
-fn first(): <Console> String {
+fn first(saved: List<(Int) -> <Console> String>): <Console> String {
     return run<String> {
         var n = ask();
         print("resumed with " + str(n));
@@ -15,5 +15,5 @@ fn first(): <Console> String {
     };
 }
 
-print(first());
+print(first(saved));
 print(saved[0](2));

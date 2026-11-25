@@ -1,0 +1,34 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn first() {
+    var tag = "first";
+    fn check(n: Int): Int {
+        if (n > 1) { return throw(tag + " rejects " + str(n)); }
+        return n;
+    }
+    run<Unit> { print(check(1)); print(check(2)); } handle<Error> { fn throw(m) { print(m); } }
+}
+
+fn second() {
+    var tag = "second";
+    fn check(n: Int): Int {
+        if (n > 5) { return throw(tag + " rejects " + str(n)); }
+        return n * 2;
+    }
+    run<Unit> { print(check(3)); print(check(6)); } handle<Error> { fn throw(m) { print(m); } }
+}
+
+fn siblings(flag: Bool) {
+    if (flag) {
+        fn check(n: Int): Int { return throw("then " + str(n)); }
+        run<Unit> { print(check(1)); } handle<Error> { fn throw(m) { print(m); } }
+    } else {
+        fn check(n: Int): Int { return throw("else " + str(n)); }
+        run<Unit> { print(check(2)); } handle<Error> { fn throw(m) { print(m); } }
+    }
+}
+
+first();
+second();
+siblings(true);
+siblings(false);

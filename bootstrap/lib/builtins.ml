@@ -97,6 +97,9 @@ let functions : (string * string * (unit -> Types.infer_ty list * Types.infer_ty
     , ""
     , fun () -> [ Types.iname ], Types.ISum (Core.option, [ Types.INamed (Core.syntax "Operation", []) ]) )
   ; "__declare", "", (fun () -> [ Types.INamed (Core.syntax "Decl", []) ], Types.IUnit)
+  ; ( "__declare_beside"
+    , ""
+    , fun () -> [ Types.iname; Types.ispan; Types.INamed (Core.syntax "Decl", []) ], Types.IUnit )
   ; ( "__operation_in"
     , ""
     , fun () -> [ Types.iname; Types.iname ], Types.ISum (Core.option, [ Types.INamed (Core.syntax "Operation", []) ]) )

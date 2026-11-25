@@ -1,0 +1,17 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn outer<T>(items: List<T>, limit: Int) {
+    var shown = 0;
+    fn show(x: T) {
+        if (shown == limit) { throw("stopped after " + str(limit)); }
+        print(x);
+        shown = shown + 1;
+    }
+    run<Unit> {
+        for (x in items) { show(x); }
+    } handle<Error> {
+        fn throw(m) { print(m); }
+    }
+}
+outer([1, 2, 3], 2);
+outer(["a", "b"], 5);

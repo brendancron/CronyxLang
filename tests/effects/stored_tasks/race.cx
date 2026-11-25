@@ -2,16 +2,16 @@ trait Sched { @ctl fn tick(): Unit; }
 
 var queue: List<() -> <Console> Unit> = [];
 
-fn run_one(task: () -> <Sched, Console> Unit) {
+fn run_one(queue: List<() -> <Console> Unit>, task: () -> <Sched, Console> Unit) {
     run<Unit> { task(); } handle<Sched> {
         fn tick(resume) { queue.push { resume(()); }; }
     }
 }
 
-fn race(tasks: List<() -> <Sched, Console> Unit>) {
+fn race(queue: List<() -> <Console> Unit>, tasks: List<() -> <Sched, Console> Unit>) {
     var won = false;
     for (task in tasks) {
-        run_one(() => {
+        run_one(queue, () => {
             task();
             if (!won) {
                 won = true;
@@ -27,10 +27,11 @@ fn counter(name: String): <Sched, Console> Unit {
     print(name + " ends");
 }
 
-race([() => { counter("A"); }, () => { counter("B"); }]);
+race(queue, [() => { counter("A"); }, () => { counter("B"); }]);
 
-while (queue.len() > 0) {
-    var next = queue[0];
-    queue = queue[1:];
+var at = 0;
+while (at < queue.len()) {
+    var next = queue[at];
+    at += 1;
     next();
 }

@@ -1,0 +1,19 @@
+import { Async, block_on, scope, pause } from "std/async/Task";
+
+fn outer(names: List<String>) {
+    var log: List<String> = [];
+    fn work(name: String, steps: Int) {
+        for (var i = 0; i < steps; i += 1) {
+            log.push(name + " " + str(i));
+            pause();
+        }
+    }
+    fn start_all(start: (() -> <Async> Unit) -> Unit) {
+        for (n in names) { start(() => { work(n, 2); }); }
+    }
+    block_on {
+        scope((start) => { start_all(start); });
+    };
+    for (line in log) { print(line); }
+}
+outer(["a", "b"]);

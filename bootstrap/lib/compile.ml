@@ -12,33 +12,37 @@ let declared_root (p : Ast.program) =
   in
   List.find_map root p
 
-(* The globals a top-level statement declares, with no value: the root's body
-   assigns them, and functions read them. *)
-let rec globals (s : Ast.stmt) : Ast.resolved_stmt list =
-  let declared name ty : Ast.resolved_stmt = { Ast.it = `Var_decl (name, ty, None); span = s.Ast.span; ann = Types.Unit } in
+let rec always_returns (s : Ast.stmt) =
   match s.Ast.it with
-  | `Var_decl (name, ty, _) -> [ declared name ty ]
-  | `Var_tuple (names, _) -> List.map (fun name -> declared name None) names
-  | `Attributed (_, inner) -> globals inner
-  | _ -> []
+  | `Return _ -> true
+  | `Block body -> List.exists always_returns body
+  | `If (_, yes, Some no) -> always_returns yes && always_returns no
+  | `Match (_, arms) -> arms <> [] && List.for_all (fun (_, body) -> List.exists always_returns body) arms
+  | `Attributed (_, inner) -> always_returns inner
+  | _ -> false
 
-(* The statements of the top level, in order, as one function handed to [root].
-   The call stands at the span of all of them, and each statement keeps its
-   own, so an error still names the statement that caused it. *)
+(* The statements of the top level, in order, as `main`, the function handed to
+   [root]: it returns the exit code, 0 unless a top-level `return` says
+   otherwise. The call stands at the span of all of them, and each statement
+   keeps its own, so an error still names the statement that caused it. *)
 let root_call root (body : Ast.stmt list) : Ast.stmt =
   let span =
     List.fold_left (fun span (s : Ast.stmt) -> Source_map.Span.join span s.Ast.span) Source_map.Span.nowhere body
   in
+  let status = Ast.at span (`Return (Some (Ast.at span (`Int 0)))) in
   let main : Ast.expr =
-    Ast.at span (`Lambda ([], { Ast.ret = None; row = None; static_params = []; inline = false }, body))
+    Ast.at
+      span
+      (`Lambda
+        ( []
+        , { Ast.ret = Some (Ast.at span (Ast.Ty_name "Int")); row = None; static_params = []; inline = false }
+        , if List.exists always_returns body then body else body @ [ status ] ))
   in
-  Ast.at span (`Expr (Ast.at span (`Call (Ast.at span (`Var root), [ main ]))))
+  Ast.at span (`Return (Some (Ast.at span (`Call (Ast.at span (`Var root), [ main ])))))
 
 (* The whole top level under the root, for a check that sees the program at
-   once and orders it by what each statement uses. The call goes first: it
-   declares the globals, so a function reading one is checked after the
-   initializer has said what it holds. A fragment without [root] -- a static
-   argument checked on its own -- is left alone. *)
+   once and orders it by what each statement uses. A fragment without [root]
+   -- a static argument checked on its own -- is left alone. *)
 let under_root (p : Ast.program) : Ast.program =
   match declared_root p with
   | None -> p

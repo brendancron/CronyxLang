@@ -1,0 +1,3 @@
+the top level runs
+an ordinary function
+5

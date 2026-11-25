@@ -447,8 +447,14 @@ let run env (program : Ast.resolved_stmt list) : (int, error) result =
       ~finally:(fun () ->
         tail := outer_tail;
         pending := outer_pending)
-      (fun () -> run_block env program);
-    Ok 0
+      (fun () ->
+        run_block env program;
+        match lookup env Ast.program_main with
+        | Some { contents = main } ->
+          (match call Source_map.Span.nowhere main [] with
+           | Int code -> Ok code
+           | _ -> Ok 0)
+        | None -> Ok 0)
   with
   | Exited code -> Ok code
   | Runtime_error e -> Error e

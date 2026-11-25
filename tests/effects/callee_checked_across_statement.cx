@@ -2,18 +2,18 @@ import { pause } from "std/async/Task";
 
 var late = 0;
 var later = 1;
-show();
+show(later);
 
-fn steps() {
+fn steps(later: Int) {
     print("steps");
-    wait_key();
+    wait_key(later);
 }
 
-fn show() {
-    steps();
+fn show(later: Int) {
+    steps(later);
 }
 
-fn wait_key() {
+fn wait_key(later: Int) {
     pause();
     if (false) { print(later); }
 }

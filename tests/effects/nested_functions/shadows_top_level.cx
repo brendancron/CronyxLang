@@ -1,0 +1,24 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn helper(n: Int): Int {
+    if (n > 1) { return throw("top-level helper " + str(n)); }
+    return n;
+}
+
+fn risky(n: Int): Int { return helper(n) * 10; }
+
+fn outer() {
+    fn helper(n: Int): Int {
+        if (n > 1) { return throw("local helper " + str(n)); }
+        return n + 100;
+    }
+    run<Unit> {
+        print(risky(1));
+        print(helper(1));
+        print(risky(2));
+    } handle<Error> {
+        fn throw(m) { print(m); }
+    }
+    run<Unit> { print(helper(2)); } handle<Error> { fn throw(m) { print(m); } }
+}
+outer();

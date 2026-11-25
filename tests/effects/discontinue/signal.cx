@@ -2,10 +2,10 @@ trait Ask { @ctl fn ask(): Int; }
 
 var cleaned = false;
 
-fn asked(): <Ask> String {
+var asked = () => {
     defer { cleaned = true; }
     return "resumed with " + str(ask());
-}
+};
 
 print(run<String> { asked() } handle<Ask> { fn ask(resume) { return resume(3); } });
 print(cleaned);

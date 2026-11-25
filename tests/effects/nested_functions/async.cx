@@ -1,0 +1,20 @@
+import { Async, block_on, all } from "std/async/Task";
+import { promise, resolve, await, Promise } from "std/async/Promise";
+
+fn outer() {
+    var ready: Promise<Int> = promise();
+    var log: List<String> = [];
+    fn waiter(name: String) {
+        var n = await(ready);
+        log.push(name + " got " + str(n));
+    }
+    fn resolver() {
+        log.push("resolving");
+        resolve(ready, 7);
+    }
+    block_on {
+        all([() => { waiter("a"); }, () => { waiter("b"); }, () => { resolver(); }]);
+    };
+    for (line in log) { print(line); }
+}
+outer();

@@ -1,0 +1,8 @@
+import { Exit } from "std/os/Process";
+import { all, pause } from "std/async/Task";
+
+all([
+    () => { print("a"); pause(); print("a again"); },
+    () => { print("b"); }
+]);
+exit(6);

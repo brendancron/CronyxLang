@@ -2,8 +2,8 @@
 var count = 0;
 
 /** Adds one. */
-fn bump() {
-    count = count + 1;
+fn bump(count: Int): Int {
+    return count + 1;
 }
 
 /** Two numbers side by side. */
@@ -58,8 +58,8 @@ impl Pair {
     }
 }
 
-bump();
-bump();
+count = bump(count);
+count = bump(count);
 print(count);
 print(Pair { left: 1, right: 2 }.show());
 print(Pair { left: 1, right: 2 }.wider());

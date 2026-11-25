@@ -21,10 +21,10 @@ for (row in [[1, 2], [3]]) {
 }
 
 var calls = 0;
-fn source(): Array<Int> {
+var source = () => {
     calls = calls + 1;
     return [7, 8];
-}
+};
 for (n in source()) {
     print(n);
 }

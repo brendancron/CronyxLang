@@ -4,7 +4,7 @@ trait Async {
 
 var ready: List<() -> Unit> = [];
 
-fn main(): <Async, Console> Unit {
+fn start(): <Async, Console> Unit {
     var n = suspend((wake) => { ready.push { wake(1); }; });
     print("got " + str(n));
     var word = suspend((wake) => { ready.push { wake("hi"); }; });
@@ -12,7 +12,7 @@ fn main(): <Async, Console> Unit {
 }
 
 run<Unit> {
-    main();
+    start();
 } handle<Async> {
     fn suspend(register, resume) { register((value) => { var n = value + 0; }); }
 }

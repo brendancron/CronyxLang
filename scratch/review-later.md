@@ -4079,3 +4079,237 @@ function's own evidence hand-off does not keep its parameter.** Deciding whether
 `fn count#0(n)` / `count#0((n - 1))` / `count#0(2)`. Review after: only direct self-recursion; a mutually recursive
 pair that only forwards `ev#h` between its members still keeps it (needs a fixed point over the group). No fixture
 pins processed code (the suite compares output only).
+
+I352. **2026-11-25 (user: the entry's top level is an implicit `main`, C# 9 style): BLOCKED, reverted.** Built as a
+wrap and paused before fixtures, because the fallout is far past the ~15-fixture threshold: 221 of 938 fixtures fail
+with it (`scratch/top-level-main/fixtures-with-patch.txt`). Patch at `scratch/top-level-main/main.patch` (applies to
+580f786 with `git apply`); the tree is back at 580f786.
+- **How it was built:** the Loader tags each `fn` the entry file writes at its top level with a generated attribute
+  (`Ast.main_local`), and `Loader.is_declaration` says no to a tagged one, so the walk puts it among the root's
+  statements instead of declaring it. `Compile.root_call` makes the lambda `(): Int => { …; return 0; }`.
+  `Typecheck.root_block` now holds the entry's functions as `walk_block` does (hoist, `walk_locals`,
+  `local_instances`, instances first) and checks a `var` as a local; a throwing `var x = e;` becomes
+  `var x = __throwing(() => { return <e, pre-checked>; });` so the name stays in `main`. The root's rewritten body
+  for the transform is the instances as one pass, then each statement's pass with its bindings. `__root` takes
+  `() -> <E> Int`, keeps the status in `__status` and calls `__exit` when it is nonzero (after the `Exit` handler's
+  `ended`). `--dump-processed` shows the inlined lambda as `fn main(): Int { … }` and the root's call as `main()`.
+  The example (`var count = 0; fn inc() {…} inc(); print(count);`) ran and printed 1, exit 0.
+- **Why it is blocked:** (1) 144 fixtures: a nested function that takes control (`@abort`/`ctl`, `Throw`, `Async`, a
+  handler-performing callee…) fails with "'f' is not a declaration" from the transform's `__declof_call`
+  (`Typecheck.decl_of` looks in the session's top-level env only). This is not new: the same function nested in an
+  ordinary `fn outer()` fails identically on 580f786. (2) 39 fixtures: a top-level `meta`/`derive`, a deriver, an
+  impl, or another module (circular imports) calls an entry function — the expected C# fallout, mostly derivers and
+  helpers called during metaprocessing. (3) 17: a root body that takes control and now returns `Int` fails with
+  "Expected Int, got Unit" (probably the root's conversion path; not chased). (4) smaller: 7 variadic entry functions
+  ("Expected Array<Int>, got Int"), 3 `assert false` at `typecheck.ml` `#Ast.meta_blocks | Type_members`, 2 inline
+  recursion errors no longer reported, a handful of stdout diffs.
+- Review after: questions 12 and 13 in `scratch/questions.md` decide how to go on.
+Decided 2026-11-25 (user: "go with B"): an entry function is nested in `main` only if it reads a top-level `var`,
+itself or through another entry function that does (`nested_in_main` in metaprocess.ml, a fixed point over
+`Typecheck.names_used`); the rest stay declarations, so derivers, meta helpers and impls work. Also: `main` is the
+entry the interpreter calls and exits with; `__root` returns the status; `return 0` only when the end is reachable.
+Playground build with all of it: `scratch/top-level-main/main-entry.patch` (not in the tree).
+
+I353. **2026-11-25 (user: the entry's top level is an implicit `fn main(): Int`; every `fn` stays a declaration;
+a function reading a top-level `var` is an error): built on `scratch/top-level-main/main-entry.patch`.**
+- **What it is:** `Compile.root_call` hands `__root` the lambda `(): Int => { …; return 0; }` (no `return 0` when
+  `always_returns` says the end is unreachable) and the root statement is `return __root(…)`. `root_block` checks a
+  `var` as a real local of that lambda; a throwing `var x = e;` keeps `x` and puts only `e` under `__throwing`. The
+  walk wraps the root's code in `fn program#main(): Int` (`Metaprocess.as_main`), the interpreter calls it and exits
+  with its result, `--dump-processed` prints it as `fn main(): Int` under "// The top level.". The patch's entry-fn
+  tagging (`Ast.main_local`, `Loader.is_declaration`), `nested_in_main` with `CX_NO_TOP_VARS`, and `root_block`'s
+  local-function holding are dropped; `Compile.globals` and `generated_globals` are gone with the globals.
+- **The rule is scoping:** a function is checked outside `main`'s scope, so a top-level variable is simply unbound
+  there. `Typecheck.undefined` (every "Undefined variable" site of the checker that names a variable) says
+  "'x' is a variable of the top level, local to it, so a function cannot read it; pass it in as an argument." when
+  the name is one `main` declares (`main_vars`, its own and a top-level meta block's) and the lookup's scope chain
+  does not reach `main_scope`. Read before its declaration inside `main` it stays "Undefined variable". Covers
+  handler arms and impl methods with no extra analysis.
+- **"Expected Int, got Unit" (37 fixtures) had two causes, both fixed:** (1) the transform re-checks the root's body
+  as passed-through statements, and a passed-through `return` did not mark the body as returning, so the converted
+  lambda's `Int` met the fall-off `Unit`; `root_block` now sets `pc_returns` on a statement that returned.
+  (2) Under `Async`, `block_on(() => { __status = main(); })` left the converted lambda's answer type open, so
+  `__root` could not be inlined ("its types are not settled"). `block_on` now returns what its `main` returns
+  (`fn block_on<T, E>(main: () -> <Async, E> T): <Time, E> T`, holding the value in `result`, which also replaces
+  `finished`), and `__root` writes `__status = block_on(main)`. No compiler change for CPS.
+- **Inline:** `propagate` no longer substitutes `var send = print;` into `send(…)` when the value names an `inline`
+  function — inlining has already run, so it left an `inline` call standing (`core/builtins/print_value`, newly hit
+  because `send` became a local). The patch's `tail_ready`/`returned` (a returned lambda call is spliced) is kept.
+- **Splice:** `as_main` keeps the patch's narrow match (`var top = () => {…}; var s = 0; s = top(); return s;` →
+  the lambda's statements), which is what `__root` leaves once `Console`'s inline handler is lowered away. Review
+  after: generalising it means a peephole in `Inline` ("`var s = e0; s = f(); return s;` → `return f();`" plus the
+  existing tail splice); not done, since the shape is fixed by the prelude.
+- **Suite:** `exit_status_for` in `test_bootstrap.ml` (default 0) is checked for every `.txt` fixture;
+  `scratch/tools/fixtures.py` reads it. `stdlib/os/exit` → 3 (it always exited 3, unchecked).
+- **Fixtures added (7):** `core/top_level/returns_status` (exits 3), `exits_zero`, `both_branches_return` (exits 4,
+  no appended `return 0`), `lambda_captures`; `core/top_level/errors/function_reads_var`, `handler_arm_reads_var`,
+  `impl_reads_var`.
+- **Fixtures migrated (26), review after for each class:**
+  - pass the value in (12, plus the six scheduler fixtures below): `core/functions/closure` (`foo(x)`; its point, a nested fn capturing an outer local,
+    kept), `core/functions/evaluation_order` (`target(cell)`), `core/modules/shadowing/own_var` (`twice(write)`;
+    see the shadowing question), `core/top_level/across_meta` (`uses(made)`), `core/top_level/one_root`
+    (`report(seen)`), `effects/callee_checked_across_statement` and `_after_statement` (the var threaded through
+    `show`/`steps`/`wait_key`), `effects/continuation_row` (`first(saved)`), `effects/discontinue/nested_after_outer`
+    (`parked(stops, wakes, …)`), `stdlib/effects/iterator_suspends` (`consume(log)`), `stdlib/encoding/round_trip`
+    (`through(…, original)`), `stdlib/io/using` (`tap(log, …)`, `flush(log, shown)`, `first_of(log, …)`).
+  - scheduler queues (6: `effects/fn_values/spawn`, `nested_spawn`, `effects/stored_tasks/all`, `race`,
+    `scope_start`, `through_operation`): the queue is passed to `run_one`/`spawn`/…, and the drain loop walks it
+    with an index instead of `queue = queue[1:]`, since reassigning `main`'s variable would leave the functions
+    pushing onto the old list. `nested_spawn`'s `parent` takes the queue and is run as `() => { parent(queue); }`.
+  - top-level lambda (5): `core/control/for_in` (`source`), `core/operators/compound_target` (`at`, `fresh`),
+    `core/print/top_level_vars` (`bump`, `add` — rewritten to the new idiom rather than made an error fixture, its
+    point being top-level state changed by a callee), `effects/discontinue/signal` (`asked`, whose `defer` sets
+    `cleaned`), `stdlib/math/bigint` (`next`, `sample`, `agree`).
+  - return the new value (1): `core/syntax/doc_comment` (`count = bump(count)`).
+  - a value made by a function (1): `stdlib/math/float` (`specials()`).
+  - `core/top_level/errors/before_initializer` now reads before the declaration in `main` (`print(late); var late
+    = 1;`), keeping "Undefined variable"; a function reading it is the new `function_reads_var`.
+- **Checked:** `fixtures.py` 945/945; `dune test --force` 1696/1696; `dune test cx --force` 131/131; parity 1918/1918.
+- Review after: question 12 in `scratch/questions.md` (a nested function that takes control) is kept, reworded
+  without `main`: it still fails, and it blocks the "state in the function that runs the loop, helpers nested"
+  idiom. New question: a function reading a name the top level shadows gets the declaration silently.
+BUILT as I356. Decided 2026-11-25 (user: "the error it throws currently makes sense to me? Maybe something warning it cannot get
+var scope globally so its easier to debug?"): a function reading a name a top-level `var` shadows keeps the error it
+gets today, plus a note line: "'write' here is <module>'s `write`. The top-level variable 'write' is local to the top
+level, so a function cannot read it." Diagnostics need an optional note. TO BUILD after I354 lands (same files).
+BUILT as I355. Decided 2026-11-25 (user: "if the user defines a main fn I do not want to create one I want to use that main instead
+of sweeping the top level. Also, if the user defines a main fn it should not run top level stmts kind of like
+importing another module"): a `fn main` in the entry file is the entry point, run under `__root`; no `main` is
+generated and the entry's top-level statements do not run (as an imported file's). Today the generated main shadows
+it (prints nothing). Defaults: `main(): Int` gives the exit code, `main(): Unit` exits 0, any other signature is an
+error. Review after: top-level statements beside a user `main` are silently not run — maybe a warning. TO BUILD after
+I354 lands (same files).
+
+I354. **2026-11-25 (question 12, user: "go with the real fix"): a function declared inside another can take
+control.** The example in question 12 (`risky` nested in `outer`, run inside `outer`) prints `1` / `caught failed`.
+- **Compiler (generic, no CPS):** `Typecheck.callee_decl ~at name` finds the walk declaration a callee names: first
+  the one its call reached (`decl_at`, recorded beside `keyed_at` in `key_of_use`, by name and span), else the name
+  where the asking meta block stands (as `names_function` already did), else the top level. `instance_at` uses it,
+  so `declof_call`, `declared_call` and `instance_of` see local functions. `declof_shown` carries the scope a local
+  function is declared in, and `typed_fn` (`processed_fn`) checks its body there, so it reads the enclosing
+  function's locals and parameters. New builtin `__declare_beside(name, span, decl)` / `declare_beside(callee, d)`
+  in `std/compiler/Ast`: a top-level callee's declaration is `declare`d as before; a local one's is hoisted into
+  the scope that declares it (`Typecheck.declare_local`, after `implicit`), and that block's `walk_block` emits its
+  instances with its own functions' (`placed_locals`). `instance_of` adds a local declaration's id to its name, so
+  two local functions of one name and owner (sibling blocks, or two instances of a generic `outer`) get two copies.
+- **Transform:** `__tx_copy_of` declares its copy with `declare_beside(f, …)`. A function declared in the code being
+  split (`__tx_local_fn`: in a run's body, or in the body of a copy — the nested-in-nested case) is now made
+  taking a handler per effect its type takes control of, before `k` and `u`, as a function value is
+  (`__tx_handing`), since every call site already handed them (`__tx_ctl_labels(f.ty)`): it failed before this
+  change too ("Expected (Int) -> R, got { throw: … }"), whether declared in a run or in a copied function. The
+  labels come from the type of the first mention of its name in the enclosing statements (`__tx_type_in_all`).
+- **How a copy is placed** (`--dump-processed` of `nested_functions/abort`): inside `fn outer#0`, the original
+  `fn outer#0#risky#0(bad, ev#h)`, then `fn outer#0#cx5#risky#0(bad, hv#Error, cx6#k, cx10#u, ev#h)` beside it;
+  the run's block calls the copy.
+- **Fixtures (20, `tests/effects/nested_functions/`):** `abort`, `captures` (reads and assigns `outer`'s locals,
+  reads its parameter), `ctl` (resumes), `recursive` (self and mutual), `generic`, `generic_outer` (two instances of
+  a generic `outer`), `as_value` (passed to a function and stored), `deeper` (nested in a nested function),
+  `in_method`, `in_lambda` (in a lambda and a block at the top level), `in_run`, `in_copied`, `from_sibling` (a run in
+  a sibling function and in a lambda), `handler_at_call` (the innermost handler is used), `two_runs`, `same_name`,
+  `shadows_top_level` (a copy of a top-level function still reaches the top-level `helper` a local shadows at the
+  run), `throw` (`Throw` with `attempt`), `async` (`await` in a nested helper), `spawning` (`scope`/`start`). No error
+  fixture: nothing was left an error.
+- **Migrated fixtures that could now use the nested idiom** (checked by running a rewritten copy, not changed):
+  `effects/fn_values/spawn` and the scheduler class (`nested_spawn`, `stored_tasks/all`, `race`, `scope_start`,
+  `through_operation`: `race` checked) with the queue a local of the function that runs the loop and
+  `queue = queue[1:]` back; `effects/callee_checked_across_statement` and `_after_statement`;
+  `effects/discontinue/nested_after_outer`; `stdlib/effects/iterator_suspends`; `stdlib/io/using` (`first_of`,
+  `flush`, `tap`). `effects/continuation_row`, `stdlib/encoding/round_trip` and the plain ones never took control
+  in the helper, so this did not block them.
+- Review after: the original local function stays emitted beside its copy when only the copy is called (dead code;
+  the top level drops it through `names_in_expr`, a block's instances are emitted whole).
+- Review after: when a callee's call has no recorded declaration (a generated span), its name is read where the
+  meta block stands, so a copy's callee shadowed between its declaration and the run would find the shadowing
+  local; every call written in source is recorded, so no fixture reaches it.
+- Review after: `declared_call` finding local functions means `std/text/Format`'s `__inlined` may now write a short
+  local method's body in place; its names are in scope there, since the call is.
+- **Checked:** `fixtures.py` 965/965; `dune test --force` 1736/1736; `dune test cx --force` 131/131; parity
+  1958/1958. Timing (`timing.py -n 9`, compile · run · total ms, before → after): `hello` 35.4 · 0.1 · 35.6 → 35.3 ·
+  0.0 · 35.3; `working_example` 66.8 · 0.1 · 66.9 → 67.9 · 0.0 · 68.0; `iterator_suspends` 88.4 · 0.3 · 88.7 → 88.8 ·
+  0.1 · 88.9; `stored_tasks/all` 71.2 · 0.0 · 71.3 → 71.4 · 0.0 · 71.5; `io/using` 176.4 · 0.2 · 176.8 → 179.2 · 0.4
+  · 179.8; `nested_spawn` 79.1 · 0.0 · 79.4 → 80.6 · 0.0 · 80.7 (about 1–2%, at the edge of noise).
+
+I355. **2026-11-25 (user: "if the user defines a main fn … use that main instead of sweeping the top level"): a
+`fn main` the entry file declares is the entry point.**
+- **How:** the Loader wraps the entry unit's top-level function named `main` (by the name it is renamed to, so a
+  package's entry under `cx` is found too) in a generated attribute, `Ast.entry_main_marker`; an imported module's
+  `main` is never marked, so it stays an ordinary function. `Metaprocess.program` strips the marker first thing
+  (`entry_main`; before `implemented_in_types`, which does not look through an attribute — a type declared in the
+  marked `main`'s body failed with "A type holds functions and meta blocks after its fields"). The walk's root
+  statements are then the entry's top-level `meta`/`derive`s and one call, `return main();` for `main(): Int`, or
+  `main();` for `main()`/`main(): Unit` (and `root_call` appends `return 0`), at the declaration's span; the
+  entry's other top-level statements are never checked or run, as an imported file's. `returns_status` checks the
+  signature inside the walk, as a Meta error at the declaration: "The entry's 'main' takes no parameters." / "…
+  takes no static parameters and is not generic." / "… returns Int, the exit code, or nothing."
+- **`--dump-processed`:** `as_main ?user` replaces the generated `program#main` by the user's `main` (renamed
+  `program#main`, its own signature, so a Unit `main` shows `fn main(): Unit`) when the wrapper's body is only the
+  call and nothing else reads `main`; otherwise (an effect that takes control — `Exit`, `Async` — leaves `__root`'s
+  handlers standing) both are kept and the printer puts the entry's `main` instance (`cx4#main#0`) under
+  "// The top level." beside the wrapper. The interpreter's `program#main` call takes a non-Int result as 0.
+- **Prelude:** `__root`'s parameter is `__main` (was `main`), so the lambda it is handed can call a function named
+  `main` without the inlined parameter capturing it.
+- **Fixed on the way (not specific to `main`):** a top-level `return e;` whose `e` throws was wrapped as
+  `__throwing(() => { return e; });` as an expression statement, losing the `return` ("Expected Int, got Unit");
+  `under_catcher` now keeps it `return __throwing(() => { return e; });`. Fixture `core/top_level/return_throws`.
+- **Fixtures added (12, `tests/core/top_level/user_main/`):** `status` (exit 3, a top-level `print` beside it not
+  run), `unit`, `unit_written` (`: Unit`, early `return;`), `top_level_skipped` (top-level `var`/statements before
+  and after, not run), `meta_runs` (a top-level meta block's `gen` is still declared), `system_effects` (Console to
+  stderr, a file written/read/removed), `exits` (`defer` + `exit(6)`, exit 6), `throws` (.rt, uncaught failure),
+  `imported/main` (+ `helper.cx`: a module's `main` is ordinary, its top level not run), `errors/parameters`,
+  `errors/generic`, `errors/returns_string`.
+- **Fixture migrated (1):** `effects/errors/arm_settles_op_param` declared `fn main(): <Async, Console> Unit` and
+  ran it inside its own `run … handle<Async>`; it became the entry point, under `__root`'s scheduler instead. Renamed
+  to `start`.
+- Review after: 17 other fixtures declare `fn main` in the entry and call `main();` at the top level (e.g.
+  `core/defer/defer_basic`, `effects/delim`, `effects/nested_control/run_in_*`); they pass unchanged, since the
+  call is now dropped and `main` runs once anyway, but the `main();` line is dead. Not migrated.
+- Review after: top-level statements beside a user `main` are silently not run — maybe a warning.
+- Review after: `main` rows are not checked against anything; `fn main(): <Async> Int` runs under `block_on`, as
+  the top level does.
+- Review after: a type alias of `Int`/`Unit` as `main`'s return type is rejected (the check reads the written name).
+
+I356. **2026-11-25 (user: "Maybe something warning it cannot get var scope globally so its easier to debug?"): a
+note on an error at a name a top-level variable shadows.**
+- **Diagnostics:** `Diagnostic.error` has `note : string option` (`Diagnostic.at ?note`); `Render.frame` writes it
+  after the closing rule as `  note: …` (gutter-aligned). `.err` files pin notes: the suite's `rejections` and
+  `scratch/tools/fixtures.py`'s `diags` write a diagnostic that has one as its `[l:c] message` line followed by
+  `  note: …`. Review after: pinning means a note's wording change touches `.err` files; the alternative was to
+  ignore notes in comparison.
+- **The rule:** `Typecheck.note_shadowed`, at every `Var` the checker meets, records the read (by span) when the
+  name is one of `main_vars`, the read is outside `main_scope`, it is in the entry's file (`main_file`, the root
+  body's file), and it resolves to a top-level declaration (the walk declaration with that scheme, its `wd_span`)
+  or to an effect operation (the effect's declaration span, `effect_spans`, filled in `declare_operations`); a read
+  of a local or parameter is not recorded. `Metaprocess`'s `type_errors` attaches `Typecheck.shadowed_note span`
+  to any type error at a recorded span. The module is named from the declaration's file
+  (`stdlib/io/Console.cx` → `std/io/Console`, another file → its basename without `.cx`); a declaration in the entry
+  file itself, or one with no recorded declaration, is "a declaration". Message: "'write' here is std/io/Console's
+  `write`. The top-level variable 'write' is local to the top level, so a function cannot read it."
+- **Fixture:** `core/top_level/errors/function_reads_shadowed`.
+- Review after: only type errors from the session's list get a note; a `Rejected`/Meta error at the same read does
+  not. A read in an imported module is never noted, even if the entry's top level declares the name.
+
+
+I357. **2026-11-25 (user: "fix it now"): `exit` beside anything that schedules — a file, a directory, a
+process, the network, `Async` — inlines `__root`.**
+- **The cause:** the file system's calls perform `Async`, so `__root` runs the top level under `block_on`, and
+  `block_on`'s `E` holds `Exit`, an `@abort` effect. `block_on`'s instance is keyed by the run's handler values,
+  so it is homed in that run's block; the transform then sends the call to a copy taking `Exit`'s handler and a
+  continuation, and the original stayed in the block, called by nothing, with the inner run it makes a prompt of
+  never handed a continuation, so its answer type was never settled (`'a` in `{ exit: … -> 'a }` at
+  `Task.cx`'s `run`). `Inline.closed` saw that and refused to inline `__root`. Two more were behind it.
+- **Fix 1 (`Metaprocess.without_unread_homed`, in `inlined`):** an instance homed in a run that nothing in the
+  processed body reads (transitively through other homed instances) is dropped from its block, as `pruned` drops
+  top-level ones. `names_in_expr`/`names_in_stmt` moved up for it.
+- **Fix 2 (`Inline.closed`):** a function declared in the body is judged by its own type, not its body's. With a
+  process or the network the copy itself is homed in the run (their handlers' methods are not lifted), and its
+  body is generic in the answer of the handler it is handed, which its scheme quantifies.
+- **Fix 3 (`Inline.rename_block`):** a function declared in a block is hoisted, and reads variables the block
+  declares after it (the transform's `loop` reading `block_on`'s `waiting`/`at`); renaming the body to inline it
+  left those reads unrenamed ("Undefined variable 'waiting'"). A function's body is now renamed with the names
+  the block declares after it, except those already declared before it in the block. Fresh names for a block's
+  variables are taken up front, so `inlined#…#N` numbering in a dump shifts.
+- **Fixtures added (12, `tests/stdlib/os/exit_with/`, all exit 6):** `file`, `dirs`, `process`, `net`, `async`,
+  `async_file`, each also `_in_main` (a user `fn main`). Restored: `core/top_level/user_main/system_effects` ends
+  in `exit(5)` (status 5), `exits` writes, reads and removes a file before `exit(6)`.
+- Review after: `closed` no longer looks inside a local function, so an inline function's own unsettled type that
+  appears only inside a function it declares would now be inlined.

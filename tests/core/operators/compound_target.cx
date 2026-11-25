@@ -11,10 +11,10 @@ xs[0]--;
 print(xs);
 
 var calls = 0;
-fn at(i: Int): Int {
+var at = (i: Int) => {
     calls++;
     return i;
-}
+};
 xs[at(2)] += 100;
 xs[at(0)]++;
 print(xs);
@@ -45,10 +45,10 @@ s.size += s.origin.x;
 print(str(s.origin.x) + " " + str(s.origin.y) + " " + str(s.size));
 
 var built = 0;
-fn fresh(): Shape {
+var fresh = () => {
     built++;
     return s;
-}
+};
 fresh().origin.x += 1;
 print(str(s.origin.x) + " " + str(built));
 

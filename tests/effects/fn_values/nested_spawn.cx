@@ -4,7 +4,7 @@ trait Sched {
 
 var queue: List<() -> <Console> Unit> = [];
 
-fn run_one(task: () -> <Sched, Console> Unit): Unit {
+fn run_one(queue: List<() -> <Console> Unit>, task: () -> <Sched, Console> Unit): Unit {
     run<Unit> {
         task();
     } handle<Sched> {
@@ -12,21 +12,22 @@ fn run_one(task: () -> <Sched, Console> Unit): Unit {
     }
 }
 
-fn spawn(t: () -> <Sched, Console> Unit) { queue.push { run_one(t); }; }
+fn spawn(queue: List<() -> <Console> Unit>, t: () -> <Sched, Console> Unit) { queue.push { run_one(queue, t); }; }
 
 fn child(): <Sched, Console> Unit { print("child a"); tick(); print("child b"); }
 
-fn parent(): <Sched, Console> Unit {
+fn parent(queue: List<() -> <Console> Unit>): <Sched, Console> Unit {
     print("parent a");
-    spawn(child);
+    spawn(queue, child);
     tick();
     print("parent b");
 }
 
-run_one(parent);
+run_one(queue, () => { parent(queue); });
 
-while (queue.len() > 0) {
-    var next = queue[0];
-    queue = queue[1:];
+var at = 0;
+while (at < queue.len()) {
+    var next = queue[at];
+    at += 1;
     next();
 }

@@ -31,15 +31,15 @@ var original = Service {
 fn same(a: Service, b: Service): Bool { return to_text(a) == to_text(b); }
 fn to_text(s: Service): String { return encode_as(Json { pretty: false }, s); }
 
-fn through<F: Format>(format: F, label: String) {
+fn through<F: Format>(format: F, label: String, original: Service) {
     var text = encode_as(format, original);
     print(text);
     var back: Service = decode_as(format, text);
     print(label + " round trip: " + str(same(original, back)));
 }
 
-through(Json { pretty: false }, "JSON");
-through(Toml, "TOML");
+through(Json { pretty: false }, "JSON", original);
+through(Toml, "TOML", original);
 
 var broken: Result<Service, DecodeError> = attempt {
     decode_as(Toml, "name = \"api\"\nlisten-port = 1\nreplicas = [1, \"two\"]\n")

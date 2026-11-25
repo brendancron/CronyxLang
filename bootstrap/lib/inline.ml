@@ -94,10 +94,37 @@ let facts body =
     body;
   f
 
+(* A function declared in the body is settled by its own type, not by its
+   body's: that body can be generic in what its scheme quantifies, which no call
+   of the outer body settles, as the copy a transform makes for a run is in the
+   answer of a handler it is handed. *)
 let closed body =
   let ok = ref true in
   let check t = if not (Types.closed t) then ok := false in
-  iter_body ~expr:(fun e -> check e.ann) ~stmt:(fun s -> check s.ann) body;
+  let rec expr (e : resolved_expr) =
+    check e.ann;
+    match e.it with
+    | `Lambda (_, _, body) -> List.iter stmt body
+    | _ -> iter_children expr e
+  and stmt (s : resolved_stmt) =
+    check s.ann;
+    match s.it with
+    | `Expr x | `Var_tuple (_, x) | `Var_decl (_, _, Some x) | `Return (Some x) -> expr x
+    | `Var_decl (_, _, None) | `Return None | `Break | `Continue | `Type_decl _ | `Fn _ -> ()
+    | `Defer inner -> stmt inner
+    | `Block body -> List.iter stmt body
+    | `If (c, t, f) ->
+      expr c;
+      stmt t;
+      Option.iter stmt f
+    | `While (c, body) ->
+      expr c;
+      stmt body
+    | `Match (subject, cases) ->
+      expr subject;
+      List.iter (fun (_, body) -> List.iter stmt body) cases
+  in
+  List.iter stmt body;
   !ok
 
 (* Whether running the body could leave it other than by its end: a return,
@@ -167,22 +194,37 @@ and rename_block m body =
       m
       body
   in
-  let rec go m = function
-    | [] -> []
-    | (s : resolved_stmt) :: rest ->
-      (match s.it with
-       | `Var_decl (n, ty, init) ->
-         let init = Option.map (rename_expr m) init in
-         let n' = fresh n in
-         { s with it = `Var_decl (n', ty, init) } :: go (M.add n n' m) rest
-       | `Var_tuple (ns, init) ->
-         let init = rename_expr m init in
-         let ns' = List.map fresh ns in
-         let m' = List.fold_left2 (fun m n n' -> M.add n n' m) m ns ns' in
-         { s with it = `Var_tuple (ns', init) } :: go m' rest
-       | _ -> rename_stmt m s :: go m rest)
+  let declared (s : resolved_stmt) =
+    match s.it with
+    | `Var_decl (n, _, _) -> [ n ]
+    | `Var_tuple (ns, _) -> ns
+    | _ -> []
   in
-  go m body
+  (* A function is hoisted to the top of its block, so it reads a variable the
+     block declares after it, as that stands when the function is called. *)
+  let rec go m before = function
+    | [] -> []
+    | ((s : resolved_stmt), own) :: rest ->
+      let m' = List.fold_left (fun m (n, n') -> M.add n n' m) m own in
+      let before' = List.map fst own @ before in
+      (match s.it with
+       | `Var_decl (_, ty, init) ->
+         let init = Option.map (rename_expr m) init in
+         { s with it = `Var_decl (snd (List.hd own), ty, init) } :: go m' before' rest
+       | `Var_tuple (_, init) ->
+         let init = rename_expr m init in
+         { s with it = `Var_tuple (List.map snd own, init) } :: go m' before' rest
+       | `Fn _ ->
+         let later =
+           List.fold_left
+             (fun m (n, n') -> if List.mem n before then m else M.add n n' m)
+             m
+             (List.concat_map snd rest)
+         in
+         rename_stmt later s :: go m before rest
+       | _ -> rename_stmt m s :: go m before rest)
+  in
+  go m [] (List.map (fun s -> s, List.map (fun n -> n, fresh n) (declared s)) body)
 
 and rename_stmt m (s : resolved_stmt) : resolved_stmt =
   let e = rename_expr m in
@@ -518,12 +560,33 @@ let rec beta_ready (lam : resolved_expr) arity =
     && not (holds_declaration body)
   | _ -> false
 
+(* A lambda whose value is returned where it is called: its statements take the
+   call's place, its `return`s returning from the function it was written into.
+   It must end in one, or the statements after the call would run. *)
+and tail_ready (lam : resolved_expr) arity =
+  match lam.it with
+  | `Lambda (ps, sg, body) ->
+    List.length ps = arity
+    && (not (Typecheck.is_handed sg))
+    && (match List.rev body with
+        | { it = `Return (Some _); _ } :: _ -> true
+        | _ -> false)
+  | _ -> false
+
 and called_alone name body =
   List.exists
     (fun (s : resolved_stmt) ->
       match s.it with
       | `Expr { it = `Call ({ it = `Var v; _ }, _); _ } -> String.equal v name
       | _ -> false)
+    body
+
+and returned name body =
+  List.find_map
+    (fun (s : resolved_stmt) ->
+      match s.it with
+      | `Return (Some { it = `Call ({ it = `Var v; _ }, cargs); _ }) when String.equal v name -> Some (List.length cargs)
+      | _ -> None)
     body
 
 and arity_called name body =
@@ -567,6 +630,7 @@ let bindings sc span params args body =
                 || (n = 1
                     && called_alone p.name body
                     && Option.fold ~none:false ~some:(beta_ready arg) (arity_called p.name body))
+                || (n = 1 && Option.fold ~none:false ~some:(tail_ready arg) (returned p.name body))
               | _ -> false)
         in
         if substitutes || in_place p arg
@@ -904,6 +968,11 @@ and beta sc (s : resolved_stmt) : resolved_stmt list =
     let params, body, _ = renamed ps body in
     let binds, body = bindings sc s.span params cargs body in
     List.concat_map (replaced sc) binds @ body
+  | `Return (Some { it = `Call (({ it = `Lambda (ps, _, body); _ } as lam), cargs); _ })
+    when tail_ready lam (List.length cargs) ->
+    let params, body, _ = renamed ps body in
+    let binds, body = bindings sc s.span params cargs body in
+    List.concat_map (replaced sc) binds @ body
   | _ -> [ s ]
 
 (* `var x = y;` where neither name ever holds another value: each read of
@@ -914,10 +983,20 @@ and propagate sc body =
     then not (Hashtbl.mem fresh_assigned x)
     else Hashtbl.find_opt sc.facts.bound x = Some 1 && not (Hashtbl.mem sc.facts.assigned x)
   in
+  (* Inlining has run by now, so a call this would make of an `inline`
+     function would be left standing. *)
+  let names_inline (e : resolved_expr) =
+    match e.it with
+    | `Var n ->
+      (match sc.find n with
+       | Not_inline -> false
+       | Unready _ | Ready _ -> true)
+    | _ -> false
+  in
   let rec go = function
     | [] -> []
     | ({ it = `Var_decl (x, _, Some init); _ } : resolved_stmt) :: rest
-      when propagates x && trivial sc init ->
+      when propagates x && trivial sc init && not (names_inline init) ->
       go (List.map (subst_stmt (M.singleton x init)) rest)
     | s :: rest -> s :: go rest
   in

@@ -1,0 +1,19 @@
+trait Ask { @ctl fn ask(): Int; }
+
+fn outer() {
+    var offset = 100;
+    fn asked(label: String): Int {
+        var n = ask();
+        print(label + " got " + str(n));
+        return n + offset;
+    }
+    var r = run<Int> {
+        var a = asked("first");
+        var b = asked("second");
+        a + b
+    } handle<Ask> {
+        fn ask(resume) { return resume(7); }
+    };
+    print(r);
+}
+outer();

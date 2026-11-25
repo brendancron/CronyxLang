@@ -1,0 +1,11 @@
+trait Ask { @ctl fn ask(): Int; }
+
+fn outer(base: Int) {
+    fn plus(n: Int): Int { return base + n + ask(); }
+    var a = run<Int> { plus(1) } handle<Ask> { fn ask(resume) { return resume(10); } };
+    var b = run<Int> { plus(2) + plus(3) } handle<Ask> { fn ask(resume) { return resume(100); } };
+    print(a);
+    print(b);
+}
+outer(1000);
+outer(0);

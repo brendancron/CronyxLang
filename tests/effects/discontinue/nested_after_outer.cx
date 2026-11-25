@@ -5,7 +5,11 @@ trait Park { @ctl fn park(): Unit; }
 var stops: List<() -> <Console> Unit> = [];
 var wakes: List<() -> <Console> Unit> = [];
 
-fn parked<E>(task: () -> <Park, Throw<String>, E> Unit): <Console, E> Unit {
+fn parked<E>(
+    stops: List<() -> <Console> Unit>,
+    wakes: List<() -> <Console> Unit>,
+    task: () -> <Park, Throw<String>, E> Unit,
+): <Console, E> Unit {
     run<Unit> {
         run<Unit> {
             task();
@@ -24,10 +28,10 @@ fn parked<E>(task: () -> <Park, Throw<String>, E> Unit): <Console, E> Unit {
     }
 }
 
-parked(() => {
+parked(stops, wakes, () => {
     defer { print("outer cleans up"); }
-    parked(() => { park(); throw("boom"); });
-    parked(() => { defer { print("inner cleans up"); } park(); print("inner resumed"); });
+    parked(stops, wakes, () => { park(); throw("boom"); });
+    parked(stops, wakes, () => { defer { print("inner cleans up"); } park(); print("inner resumed"); });
     park();
     print("outer resumed");
 });

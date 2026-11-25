@@ -1,0 +1,20 @@
+trait Ask { @ctl fn ask(): Int; }
+
+fn outer(base: Int) {
+    fn asked(): Int { return base + ask(); }
+    fn driver(times: Int): Int {
+        return run<Int> {
+            var total = 0;
+            for (var i = 0; i < times; i += 1) { total = total + asked(); }
+            total
+        } handle<Ask> {
+            fn ask(resume) { return resume(1); }
+        };
+    }
+    var later = () => {
+        return run<Int> { asked() * 2 } handle<Ask> { fn ask(resume) { return resume(5); } };
+    };
+    print(driver(3));
+    print(later());
+}
+outer(10);

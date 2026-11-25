@@ -1,0 +1,11 @@
+type Counter { n: Int }
+
+trait Show { fn show(self): String; }
+
+var label = "count";
+
+impl Show for Counter {
+    fn show(self): String { return label; }
+}
+
+print(Counter { n: 1 }.show());

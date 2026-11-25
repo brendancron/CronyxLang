@@ -15,6 +15,18 @@ let cases =
   ; "tests/core/top_level/across_meta"
   ; "tests/core/top_level/meta_once"
   ; "tests/core/top_level/two_throwing_statements"
+  ; "tests/core/top_level/returns_status"
+  ; "tests/core/top_level/exits_zero"
+  ; "tests/core/top_level/both_branches_return"
+  ; "tests/core/top_level/lambda_captures"
+  ; "tests/core/top_level/user_main/status"
+  ; "tests/core/top_level/user_main/unit"
+  ; "tests/core/top_level/user_main/unit_written"
+  ; "tests/core/top_level/user_main/top_level_skipped"
+  ; "tests/core/top_level/user_main/meta_runs"
+  ; "tests/core/top_level/user_main/system_effects"
+  ; "tests/core/top_level/user_main/exits"
+  ; "tests/core/top_level/user_main/imported/main"
   ; "tests/core/variables/reassign"
   ; "tests/core/control/if"
   ; "tests/core/control/else"
@@ -91,6 +103,18 @@ let cases =
   ; "tests/stdlib/os/process"
   ; "tests/stdlib/os/fake_process"
   ; "tests/stdlib/os/exit"
+  ; "tests/stdlib/os/exit_with/file"
+  ; "tests/stdlib/os/exit_with/file_in_main"
+  ; "tests/stdlib/os/exit_with/dirs"
+  ; "tests/stdlib/os/exit_with/dirs_in_main"
+  ; "tests/stdlib/os/exit_with/process"
+  ; "tests/stdlib/os/exit_with/process_in_main"
+  ; "tests/stdlib/os/exit_with/net"
+  ; "tests/stdlib/os/exit_with/net_in_main"
+  ; "tests/stdlib/os/exit_with/async"
+  ; "tests/stdlib/os/exit_with/async_in_main"
+  ; "tests/stdlib/os/exit_with/async_file"
+  ; "tests/stdlib/os/exit_with/async_file_in_main"
   ; "tests/stdlib/random/seeded"
   ; "tests/stdlib/io/fake_stdin"
   ; "tests/stdlib/io/blank_line"
@@ -259,6 +283,26 @@ let cases =
   ; "tests/effects/fn_values/made_outside_any_run"
   ; "tests/effects/fn_values/answered_where_called"
   ; "tests/effects/fn_values/twice_one_instance"
+  ; "tests/effects/nested_functions/abort"
+  ; "tests/effects/nested_functions/as_value"
+  ; "tests/effects/nested_functions/async"
+  ; "tests/effects/nested_functions/captures"
+  ; "tests/effects/nested_functions/ctl"
+  ; "tests/effects/nested_functions/deeper"
+  ; "tests/effects/nested_functions/from_sibling"
+  ; "tests/effects/nested_functions/generic"
+  ; "tests/effects/nested_functions/generic_outer"
+  ; "tests/effects/nested_functions/handler_at_call"
+  ; "tests/effects/nested_functions/in_copied"
+  ; "tests/effects/nested_functions/in_lambda"
+  ; "tests/effects/nested_functions/in_method"
+  ; "tests/effects/nested_functions/in_run"
+  ; "tests/effects/nested_functions/recursive"
+  ; "tests/effects/nested_functions/same_name"
+  ; "tests/effects/nested_functions/shadows_top_level"
+  ; "tests/effects/nested_functions/spawning"
+  ; "tests/effects/nested_functions/throw"
+  ; "tests/effects/nested_functions/two_runs"
   ; "tests/effects/fn_values/calls_named_twice"
   ; "tests/effects/fn_values/trait_object"
   ; "tests/effects/named_ctl_handler"
@@ -940,6 +984,13 @@ let error_cases =
   ; "tests/core/traits/errors/object_not_a_bound"
   ; "tests/core/top_level/errors/each_statement"
   ; "tests/core/top_level/errors/before_initializer"
+  ; "tests/core/top_level/errors/function_reads_var"
+  ; "tests/core/top_level/errors/handler_arm_reads_var"
+  ; "tests/core/top_level/errors/impl_reads_var"
+  ; "tests/core/top_level/errors/function_reads_shadowed"
+  ; "tests/core/top_level/user_main/errors/parameters"
+  ; "tests/core/top_level/user_main/errors/generic"
+  ; "tests/core/top_level/user_main/errors/returns_string"
   ]
 
 (* Accepted, then failing while running. Separate from [error_cases], which
@@ -951,6 +1002,8 @@ let runtime_cases =
   ; "tests/core/top_level/uncaught_structure"
   ; "tests/core/top_level/uncaught_located"
   ; "tests/core/top_level/uncaught_at_throw"
+  ; "tests/core/top_level/return_throws"
+  ; "tests/core/top_level/user_main/throws"
   ; "tests/core/slices/negative_index"
   ; "tests/core/builtins/chr_invalid"
   ; "tests/operators/negative_shift"
@@ -999,7 +1052,7 @@ let interpret path =
   | Error (e :: _) -> Error (described path e)
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out) converted with
-     | Ok _ -> Ok (Buffer.contents buf)
+     | Ok status -> Ok (Buffer.contents buf, status)
      | Error e -> Error (described path e)
      | exception Stack_overflow -> Error "the stack overflowed")
 
@@ -1044,9 +1097,10 @@ let rejections path =
          (List.map
             (fun (e : Diagnostic.error) ->
               Printf.sprintf
-                "%s %s"
+                "%s %s%s"
                 (Ast.locate ~entry:path e.Diagnostic.span)
-                e.Diagnostic.message)
+                e.Diagnostic.message
+                (Option.fold ~none:"" ~some:(fun note -> "\n  note: " ^ note) e.Diagnostic.note))
             errors))
 
 (* Passing here is the failure, as with [expected_failing]: being rejected is
@@ -1187,15 +1241,41 @@ let run_round_trip root name =
 (* What follows `--` on the command line, for the fixtures that read it. *)
 let arguments_for = [ "tests/stdlib/os/args", [ "one"; "two three" ] ]
 
+(* The status a fixture exits with, where it is not 0. *)
+let exit_status_for =
+  [ "tests/core/top_level/returns_status", 3
+  ; "tests/core/top_level/both_branches_return", 4
+  ; "tests/core/top_level/user_main/status", 3
+  ; "tests/core/top_level/user_main/system_effects", 5
+  ; "tests/core/top_level/user_main/exits", 6
+  ; "tests/stdlib/os/exit", 3
+  ; "tests/stdlib/os/exit_with/file", 6
+  ; "tests/stdlib/os/exit_with/file_in_main", 6
+  ; "tests/stdlib/os/exit_with/dirs", 6
+  ; "tests/stdlib/os/exit_with/dirs_in_main", 6
+  ; "tests/stdlib/os/exit_with/process", 6
+  ; "tests/stdlib/os/exit_with/process_in_main", 6
+  ; "tests/stdlib/os/exit_with/net", 6
+  ; "tests/stdlib/os/exit_with/net_in_main", 6
+  ; "tests/stdlib/os/exit_with/async", 6
+  ; "tests/stdlib/os/exit_with/async_in_main", 6
+  ; "tests/stdlib/os/exit_with/async_file", 6
+  ; "tests/stdlib/os/exit_with/async_file_in_main", 6
+  ]
+
 let run_case root name =
   let path ext = Filename.concat root (name ^ ext) in
   let expected = read_file (path ".txt") in
+  let status = Option.value (List.assoc_opt name exit_status_for) ~default:0 in
   System.arguments := Option.value (List.assoc_opt name arguments_for) ~default:[];
   match interpret (path ".cx") with
   | Error message ->
     Printf.printf "FAIL %s\n  %s\n" name message;
     false
-  | Ok actual ->
+  | Ok (_, actual) when actual <> status ->
+    Printf.printf "FAIL %s\n  exited %d, expected %d\n" name actual status;
+    false
+  | Ok (actual, _) ->
     if String.equal (normalize actual) (normalize expected)
     then (
       Printf.printf "ok   %s\n" name;
@@ -1219,7 +1299,7 @@ let run_expected_failing root (name, blocker) =
     | Ok actual -> String.equal (normalize actual) (normalize (read_file (path ext)))
     | Error _ -> false
   in
-  if matches ".txt" interpret || matches ".err" rejections
+  if matches ".txt" (fun p -> Result.map fst (interpret p)) || matches ".err" rejections
   then (
     Printf.printf
       "PASSES %s\n  now works; move it into `%s` (was waiting on %s)\n"

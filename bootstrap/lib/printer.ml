@@ -464,6 +464,7 @@ end
 (* A module's names carry its path, `std#Format#str#0`; the instance's own
    number is kept, since it says which instance a call reaches. *)
 let readable name =
+  if String.equal name Ast.program_main then "main" else
   let parts = String.split_on_char '#' name in
   let rec drop = function
     | "std" :: _ :: rest -> drop rest
@@ -632,7 +633,10 @@ let cronyx_of_entry ~entry (program : Ast.resolved_stmt list) : string =
   let is_type (s : Ast.resolved_stmt) = match s.Ast.it with `Type_decl _ -> true | _ -> false in
   let top_level (s : Ast.resolved_stmt) =
     match s.Ast.it with
-    | `Fn _ | `Type_decl _ -> false
+    | `Fn (name, _, _, _) ->
+      String.equal name Ast.program_main
+      || (String.equal (file s) entry && String.equal (Diagnostic.as_written name) "main")
+    | `Type_decl _ -> false
     | _ -> true
   in
   let shown path =

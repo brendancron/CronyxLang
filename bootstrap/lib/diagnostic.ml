@@ -15,6 +15,7 @@ type error =
   { stage : stage
   ; span : Ast.span
   ; message : string
+  ; note : string option
   }
 
 let stage_name = function
@@ -72,5 +73,5 @@ let as_written message =
   go 0;
   Buffer.contents out
 
-let at stage span message = { stage; span; message = as_written message }
+let at ?note stage span message = { stage; span; message = as_written message; note }
 let one stage span message = Error [ at stage span message ]
