@@ -1,6 +1,6 @@
 type Move<...Args> {
-    name: string,
-    apply: (...Args) -> <Console> unit
+    name: String,
+    apply: (...Args) -> <Console> Unit
 }
 
 type MoveAction<...Args> {
@@ -16,7 +16,7 @@ fn perform<...Args>(a: MoveAction<...Args>) {
     a.move.apply(...a.intent);
 }
 
-fn burn(user: int, target: int) {
+fn burn(user: Int, target: Int) {
     print(user + target);
 }
 

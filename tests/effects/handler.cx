@@ -1,0 +1,27 @@
+trait Log {
+    fn log(msg: String): Unit;
+}
+
+fn greet(name: String): Unit {
+    log("Hello, " + name);
+}
+
+run<Unit> {
+    greet("Brendan");
+} handle<Log> {
+    fn log(msg: String) {
+        print("From inline handler: " + msg);
+    }
+}
+
+type BasicLogHandler {}
+
+impl Log for BasicLogHandler {
+    fn log(msg: String) {
+        print("From handler definition: " + msg);
+    }
+}
+
+run<Unit> {
+    greet("Brendan");
+} with BasicLogHandler;

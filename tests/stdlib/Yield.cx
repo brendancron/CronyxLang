@@ -1,0 +1,50 @@
+trait Yield<T> {
+    @ctl fn yield(value: T): Unit;
+}
+
+type Pulled<T, E> {
+    next: () -> <E> Option<T>,
+    close: () -> <E> Unit
+}
+
+fn iterator<T, E>(producer: () -> <Yield<T>, E> Unit): Pulled<T, E> {
+    var out: Option<T> = Option.None;
+    var started = false;
+    var rest: Option<() -> <E> Unit> = Option.None;
+    var abandon: Option<() -> <E> Unit> = Option.None;
+    var next = () => {
+        out = Option.None;
+        match rest {
+            Option.Some(k) => {
+                rest = Option.None;
+                abandon = Option.None;
+                k();
+            }
+            Option.None => {
+                if (!started) {
+                    started = true;
+                    run<Unit> { producer(); } handle<Yield<T>> {
+                        fn yield(v, resume) {
+                            out = Option.Some(v);
+                            rest = Option.Some(() => { resume(()); });
+                            abandon = Option.Some(() => { discontinue(resume); });
+                        }
+                    }
+                }
+            }
+        }
+        return out;
+    };
+    var close = () => {
+        started = true;
+        rest = Option.None;
+        match abandon {
+            Option.Some(unwind) => {
+                abandon = Option.None;
+                unwind();
+            }
+            Option.None => {}
+        }
+    };
+    return Pulled { next: next, close: close };
+}

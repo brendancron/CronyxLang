@@ -1,6 +1,6 @@
-type Circle { radius: int }
+type Circle { radius: Int }
 impl Circle {
-    fn scaled(self, factor: int): int { return self.radius * factor; }
+    fn scaled(self, factor: Int): Int { return self.radius * factor; }
 }
 var c = Circle { radius: 1 };
 print(c.scaled());

@@ -14,7 +14,7 @@
  * it is itself pulled, so an infinite sequence is fine and a file is read only
  * as far as something asks. The functions given to one perform what pulling
  * does, so the row `E` carries through: mapping over `lines(file)` is still
- * `<async, Throw<IoError>>`. Closing an adapter closes what it pulls from.
+ * `<Async, Throw<IoError>>`. Closing an adapter closes what it pulls from.
  */
 
 /** Each value as the function answers for it. */
@@ -29,7 +29,7 @@ fn map<T, U, E>(source: Iter<T, E>, f: (T) -> <E> U): Iter<U, E> {
 }
 
 /** The values the function accepts, in order. */
-fn filter<T, E>(source: Iter<T, E>, accept: (T) -> <E> bool): Iter<T, E> {
+fn filter<T, E>(source: Iter<T, E>, accept: (T) -> <E> Bool): Iter<T, E> {
     var next = () => {
         while (true) {
             match source.next() {
@@ -65,7 +65,7 @@ fn zip<A, B, E>(a: Iter<A, E>, b: Iter<B, E>): Iter<(A, B), E> {
 }
 
 /** Each value with its position, counting from 0. */
-fn enumerate<T, E>(source: Iter<T, E>): Iter<(int, T), E> {
+fn enumerate<T, E>(source: Iter<T, E>): Iter<(Int, T), E> {
     var at = 0;
     var next = () => {
         match source.next() {
@@ -84,7 +84,7 @@ fn enumerate<T, E>(source: Iter<T, E>): Iter<(int, T), E> {
  * The first `n` values. The source is closed once the `n`th is handed out, so
  * a file is not held open for values nobody will ask for.
  */
-fn take<T, E>(source: Iter<T, E>, n: int): Iter<T, E> {
+fn take<T, E>(source: Iter<T, E>, n: Int): Iter<T, E> {
     var left = n;
     var closed = false;
     var shut = () => {
@@ -93,22 +93,14 @@ fn take<T, E>(source: Iter<T, E>, n: int): Iter<T, E> {
             source.close();
         }
     };
-    // Not through `shut`: calling that from here would give it this
-    // function's row, and an `Iter`'s `close` performs nothing.
     var next = () => {
         if (left <= 0) {
-            if (!closed) {
-                closed = true;
-                source.close();
-            }
+            shut();
             return Option.None;
         }
         left = left - 1;
         var v = source.next();
-        if (left == 0 && !closed) {
-            closed = true;
-            source.close();
-        }
+        if (left == 0) { shut(); }
         return v;
     };
     return Iter { next: next, close: shut };

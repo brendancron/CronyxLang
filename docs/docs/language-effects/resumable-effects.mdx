@@ -4,28 +4,28 @@ sidebar_position: 3
 
 # Resumable effects
 
-The handlers in the last chapter all did the same structural thing: run a little code, hand back a value, let the caller carry on. That's the `fn` operation, and it's the well-behaved case.
+The handlers in the last chapter all did the same structural thing: run a little code, hand back a value, let the caller carry on. That's a plain `fn` operation, and it's the well-behaved case.
 
-A `ctl` operation is the general one. Its arm doesn't just compute a value — it receives *the rest of the computation*, and decides what happens to it.
+A `@ctl` operation is the general one. Its arm doesn't just compute a value — it receives *the rest of the computation*, and decides what happens to it.
 
-## `ctl` and `resume`
+## `@ctl` and `resume`
 
-Declare the operation with `ctl` instead of `fn`, and the arm continues the caller explicitly with `resume`:
+Mark the operation `@ctl`, and its arm takes one more parameter than the operation does: the continuation, a function that continues the caller. It's usually called `resume`, but the name is yours:
 
 ```cronyx
-effect ask {
-    ctl ask(): int;
+trait Ask {
+    @ctl fn ask(): Int;
 }
 
-fn doubled(): <ask> int {
+fn doubled(): <Ask> Int {
     return ask() * 2;
 }
 
-run {
+run<Unit> {
     print(doubled());
-} handle ask {
-    ctl ask() {
-        resume 21;
+} handle<Ask> {
+    fn ask(resume) {
+        resume(21);
     }
 }
 ```
@@ -34,19 +34,19 @@ run {
 42
 ```
 
-`resume 21` means "continue the paused code, and let `ask()` evaluate to 21." Everything after the call — the `* 2`, the `return`, the `print` — is the thing being resumed.
+`resume(21)` means "continue the paused code, and let `ask()` evaluate to 21." Everything after the call — the `* 2`, the `return`, the `print` — is the thing being resumed.
 
-Compare the two declarations. With `fn ask(): int` the arm writes `return 21` and continuation is automatic. With `ctl ask(): int` the arm writes `resume 21`, and *not* writing it is a real option.
+Compare the two declarations. With a plain `fn ask(): Int` the arm writes `return 21` and continuation is automatic. With `@ctl fn ask(): Int` the arm calls `resume(21)`, and *not* calling it is a real option.
 
-The `: <ask> int` on `doubled` is the effect showing up in a signature — `doubled` returns an `int` and performs `ask` along the way. You can write that annotation; you rarely have to, since it's inferred.
+The `: <Ask> Int` on `doubled` is the effect showing up in a signature — `doubled` returns an `Int` and performs `Ask` along the way. You can write that annotation; you rarely have to, since it's inferred.
 
 ## Not resuming
 
 An arm that never calls `resume` discards the rest of the block. The call site never comes back:
 
 ```cronyx
-effect exception {
-    ctl throw(msg: string): unit;
+trait Exception {
+    @ctl fn throw(msg: String): Unit;
 }
 
 fn divide(n, d) {
@@ -56,12 +56,12 @@ fn divide(n, d) {
     return n / d;
 }
 
-run {
+run<Unit> {
     print(divide(10, 2));
     print(divide(5, 0));
     print("unreachable");
-} handle exception {
-    ctl throw(msg) {
+} handle<Exception> {
+    fn throw(msg, resume) {
         print(msg);
     }
 }
@@ -79,25 +79,25 @@ The first `divide` returns normally. The second performs `throw`, the arm prints
 Between "continue normally" and "abandon everything" is the interesting case: the arm inspects the problem, decides on a substitute, and continues:
 
 ```cronyx
-effect parse_error {
-    ctl invalid(input: string): int;
+trait ParseError {
+    @ctl fn invalid(input: String): Int;
 }
 
-fn parse_int(str: string): int {
-    if (str == "10") {
+fn parse_int(text: String): Int {
+    if (text == "10") {
         return 10;
     }
-    return invalid(str);
+    return invalid(text);
 }
 
-run {
+run<Unit> {
     print(parse_int("10"));
     print(parse_int("apple"));
     print("recovered");
-} handle parse_error {
-    ctl invalid(input) {
+} handle<ParseError> {
+    fn invalid(input, resume) {
         print("Parse error, invalid string: " + input);
-        resume -1;
+        resume(-1);
     }
 }
 ```
@@ -113,34 +113,19 @@ recovered
 
 ## A `run` block is an expression
 
-`run` produces a value, so it can go on the right of a `var`:
+`run` produces a value, of the type written after it, so it can go on the right of a `var`:
 
 ```cronyx
-effect Ask { ctl ask(): int; }
+trait Ask { @ctl fn ask(): Int; }
 
-fn doubled(): <Ask> int { return ask() * 2; }
+fn doubled(): <Ask> Int { return ask() * 2; }
 
-var total = run { doubled() } handle Ask {
-    ctl ask() { resume 21; }
+var total = run<Int> {
+    var x = doubled();
+    x + 1
+} handle<Ask> {
+    fn ask(resume) { return resume(21); }
 };
-
-print(total);
-```
-
-```
-42
-```
-
-The block's value is the value of its last expression, which may follow any number of statements — `run { var x = ask(); x * 2 }` — as long as it has no semicolon after it. A `return` clause transforms it on the way out:
-
-```cronyx
-effect Ask { ctl ask(): int; }
-
-fn doubled(): <Ask> int { return ask() * 2; }
-
-var total = run { doubled() } handle Ask {
-    ctl ask() { resume 21; }
-} return (x) { x + 1 };
 
 print(total);
 ```
@@ -149,20 +134,43 @@ print(total);
 43
 ```
 
-An arm can also answer for the whole block. `return` inside an arm — as opposed to `resume` — means "this is the block's value, don't continue":
+The block's value is the value of its last expression, which may follow any number of statements, as long as it has no semicolon after it.
+
+The arm is what answers for the block, though: `resume` hands back whatever the rest of the block went on to answer, and the arm returns that. Here it's `43`, and the arm passes it on. An arm can do something with it on the way:
 
 ```cronyx
-effect Yield { ctl yield(v: int): unit; }
+trait Ask { @ctl fn ask(): Int; }
 
-fn each(): <Yield> unit {
+fn doubled(): <Ask> Int { return ask() * 2; }
+
+var total = run<Int> { doubled() } handle<Ask> {
+    fn ask(resume) { return resume(21) + 100; }
+};
+
+print(total);
+```
+
+```
+142
+```
+
+Or it can answer without resuming at all. `return` inside an arm means "this is the block's value, don't continue":
+
+```cronyx
+trait Yield { @ctl fn yield(v: Int): Unit; }
+
+fn each(): <Yield> Unit {
     yield(1);
     yield(2);
     yield(3);
 }
 
-var first = run { each() } handle Yield {
-    ctl yield(v) { return v; }
-} return (nothing) { 0 };
+var first = run<Int> {
+    each();
+    0
+} handle<Yield> {
+    fn yield(v, resume) { return v; }
+};
 
 print(first);
 ```
@@ -171,26 +179,26 @@ print(first);
 1
 ```
 
-`each` would have yielded three values. The first one reaches an arm that answers with it instead of resuming, so the block is finished at that point and the other two never happen. Note that the `return` clause runs only when the block finishes on its own — here the arm supplied the answer, so `0` is not what comes out.
+`each` would have yielded three values. The first one reaches an arm that answers with it instead of resuming, so the block is finished at that point and the other two never happen. The `0` at the end of the block is its value only when it finishes on its own — here the arm supplied the answer, so `0` is not what comes out.
 
-## `fn` or `ctl`?
+## Plain `fn` or `@ctl`?
 
-Use `fn` when the operation is a question with an answer and the caller always continues: read a config value, get the current time, write a log line. The arm can't accidentally break control flow because it has no way to.
+Use a plain `fn` when the operation is a question with an answer and the caller always continues: read a config value, get the current time, write a log line. The arm can't accidentally break control flow because it has no way to.
 
-Use `ctl` when the handler needs a say in what happens next — abort, retry, resume with a repair, resume more than once, or stash the continuation and run it later. Most of the rest of this section is `ctl`.
+Use `@ctl` when the handler needs a say in what happens next — abort, retry, resume with a repair, resume more than once, or stash the continuation and run it later. Most of the rest of this section is `@ctl`.
 
 ## Try it
 
-Declare an effect `limit` with `ctl clamp(value: int, max: int): int`. Write `add(a, b)` that returns `a + b`, but calls `clamp` when the sum exceeds 100. Handle it by printing a warning and resuming with the maximum.
+Declare an effect `Limit` with `@ctl fn clamp(value: Int, max: Int): Int`. Write `add(a, b)` that returns `a + b`, but calls `clamp` when the sum exceeds 100. Handle it by printing a warning and resuming with the maximum.
 
 A working answer:
 
 ```cronyx
-effect limit {
-    ctl clamp(value: int, max: int): int;
+trait Limit {
+    @ctl fn clamp(value: Int, max: Int): Int;
 }
 
-fn add(a: int, b: int): int {
+fn add(a: Int, b: Int): Int {
     var sum = a + b;
     if (sum > 100) {
         return clamp(sum, 100);
@@ -198,13 +206,13 @@ fn add(a: int, b: int): int {
     return sum;
 }
 
-run {
+run<Unit> {
     print(add(2, 3));
     print(add(60, 60));
-} handle limit {
-    ctl clamp(value, max) {
+} handle<Limit> {
+    fn clamp(value, max, resume) {
         print("clamping " + str(value));
-        resume max;
+        resume(max);
     }
 }
 ```
@@ -219,4 +227,4 @@ Now change the arm to drop the `resume` and see the second `print` disappear alo
 
 ## What's next
 
-An arm that never resumes is an abort, and an abort is an exception. Next up: **error handling** — building `throw`/`catch` out of `ctl`, why a handler that can resume beats one that can't, and the `final ctl` shorthand for an operation that never comes back.
+An arm that never resumes is an abort, and an abort is an exception. Next up: **error handling** — building `throw`/`catch` out of `@ctl`, why a handler that can resume beats one that can't, and `@abort` for an operation that never comes back.

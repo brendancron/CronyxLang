@@ -1,8 +1,8 @@
 // One statement, one deriver per trait, both generating for the same type.
-type Dog { name: string, age: int }
+type Dog { name: String, age: Int }
 
-trait Eq { fn eq(self, other: Dog): bool; }
-trait Show { fn show(self): string; }
+trait Eq { fn eq(self, other: Dog): Bool; }
+trait Show { fn show(self): String; }
 
 fn derive(shape: TypeShape) for Eq {
     match shape {
@@ -13,7 +13,7 @@ fn derive(shape: TypeShape) for Eq {
                 check = code(check && self.field == other.field);
             }
             gen impl Eq for t {
-                fn eq(self, other: t): bool { return check; }
+                fn eq(self, other: t): Bool { return check; }
             }
         }
         TypeShape.Sum(t, _, variants) => {}
@@ -32,7 +32,7 @@ fn derive(shape: TypeShape) for Show {
                 text = code(text + " " + str(self.field));
             }
             gen impl Show for t {
-                fn show(self): string { return text; }
+                fn show(self): String { return text; }
             }
         }
         TypeShape.Sum(t, _, variants) => {}

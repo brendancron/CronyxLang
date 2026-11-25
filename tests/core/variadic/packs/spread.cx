@@ -2,7 +2,7 @@ fn fire<T, ...Args>(f: (...Args) -> <Console> T, args: (...Args)): T {
     return f(...args);
 }
 
-fn two(a: int, b: string) {
+fn two(a: Int, b: String) {
     print(str(a) + b);
 }
 

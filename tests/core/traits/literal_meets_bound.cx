@@ -1,7 +1,7 @@
-trait Sized { fn size(self): int; }
-impl Sized for Array<T> { fn size(self): int { return self.len(); } }
+trait Sized { fn size(self): Int; }
+impl Sized for Array<T> { fn size(self): Int { return self.len(); } }
 
-fn count<C: Sized>(c: C): int { return c.size(); }
+fn count<C: Sized>(c: C): Int { return c.size(); }
 
 print(count([1, 2, 3]));
 print(count(["a"]));

@@ -1,1 +1,1 @@
-[2:1] Effect 'A' already declares an operation 'get'.
+[5:23] Ambiguous operation 'get': A.get or B.get.

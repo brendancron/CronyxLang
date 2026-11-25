@@ -1,31 +1,31 @@
-effect Log { fn log(s: string): unit; }
-effect Ask { ctl ask(): int; }
-effect Fail { final ctl fail(why: string); }
+trait Log { fn log(s: String): Unit; }
+trait Ask { @ctl fn ask(): Int; }
+trait Fail { @ctl fn fail<T>(why: String): T; }
 
-run {
-    run { log("inner"); } handle Log { fn log(s) { log("wrapped " + s); } }
-} handle Log { fn log(s) { print("outer got " + s); } }
+run<Unit> {
+    run<Unit> { log("inner"); } handle<Log> { fn log(s) { log("wrapped " + s); } }
+} handle<Log> { fn log(s) { print("outer got " + s); } }
 
-run {
-    run { print(ask() + 1); } handle Ask { ctl ask() { resume ask() * 10; } }
-} handle Ask { ctl ask() { resume 4; } }
+run<Unit> {
+    run<Unit> { print(ask() + 1); } handle<Ask> { fn ask(resume) { resume(ask() * 10); } }
+} handle<Ask> { fn ask(resume) { resume(4); } }
 
-run {
-    run { print(ask() + 2); } handle Ask {
-        ctl ask() {
+run<Unit> {
+    run<Unit> { print(ask() + 2); } handle<Ask> {
+        fn ask(resume) {
             var seen = ask();
-            resume seen * 100;
+            resume(seen * 100);
             print("inner arm done");
         }
     }
-} handle Ask { ctl ask() { resume 3; } }
+} handle<Ask> { fn ask(resume) { resume(3); } }
 
-run {
-    run { fail("deep"); } handle Fail { final ctl fail(why) { fail("rethrown " + why); } }
-} handle Fail { final ctl fail(why) { print("outer caught " + why); } }
+run<Unit> {
+    run<Unit> { fail("deep"); } handle<Fail> { fn fail(why, resume) { fail("rethrown " + why); } }
+} handle<Fail> { fn fail(why, resume) { print("outer caught " + why); } }
 
 fn wrapped() {
-    run { log("from a function"); } handle Log { fn log(s) { log("[" + s + "]"); } }
+    run<Unit> { log("from a function"); } handle<Log> { fn log(s) { log("[" + s + "]"); } }
 }
-run { wrapped(); } handle Log { fn log(s) { print(s); } }
+run<Unit> { wrapped(); } handle<Log> { fn log(s) { print(s); } }
 print("done");

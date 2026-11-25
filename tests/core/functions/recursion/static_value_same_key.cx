@@ -1,0 +1,5 @@
+fn scaled<k: Int>(x: Int) {
+    if (x == 0) { return 0; }
+    return k + scaled<k>(x - 1);
+}
+print(scaled<5>(3));

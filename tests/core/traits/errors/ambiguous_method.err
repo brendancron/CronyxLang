@@ -1,1 +1,1 @@
-[15:7] 'Flag' has more than one 'to', from To<string> and To<bool>. Write which one, as 'to<string>'.
+[15:7] 'Flag' has more than one 'to', from To<String> and To<Bool>. Write which one, as 'to<String>'.

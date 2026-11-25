@@ -1,0 +1,22 @@
+type Money { cents: Int }
+
+impl Add<Money> for Money {
+    type Output = Money;
+
+    fn add(self, other: Money): Money {
+        meta print("meta add");
+        return Money { cents: self.cents + other.cents };
+    }
+}
+
+fn report(m: Money) {
+    meta print("meta report");
+    print(m.cents);
+}
+
+fn total(a: Money, b: Money) {
+    var sum = a + b;
+    report(sum);
+}
+
+total(Money { cents: 150 }, Money { cents: 275 });

@@ -1,0 +1,9 @@
+trait Loud {
+    meta {
+        gen print("hello");
+    }
+}
+
+type Box {}
+
+impl Loud for Box {}

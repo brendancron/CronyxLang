@@ -1,1 +1,1 @@
-[12:5] 'Nil' cannot be a Vec<Succ<Zero>, int>, so this arm can never match.
+[12:5] 'Nil' cannot be a Vec<Succ<Zero>, Int>, so this arm can never match.

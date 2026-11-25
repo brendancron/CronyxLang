@@ -1,0 +1,26 @@
+trait Log {
+    fn log(msg: String): Unit;
+}
+
+trait Ask {
+    fn ask(): Int;
+}
+
+type Both {}
+
+impl Log for Both {
+    fn log(msg: String): Unit {
+        print("log: " + msg);
+    }
+}
+
+impl Ask for Both {
+    fn ask(): Int {
+        return 42;
+    }
+}
+
+run<Unit> {
+    log("start");
+    print(ask());
+} with Both;

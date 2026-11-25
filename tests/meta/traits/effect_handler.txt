@@ -1,0 +1,12 @@
+trait EffectHandler<Effect, String> {
+    fn log(msg: String): Unit;
+    @ctl fn choose(options: Array<Int>, resume: (Int) -> String): String;
+}
+
+trait EffectHandler<Effect, Int> {
+    fn log(msg: String): Unit;
+    @ctl fn choose(options: Array<Int>, resume: (Int) -> Int): Int;
+}
+
+picking
+2

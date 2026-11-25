@@ -1,4 +1,4 @@
-fn each(items: Array<int>, g: (int) -> int): int {
+fn each(items: Array<Int>, g: (Int) -> Int): Int {
     var total = 0;
     for (v in items) { total = total + g(v); }
     return total;

@@ -1,0 +1,6 @@
+meta {
+    gen code trait Log { fn log(msg: String): Unit; };
+    gen code trait Journal { fn log(msg: String): Unit; };
+    gen code fn greet() { run<Unit> { log("hello"); } handle<Log> { fn log(msg) { print(msg); } } };
+}
+greet();

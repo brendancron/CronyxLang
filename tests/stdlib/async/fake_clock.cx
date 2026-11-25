@@ -3,14 +3,14 @@ import { sleep } from "std/async/Timer";
 import { Duration, Instant, Timestamp, Time } from "std/os/Time";
 
 var clock = 0;
-run {
+run<Unit> {
     block_on {
         interleaved([
             () => { sleep(Duration.hours(2)); print("two hours in: " + str(Duration.nanoseconds(clock))); },
             () => { sleep(Duration.hours(1)); print("one hour in: " + str(Duration.nanoseconds(clock))); }
         ]);
     };
-} handle Time {
+} handle<Time> {
     fn now() { return Timestamp { nanos: clock }; }
     fn instant() { return Instant { nanos: clock }; }
     fn wait_until(at) { clock = at.nanos; }

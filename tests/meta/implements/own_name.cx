@@ -1,0 +1,6 @@
+type Point { x: Int }
+
+fn implements(a: Int, b: Int): Int { return a + b; }
+
+print(implements(1, 2));
+print(Point { x: 3 });

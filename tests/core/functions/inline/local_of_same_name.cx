@@ -1,0 +1,9 @@
+inline fn twice(n: Int): Int { return n * 2; }
+
+fn quadruple(n: Int): Int {
+    fn twice(m: Int): Int { return m + m; }
+    return twice(twice(n));
+}
+
+print(quadruple(3));
+print(twice(5));

@@ -1,5 +1,5 @@
-type Point { x: int, y: int }
-type Shape { Circle(int), Square(int) }
+type Point { x: Int, y: Int }
+type Shape { Circle(Int), Square(Int) }
 
 var p = Point { x: 1, y: 2 };
 var q = Point { x: 1, y: 2 };
@@ -18,7 +18,7 @@ print(str((1, "a") == (1, "a")) + " " + str((1, "a") == (1, "b")));
 var ps: Set<Point> = [p, q];
 print(str(ps.len()) + " " + str(ps.contains(Point { x: 1, y: 2 })));
 
-var seats: Map<Point, string> = [(p, "aisle")];
+var seats: Map<Point, String> = [(p, "aisle")];
 print(seats.get_or(q, "missing"));
 
 print(str(same(1, 1)) + " " + str(same("ab", "ab")));

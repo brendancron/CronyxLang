@@ -14,9 +14,9 @@ import { DecodeError } from "Codec";
 import { buffer } from "../io/Buffer";
 
 /** Two lower-case digits for each byte. */
-fn encode(bytes: Array<byte>): string {
+fn encode(bytes: Array<Byte>): String {
     var digits = "0123456789abcdef";
-    var parts: List<string> = [];
+    var parts: List<String> = [];
     for (b in bytes) {
         var n = b.to_int();
         parts.push(str(digits[n >> 4]));
@@ -26,7 +26,7 @@ fn encode(bytes: Array<byte>): string {
 }
 
 /** The bytes two digits each spell. Either case is read. */
-fn decode(text: string): <Throw<DecodeError>> Array<byte> {
+fn decode(text: String): <Throw<DecodeError>> Array<Byte> {
     if (text.len() % 2 != 0) { throw(DecodeError.Truncated(text.len())); }
     var out = buffer();
     var i = 0;
@@ -39,7 +39,7 @@ fn decode(text: string): <Throw<DecodeError>> Array<byte> {
     return out.bytes();
 }
 
-fn __digit(text: string, at: int): <Throw<DecodeError>> int {
+fn __digit(text: String, at: Int): <Throw<DecodeError>> Int {
     var c = text[at];
     var n = ord(c);
     if (c >= '0' && c <= '9') { return n - ord('0'); }

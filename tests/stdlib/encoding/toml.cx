@@ -37,10 +37,10 @@ var data = parse_toml(doc);
 print(write_json(data));
 print(write_toml(data));
 
-type Limits { connections: int }
-type Server { host: string, ports: List<int>, limits: Limits }
-type Plugin { name: string, note: Option<string> }
-type Manifest { title: string, version: int, server: Server, plugin: List<Plugin> }
+type Limits { connections: Int }
+type Server { host: String, ports: List<Int>, limits: Limits }
+type Plugin { name: String, note: Option<String> }
+type Manifest { title: String, version: Int, server: Server, plugin: List<Plugin> }
 derive Encode, Decode for Limits;
 derive Encode, Decode for Server;
 derive Encode, Decode for Plugin;
@@ -51,7 +51,7 @@ print(m.title + " " + str(m.version) + " " + m.server.host + " " + str(m.server.
 print(m.plugin[1].note);
 print(to_toml(m));
 
-fn report(text: string) {
+fn report(text: String) {
     var outcome: Result<Data, DecodeError> = attempt { parse_toml(text) };
     match outcome {
         Result.Ok(d) => { print(write_json(d)); }

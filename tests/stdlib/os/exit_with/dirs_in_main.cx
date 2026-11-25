@@ -1,0 +1,10 @@
+import { Exit } from "std/os/Process";
+import { make_dirs, is_dir, remove_all } from "std/fs/File";
+
+fn main(): Int {
+    make_dirs("exit_with_dirs_in_main/a");
+    print(is_dir("exit_with_dirs_in_main/a"));
+    remove_all("exit_with_dirs_in_main");
+    exit(6);
+    return 0;
+}

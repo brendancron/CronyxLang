@@ -1,0 +1,3 @@
+[13:14] 'pick' is generic and its static params are not settled here; write them or give it a type: {T = ?}.
+[14:14] 'pair_up' is generic and its static params are not settled here; write them or give it a type: {A = ?, B = ?}.
+[15:14] 'ident' is generic and its static params are not settled here; write them or give it a type: {_ = ?}.

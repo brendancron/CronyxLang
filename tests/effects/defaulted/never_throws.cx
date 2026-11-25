@@ -1,0 +1,11 @@
+import { Throw } from "std/core/Error";
+
+fn guarded<X, T>(f: () -> <Throw<X>> T): <Throw<X>> T {
+    return f();
+}
+
+fn pure_sum(a: Int, b: Int): <> Int {
+    return guarded(() => a + b);
+}
+
+print(pure_sum(2, 3));

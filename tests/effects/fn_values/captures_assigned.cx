@@ -1,0 +1,51 @@
+trait Fails<X> {
+    @ctl fn fails<T>(err: X): T;
+}
+
+type Outcome<T, X> {
+    Ok(T),
+    Err(X)
+}
+
+fn attempt<X, T, E>(f: () -> <Fails<X>, E> T): <E> Outcome<T, X> {
+    var outcome: Option<Outcome<T, X>> = Option.None;
+    run<Unit> {
+        outcome = Option.Some(Outcome.Ok(f()));
+    } handle<Fails<X>> {
+        fn fails(e, resume) { outcome = Option.Some(Outcome.Err(e)); }
+    }
+    match outcome {
+        Option.Some(r) => { return r; }
+        Option.None => { panic("attempt: neither a value nor a failure"); }
+    }
+}
+
+fn parse(text: String): <Fails<String>> Int {
+    if (text == "") { return fails("empty"); }
+    return text.len();
+}
+
+fn report(o: Outcome<Int, String>) {
+    match o {
+        Outcome.Ok(n) => { print("ok " + str(n)); }
+        Outcome.Err(e) => { print("err " + e); }
+    }
+}
+
+fn counted(words: List<String>): Int {
+    var total = 0;
+    var last = "";
+    for (w in words) {
+        report(attempt(() => {
+            last = w;
+            total += parse(w);
+            return total;
+        }));
+    }
+    print("last " + last);
+    return total;
+}
+
+report(attempt(() => parse("abc")));
+report(attempt(() => parse("")));
+print(counted(["ab", "", "cde"]));

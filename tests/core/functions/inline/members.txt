@@ -1,0 +1,21 @@
+fn twice(n: Int): Int {
+    return run<Int> { log("twice"); (n * 2) } handle<Log> { inline fn log(line) {
+    print(line);
+}
+};
+}
+
+impl Box {
+    inline fn tripled(self): Int {
+        return (self.held * 3);
+    }
+}
+
+inline fn halved(n: Int): Int {
+    return (n / 2);
+}
+
+3
+42
+0
+["one", "two"]

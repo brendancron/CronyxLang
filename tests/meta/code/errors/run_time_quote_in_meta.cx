@@ -1,0 +1,9 @@
+import { Expr } from "std/compiler/Ast";
+
+fn make(): Expr {
+    return code(1 + 2);
+}
+print(make().kind);
+meta {
+    print(make().kind);
+}

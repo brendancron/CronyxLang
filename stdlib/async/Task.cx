@@ -2,67 +2,90 @@
  * Tasks that wait, and the scopes that run them.
  *
  * ```
- * import { async, block_on, all, pause } from "std/async/Task";
+ * import { Async, all, pause } from "std/async/Task";
  *
- * fn count(name: string): int {
+ * fn count(name: String): <Async, Console> Int {
  *     for (var i = 0; i < 2; i += 1) { print(name + " " + str(i)); pause(); }
  *     return name.len();
  * }
  *
- * block_on {
- *     var sizes = all([ () => count("a"), () => count("bb") ]);
- *     print(str(sizes[0]) + " " + str(sizes[1]));
- * };
+ * var sizes = all([ () => count("a"), () => count("bb") ]);
+ * print(str(sizes[0]) + " " + str(sizes[1]));
  * ```
  *
- * `block_on` is the one scheduler and sits at the root; `all`, `interleaved`
- * and `both` are scopes, which return only once every task in them has
- * finished. A task runs where its scope is, under the handlers around it, and
- * nothing outlives the scope that started it.
+ * The top level runs under `block_on`, the scheduler; `scope`, `all`, `race`,
+ * `interleaved` and `both` are scopes, which return only once every task in
+ * them has finished. A scope schedules its own tasks and waits on the one
+ * around it when none of them can run, so a task runs where its scope is,
+ * under the handlers around it, and nothing outlives the scope that started
+ * it.
  */
 
 import { Throw } from "../core/Error";
 import { Duration, Instant, Time } from "../os/Time";
-import { Promise, promise, resolve, await } from "Promise";
 
-/** Waiting, and the one queue waiting tasks are woken through. */
-effect async {
+/** Waiting, and what a waiting task is woken by. */
+trait Async {
+    /** Parks the task and hands `register` the function that wakes it, which may be called once. */
+    @ctl fn park(register: (() -> Unit) -> Unit): Unit;
+
+    /** The scheduler's timers and sockets, which a scope hands on as they are. */
+    fn reactor(): Reactor;
+}
+
+/**
+ * What wakes a task besides another task: `after` and `when_ready` call `wake`
+ * once their condition holds, and hand back what cancels that. Nothing here
+ * performs anything, so a scope hands the scheduler's on to its tasks.
+ */
+type Reactor {
+    /** Once `delay` has passed. */
+    after: (Duration, () -> Unit) -> () -> Unit,
+
+    /** Once the socket can be read from without waiting, or written to when the flag is set. */
+    when_ready: (Int, Bool, () -> Unit) -> () -> Unit,
+
     /**
-     * Parks the task and hands `register` the callback that wakes it. Whatever
-     * calls that callback supplies what `suspend` returns. It may be called
-     * once.
+     * What the task's scope calls in place of unwinding it, while it is set: a
+     * scope waiting on the one around it is woken to stop its own tasks.
      */
-    ctl suspend<T>(register: ((T) -> unit) -> unit): T;
+    on_cancel: (Option<() -> Unit>) -> Unit
+}
 
-    /** The function that puts a wake-up in the scheduler's queue. */
-    fn waker(): (() -> unit) -> unit;
+/** Calls `wake` once `delay` has passed, and hands back what cancels that. */
+fn after(delay: Duration, wake: () -> Unit): <Async> () -> Unit {
+    return reactor().after(delay, wake);
+}
 
-    /**
-     * Calls `wake` once `delay` has passed, and hands back what cancels that.
-     * A timer that is cancelled, or has fired, is not waited for.
-     */
-    fn after(delay: Duration, wake: () -> unit): () -> unit;
+/**
+ * Calls `wake` once the socket can be read from without waiting, or written to
+ * when `writing`, and hands back what cancels that.
+ */
+fn when_ready(socket: Int, writing: Bool, wake: () -> Unit): <Async> () -> Unit {
+    return reactor().when_ready(socket, writing, wake);
+}
 
-    /**
-     * Calls `wake` once the socket can be read from without waiting, or
-     * written to when `writing`, and hands back what cancels that.
-     */
-    fn when_ready(socket: int, writing: bool, wake: () -> unit): () -> unit;
+/**
+ * Parks the task and hands `register` the function that wakes it. Whatever
+ * calls that function supplies what `suspend` returns. It may be called once.
+ */
+fn suspend<T>(register: ((T) -> Unit) -> Unit): <Async> T {
+    var got: Option<T> = Option.None;
+    park((wake) => {
+        register((value) => {
+            got = Option.Some(value);
+            wake();
+        });
+    });
+    match got {
+        Option.Some(value) => { return value; }
+        Option.None => { panic("a parked task was resumed without being woken"); }
+    }
 }
 
 /** Lets every other task that is ready run before this one carries on. */
-fn pause() {
-    suspend { it(()) };
-}
-
-// A second call would run the rest of the task twice, and finish it twice.
-fn __once<T>(wake: (() -> unit) -> unit, k: (T) -> unit): (T) -> unit {
-    var fired = false;
-    return (value) => {
-        if (fired) { panic("a suspended task was woken twice"); }
-        fired = true;
-        wake { k(value); };
-    };
+fn pause(): <Async> Unit {
+    park((wake: () -> Unit) => { wake(); });
 }
 
 /**
@@ -71,24 +94,26 @@ fn __once<T>(wake: (() -> unit) -> unit, k: (T) -> unit): (T) -> unit {
  * started have finished.
  *
  * ```
- * scope { start ->
+ * scope((start) => {
  *     while (true) {
  *         var conn = listener.accept();
  *         start(() => { answer(conn); });
  *     }
- * };
+ * });
  * ```
  *
- * The body is a task of the scope like the rest. If any fails, the others,
- * the body among them, are cancelled where they are waiting, their `defer`s
- * run, and once every one has stopped the failure is thrown from here; a task
- * started after that never starts. A second failure is dropped with its task.
+ * The body is a task of the scope like the rest, and a task started runs once
+ * the one that started it waits or finishes. If any fails, the others, the body
+ * among them, are cancelled where they are waiting, their `defer`s run, and
+ * once every one has stopped the failure is thrown from here; a task started
+ * after that never starts. A second failure is dropped with its task.
  */
-fn scope<R, X, E>(body: ((() -> <async, Throw<X>, E> unit) -> <async, E> unit) -> <async, Throw<X>, E> R)
-    : <async, Throw<X>, E> R {
-    var result: Promise<R> = promise();
-    __scope((start, stop) => { resolve(result, body(start)); });
-    return await(result);
+fn scope<R, X, E>(body: ((() -> <Async, Throw<X>, E> Unit) -> Unit) -> <Async, Throw<X>, E> R)
+    : <Async, Throw<X>, E> R {
+    var result: List<R> = [];
+    __scope((start, stop) => { result.push(body(start)); });
+    if (result.len() == 0) { panic("a scope finished without its body's value"); }
+    return result[0];
 }
 
 /**
@@ -99,17 +124,22 @@ fn scope<R, X, E>(body: ((() -> <async, Throw<X>, E> unit) -> <async, E> unit) -
  * `defer`s run; one not yet started never starts. Once every one has stopped,
  * the failure is thrown from here. A second failure is dropped with its task.
  */
-fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E> List<T> {
-    var slots: List<Promise<T>> = [];
+fn all<T, X, E>(tasks: List<() -> <Async, Throw<X>, E> T>): <Async, Throw<X>, E> List<T> {
+    var slots: List<Option<T>> = [];
     __scope((start, stop) => {
         for (task in tasks) {
-            var slot: Promise<T> = promise();
-            slots.push(slot);
-            start(() => { resolve(slot, task()); });
+            var at = slots.len();
+            slots.push(Option.None);
+            start(() => { slots[at] = Option.Some(task()); });
         }
     });
     var results: List<T> = [];
-    for (slot in slots) { results.push(await(slot)); }
+    for (slot in slots) {
+        match slot {
+            Option.Some(value) => { results.push(value); }
+            Option.None => { panic("a task of `all` finished without a value"); }
+        }
+    }
     return results;
 }
 
@@ -120,214 +150,321 @@ fn all<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E>
  *
  * A failure before any finishes is thrown from here. Panics if given no tasks.
  */
-fn race<T, X, E>(tasks: List<() -> <async, Throw<X>, E> T>): <async, Throw<X>, E> T {
+fn race<T, X, E>(tasks: List<() -> <Async, Throw<X>, E> T>): <Async, Throw<X>, E> T {
     if (tasks.len() == 0) { panic("race needs a task to wait for"); }
-    var winner: Promise<T> = promise();
-    var won = false;
+    var won: List<T> = [];
     __scope((start, stop) => {
         for (task in tasks) {
             start(() => {
                 var value = task();
-                if (!won) {
-                    won = true;
-                    resolve(winner, value);
+                if (won.len() == 0) {
+                    won.push(value);
                     stop();
                 }
             });
         }
     });
-    return await(winner);
+    if (won.len() == 0) { panic("a race finished without a winner"); }
+    return won[0];
+}
+
+/** Runs the actions side by side, as `all` does, for their effects alone. */
+fn interleaved<X, E>(actions: List<() -> <Async, Throw<X>, E> Unit>): <Async, Throw<X>, E> Unit {
+    all(actions);
+}
+
+/** Runs two tasks side by side, as `all` does, when their results differ in type. */
+fn both<A, B, X, E>(
+    a: () -> <Async, Throw<X>, E> A,
+    b: () -> <Async, Throw<X>, E> B
+): <Async, Throw<X>, E> (A, B) {
+    var left: Option<A> = Option.None;
+    var right: Option<B> = Option.None;
+    all([ () => { left = Option.Some(a()); }, () => { right = Option.Some(b()); } ]);
+    match left {
+        Option.Some(x) => {
+            match right {
+                Option.Some(y) => { return (x, y); }
+                Option.None => {}
+            }
+        }
+        Option.None => {}
+    }
+    panic("a task of `both` finished without a value");
+}
+
+/**
+ * One task of a scope: what unwinds it while it waits, what is called in its
+ * place when it is a scope waiting on this one, whether it is being unwound,
+ * and whether it has finished.
+ */
+type __Parked<E> {
+    stop: Option<() -> <E> Unit>,
+    hook: Option<() -> Unit>,
+    unwinding: Bool,
+    finished: Bool
+}
+
+/** A scope's tasks, its queue, and what it waits on when none of them can run. */
+type __Scope<E> {
+    ready: List<() -> <E> Unit>,
+    parked: List<__Parked<E>>,
+    remaining: Int,
+    cancelled: Bool,
+    unwound: Bool,
+    from_outside: Bool,
+    over: Bool,
+    outer: Option<() -> Unit>,
+    reactor: Reactor
 }
 
 // The scope `scope`, `all` and `race` share. The body runs as its first task,
 // handed `start`, and `stop`, which cancels every task still running as a
 // failure does but throws nothing.
-fn __scope<X, E>(body: ((() -> <async, Throw<X>, E> unit) -> <async, E> unit, () -> unit) -> <async, Throw<X>, E> unit)
-    : <async, Throw<X>, E> unit {
-    var parked: List<__Parked> = [];
-    var failure: Option<X> = Option.None;
-    var cancelled = false;
-    var remaining = 0;
-    var over = false;
-    var settled: Promise<unit> = promise();
-
-    fn stop() {
-        cancelled = true;
-        var i = parked.len() - 1;
-        while (i >= 0) {
-            match parked[i].stop {
-                Option.Some(unwind) => { unwind(); }
-                Option.None => {}
+fn __scope<X, E>(body: ((() -> <Async, Throw<X>, E> Unit) -> Unit, () -> Unit) -> <Async, Throw<X>, E> Unit)
+    : <Async, Throw<X>, E> Unit {
+    var s: __Scope<E> = __Scope {
+        ready: [],
+        parked: [],
+        remaining: 0,
+        cancelled: false,
+        unwound: false,
+        from_outside: false,
+        over: false,
+        outer: Option.None,
+        reactor: reactor()
+    };
+    var pending: List<() -> <Async, Throw<X>, E> Unit> = [];
+    var failure: List<X> = [];
+    var stop = () => { s.cancelled = true; };
+    var start = (task: () -> <Async, Throw<X>, E> Unit) => {
+        if (s.over) { panic("a task was started in a scope that had finished"); }
+        if (!s.cancelled) {
+            s.remaining += 1;
+            pending.push(task);
+        }
+    };
+    var cancelled_from_outside = () => {
+        s.cancelled = true;
+        s.from_outside = true;
+        match s.outer {
+            Option.Some(wake) => {
+                s.outer = Option.None;
+                wake();
             }
-            i -= 1;
+            Option.None => {}
+        }
+    };
+    s.remaining = 1;
+    pending.push(() => { body(start, stop); });
+    while (s.remaining > 0) {
+        if (s.cancelled && !s.unwound) {
+            s.remaining -= pending.len();
+            pending = [];
+            __unwind(s);
+        }
+        while (pending.len() > 0 && !s.cancelled) {
+            var next = pending[0];
+            pending = pending[1:];
+            __launch(s, failure, next);
+        }
+        while (s.ready.len() > 0 && (s.unwound || !s.cancelled)) {
+            var next = s.ready[0];
+            s.ready = s.ready[1:];
+            next();
+        }
+        if (s.cancelled && !s.unwound) {
+            s.remaining -= pending.len();
+            pending = [];
+            __unwind(s);
+        }
+        if (s.remaining > 0 && pending.len() == 0 && s.ready.len() == 0) {
+            s.reactor.on_cancel(Option.Some(cancelled_from_outside));
+            park((wake: () -> Unit) => { s.outer = Option.Some(wake); });
+            s.reactor.on_cancel(Option.None);
         }
     }
-
-    fn launch(task: () -> <async, Throw<X>, E> unit) {
-        // A scope that runs for as long as a server does would otherwise keep
-        // a record of every task it ever ran.
-        if (parked.len() >= 64 && parked.len() >= 2 * remaining) { parked = __running(parked); }
-        var here = __Parked { stop: Option.None, finished: false };
-        parked.push(here);
-        run {
-            defer {
-                here.finished = true;
-                remaining -= 1;
-                if (remaining == 0) {
-                    over = true;
-                    resolve(settled, ());
-                }
-            }
-            run {
-                task();
-            } handle Throw {
-                final ctl throw(e) {
-                    if (!cancelled) {
-                        failure = Option.Some(e);
-                        stop();
-                    }
-                }
-            }
-        } handle async {
-            ctl suspend(register) {
-                // Per wait, so a task unwound here can still wait in a `defer`,
-                // and a wake-up left behind by the wait it was unwound from
-                // finds it gone.
-                var live = true;
-                here.stop = Option.Some(() => {
-                    live = false;
-                    here.stop = Option.None;
-                    discontinue;
-                });
-                var wake = waker();
-                register(__once(wake, (value) => {
-                    if (live) {
-                        here.stop = Option.None;
-                        resume value;
-                    }
-                }));
-            }
-            fn waker() { return waker(); }
-            fn after(delay, wake) { return after(delay, wake); }
-            fn when_ready(socket, writing, wake) { return when_ready(socket, writing, wake); }
-        }
+    s.over = true;
+    // Its own tasks have stopped, and now it is unwound: the scope that
+    // cancelled it unwinds whatever waits once it is cancelled.
+    if (s.from_outside) {
+        park((wake: () -> Unit) => {});
+        panic("a cancelled scope was resumed");
     }
-
-    fn start(task: () -> <async, Throw<X>, E> unit) {
-        if (over) { panic("a task was started in a scope that had finished"); }
-        if (cancelled) { return; }
-        remaining += 1;
-        launch(task);
-    }
-
-    remaining += 1;
-    launch(() => { body(start, stop); });
-
-    // A task cancelled while it waits here is unwound past this scope, and its
-    // tasks with it: they are parked apart from it, so nothing else would reach
-    // them, and a scope never outlives its call.
-    var waited = false;
-    defer {
-        if (!waited) {
-            stop();
-            if (!over) { await(settled); }
-        }
-    }
-    if (!over) { await(settled); }
-    waited = true;
-    match failure {
-        Option.Some(e) => { throw(e); }
-        Option.None => {}
-    }
+    if (failure.len() > 0) { throw(failure[0]); }
 }
 
-type __Parked {
-    stop: Option<() -> unit>,
-    finished: bool
+// Every parked task, the latest started first, and nothing left queued: a task
+// woken but not yet run is still parked, and is unwound like the rest. A scope
+// among them is woken instead, to stop its own.
+fn __unwind<E>(s: __Scope<E>): <E> Unit {
+    s.unwound = true;
+    s.ready = [];
+    var i = s.parked.len() - 1;
+    while (i >= 0) {
+        var p = s.parked[i];
+        match p.hook {
+            Option.Some(hook) => {
+                p.hook = Option.None;
+                hook();
+            }
+            Option.None => {
+                match p.stop {
+                    Option.Some(unwind) => {
+                        p.stop = Option.None;
+                        unwind();
+                    }
+                    Option.None => {}
+                }
+            }
+        }
+        i -= 1;
+    }
+    s.parked = __running(s.parked);
 }
 
-fn __running(parked: List<__Parked>): List<__Parked> {
-    var kept: List<__Parked> = [];
+fn __running<E>(parked: List<__Parked<E>>): List<__Parked<E>> {
+    var kept: List<__Parked<E>> = [];
     for (p in parked) {
         if (!p.finished) { kept.push(p); }
     }
     return kept;
 }
 
-
-/** Runs the actions side by side, as `all` does, for their effects alone. */
-fn interleaved<X, E>(actions: List<() -> <async, Throw<X>, E> unit>): <async, Throw<X>, E> unit {
-    all(actions);
+// Runs the task until it first waits or finishes. Its wake-up queues the rest
+// in the scope, and wakes the scope if it is waiting on the one around it.
+fn __launch<X, E>(s: __Scope<E>, failure: List<X>, task: () -> <Async, Throw<X>, E> Unit): <E> Unit {
+    // A scope that runs for as long as a server does would otherwise keep a
+    // record of every task it ever ran.
+    if (s.parked.len() >= 64 && s.parked.len() >= 2 * s.remaining) { s.parked = __running(s.parked); }
+    var here: __Parked<E> = __Parked { stop: Option.None, hook: Option.None, unwinding: false, finished: false };
+    s.parked.push(here);
+    run<Unit> {
+        defer {
+            here.finished = true;
+            here.stop = Option.None;
+            s.remaining -= 1;
+        }
+        run<Unit> {
+            task();
+        } handle<Throw<X>> {
+            fn throw(e) {
+                if (!s.cancelled) {
+                    failure.push(e);
+                    s.cancelled = true;
+                }
+            }
+        }
+    } handle<Async> {
+        fn park(register, resume) {
+            // A task that waits once its scope is cancelled is unwound there,
+            // but one waiting in a `defer` as it is unwound carries on.
+            if (s.cancelled && !here.unwinding) {
+                here.unwinding = true;
+                discontinue(resume);
+            } else {
+                // Per wait, so a wake-up left behind by a wait the task was
+                // unwound from finds it gone.
+                var live = true;
+                var fired = false;
+                here.stop = Option.Some(() => {
+                    live = false;
+                    here.unwinding = true;
+                    discontinue(resume);
+                });
+                register(() => {
+                    if (fired) { panic("a suspended task was woken twice"); }
+                    fired = true;
+                    if (live) {
+                        live = false;
+                        s.ready.push(() => {
+                            here.stop = Option.None;
+                            resume(());
+                        });
+                        match s.outer {
+                            Option.Some(wake) => {
+                                s.outer = Option.None;
+                                wake();
+                            }
+                            Option.None => {}
+                        }
+                    }
+                });
+            }
+        }
+        fn reactor() {
+            return Reactor {
+                after: s.reactor.after,
+                when_ready: s.reactor.when_ready,
+                on_cancel: (hook: Option<() -> Unit>) => { here.hook = hook; }
+            };
+        }
+    }
 }
 
-/** Runs two tasks side by side, as `all` does, when their results differ in type. */
-fn both<A, B, X, E>(
-    a: () -> <async, Throw<X>, E> A,
-    b: () -> <async, Throw<X>, E> B
-): <async, Throw<X>, E> (A, B) {
-    var left: Promise<A> = promise();
-    var right: Promise<B> = promise();
-    all([ () => { resolve(left, a()); }, () => { resolve(right, b()); } ]);
-    return (await(left), await(right));
-}
-
+// Set without reading the clock, so `due` is filled in by the scheduler before
+// it next looks at its timers.
 type __Timer {
-    due: Instant,
-    wake: () -> unit,
-    cancelled: bool
+    delay: Duration,
+    due: Option<Instant>,
+    wake: () -> Unit,
+    cancelled: Bool
 }
 
 type __Watch {
-    socket: int,
-    writing: bool,
-    wake: () -> unit,
-    cancelled: bool
+    socket: Int,
+    writing: Bool,
+    wake: () -> Unit,
+    cancelled: Bool
 }
 
 /**
- * Runs `main` and every task it starts, and returns once they have all
- * finished. When every task is waiting, it waits for the first timer through
- * `Time`, or, while a task waits on a socket, for that socket or the first
- * timer, whichever comes first.
+ * Runs `main` and every task it starts, and returns what `main` returned once
+ * they have all finished. When every task is waiting, it waits for the first
+ * timer through `Time`, or, while a task waits on a socket, for that socket or
+ * the first timer, whichever comes first.
  *
- * Panics if every task is waiting and none is left to wake one, and with the
- * failure's value if one reaches here unhandled.
+ * The top level runs under one already. Panics if every task is waiting and
+ * none is left to wake one.
  */
-fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
-    var ready: List<() -> unit> = [];
+fn block_on<T, E>(main: () -> <Async, E> T): <Time, E> T {
+    var result: Option<T> = Option.None;
+    var ready: List<() -> <E> Unit> = [];
     var timers: List<__Timer> = [];
     var watches: List<__Watch> = [];
-    var finished = false;
-    run {
-        run {
-            main();
-        } handle Throw {
-            final ctl throw(e) { panic("uncaught failure: " + str(e)); }
-        }
-        finished = true;
-    } handle async {
-        ctl suspend(register) {
-            register(__once((k) => { ready.push(k); }, (value) => { resume value; }));
-        }
-        fn waker() { return (k) => { ready.push(k); }; }
-        fn after(delay, wake) {
-            var timer = __Timer { due: instant() + delay, wake: wake, cancelled: false };
+    var reactor = Reactor {
+        after: (delay: Duration, wake: () -> Unit) => {
+            var timer = __Timer { delay: delay, due: Option.None, wake: wake, cancelled: false };
             timers.push(timer);
             return () => { timer.cancelled = true; };
-        }
-        fn when_ready(socket, writing, wake) {
+        },
+        when_ready: (socket: Int, writing: Bool, wake: () -> Unit) => {
             var watch = __Watch { socket: socket, writing: writing, wake: wake, cancelled: false };
             watches.push(watch);
             return () => { watch.cancelled = true; };
+        },
+        on_cancel: (hook: Option<() -> Unit>) => {}
+    };
+    run<Unit> {
+        result = Option.Some(main());
+    } handle<Async> {
+        fn park(register, resume) {
+            // A second call would run the rest of the task twice, and finish it twice.
+            var fired = false;
+            register(() => {
+                if (fired) { panic("a suspended task was woken twice"); }
+                fired = true;
+                ready.push(() => { resume(()); });
+            });
         }
+        fn reactor() { return reactor; }
     }
-    // Scopes hold the list `waker` handed out, so it is read with a cursor
-    // rather than replaced by its tail. A slot that has run is overwritten,
-    // because what it held is a continuation and with it every local of the
-    // function that suspended. The placeholder is made out here: a closure made
-    // in the loop would capture `next`.
+    // A slot that has run is overwritten, because what it held is a
+    // continuation and with it every local of the function that suspended.
+    // The placeholder is made out here: a closure made in the loop would
+    // capture `next`.
     var at = 0;
-    var idle: () -> unit = () => {};
+    var idle: () -> <E> Unit = () => {};
     var waiting = true;
     while (waiting) {
         while (at < ready.len()) {
@@ -336,20 +473,27 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
             at += 1;
             next();
         }
-        ready.count = 0;
+        ready = [];
         at = 0;
+        var now = instant();
+        for (timer in timers) {
+            match timer.due {
+                Option.None => { timer.due = Option.Some(now + timer.delay); }
+                _ => {}
+            }
+        }
         watches = __watching(watches);
         var first = __first_due(timers);
         if (watches.len() > 0) {
             var limit = -1;
             match first {
-                Option.Some(timer) => { limit = __at_least_zero((timer.due - instant()).nanos); }
+                Option.Some(timer) => { limit = __at_least_zero((__due(timer) - instant()).nanos); }
                 Option.None => {}
             }
             __wake_ready(watches, limit);
             match first {
                 Option.Some(timer) => {
-                    if (!(instant() < timer.due)) { __fire(timer); }
+                    if (!(instant() < __due(timer))) { __fire(timer); }
                 }
                 Option.None => {}
             }
@@ -358,14 +502,24 @@ fn block_on<X, E>(main: () -> <async, Throw<X>, E> unit): <Time, E> unit {
             match first {
                 Option.None => { waiting = false; }
                 Option.Some(timer) => {
-                    if (instant() < timer.due) { wait_until(timer.due); }
+                    if (instant() < __due(timer)) { wait_until(__due(timer)); }
                     __fire(timer);
                     timers = __pending(timers);
                 }
             }
         }
     }
-    if (!finished) { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
+    match result {
+        Option.Some(value) => { return value; }
+        Option.None => { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
+    }
+}
+
+fn __due(timer: __Timer): Instant {
+    match timer.due {
+        Option.Some(at) => { return at; }
+        Option.None => { panic("a timer was read before the scheduler set it"); }
+    }
 }
 
 fn __fire(timer: __Timer) {
@@ -373,7 +527,7 @@ fn __fire(timer: __Timer) {
     timer.wake();
 }
 
-fn __at_least_zero(n: int): int {
+fn __at_least_zero(n: Int): Int {
     if (n < 0) { return 0; }
     return n;
 }
@@ -388,9 +542,9 @@ fn __watching(watches: List<__Watch>): List<__Watch> {
 
 // In the order they were set, so tasks waiting on sockets that became ready
 // together carry on in the order they began waiting.
-fn __wake_ready(watches: List<__Watch>, limit: int) {
-    var reads: List<int> = [];
-    var writes: List<int> = [];
+fn __wake_ready(watches: List<__Watch>, limit: Int) {
+    var reads: List<Int> = [];
+    var writes: List<Int> = [];
     for (watch in watches) {
         if (watch.writing) { writes.push(watch.socket); } else { reads.push(watch.socket); }
     }
@@ -405,7 +559,7 @@ fn __wake_ready(watches: List<__Watch>, limit: int) {
     }
 }
 
-fn __holds(sockets: Array<int>, wanted: int): bool {
+fn __holds(sockets: Array<Int>, wanted: Int): Bool {
     for (socket in sockets) {
         if (socket == wanted) { return true; }
     }
@@ -421,7 +575,7 @@ fn __first_due(timers: List<__Timer>): Option<__Timer> {
             match first {
                 Option.None => { first = Option.Some(timer); }
                 Option.Some(best) => {
-                    if (timer.due < best.due) { first = Option.Some(timer); }
+                    if (__due(timer) < __due(best)) { first = Option.Some(timer); }
                 }
             }
         }

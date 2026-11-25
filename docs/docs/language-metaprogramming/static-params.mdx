@@ -8,7 +8,7 @@ sidebar_position: 4
 
 Through this section we've kept reaching for `meta { ... }` and `gen` to write code that produces other code. **Static parameters** are the same idea folded into normal function and type declarations — values (most often, *types*) that get filled in at compile time, with the compiler producing a specialized version per argument list wherever the body needs one.
 
-If you've used generics in any other language, the syntax will look familiar. The difference is what else a static parameter can be: a value, like an `int`, that the compiler knows while compiling — and that a `meta` block can use.
+If you've used generics in any other language, the syntax will look familiar. The difference is what else a static parameter can be: a value, like an `Int`, that the compiler knows while compiling — and that a `meta` block can use.
 
 ## Type parameters on functions
 
@@ -30,7 +30,7 @@ hello
 true
 ```
 
-`identity<T>` works for any `T`. We called it with an `int`, then a `string`, then a `bool` — and each call returned its argument unchanged. The compiler inferred `T` from the argument at each call site; we didn't have to write `identity<int>(42)` explicitly.
+`identity<T>` works for any `T`. We called it with an `Int`, then a `String`, then a `Bool` — and each call returned its argument unchanged. The compiler inferred `T` from the argument at each call site; we didn't have to write `identity<Int>(42)` explicitly.
 
 ## Monomorphization: one definition, many specializations
 
@@ -74,7 +74,7 @@ print(swapped_mix.1);
 left
 ```
 
-`wrap` builds an `Array<T>`, which depends on what `T` is, so it gets a copy for `int` and another for `string`. `swap` only moves its values around, so it stays one function that serves both calls. A body that does something type-specific — builds a collection of `T`, adds two `T`s, calls a method on one — gets a copy per combination of type arguments, each as direct as if you'd written it by hand for those types.
+`wrap` builds an `Array<T>`, which depends on what `T` is, so it gets a copy for `Int` and another for `String`. `swap` only moves its values around, so it stays one function that serves both calls. A body that does something type-specific — builds a collection of `T`, adds two `T`s, calls a method on one — gets a copy per combination of type arguments, each as direct as if you'd written it by hand for those types.
 
 ## Generic types
 
@@ -109,13 +109,13 @@ true
 2
 ```
 
-`Pair { first: 1, second: "one" }` produces a `Pair<int, string>`; `Pair { first: true, second: 99 }` produces a `Pair<bool, int>`. They're different types, sharing nothing but the source-level declaration.
+`Pair { first: 1, second: "one" }` produces a `Pair<Int, String>`; `Pair { first: true, second: 99 }` produces a `Pair<Bool, Int>`. They're different types, sharing nothing but the source-level declaration.
 
-That means you can't accidentally pass a `Pair<int, string>` where a `Pair<bool, int>` was expected — they're as distinct to the type system as `int` and `string` are, even though they came from the same generic declaration.
+That means you can't accidentally pass a `Pair<Int, String>` where a `Pair<Bool, Int>` was expected — they're as distinct to the type system as `Int` and `String` are, even though they came from the same generic declaration.
 
 ### Writing the arguments, and members in the body
 
-The arguments can be written at the construction too — `Box<int> { value: 5 }` — and a type can carry its own methods, written after its fields:
+The arguments can be written at the construction too — `Box<Int> { value: 5 }` — and a type can carry its own methods, written after its fields:
 
 ```cronyx
 type Box<T> {
@@ -128,24 +128,24 @@ type Box<T> {
     }
 }
 
-var a = Box<int> { value: 5 };
-var b = Box<string> { value: "hello" };
-var c = Box<int> { value: 7 };
+var a = Box<Int> { value: 5 };
+var b = Box<String> { value: "hello" };
+var c = Box<Int> { value: 7 };
 
 print(a.get() + c.get());
 print(b.get());
 ```
 
 ```
-compiling Box<int>
-compiling Box<string>
+compiling Box<Int>
+compiling Box<String>
 12
 hello
 ```
 
 Fields come first, separated by commas; the members follow, and the first `fn` or `meta` is what ends the fields. A member function that takes `self` is a method.
 
-A member can also be a `meta` block, and a type with one has to be given its arguments where it's constructed: `Box<int> { ... }`, not `Box { ... }`. The block runs once for each distinct argument list, the first time the walk reaches a `Box<...> { ... }` with those arguments — `Box<int>` is compiled once however many boxes of `int` you build, and a `Box` nothing constructs never runs its meta block at all. Inside it, `T` is the type this copy was made for.
+A member can also be a `meta` block, and a type with one has to be given its arguments where it's constructed: `Box<Int> { ... }`, not `Box { ... }`. The block runs once for each distinct argument list, the first time the walk reaches a `Box<...> { ... }` with those arguments — `Box<Int>` is compiled once however many boxes of `Int` you build, and a `Box` nothing constructs never runs its meta block at all. Inside it, `T` is the type this copy was made for.
 
 ## Type packs: a parameter list as a parameter
 
@@ -153,22 +153,22 @@ A type parameter stands for one type. Sometimes what varies isn't a type but *ho
 
 ```cronyx
 type Command<...Args> {
-    name: string,
-    apply: (...Args) -> unit
+    name: String,
+    apply: (...Args) -> String
 }
 
 var rename = Command {
     name: "rename",
-    apply: (from: string, to: string) => { print(from + " -> " + to); }
+    apply: (from: String, to: String) => { return from + " -> " + to; }
 };
 
 var quit = Command {
     name: "quit",
-    apply: () => { print("bye"); }
+    apply: () => { return "bye"; }
 };
 
-rename.apply("a.txt", "b.txt");
-quit.apply();
+print(rename.apply("a.txt", "b.txt"));
+print(quit.apply());
 
 print(typeof(rename).name);
 print(typeof(quit).name);
@@ -177,37 +177,42 @@ print(typeof(quit).name);
 ```
 a.txt -> b.txt
 bye
-Command<string, string>
+Command<String, String>
 Command<>
 ```
 
-`<...Args>` declares a **type pack** — a parameter that stands for a whole parameter list rather than for one type. `(...Args) -> unit` splices that list where it stands, so `rename` has an `apply` of two `string` parameters and `quit` has one of none. Both came from the same declaration, and neither had to be written out: the lambda you supplied is what settled the pack.
+`<...Args>` declares a **type pack** — a parameter that stands for a whole parameter list rather than for one type. `(...Args) -> String` splices that list where it stands, so `rename` has an `apply` of two `String` parameters and `quit` has one of none. Both came from the same declaration, and neither had to be written out: the lambda you supplied is what settled the pack.
 
-The monomorphization story is unchanged. `Command<string, string>` and `Command<>` are different concrete types, exactly as `Pair<int, string>` and `Pair<bool, int>` are, so calling `rename.apply("a.txt")` is an error at the call site:
+The monomorphization story is unchanged. `Command<String, String>` and `Command<>` are different concrete types, exactly as `Pair<Int, String>` and `Pair<Bool, Int>` are, so calling `rename.apply("a.txt")` is an error at the call site:
 
 ```
 Expected a function of 2 argument(s), got one of 1.
 ```
 
-And for the same reason, `[rename, quit]` isn't an array — two commands of different arity are no more one element type than `int` and `string` are. When you need a collection of commands, give them a shared shape: one context struct they all take, or a sum type over the forms you support.
+And for the same reason, `[rename, quit]` isn't an array — two commands of different arity are no more one element type than `Int` and `String` are. When you need a collection of commands, give them a shared shape: one context struct they all take, or a sum type over the forms you support.
 
 ### Writing a pack out
 
 Inference from the literal covers most uses, but a pack is a type like any other and can be written down. The arguments you write are collected into it:
 
 ```cronyx
-fn label<...Args>(c: Command<...Args>): string {
+type Command<...Args> {
+    name: String,
+    apply: (...Args) -> String
+}
+
+fn label<...Args>(c: Command<...Args>): String {
     return "<" + c.name + ">";
 }
 
-var rename: Command<string, string> = Command {
+var rename: Command<String, String> = Command {
     name: "rename",
-    apply: (from: string, to: string) => { print(from + " -> " + to); }
+    apply: (from: String, to: String) => { return from + " -> " + to; }
 };
 
 var quit: Command<> = Command {
     name: "quit",
-    apply: () => { print("bye"); }
+    apply: () => { return "bye"; }
 };
 
 print(label(rename));
@@ -219,16 +224,16 @@ print(label(quit));
 <quit>
 ```
 
-`Command<>` is the empty pack, `Command<string>` a pack of one, `Command<string, string>` a pack of two. In a generic function, `Command<...Args>` names the pack that's already in scope — `label` works for a command of any arity, and doesn't care what it is.
+`Command<>` is the empty pack, `Command<String>` a pack of one, `Command<String, String>` a pack of two. In a generic function, `Command<...Args>` names the pack that's already in scope — `label` works for a command of any arity, and doesn't care what it is.
 
-`Command<>` is deliberately not `Command<unit>`. A parameter list is a *sequence*, while `unit` is the type with one value, so the two differ where you can see it: `() -> unit` takes no argument and `(unit) -> unit` takes one. `Command<unit>` is a real, different type — a command whose `apply` takes a single unit argument.
+`Command<>` is deliberately not `Command<Unit>`. A parameter list is a *sequence*, while `Unit` is the type with one value, so the two differ where you can see it: `() -> Unit` takes no argument and `(Unit) -> Unit` takes one. `Command<Unit>` is a real, different type — a command whose `apply` takes a single `Unit` argument.
 
 ## Beyond types: value parameters
 
 A static parameter doesn't have to be a type. It can be a value the compiler knows while compiling:
 
 ```cronyx
-fn my_func<n: int>() {
+fn my_func<n: Int>() {
     print(n);
 }
 
@@ -239,9 +244,9 @@ my_func<5>();
 5
 ```
 
-`<n: int>` declares a static *value* parameter — an `int` provided at the call site, available inside the body. A value parameter can be of any type: a number, a `string`, a `bool`, a tuple, an array, a struct, or a variant of a sum type like `Mode.Fast`, with or without a payload. `my_func<5>()` compiles a version of `my_func` where `n` is `5`. Each distinct argument list gets its own copy, made the first time the walk reaches a call with those arguments; `my_func<5>()` written ten times is still one copy.
+`<n: Int>` declares a static *value* parameter — an `Int` provided at the call site, available inside the body. A value parameter can be of any type: a number, a `String`, a `Bool`, a tuple, an array, a struct, or a variant of a sum type like `Mode.Fast`, with or without a payload. `my_func<5>()` compiles a version of `my_func` where `n` is `5`. Each distinct argument list gets its own copy, made the first time the walk reaches a call with those arguments; `my_func<5>()` written ten times is still one copy.
 
-An argument has to be known at compile time: an expression built from literals, constructors like `P { x: 1 }` or `Shape.Circle(3)`, and the static parameters of the function the call is written in. It is checked against the parameter's type, so `my_func<"five">()` is an error. `my_func<2 + 3>()` is the same copy as `my_func<5>()`, and inside `fn outer<k: int>`, `my_func<k * 2>()` is fine. A runtime variable can't be one, and neither can a function call — computing a value with a call is what a `meta` block is for.
+An argument has to be known at compile time: an expression built from literals, constructors like `P { x: 1 }` or `Shape.Circle(3)`, and the static parameters of the function the call is written in. It is checked against the parameter's type, so `my_func<"five">()` is an error. `my_func<2 + 3>()` is the same copy as `my_func<5>()`, and inside `fn outer<k: Int>`, `my_func<k * 2>()` is fine. A runtime variable can't be one, and neither can a function call — computing a value with a call is what a `meta` block is for.
 
 Value parameters are where static parameters meet `meta` blocks. Inside a function's `meta` block, `n` is an ordinary compile-time value — you can branch on it, loop over it, and generate different code for different arguments. That's the subject of the [next chapter](./compile-time-functions.mdx).
 
@@ -250,14 +255,14 @@ Value parameters are where static parameters meet `meta` blocks. Inside a functi
 A type can take a value parameter too:
 
 ```cronyx
-type Buf<n: int> {
-    items: Array<int>,
+type Buf<n: Int> {
+    items: Array<Int>,
 
-    fn capacity(self): int {
+    fn capacity(self): Int {
         return n;
     }
 
-    fn has_room(self): bool {
+    fn has_room(self): Bool {
         return self.items.len() < n;
     }
 }
@@ -278,9 +283,17 @@ true
 Buf<2>
 ```
 
-Each argument list makes its own type, named by its arguments. `Buf<2>` and `Buf<8>` are as distinct as `int` and `string`, so a variable holding one can't be given the other:
+Each argument list makes its own type, named by its arguments. `Buf<2>` and `Buf<8>` are as distinct as `Int` and `String`, so a variable holding one can't be given the other:
 
 ```cronyx
+type Buf<n: Int> {
+    items: Array<Int>,
+
+    fn capacity(self): Int {
+        return n;
+    }
+}
+
 var a = Buf<4> { items: [] };
 a = Buf<8> { items: [] };
 ```

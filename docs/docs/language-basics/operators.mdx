@@ -4,11 +4,11 @@ sidebar_position: 2
 
 # Operators
 
-You've already used `+` and `*` on numbers and `+` on strings. This chapter covers the rest: arithmetic, comparison, logic, the compound assignments, and how tightly each operator binds. It ends with the thing that sets Cronyx's operators apart — each one is a trait, so a type of your own can support `+` the same way `int` does.
+You've already used `+` and `*` on numbers and `+` on strings. This chapter covers the rest: arithmetic, comparison, logic, the compound assignments, and how tightly each operator binds. It ends with the thing that sets Cronyx's operators apart — each one is a trait, so a type of your own can support `+` the same way `Int` does.
 
 ## Arithmetic
 
-The five arithmetic operators work on `int` and on `float`:
+The five arithmetic operators work on `Int` and on `Float`:
 
 ```cronyx
 print(7 + 2);
@@ -28,7 +28,7 @@ print(7.0 / 2.0);
 3.5
 ```
 
-`/` on two `int`s is integer division — it drops the fractional part, so `7 / 2` is `3`. Write the operands as `float`s to keep it: `7.0 / 2.0` is `3.5`.
+`/` on two `Int`s is integer division — it drops the fractional part, so `7 / 2` is `3`. Write the operands as `Float`s to keep it: `7.0 / 2.0` is `3.5`.
 
 Integer division rounds toward zero, and `%` takes the sign of the left operand:
 
@@ -42,11 +42,11 @@ print(-7 % 2);
 -1
 ```
 
-Dividing an `int` by zero, with `/` or `%`, stops the program with a runtime error.
+Dividing an `Int` by zero, with `/` or `%`, stops the program with a runtime error.
 
-Both operands have to be the same type. `7 / 2.0` is a type error, not a quiet conversion — the compiler reports that `int` does not implement `Div<float>`. The last section of this chapter explains that message.
+Both operands have to be the same type. `7 / 2.0` is a type error, not a quiet conversion — the compiler reports that `Int` does not implement `Div<Float>`. The last section of this chapter explains that message.
 
-To mix the two, convert one side yourself. `to_float()` turns an `int` into a `float`, and `to_int()` turns a `float` back into an `int`, dropping the fractional part:
+To mix the two, convert one side yourself. `to_float()` turns an `Int` into a `Float`, and `to_int()` turns a `Float` back into an `Int`, dropping the fractional part:
 
 ```cronyx
 var n = 7;
@@ -87,7 +87,7 @@ It binds tighter than any binary operator, so `-b * 2` is `(-b) * 2`.
 
 ## Comparison
 
-Comparisons produce a `bool`:
+Comparisons produce a `Bool`:
 
 ```cronyx
 var a = 5;
@@ -123,7 +123,7 @@ true
 true
 ```
 
-The ordering operators `<`, `<=`, `>`, `>=` work on `int`, `float`, `char`, and `string`. Strings are ordered character by character, like a dictionary, except that a character's place is its Unicode code point — so every uppercase ASCII letter comes before every lowercase one:
+The ordering operators `<`, `<=`, `>`, `>=` work on `Int`, `Float`, `Char`, and `String`. Strings are ordered character by character, like a dictionary, except that a character's place is its Unicode code point — so every uppercase ASCII letter comes before every lowercase one:
 
 ```cronyx
 print("apple" < "banana");
@@ -137,11 +137,11 @@ true
 true
 ```
 
-Comparisons don't chain. `1 < x < 10` compares a `bool` with an `int` and fails to compile; write `1 < x && x < 10`.
+Comparisons don't chain. `1 < x < 10` compares a `Bool` with an `Int` and fails to compile; write `1 < x && x < 10`.
 
 ## Bitwise operators
 
-`&` (and), `|` (or), `^` (exclusive or), `~` (not), `<<` and `>>` work on the bits of an `int` or a `byte`. An integer can be written in hexadecimal or binary for this, as `0xff` or `0b1010`:
+`&` (and), `|` (or), `^` (exclusive or), `~` (not), `<<` and `>>` work on the bits of an `Int` or a `Byte`. An integer can be written in hexadecimal or binary for this, as `0xff` or `0b1010`:
 
 ```cronyx
 print(0b1100 & 0b1010);
@@ -163,11 +163,11 @@ print(0x1234 >> 8 & 0xff);
 18
 ```
 
-`>>` copies the sign bit into the top, so a negative number stays negative. A `byte` shifts by an `int` and stays a `byte`, with the bits shifted past its eighth lost. Shifting by a negative amount stops the program. `byte.to_int()` and `int.to_byte()` move between the two, the second keeping the lowest eight bits.
+`>>` copies the sign bit into the top, so a negative number stays negative. A `Byte` shifts by an `Int` and stays a `Byte`, with the bits shifted past its eighth lost. Shifting by a negative amount stops the program. A `Byte`'s `to_int()` and an `Int`'s `to_byte()` move between the two, the second keeping the lowest eight bits.
 
 ## Logical operators
 
-`&&` (and), `||` (or), and `!` (not) work on `bool`s:
+`&&` (and), `||` (or), and `!` (not) work on `Bool`s:
 
 ```cronyx
 var t = true;
@@ -186,12 +186,12 @@ true
 `&&` and `||` short-circuit: the right side runs only if the left side hasn't already decided the answer.
 
 ```cronyx
-fn yes(): bool {
+fn yes(): Bool {
     print("yes called");
     return true;
 }
 
-fn no(): bool {
+fn no(): Bool {
     print("no called");
     return false;
 }
@@ -209,7 +209,7 @@ true
 
 `no()` is false, so `no() && yes()` is false without calling `yes()`. `yes()` is true, so `yes() || no()` is true without calling `no()`. That's what lets you write a guard and the thing it guards in one condition: `i < xs.len() && xs[i] > 0` never reads past the end.
 
-Like `if`, these take only `bool`s — `!0` and `1 && 2` don't compile.
+Like `if`, these take only `Bool`s — `!0` and `1 && 2` don't compile.
 
 ## Compound assignment
 
@@ -256,8 +256,8 @@ The compound forms, `++`, and `--` work on anything you can assign to — an ele
 
 ```cronyx
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 var xs = [1, 2, 3];
@@ -283,10 +283,10 @@ The target is worked out once. In `xs[next()] += 1`, `next` is called a single t
 ```cronyx
 var calls = 0;
 
-fn next(): int {
+var next = () => {
     calls++;
     return 1;
-}
+};
 
 var xs = [10, 20, 30];
 xs[next()] += 5;
@@ -364,8 +364,8 @@ Here's a two-dimensional vector that supports `+`:
 
 ```cronyx
 type Vec2 {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 impl Add<Vec2> for Vec2 {
@@ -392,8 +392,8 @@ The compound forms come with it. `total += v` means `total = total + v`, so a ty
 
 ```cronyx
 type Vec2 {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 impl Add<Vec2> for Vec2 {
@@ -416,15 +416,15 @@ print(total.y);
 6
 ```
 
-`Add<Vec2>` names the type on the *right* of the `+`, and `type Output = Vec2` says what the `+` produces. Neither has to be `Vec2`. Scaling a vector by a number is `int * Vec2`, so it's an impl *for `int`*, taking a `Vec2` on the right:
+`Add<Vec2>` names the type on the *right* of the `+`, and `type Output = Vec2` says what the `+` produces. Neither has to be `Vec2`. Scaling a vector by a number is `Int * Vec2`, so it's an impl *for `Int`*, taking a `Vec2` on the right:
 
 ```cronyx
 type Vec2 {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
-impl Mul<Vec2> for int {
+impl Mul<Vec2> for Int {
     type Output = Vec2;
 
     fn mul(self, rhs: Vec2): Vec2 {
@@ -442,9 +442,9 @@ print(v.y);
 6
 ```
 
-Because the two sides are chosen separately, `3 * v` and `v * 3` are two different operators. The impl above gives you the first; the second is `impl Mul<int> for Vec2`, and without it `v * 3` is a type error.
+Because the two sides are chosen separately, `3 * v` and `v * 3` are two different operators. The impl above gives you the first; the second is `impl Mul<Int> for Vec2`, and without it `v * 3` is a type error.
 
-This is also what the error from the first section was saying. `7 / 2.0` fails because `int` has a `Div<int>` but no `Div<float>`, and `1 + "a"` fails because `int` has no `Add<string>`. To mix a number into a string, convert it with `str`:
+This is also what the error from the first section was saying. `7 / 2.0` fails because `Int` has a `Div<Int>` but no `Div<Float>`, and `1 + "a"` fails because `Int` has no `Add<String>`. To mix a number into a string, convert it with `str`:
 
 ```cronyx
 var count = 3;
@@ -465,14 +465,14 @@ A working answer:
 
 ```cronyx
 type Vec2 {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
-impl Mul<int> for Vec2 {
+impl Mul<Int> for Vec2 {
     type Output = Vec2;
 
-    fn mul(self, rhs: int): Vec2 {
+    fn mul(self, rhs: Int): Vec2 {
         return Vec2 { x: self.x * rhs, y: self.y * rhs };
     }
 }
@@ -487,7 +487,7 @@ print(v.y);
 6
 ```
 
-The trait's argument is now `int`, because `int` is what stands on the right of the `*`, and `self` is the `Vec2` on the left.
+The trait's argument is now `Int`, because `Int` is what stands on the right of the `*`, and `self` is the `Vec2` on the left.
 
 ## What's next
 

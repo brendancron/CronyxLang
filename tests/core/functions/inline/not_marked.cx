@@ -1,0 +1,8 @@
+type Point { x: Int }
+type Money { cents: Int }
+impl Display for Money { fn fmt(self): String { return "$" + str(self.cents); } }
+fn shown<T>(value: T): Bool { return implements(T, Display); }
+print(shown(Money { cents: 1 }));
+print(shown(Point { x: 1 }));
+print(shown((1, 2)));
+print(implements(Int, Display));

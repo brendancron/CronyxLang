@@ -1,0 +1,18 @@
+trait Ask { @ctl fn ask(): Int; }
+
+trait Log { @ctl fn log(msg: String): Unit; }
+
+type Fives<R> impl EffectHandler<Ask, R> {
+    fn ask(k: (Int) -> R): R { return k(5); }
+}
+
+run<Unit> {
+    run<Unit> {
+        var n = ask();
+        log("got " + str(n));
+        print(n + ask());
+    } with Fives;
+    print("done");
+} handle<Log> {
+    fn log(msg, resume) { print(msg); resume(()); }
+}

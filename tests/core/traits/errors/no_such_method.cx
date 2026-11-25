@@ -1,3 +1,3 @@
-type Circle { radius: int }
+type Circle { radius: Int }
 var c = Circle { radius: 1 };
 print(c.area());

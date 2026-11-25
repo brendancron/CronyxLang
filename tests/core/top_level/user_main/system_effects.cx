@@ -1,0 +1,12 @@
+import "std/io/Console";
+import { Exit } from "std/os/Process";
+import { write_text, read_text, remove_path } from "std/fs/File";
+
+fn main(): Int {
+    write_text("user_main_fixture.txt", "from main");
+    print(read_text("user_main_fixture.txt"));
+    remove_path("user_main_fixture.txt");
+    Console.write(Console.Stream.Err, "to stderr\n");
+    exit(5);
+    return 0;
+}

@@ -1,0 +1,6 @@
+while compiling
+first
+a
+b
+Point
+6

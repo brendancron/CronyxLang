@@ -1,7 +1,7 @@
 import "std/collections/HashMap";
 import "std/collections/HashSet";
 
-var m = HashMap.new();
+var m: HashMap.HashMap<String, Int> = HashMap.new();
 m.set("a", 1);
 m.set("b", 2);
 m.set("c", 3);
@@ -12,7 +12,7 @@ for (k in m.keys()) {
 }
 print(count);
 
-var s = HashSet.new();
+var s: HashSet.HashSet<String> = HashSet.new();
 s.add("x");
 s.add("y");
 s.add("z");

@@ -11,6 +11,22 @@ let cases =
   ; "tests/core/math/math"
   ; "tests/core/math/float_ieee"
   ; "tests/core/variables/variables"
+  ; "tests/core/top_level/one_root"
+  ; "tests/core/top_level/across_meta"
+  ; "tests/core/top_level/meta_once"
+  ; "tests/core/top_level/two_throwing_statements"
+  ; "tests/core/top_level/returns_status"
+  ; "tests/core/top_level/exits_zero"
+  ; "tests/core/top_level/both_branches_return"
+  ; "tests/core/top_level/lambda_captures"
+  ; "tests/core/top_level/user_main/status"
+  ; "tests/core/top_level/user_main/unit"
+  ; "tests/core/top_level/user_main/unit_written"
+  ; "tests/core/top_level/user_main/top_level_skipped"
+  ; "tests/core/top_level/user_main/meta_runs"
+  ; "tests/core/top_level/user_main/system_effects"
+  ; "tests/core/top_level/user_main/exits"
+  ; "tests/core/top_level/user_main/imported/main"
   ; "tests/core/variables/reassign"
   ; "tests/core/control/if"
   ; "tests/core/control/else"
@@ -27,6 +43,7 @@ let cases =
   ; "tests/core/modules/shadowing/own_root"
   ; "tests/core/modules/shadowing/own_type"
   ; "tests/core/modules/shadowing/own_var"
+  ; "tests/core/modules/shadowing/own_function_param"
   ; "tests/core/modules/qualified/main"
   ; "tests/core/modules/same_dir/main"
   ; "tests/core/modules/selective/main"
@@ -44,7 +61,6 @@ let cases =
   ; "tests/stdlib/math/stats"
   ; "tests/stdlib/crypto/sha256"
   ; "tests/stdlib/crypto/sha1"
-  ; "tests/stdlib/test/bench"
   ; "tests/stdlib/log/logger"
   ; "tests/stdlib/throw/attempt"
   ; "tests/stdlib/throw/rethrow"
@@ -63,7 +79,6 @@ let cases =
   ; "tests/stdlib/async/cancel_defers"
   ; "tests/stdlib/async/race"
   ; "tests/stdlib/async/nested_cancel"
-  ; "tests/stdlib/async/scope"
   ; "tests/stdlib/async/skipped_call"
   ; "tests/stdlib/async/trait_object_call"
   ; "tests/stdlib/net/echo"
@@ -82,12 +97,24 @@ let cases =
   ; "tests/stdlib/fs/directories"
   ; "tests/stdlib/os/args"
   ; "tests/stdlib/os/env"
+  ; "tests/stdlib/os/meta_environment"
+  ; "tests/stdlib/os/meta_files_in_function"
   ; "tests/stdlib/os/time"
   ; "tests/stdlib/os/process"
   ; "tests/stdlib/os/fake_process"
-  ; "tests/stdlib/os/cli"
   ; "tests/stdlib/os/exit"
-  ; "tests/stdlib/os/meta_environment"
+  ; "tests/stdlib/os/exit_with/file"
+  ; "tests/stdlib/os/exit_with/file_in_main"
+  ; "tests/stdlib/os/exit_with/dirs"
+  ; "tests/stdlib/os/exit_with/dirs_in_main"
+  ; "tests/stdlib/os/exit_with/process"
+  ; "tests/stdlib/os/exit_with/process_in_main"
+  ; "tests/stdlib/os/exit_with/net"
+  ; "tests/stdlib/os/exit_with/net_in_main"
+  ; "tests/stdlib/os/exit_with/async"
+  ; "tests/stdlib/os/exit_with/async_in_main"
+  ; "tests/stdlib/os/exit_with/async_file"
+  ; "tests/stdlib/os/exit_with/async_file_in_main"
   ; "tests/stdlib/random/seeded"
   ; "tests/stdlib/io/fake_stdin"
   ; "tests/stdlib/io/blank_line"
@@ -98,6 +125,7 @@ let cases =
   ; "tests/stdlib/effects/iterator"
   ; "tests/stdlib/effects/for_iterator"
   ; "tests/stdlib/effects/iterator_suspends"
+  ; "tests/stdlib/effects/transform_imported"
   ; "tests/core/control/for_c"
   ; "tests/core/operators/comparison"
   ; "tests/core/operators/compound_assign"
@@ -108,14 +136,31 @@ let cases =
   ; "tests/core/type_annotations/mixed_annot"
   ; "tests/core/strings/concat"
   ; "tests/core/functions/fib"
+  ; "tests/core/functions/tail_call_deep"
   ; "tests/core/functions/greeting"
   ; "tests/core/functions/return"
   ; "tests/core/functions/closure"
   ; "tests/core/functions/forward_calls_stay_pure"
   ; "tests/core/functions/shadowed_generic"
   ; "tests/core/functions/generic_captures"
+  ; "tests/core/functions/generic_captures_bounded"
   ; "tests/core/functions/lambda_param_imported_type"
   ; "tests/core/functions/evaluation_order"
+  ; "tests/core/functions/recursion/plain"
+  ; "tests/core/functions/recursion/plain_typed_param"
+  ; "tests/core/functions/recursion/mutual"
+  ; "tests/core/functions/recursion/nested"
+  ; "tests/core/functions/recursion/generic"
+  ; "tests/core/functions/recursion/throws"
+  ; "tests/core/functions/recursion/control"
+  ; "tests/core/functions/recursion/static_value"
+  ; "tests/core/functions/recursion/static_value_same_key"
+  ; "tests/core/functions/recursion/method"
+  ; "tests/core/functions/inline/not_marked"
+  ; "tests/core/functions/inline/marked"
+  ; "tests/core/functions/inline/argument_order"
+  ; "tests/core/functions/inline/members"
+  ; "tests/core/functions/inline/local_of_same_name"
   ; "tests/types/inference/annotations"
   ; "tests/types/inference/local_named_like_method"
   ; "tests/types/inference/method_lambda_param"
@@ -123,11 +168,20 @@ let cases =
   ; "tests/types/inference/polymorphism"
   ; "tests/types/inference/float_math"
   ; "tests/types/inference/higher_order"
-  ; "tests/types/inference/polymorphic_recursion"
+  ; "tests/types/expected/var_annotation"
+  ; "tests/types/expected/return_type"
+  ; "tests/types/expected/argument"
+  ; "tests/types/expected/field"
+  ; "tests/types/expected/open_argument"
+  ; "tests/types/expected/function_value"
+  ; "tests/types/expected/written_key"
+  ; "tests/types/expected/discarded_return_param"
+  ; "tests/types/expected/lambda"
+  ; "tests/types/expected/trait_payload"
+  ; "tests/types/expected/associated_argument"
   ; "tests/reflection/typeof_exprs"
   ; "tests/reflection/typeof_primitives"
   ; "tests/reflection/typeof_fn"
-  ; "tests/reflection/typeof_generic"
   ; "tests/reflection/typeof_pack"
   ; "tests/effects/rows/inferred_rows"
   ; "tests/effects/rows/builtin_in_effectful_fn"
@@ -138,44 +192,192 @@ let cases =
   ; "tests/effects/rows/returned_closure"
   ; "tests/effects/rows/row_argument"
   ; "tests/effects/rows/trait_row_argument"
-  ; "tests/effects/log/log"
-  ; "tests/effects/ask/ask"
+  ; "tests/effects/effect_handler_shape"
+  ; "tests/effects/with_binds_several"
+  ; "tests/effects/handler_captures_by_reference"
+  ; "tests/effects/log"
+  ; "tests/effects/handler"
+  ; "tests/effects/methods"
+  ; "tests/effects/bound_through_the_key"
+  ; "tests/effects/generic_unmarked"
+  ; "tests/effects/working_example"
+  ; "tests/effects/resume_returns_block_value"
+  ; "tests/effects/ctl_and_unmarked_in_one_effect"
+  ; "tests/effects/throw_fresh_result"
+  ; "tests/effects/straight_line"
+  ; "tests/effects/ask"
+  ; "tests/effects/delim"
+  ; "tests/effects/flip"
+  ; "tests/effects/recover"
+  ; "tests/effects/nested_return"
+  ; "tests/effects/two_runs_one_expr"
+  ; "tests/effects/suspend_in_record"
+  ; "tests/effects/suspend_in_field_assign"
+  ; "tests/effects/run_value/two_in_one_expr"
+  ; "tests/effects/run_value/value"
+  ; "tests/effects/run_value/unit_body"
+  ; "tests/effects/run_value/arm_answers"
   ; "tests/effects/multi_handle/multi_handle"
-  ; "tests/effects/multi_handle/differing_arms"
+  ; "tests/effects/generic/shared_param"
+  ; "tests/effects/named_handler_generic"
+  ; "tests/effects/match/resume_in_match"
+  ; "tests/effects/match/return_in_match"
+  ; "tests/effects/match/suspend_in_scrutinee"
+  ; "tests/effects/logic/simple_guard"
+  ; "tests/effects/logic/multi_guard"
+  ; "tests/effects/return_in_converted_loop"
+  ; "tests/effects/suspend_in_logical"
+  ; "tests/effects/suspend_in_logical_nested"
+  ; "tests/effects/suspend_in_logical_while"
+  ; "tests/effects/suspend_in_while_condition"
+  ; "tests/effects/suspend_in_variant"
+  ; "tests/effects/suspend_in_condition"
+  ; "tests/effects/suspend_in_tuple_destructure"
   ; "tests/effects/exception/exception"
-  ; "tests/effects/delim/delim"
-  ; "tests/effects/flip/flip"
-  ; "tests/effects/recover/recover"
-  ; "tests/effects/handler/handler"
+  ; "tests/effects/generic/generic"
+  ; "tests/effects/generic/written_row"
+  ; "tests/effects/run_value/statements_then_value"
+  ; "tests/effects/multi_handle/differing_arms"
+  ; "tests/effects/stream/stream"
+  ; "tests/effects/loop_exits"
+  ; "tests/effects/recursive_copy"
+  ; "tests/effects/expression_splits"
+  ; "tests/effects/named_handler_in_copy"
+  ; "tests/effects/two_controlling_effects"
+  ; "tests/effects/generic/nested"
+  ; "tests/effects/break_in_converted_loop"
+  ; "tests/effects/continue_in_converted_loop"
+  ; "tests/effects/resume_through_run"
+  ; "tests/effects/split_in_function_value"
+  ; "tests/effects/defer_before_split"
+  ; "tests/effects/inner_run_suspends_outward"
   ; "tests/effects/handler/arm_reaches_outer"
+  ; "tests/effects/multishot_sequel"
+  ; "tests/effects/abandon_through_run"
+  ; "tests/effects/abort_under_conversion"
+  ; "tests/effects/nested_aborts"
+  ; "tests/effects/valued_handler_function_value"
+  ; "tests/effects/return_after_resume"
+  ; "tests/effects/return_out_of_run"
+  ; "tests/effects/return_in_inner_ctl_run"
+  ; "tests/effects/return_past_arm_defer"
+  ; "tests/effects/return_past_outer_ctl_run"
+  ; "tests/effects/return_in_inner_run"
+  ; "tests/effects/generic/nested_relay"
+  ; "tests/effects/generic/nested_relay_fn"
+  ; "tests/effects/abort_after_resumption"
+  ; "tests/effects/suspend_in_resume"
+  ; "tests/effects/method_takes_control"
+  ; "tests/effects/continuations_differ"
+  ; "tests/effects/nested_deep"
+  ; "tests/effects/deferred/deferred"
+  ; "tests/effects/discontinue/discontinue"
+  ; "tests/effects/final/abort"
+  ; "tests/effects/final/in_loop"
+  ; "tests/core/defer/defer_effect"
+  ; "tests/core/defer/defer_in_converted_fn"
+  ; "tests/core/defer/defer_in_run"
+  ; "tests/core/defer/defer_multishot"
+  ; "tests/core/defer/defer_multishot_abort"
+  ; "tests/core/defer/defer_performs_effect"
+  ; "tests/effects/fn_values/closure_in_arm"
+  ; "tests/effects/fn_values/spawn"
+  ; "tests/effects/fn_values/nested_spawn"
+  ; "tests/effects/fn_values/captures_assigned"
+  ; "tests/effects/fn_values/scheduled_tasks"
+  ; "tests/effects/fn_values/stored_task"
+  ; "tests/effects/stored_tasks/all"
+  ; "tests/effects/stored_tasks/race"
+  ; "tests/effects/stored_tasks/scope_start"
+  ; "tests/effects/stored_tasks/through_operation"
+  ; "tests/effects/fn_values/made_outside_any_run"
+  ; "tests/effects/fn_values/answered_where_called"
+  ; "tests/effects/fn_values/twice_one_instance"
+  ; "tests/effects/nested_functions/abort"
+  ; "tests/effects/nested_functions/as_value"
+  ; "tests/effects/nested_functions/async"
+  ; "tests/effects/nested_functions/captures"
+  ; "tests/effects/nested_functions/ctl"
+  ; "tests/effects/nested_functions/deeper"
+  ; "tests/effects/nested_functions/from_sibling"
+  ; "tests/effects/nested_functions/generic"
+  ; "tests/effects/nested_functions/generic_outer"
+  ; "tests/effects/nested_functions/handler_at_call"
+  ; "tests/effects/nested_functions/in_copied"
+  ; "tests/effects/nested_functions/in_lambda"
+  ; "tests/effects/nested_functions/in_method"
+  ; "tests/effects/nested_functions/in_run"
+  ; "tests/effects/nested_functions/recursive"
+  ; "tests/effects/nested_functions/same_name"
+  ; "tests/effects/nested_functions/shadows_top_level"
+  ; "tests/effects/nested_functions/spawning"
+  ; "tests/effects/nested_functions/throw"
+  ; "tests/effects/nested_functions/two_runs"
+  ; "tests/effects/fn_values/calls_named_twice"
+  ; "tests/effects/fn_values/trait_object"
+  ; "tests/effects/named_ctl_handler"
+  ; "tests/effects/meta_once"
+  ; "tests/effects/processed_once"
+  ; "tests/effects/direct/captured_and_root"
+  ; "tests/effects/direct/reads_run_local"
+  ; "tests/effects/direct/named_handler"
+  ; "tests/effects/direct/function_value_kept"
+  ; "tests/effects/direct/beside_abort"
+  ; "tests/effects/continuation_row"
+  ; "tests/effects/defaulted/never_throws"
+  ; "tests/effects/defaulted/named_function"
+  ; "tests/effects/handler/in_type"
+  ; "tests/effects/abort/abort"
+  ; "tests/effects/abort/shape"
+  ; "tests/effects/abort/named"
+  ; "tests/effects/abort/aborted_at"
+  ; "tests/effects/prompt/return_crossing"
+  ; "tests/effects/prompt/named_handler"
+  ; "tests/effects/prompt/named_handler_resumes"
+  ; "tests/effects/defaulted/joins_later_throw"
+  ; "tests/effects/methods/suspending_receiver"
+  ; "tests/effects/discontinue/nested_after_outer"
+  ; "tests/effects/root/root_shaped"
+  ; "tests/effects/root/scheduler_throws_outward"
+  ; "tests/effects/fn_values/two_runs_one_value"
+  ; "tests/effects/outer_resumes_inner_twice"
+  ; "tests/effects/loop_taking_control_outward"
+  ; "tests/effects/loop_calling_copy"
+  ; "tests/effects/recursion_calling_copy"
+  ; "tests/effects/loop_copy_two_keys"
+  ; "tests/effects/result_settles_key"
+  ; "tests/stdlib/attempt"
+  ; "tests/stdlib/rethrow"
+  ; "tests/stdlib/iterator"
+  ; "tests/stdlib/block_on"
+  ; "tests/stdlib/async/scopes"
+  ; "tests/stdlib/iter/yield"
+  ; "tests/stdlib/async/waiting"
+  ; "tests/stdlib/io/files_and_dirs"
+  ; "tests/stdlib/os/process_effects"
+  ; "tests/stdlib/os/cli"
+  ; "tests/stdlib/net/loopback"
+  ; "tests/stdlib/test/bench"
+  ; "tests/stdlib/encoding/digests"
+  ; "tests/effects/fn_values/in_list"
+  ; "tests/effects/fn_values/in_tuple"
+  ; "tests/effects/fn_values/multishot_closure"
+  ; "tests/effects/fn_values/named_as_value"
+  ; "tests/effects/fn_values/suspending_closure"
+  ; "tests/effects/fn_values/through_index"
+  ; "tests/effects/fn_values/wider_row"
+  ; "tests/effects/fn_values/wider_row_nested"
+  ; "tests/meta/processed/types"
+  ; "tests/meta/processed/operation"
+  ; "tests/meta/processed/fresh_declare"
+  ; "tests/meta/dump_code/generated"
+  ; "tests/meta/dump_code/instances"
   ; "tests/effects/named_import/main"
   ; "tests/effects/qualified_op/main"
   ; "tests/effects/handled_in_import/main"
-  ; "tests/effects/stream/stream"
-  ; "tests/effects/discontinue/discontinue"
-  ; "tests/effects/discontinue/nested_after_outer"
-  ; "tests/effects/run_value/value"
-  ; "tests/effects/run_value/return_clause"
-  ; "tests/effects/run_value/unit_body"
-  ; "tests/effects/run_value/arm_answers"
-  ; "tests/effects/run_value/two_in_one_expr"
-  ; "tests/effects/run_value/statements_then_value"
-  ; "tests/effects/deferred/deferred"
-  ; "tests/effects/async/async"
+  ; "tests/effects/discontinue/signal"
   ; "tests/effects/async/interleaved"
-  ; "tests/effects/fn_values/in_list"
-  ; "tests/effects/fn_values/in_tuple"
-  ; "tests/effects/fn_values/named_as_value"
-  ; "tests/effects/fn_values/wider_row"
-  ; "tests/effects/fn_values/wider_row_nested"
-  ; "tests/effects/fn_values/suspending_closure"
-  ; "tests/effects/fn_values/closure_in_arm"
-  ; "tests/effects/fn_values/through_index"
-  ; "tests/effects/fn_values/spawn"
-  ; "tests/effects/fn_values/multishot_closure"
-  ; "tests/effects/fn_values/nested_spawn"
-  ; "tests/effects/abort_after_resumption"
-  ; "tests/effects/abort_under_conversion"
+  ; "tests/effects/async/async"
   ; "tests/core/arrays/basics"
   ; "tests/core/arrays/identity"
   ; "tests/core/arrays/methods"
@@ -237,10 +439,8 @@ let cases =
   ; "tests/core/embed/embed"
   ; "tests/core/defer/defer_return"
   ; "tests/core/defer/defer_scope"
-  ; "tests/core/defer/defer_in_run"
   ; "tests/core/defer/defer_handles_failure"
   ; "tests/core/defer/defer_suspends_on_unwind"
-  ; "tests/core/defer/defer_effect"
   ; "tests/core/resolution/symbol_res"
   ; "tests/core/resolution/hoisting"
   ; "tests/core/builtins/print_value"
@@ -280,25 +480,14 @@ let cases =
   ; "tests/stdlib/automata/dfa/dfa"
   ; "tests/stdlib/automata/nfa/nfa"
   ; "tests/stdlib/regex/regex/regex"
-  ; "tests/effects/generic/shared_param"
-  ; "tests/effects/generic/generic"
-  ; "tests/effects/generic/nested"
-  ; "tests/effects/generic/written_row"
   ; "tests/effects/generic/row_in_list_literal"
   ; "tests/effects/generic/row_in_type_argument"
   ; "tests/effects/generic/row_through_index"
   ; "tests/effects/generic/nested_in_generic"
   ; "tests/effects/generic/row_argument_generalized"
-  ; "tests/effects/generic/unconstrained_at_call"
   ; "tests/core/operators/precedence"
   ; "tests/core/operators/logical_symbols"
   ; "tests/core/operators/logical"
-  ; "tests/effects/final/abort"
-  ; "tests/effects/final/in_loop"
-  ; "tests/effects/logic/simple_guard"
-  ; "tests/effects/logic/multi_guard"
-  ; "tests/effects/multishot_sequel"
-  ; "tests/effects/resume_through_run"
   ; "tests/core/functions/trailing_foreach"
   ; "tests/core/functions/trailing_after_args"
   ; "tests/core/functions/trailing_it"
@@ -306,32 +495,6 @@ let cases =
   ; "tests/core/builtins/conversions"
   ; "tests/core/builtins/chr"
   ; "tests/core/builtins/int_float"
-  ; "tests/effects/nested_return"
-  ; "tests/effects/match/return_in_match"
-  ; "tests/effects/match/resume_in_match"
-  ; "tests/effects/match/suspend_in_scrutinee"
-  ; "tests/effects/suspend_in_condition"
-  ; "tests/effects/suspend_in_while_condition"
-  ; "tests/effects/suspend_in_record"
-  ; "tests/effects/suspend_in_variant"
-  ; "tests/effects/suspend_in_field_assign"
-  ; "tests/effects/suspend_in_tuple_destructure"
-  ; "tests/effects/suspend_in_resume"
-  ; "tests/effects/suspend_in_logical"
-  ; "tests/effects/suspend_in_logical_while"
-  ; "tests/effects/suspend_in_logical_nested"
-  ; "tests/effects/return_in_inner_run"
-  ; "tests/effects/return_in_inner_ctl_run"
-  ; "tests/effects/return_past_outer_ctl_run"
-  ; "tests/effects/two_runs_one_expr"
-  ; "tests/effects/return_past_arm_defer"
-  ; "tests/effects/return_out_of_run"
-  ; "tests/effects/inner_run_suspends_outward"
-  ; "tests/effects/nested_aborts"
-  ; "tests/effects/abandon_through_run"
-  ; "tests/effects/return_in_converted_loop"
-  ; "tests/effects/break_in_converted_loop"
-  ; "tests/effects/continue_in_converted_loop"
   ; "tests/effects/forward_call_keeps_own_row"
   ; "tests/effects/callee_checked_after_statement"
   ; "tests/effects/callee_checked_across_statement"
@@ -346,9 +509,11 @@ let cases =
   ; "tests/stdlib/string/string"
   ; "tests/stdlib/string/long"
   ; "tests/stdlib/format/collections"
-  ; "tests/stdlib/format/derived"
+  ; "tests/stdlib/format/structure"
+  ; "tests/stdlib/format/debug_fallback"
   ; "tests/stdlib/format/written"
   ; "tests/stdlib/format/numbers"
+  ; "tests/stdlib/format/static"
   ; "tests/stdlib/iter/adapters"
   ; "tests/stdlib/iter/lazy_lines"
   ; "tests/stdlib/algo/sort"
@@ -366,6 +531,7 @@ let cases =
   ; "tests/core/syntax/exponent_literals"
   ; "tests/stdlib/stringbuilder/stringbuilder"
   ; "tests/core/traits/written_target"
+  ; "tests/core/traits/impl_bound_met"
   ; "tests/core/traits/bound_target"
   ; "tests/core/traits/documented_bound"
   ; "tests/core/traits/super_args"
@@ -384,6 +550,9 @@ let cases =
   ; "tests/core/modules/module_statements/main"
   ; "tests/meta/01_basic/basic"
   ; "tests/meta/01_basic/nested"
+  ; "tests/meta/01_basic/display_in_meta"
+  ; "tests/meta/prune/meta_only_function"
+  ; "tests/meta/prune/unreferenced_impl"
   ; "tests/meta/02_gen/basic"
   ; "tests/meta/02_gen/env"
   ; "tests/meta/02_gen/gen_meta"
@@ -434,6 +603,7 @@ let cases =
   ; "tests/meta/05_order/25_meta_in_lambda"
   ; "tests/meta/05_order/26_unreached_type"
   ; "tests/meta/05_order/27_meta_reaches_fn"
+  ; "tests/meta/05_order/29_operator_reached"
   ; "tests/meta/06_modules/circular/main"
   ; "tests/meta/06_modules/derive_across/main"
   ; "tests/meta/06_modules/derive_across_selective/main"
@@ -446,22 +616,58 @@ let cases =
   ; "tests/meta/06_modules/unreached_fn/main"
   ; "tests/meta/06_modules/unreached_generic/main"
   ; "tests/meta/06_modules/unused_import/main"
-  ; "tests/meta/07_precheck/alias_generated"
-  ; "tests/meta/07_precheck/depends_on_meta"
-  ; "tests/meta/07_precheck/generated_later"
+  ; "tests/meta/07_unreached/alias_generated"
+  ; "tests/meta/07_unreached/depends_on_meta"
+  ; "tests/meta/07_unreached/generated_later"
+  ; "tests/meta/07_unreached/unreached_not_checked"
   ; "tests/meta/05_order/28_const_args"
   ; "tests/meta/code/fold"
   ; "tests/meta/code/derive_eq"
   ; "tests/meta/code/helper"
+  ; "tests/meta/code/outside_meta"
+  ; "tests/meta/code/generic"
   ; "tests/meta/syntax/inspect"
   ; "tests/meta/syntax/by_hand"
   ; "tests/meta/syntax/record_from_list"
   ; "tests/meta/syntax/statements"
   ; "tests/meta/syntax/type_splice"
+  ; "tests/meta/splice/gen_code_expr"
+  ; "tests/meta/splice/gen_code_stmts"
+  ; "tests/meta/splice/gen_code_decl"
+  ; "tests/meta/splice/meta_expr"
+  ; "tests/meta/splice/meta_expr_value_param"
+  ; "tests/meta/splice/meta_expr_expected"
+  ; "tests/meta/splice/meta_expr_nested"
+  ; "tests/meta/splice/gen_call_value"
+  ; "tests/meta/traits/meta_in_trait"
+  ; "tests/meta/traits/per_instance"
+  ; "tests/meta/traits/open_param"
+  ; "tests/meta/traits/effect_handler"
+  ; "tests/reflection/typeof_value"
+  ; "tests/meta/params/typeof_param"
+  ; "tests/meta/params/type_param_value"
+  ; "tests/meta/params/typeof_compound"
+  ; "tests/meta/declof/fn"
+  ; "tests/meta/declof/keyed"
+  ; "tests/meta/declof/generic_type"
+  ; "tests/meta/declof/trait"
+  ; "tests/meta/declof/processed"
+  ; "tests/meta/declof/pruned"
+  ; "tests/meta/declof/static_param"
+  ; "tests/meta/declof/qualified/main"
+  ; "tests/meta/declof/dynamic"
+  ; "tests/meta/declof/outside_meta"
+  ; "tests/meta/declof/generic"
+  ; "tests/meta/implements/implements"
+  ; "tests/meta/implements/own_name"
+  ; "tests/meta/implements/at_runtime"
+  ; "tests/meta/effects_of/at_runtime"
+  ; "tests/meta/implements/generic"
   ; "tests/meta/syntax/round_trip"
   ; "tests/meta/syntax/printer"
   ; "tests/meta/moduleof/main"
   ; "tests/meta/moduleof/helper_fn"
+  ; "tests/meta/moduleof/outside_meta"
   ; "tests/meta/derive/two_traits"
   ; "tests/meta/attributes/fields"
   ; "tests/meta/attributes/variants"
@@ -512,6 +718,10 @@ let cases =
   ; "tests/core/traits/try_from/main"
   ; "tests/core/traits/associated"
   ; "tests/core/traits/impl_after_use"
+  ; "tests/core/traits/in_type/in_type"
+  ; "tests/core/traits/in_type/documented"
+  ; "tests/core/traits/in_type/documented_type"
+  ; "tests/core/traits/in_type/local_display"
   ; "tests/core/traits/associated_builtin"
   ; "tests/core/traits/associated_type"
   ; "tests/core/traits/supertrait"
@@ -521,8 +731,6 @@ let cases =
   ; "tests/core/traits/dyn/bounded_impl"
   ; "tests/core/records/empty_literal"
   ; "tests/core/traits/builtin_receiver/main"
-  ; "tests/effects/methods/methods"
-  ; "tests/effects/methods/suspending_receiver"
   ; "tests/core/static_params/type_params/main"
   ; "tests/core/static_params/type_reuse/main"
   ; "tests/core/static_params/parameterized_types/main"
@@ -542,6 +750,7 @@ let cases =
   ; "tests/core/defer/defer_in_match_arm"
   ; "tests/core/resolution/hoisting_in_match_arm"
   ; "tests/core/types/local_type_per_function"
+  ; "tests/core/types/copies"
   ; "tests/core/types/local_recursive"
   ; "tests/core/types/unit_literal"
   ; "tests/core/types/empty_type"
@@ -574,15 +783,13 @@ let cases =
   ; "tests/core/static_params/generic_values"
   ; "tests/core/static_params/nested/comptime_in_function"
   ; "tests/core/static_params/nested/comptime_in_method"
-  ; "tests/core/defer/defer_in_converted_fn"
-  ; "tests/core/defer/defer_multishot"
-  ; "tests/core/defer/defer_multishot_abort"
-  ; "tests/core/defer/defer_performs_effect"
   ]
 
 (* Programs that must be rejected, and the diagnostics they must produce. *)
 let error_cases =
   [ "tests/core/variadic/errors/not_last"
+  ; "tests/core/functions/inline/errors/recursive"
+  ; "tests/core/functions/inline/errors/mutual"
   ; "tests/core/control/errors/break_outside_loop"
   ; "tests/core/control/errors/continue_outside_loop"
   ; "tests/core/defer/errors/defer_cannot_fail"
@@ -603,17 +810,21 @@ let error_cases =
   ; "tests/core/lambdas/errors/naked_arrow"
   ; "tests/core/type_annotations/errors/arrow_return"
   ; "tests/core/types/errors/empty_type_field"
+  ; "tests/core/types/errors/written_arguments"
     (* Inference never produces a trait object; only a written type asks for one. *)
   ; "tests/core/traits/errors/inferred_trait_object"
   ; "tests/core/traits/errors/not_an_implementer"
+  ; "tests/core/traits/errors/impl_row_inferred"
+  ; "tests/core/traits/errors/impl_bound_unmet"
+  ; "tests/core/traits/in_type/errors/declared_twice"
   ; "tests/core/traits/errors/object_needs_receiver"
   ; "tests/core/lambdas/errors/trailing_comma"
   ; "tests/core/embed/errors/missing"
   ; "tests/effects/generic/errors/one_type"
   ; "tests/effects/generic/errors/written_row_arity"
+  ; "tests/effects/generic/errors/unconstrained_at_call"
   ; "tests/effects/generic/errors/two_instantiations"
   ; "tests/effects/generic/errors/written_row_mismatch"
-  ; "tests/effects/final/errors/resumes"
   ; "tests/effects/errors/arm_settles_op_param"
   ; "tests/effects/errors/arm_settles_op_row"
   ; "tests/effects/errors/arm_ties_op_param"
@@ -622,6 +833,7 @@ let error_cases =
   ; "tests/meta/02_gen/errors/reify_fn"
   ; "tests/meta/02_gen/errors/reify_object"
   ; "tests/meta/03_derive/errors/gen_at_runtime"
+  ; "tests/meta/03_derive/errors/gen_in_comptime"
   ; "tests/meta/03_derive/errors/use_before_derive"
   ; "tests/meta/04_functions/errors/meta_fn"
   ; "tests/meta/05_order/17_gen_before"
@@ -629,13 +841,13 @@ let error_cases =
   ; "tests/meta/05_order/errors/distinct_instances"
   ; "tests/meta/05_order/errors/double_demotion"
   ; "tests/meta/05_order/errors/dynamic_in_meta"
+  ; "tests/meta/05_order/errors/meta_calls_walking"
+  ; "tests/meta/05_order/errors/top_level_var_in_meta"
   ; "tests/meta/05_order/errors/static_arg_in_meta"
   ; "tests/meta/05_order/errors/meta_type_without_args"
   ; "tests/meta/05_order/errors/value_type_without_args"
-  ; "tests/meta/07_precheck/errors/instance_mismatch"
-  ; "tests/meta/07_precheck/errors/unreached_value_param"
+  ; "tests/meta/07_unreached/errors/instance_mismatch"
   ; "tests/core/functions/errors/duplicate_fn"
-  ; "tests/core/functions/errors/generic_captures"
   ; "tests/core/types/errors/duplicate_type"
   ; "tests/meta/02_gen/errors/duplicate_generated"
   ; "tests/core/traits/errors/self_method_on_type"
@@ -646,21 +858,46 @@ let error_cases =
   ; "tests/meta/attributes/errors/doc_not_a_declaration"
   ; "tests/core/syntax/errors/unterminated_block_comment"
   ; "tests/reflection/errors/no_such_name"
-  ; "tests/meta/code/errors/outside_meta"
+  ; "tests/meta/code/errors/run_time_quote_in_meta"
+  ; "tests/meta/code/errors/quoting_at_runtime"
   ; "tests/meta/code/errors/not_a_name"
   ; "tests/meta/syntax/errors/wrong_kind"
+  ; "tests/meta/splice/errors/expr_none"
+  ; "tests/meta/splice/errors/expr_two"
+  ; "tests/meta/splice/errors/expr_stmt"
+  ; "tests/meta/splice/errors/sig_in_body"
+  ; "tests/meta/traits/errors/stmt_in_trait"
+  ; "tests/meta/traits/errors/missing_generated"
+  ; "tests/meta/traits/errors/duplicate_generated"
+  ; "tests/meta/declof/errors/unkeyed"
+  ; "tests/meta/declof/errors/self"
+  ; "tests/meta/declof/errors/not_a_decl"
+  ; "tests/meta/declof/errors/dynamic_unknown"
   ; "tests/meta/moduleof/errors/not_a_module"
-  ; "tests/meta/moduleof/errors/outside_meta"
   ; "tests/effects/handler/errors/arm_without_outer"
+  ; "tests/effects/errors/handled_twice"
+  ; "tests/effects/final/errors/resumes"
+  ; "tests/effects/errors/with_binds_nothing"
+  ; "tests/effects/errors/ambiguous_operation"
+  ; "tests/effects/errors/split_in_loop"
+  ; "tests/effects/errors/arm_body_error"
+  ; "tests/effects/discontinue/errors/outside_handler"
+  ; "tests/effects/errors/handler_method_takes_control"
+  ; "tests/effects/errors/arm_resumes_wrong_type"
+  ; "tests/effects/errors/arm_unmarked_error"
+  ; "tests/effects/errors/run_without_answer"
+  ; "tests/effects/errors/handle_unwritten_arguments"
   ; "tests/core/records/errors/unimported_effect_in_field"
   ; "tests/core/records/errors/unknown_field_type"
-  ; "tests/reflection/errors/not_a_value"
+  ; "tests/reflection/errors/generic_value"
   ; "tests/types/errors/mixed_numeric"
-  ; "tests/types/inference/errors/unspecializable_recursion"
   ; "tests/types/errors/non_bool_condition"
   ; "tests/types/errors/undefined_variable"
   ; "tests/types/errors/arity"
   ; "tests/types/errors/return_mismatch"
+  ; "tests/types/expected/errors/unsettled_value"
+  ; "tests/types/expected/errors/unsettled_lambda"
+  ; "tests/types/expected/errors/unsettled_variant"
   ; "tests/types/errors/assign_mismatch"
   ; "tests/types/errors/unknown_type"
   ; "tests/types/errors/declared_without_value"
@@ -682,13 +919,14 @@ let error_cases =
     (* An effect is declared where it is performed: nothing exports one, so a
        module reaches neither the operation nor the effect's own name. *)
   ; "tests/effects/errors/across_modules/main"
+  ; "tests/effects/errors/ambiguous_module_operation/main"
+  ; "tests/meta/02_gen/errors/ambiguous_generated_operation"
   ; "tests/core/chars/errors/not_a_string"
   ; "tests/core/chars/errors/char_is_not_a_byte"
   ; "tests/core/strings/errors/immutable"
   ; "tests/core/strings/errors/immutable_compound"
   ; "tests/core/strings/errors/split_separator"
   ; "tests/core/tuples/errors/no_such_field"
-  ; "tests/core/tuples/errors/unknown_arity"
   ; "tests/core/records/errors/no_such_field"
   ; "tests/core/records/errors/local_no_such_field"
   ; "tests/core/records/errors/field_mismatch"
@@ -722,7 +960,6 @@ let error_cases =
   ; "tests/core/traits/errors/no_such_method"
   ; "tests/core/traits/errors/arity"
   ; "tests/core/traits/errors/unknown_method"
-  ; "tests/core/traits/errors/ambiguous_receiver"
   ; "tests/stdlib/format/errors/effectful_display"
   ; "tests/core/traits/errors/generic_impl_no_operator"
   ; "tests/core/traits/errors/bounded_impl_unmet"
@@ -745,13 +982,10 @@ let error_cases =
   ; "tests/types/gadt/errors/ill_typed_tree"
   ; "tests/types/gadt/errors/impossible_arm"
   ; "tests/types/gadt/errors/leaked_constraint"
-  ; "tests/types/gadt/errors/match_expr_unannotated"
   ; "tests/effects/errors/duplicate_operation"
-  ; "tests/effects/errors/discontinue_outside_ctl"
   ; "tests/effects/errors/row_argument_kind"
   ; "tests/effects/errors/closed_row_argument"
   ; "tests/types/errors/local_type_escapes"
-  ; "tests/types/inference/errors/unspecializable_names_the_caller"
   ; "tests/core/modules/errors/outside_package/main"
   ; "tests/core/modules/errors/module_var/main"
   ; "tests/core/modules/errors/module_var_shadowed/main"
@@ -760,12 +994,28 @@ let error_cases =
   ; "tests/core/traits/errors/impl_row_narrower"
   ; "tests/core/traits/errors/impl_row_wider"
   ; "tests/core/traits/errors/object_not_a_bound"
+  ; "tests/core/top_level/errors/each_statement"
+  ; "tests/core/top_level/errors/before_initializer"
+  ; "tests/core/top_level/errors/function_reads_var"
+  ; "tests/core/top_level/errors/handler_arm_reads_var"
+  ; "tests/core/top_level/errors/impl_reads_var"
+  ; "tests/core/top_level/errors/function_reads_shadowed"
+  ; "tests/core/top_level/user_main/errors/parameters"
+  ; "tests/core/top_level/user_main/errors/generic"
+  ; "tests/core/top_level/user_main/errors/returns_string"
   ]
 
 (* Accepted, then failing while running. Separate from [error_cases], which
    never reach the interpreter. *)
 let runtime_cases =
   [ "tests/core/collections/index_out_of_range"
+  ; "tests/effects/root/root_failure"
+  ; "tests/core/top_level/uncaught"
+  ; "tests/core/top_level/uncaught_structure"
+  ; "tests/core/top_level/uncaught_located"
+  ; "tests/core/top_level/uncaught_at_throw"
+  ; "tests/core/top_level/return_throws"
+  ; "tests/core/top_level/user_main/throws"
   ; "tests/core/slices/negative_index"
   ; "tests/core/builtins/chr_invalid"
   ; "tests/operators/negative_shift"
@@ -814,7 +1064,7 @@ let interpret path =
   | Error (e :: _) -> Error (described path e)
   | Ok converted ->
     (match Pipeline.run (Builtins.env ~out) converted with
-     | Ok _ -> Ok (Buffer.contents buf)
+     | Ok status -> Ok (Buffer.contents buf, status)
      | Error e -> Error (described path e)
      | exception Stack_overflow -> Error "the stack overflowed")
 
@@ -838,7 +1088,6 @@ let expected_failing : (string * blocker) list =
   ; "tests/compile/m6/apply", Parked
   ; "tests/compile/m7/safe_div", Parked
   ; "tests/compile/m8/gadt", Parked
-  ; "tests/meta/03_derive/errors/gen_in_comptime", Waiting "Gen as an effect"
   ]
 
 (* Run everywhere but Windows, which cannot wait on a pipe with `select`, so
@@ -847,10 +1096,7 @@ let posix_cases : string list = [ "tests/stdlib/os/pipe_wait" ]
 
 (* Ought to be rejected and are not, paired with the `.err` they should
    produce. The suite announces the moment one starts being caught. *)
-let known_unsound : string list =
-  (* The row is compared as written, so an impl that performs an effect neither
-     it nor the trait declares is still accepted. *)
-  [ "tests/core/traits/errors/impl_row_inferred" ]
+let known_unsound : string list = []
 
 (* Every diagnostic the checker found, not only the first. *)
 let rejections path =
@@ -863,9 +1109,10 @@ let rejections path =
          (List.map
             (fun (e : Diagnostic.error) ->
               Printf.sprintf
-                "%s %s"
+                "%s %s%s"
                 (Ast.locate ~entry:path e.Diagnostic.span)
-                e.Diagnostic.message)
+                e.Diagnostic.message
+                (Option.fold ~none:"" ~some:(fun note -> "\n  note: " ^ note) e.Diagnostic.note))
             errors))
 
 (* Passing here is the failure, as with [expected_failing]: being rejected is
@@ -1006,15 +1253,41 @@ let run_round_trip root name =
 (* What follows `--` on the command line, for the fixtures that read it. *)
 let arguments_for = [ "tests/stdlib/os/args", [ "one"; "two three" ] ]
 
+(* The status a fixture exits with, where it is not 0. *)
+let exit_status_for =
+  [ "tests/core/top_level/returns_status", 3
+  ; "tests/core/top_level/both_branches_return", 4
+  ; "tests/core/top_level/user_main/status", 3
+  ; "tests/core/top_level/user_main/system_effects", 5
+  ; "tests/core/top_level/user_main/exits", 6
+  ; "tests/stdlib/os/exit", 3
+  ; "tests/stdlib/os/exit_with/file", 6
+  ; "tests/stdlib/os/exit_with/file_in_main", 6
+  ; "tests/stdlib/os/exit_with/dirs", 6
+  ; "tests/stdlib/os/exit_with/dirs_in_main", 6
+  ; "tests/stdlib/os/exit_with/process", 6
+  ; "tests/stdlib/os/exit_with/process_in_main", 6
+  ; "tests/stdlib/os/exit_with/net", 6
+  ; "tests/stdlib/os/exit_with/net_in_main", 6
+  ; "tests/stdlib/os/exit_with/async", 6
+  ; "tests/stdlib/os/exit_with/async_in_main", 6
+  ; "tests/stdlib/os/exit_with/async_file", 6
+  ; "tests/stdlib/os/exit_with/async_file_in_main", 6
+  ]
+
 let run_case root name =
   let path ext = Filename.concat root (name ^ ext) in
   let expected = read_file (path ".txt") in
+  let status = Option.value (List.assoc_opt name exit_status_for) ~default:0 in
   System.arguments := Option.value (List.assoc_opt name arguments_for) ~default:[];
   match interpret (path ".cx") with
   | Error message ->
     Printf.printf "FAIL %s\n  %s\n" name message;
     false
-  | Ok actual ->
+  | Ok (_, actual) when actual <> status ->
+    Printf.printf "FAIL %s\n  exited %d, expected %d\n" name actual status;
+    false
+  | Ok (actual, _) ->
     if String.equal (normalize actual) (normalize expected)
     then (
       Printf.printf "ok   %s\n" name;
@@ -1038,7 +1311,7 @@ let run_expected_failing root (name, blocker) =
     | Ok actual -> String.equal (normalize actual) (normalize (read_file (path ext)))
     | Error _ -> false
   in
-  if matches ".txt" interpret || matches ".err" rejections
+  if matches ".txt" (fun p -> Result.map fst (interpret p)) || matches ".err" rejections
   then (
     Printf.printf
       "PASSES %s\n  now works; move it into `%s` (was waiting on %s)\n"
@@ -1115,14 +1388,14 @@ let renderings =
         Diagnostic.Type
         ~entry:"alpha.cx"
         ~path:"alpha.cx"
-        ~text:(Some "fn main() {\n  var x: int = \"hi\";\n}\n")
+        ~text:(Some "fn main() {\n  var x: Int = \"hi\";\n}\n")
         ~lo:27
         ~hi:31
-        "expected int, found string"
-    , "× Type error: expected int, found string\n\
+        "expected Int, found String"
+    , "× Type error: expected Int, found String\n\
       \  ┌─ alpha.cx:2:16\n\
       \  │\n\
-       2 │   var x: int = \"hi\";\n\
+       2 │   var x: Int = \"hi\";\n\
       \  │                ~~~~\n\
       \  └─\n" )
     (* The gutter widens with the line number, so the rules stay under it. *)
@@ -1254,10 +1527,10 @@ let run_prompt_flushed () =
 let run_prelude_walk () =
   let path = Filename.temp_file "prelude_walk" ".cx" in
   Out_channel.with_open_bin path (fun channel ->
-    output_string channel "var xs: List<int> = [1, 2];\nprint(xs.len() < 3);\n");
+    output_string channel "var xs: List<Int> = [1, 2];\nprint(xs.len() < 3);\n");
   let walked =
     match Pipeline.front ~roots:(Driver.roots_for path) ~out:(fun _ -> ()) path with
-    | Ok processed -> Ok (Bootstrap.Source.program processed)
+    | Ok processed -> Ok (Bootstrap.Printer.string_of_processed_program processed)
     | Error _ -> Error "the probe does not metaprocess"
   in
   match walked with
@@ -1275,9 +1548,11 @@ let run_prelude_walk () =
       go 0
     in
     let expectations =
-      [ "the prelude reaches the walk", mentions "type std#List#List", true
-      ; "a prelude function a later pass calls survives", mentions "fn std#Ops#__is_less(", true
-      ; "an unreached prelude function is dropped", mentions "fn std#Assert#assert", false
+      [ "the prelude reaches the walk", mentions "(type std#List#List<Int>)", true
+      ; ( "a prelude function a later pass calls survives"
+        , mentions "(fn std#List#List#std#Ops#FromArray#T#from_array"
+        , true )
+      ; "an unreached prelude function is dropped", mentions "(fn std#Assert#assert", false
       ]
     in
     List.for_all
@@ -1298,6 +1573,75 @@ let run_prelude_walk () =
                (if expected then "" else "not ");
              false))
          expectations)
+
+(* Cases whose processed program must leave out, or keep, a declaration: the
+   output cannot show it, only `--dump-code` can. Each is in [cases] too. *)
+let pruned =
+  [ "tests/meta/prune/meta_only_function", [ "(fn doubled " ], [ "(fn shared " ]
+  ; "tests/meta/declof/pruned", [ "(fn lonely " ], []
+  ; "tests/core/functions/inline/not_marked", [], [ "(fn shown#0 "; "(fn shown#1 "; "(fn shown#2 " ]
+  ; "tests/core/functions/inline/marked", [ "(fn shown" ], []
+  ; ( "tests/core/functions/inline/members"
+    , [ "(fn Counter#"; "(fn Box#"; "(fn sign"; "(fn handler#" ]
+    , [ "(fn std#List#List#push" ] )
+  ; ( "tests/meta/prune/unreferenced_impl"
+    , [ "(fn Circle#Area#area"; "(fn Circle#std#Format#Display#fmt" ]
+    , [ "(fn Square#Area#area" ] )
+  ]
+
+let run_pruned root (name, absent, present) =
+  let path = Filename.concat root (name ^ ".cx") in
+  match Pipeline.front ~roots:(Driver.roots_for path) ~out:(fun _ -> ()) path with
+  | Error _ ->
+    Printf.printf "FAIL %s (dump-code)\n  does not metaprocess\n" name;
+    false
+  | Ok processed ->
+    let printed = Bootstrap.Printer.string_of_processed_program processed in
+    let mentions needle =
+      let n = String.length needle in
+      let rec go i =
+        i + n <= String.length printed && (String.equal (String.sub printed i n) needle || go (i + 1))
+      in
+      go 0
+    in
+    let wrong =
+      List.filter mentions absent @ List.filter (fun needle -> not (mentions needle)) present
+    in
+    (match wrong with
+     | [] -> Printf.printf "ok   %s (dump-code)\n" name
+     | wrong ->
+       Printf.printf
+         "FAIL %s (dump-code)\n  wrongly kept or dropped:\n%s\n"
+         name
+         (String.concat "\n" (List.map (fun needle -> "    " ^ needle) wrong)));
+    wrong = []
+
+(* Cases whose `--dump-code` must be their `.code`. Each is in [cases] too. *)
+let dumped_code = [ "tests/meta/dump_code/generated"; "tests/meta/dump_code/instances" ]
+
+let run_dumped_code root name =
+  let path = Filename.concat root (name ^ ".cx") in
+  let written = ref None in
+  match
+    Pipeline.front
+      ~on_written:(fun w -> written := Some w)
+      ~roots:(Driver.roots_for path)
+      ~out:(fun _ -> ())
+      path
+  with
+  | Error _ ->
+    Printf.printf "FAIL %s (dump-code)\n  does not metaprocess\n" name;
+    false
+  | Ok _ ->
+    let actual = Driver.written_code ~entry:path (Option.value ~default:[] !written) in
+    let expected = read_file (Filename.concat root (name ^ ".code")) in
+    if String.equal actual expected
+    then (
+      Printf.printf "ok   %s (dump-code)\n" name;
+      true)
+    else (
+      Printf.printf "FAIL %s (dump-code)\n  --- expected ---\n%s\n  --- actual ---\n%s\n" name expected actual;
+      false)
 
 (* Every file the library ships, reached by a fixture or not. Two modules under
    `stdlib/lex/` rotted to a syntax the language had dropped, and stayed broken
@@ -1373,6 +1717,8 @@ let () =
       @ List.map (flushed Fun.id (run_round_trip root)) cases
       @ List.map (flushed fst (run_expected_failing root)) expected_failing
       @ List.map (flushed Fun.id (run_known_unsound root)) known_unsound
+      @ List.map (flushed (fun (name, _, _) -> name) (run_pruned root)) pruned
+      @ List.map (flushed Fun.id (run_dumped_code root)) dumped_code
       @ [ run_partition root; run_rendering (); run_prelude_walk (); run_stdlib_parses root ]
       @ [ run_prompt_flushed () ]
     in

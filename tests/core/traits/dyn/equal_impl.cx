@@ -1,30 +1,30 @@
 trait Labeled {
-    fn label(self): string;
+    fn label(self): String;
 }
 
-type Reading { value: int, taken_at: int }
+type Reading { value: Int, taken_at: Int }
 type Cell<T> { held: T }
 
 impl Eq for Reading {
-    fn eq(self, rhs: Reading): bool {
+    fn eq(self, rhs: Reading): Bool {
         return self.value == rhs.value;
     }
 }
 
 impl Labeled for Reading {
-    fn label(self): string {
+    fn label(self): String {
         return str(self.value);
     }
 }
 
 impl Labeled for Cell<T> {
-    fn label(self): string {
+    fn label(self): String {
         return "cell";
     }
 }
 
-impl Labeled for int {
-    fn label(self): string {
+impl Labeled for Int {
+    fn label(self): String {
         return str(self);
     }
 }

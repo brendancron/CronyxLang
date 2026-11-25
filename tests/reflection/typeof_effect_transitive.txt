@@ -1,2 +1,2 @@
-(int, int) -> <stream> unit
-(int) -> <stream> unit
+(Int, Int) -> <Stream> Unit
+(Int) -> <Stream> Unit

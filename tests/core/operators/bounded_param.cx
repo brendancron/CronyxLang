@@ -1,4 +1,4 @@
-type Vec2 { x: int, y: int }
+type Vec2 { x: Int, y: Int }
 
 impl Add<Vec2> for Vec2 {
     type Output = Vec2;

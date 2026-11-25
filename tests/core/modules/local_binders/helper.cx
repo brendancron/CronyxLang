@@ -1,25 +1,25 @@
-type Box { Hold(int) }
+type Box { Hold(Int) }
 
-fn item(): int { return 99; }
+fn item(): Int { return 99; }
 
-fn use_loop(): int {
+fn use_loop(): Int {
     var sum = 0;
     for (item in [1, 2, 3]) { sum = sum + item; }
     return sum;
 }
 
-fn use_match(b: Box): int {
+fn use_match(b: Box): Int {
     match b { Box.Hold(item) => { return item; } }
 }
 
-fn pair(): (int, int) { return (1, 2); }
+fn pair(): (Int, Int) { return (1, 2); }
 
-fn use_tuple(): int {
+fn use_tuple(): Int {
     var (item, other) = pair();
     return item + other;
 }
 
-fn use_lambda(): int {
+fn use_lambda(): Int {
     var f = () => {
         var start = 5;
         return start;

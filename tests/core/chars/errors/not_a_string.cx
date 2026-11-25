@@ -1,1 +1,1 @@
-var c: char = "a";
+var c: Char = "a";

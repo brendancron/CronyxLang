@@ -1,0 +1,1 @@
+[2:18] This is not settled when its statement ends: its type is ('a) -> Int, and nothing fixes it. Write the type.

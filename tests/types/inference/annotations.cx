@@ -1,14 +1,14 @@
-fn add(a: int, b: int): int {
+fn add(a: Int, b: Int): Int {
   return a + b;
 }
 
 // Cronyx accepts `:` for a return type as well as `->`.
-fn greet(name: string): string {
+fn greet(name: String): String {
   return "hello, " + name;
 }
 
-var count: int = 3;
-var ratio: float = 0.5;
+var count: Int = 3;
+var ratio: Float = 0.5;
 
 print(add(count, 4));
 print(greet("world"));

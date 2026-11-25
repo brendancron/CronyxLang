@@ -1,27 +1,27 @@
 import { Stream } from "std/io/Console";
 
-type Money { pence: int }
+type Money { pence: Int }
 
 impl Display for Money {
-    fn fmt(self): string {
+    fn fmt(self): String {
         return "£" + str(self.pence / 100) + "." + str(self.pence % 100);
     }
 }
 
-type Tag { name: string }
+type Tag { name: String }
 
 impl Debug for Tag {
-    fn debug(self): string { return "#" + self.name; }
+    fn debug(self): String { return "#" + self.name; }
 }
 
 var price = Money { pence: 1250 };
 print(price);
 print("costs " + str(price));
 
-var err: List<string> = [];
-run {
+var err: List<String> = [];
+run<Unit> {
     printerr(price);
-} handle Console {
+} handle<Console> {
     fn write(to, text) {
         match to {
             Stream.Out => {}

@@ -1,0 +1,7 @@
+import { decl_source } from "std/compiler/Printer";
+import "util";
+
+meta {
+    print(decl_source(declof(util.twice)));
+}
+print(util.twice(4));

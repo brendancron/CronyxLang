@@ -1,0 +1,15 @@
+import { Stream } from "std/io/Console";
+
+var captured: List<String> = [];
+
+fn greet(name: String) {
+    print("hello, " + name);
+}
+
+run<Unit> {
+    greet("inside");
+} handle<Console> {
+    fn write(to, text) { captured.push("captured: " + text); }
+}
+greet("outside");
+for (line in captured) { write(Stream.Out, line); }

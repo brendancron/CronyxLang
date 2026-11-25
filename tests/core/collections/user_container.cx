@@ -1,6 +1,6 @@
 type Ring<T> {
     items: Array<T>,
-    head: int
+    head: Int
 }
 
 impl FromArray<T> for Ring<T> {
@@ -9,10 +9,10 @@ impl FromArray<T> for Ring<T> {
     }
 }
 
-impl Index<int> for Ring<T> {
+impl Index<Int> for Ring<T> {
     type Output = T;
 
-    fn get(self, i: int): T {
+    fn get(self, i: Int): T {
         var at = self.head + i;
         while (at >= self.items.len()) {
             at = at - self.items.len();
@@ -21,8 +21,8 @@ impl Index<int> for Ring<T> {
     }
 }
 
-impl IndexSet<int> for Ring<T> {
-    fn set(self, i: int, v: T): T {
+impl IndexSet<Int> for Ring<T> {
+    fn set(self, i: Int, v: T): T {
         var at = self.head + i;
         while (at >= self.items.len()) {
             at = at - self.items.len();
@@ -32,7 +32,7 @@ impl IndexSet<int> for Ring<T> {
     }
 }
 
-var ring: Ring<int> = [1, 2, 3];
+var ring: Ring<Int> = [1, 2, 3];
 print(str(ring[0]) + " " + str(ring[1]) + " " + str(ring[4]));
 
 ring.head = 1;
@@ -41,8 +41,8 @@ print(str(ring[0]) + " " + str(ring[2]));
 ring[0] = 9;
 print(str(ring[0]) + " " + str(typeof(ring).name));
 
-var words: Ring<string> = ["a", "b"];
+var words: Ring<String> = ["a", "b"];
 print(str(words[3]) + " " + str(typeof(words).name));
 
-var also: List<int> = [7, 8];
+var also: List<Int> = [7, 8];
 print(str(also.len()) + " " + str(also[1]) + " " + str(ring[0]));

@@ -1,0 +1,18 @@
+import { MethodSig, Signature, TypeExpr, TypeKind } from "std/compiler/Ast";
+
+fn getter(): MethodSig {
+    return MethodSig {
+        name: "get".as_name(),
+        params: [],
+        signature: Signature {
+            ret: Option.Some(TypeExpr.of(TypeKind.Named("Int".as_name()))),
+            row: Option.None,
+            static_params: [], inline: false
+        },
+        attrs: []
+    };
+}
+
+meta {
+    gen getter();
+}

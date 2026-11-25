@@ -41,8 +41,8 @@ let split prefixes mangled =
 (* ---- where a declaration was written ---- *)
 
 (* Which unit a declaration belongs to is the *span's* question, not the
-   mangled name's. An `impl` for a primitive is why: `impl Add for int` is
-   written under some unit and mangles to `int#impl#…`, so locating it by its
+   mangled name's. An `impl` for a primitive is why: `impl Add for Int` is
+   written under some unit and mangles to `Int#impl#…`, so locating it by its
    name would place it nowhere and drop it from the reference entirely.
 
    A unit records its path relative to the root that owns it, and a span carries
@@ -77,7 +77,7 @@ let line_of span =
 (* ---- types ---- *)
 
 (* Every declaration in the build, by the name it was mangled to. [display] is
-   what a page titles it; [is_trait] is what tells `<T: Ord>` from `<n: int>`,
+   what a page titles it; [is_trait] is what tells `<T: Ord>` from `<n: Int>`,
    since both are written as a `<>` parameter with a type and only the trait
    table separates them. *)
 type known_entry =
@@ -154,7 +154,7 @@ let row_of ~known ~params = function
 
 (* ---- parameters ---- *)
 
-(* `<T>`, `<T: Ord>` and `<n: int>` are one syntax and three different things: a
+(* `<T>`, `<T: Ord>` and `<n: Int>` are one syntax and three different things: a
    generic, a generic with a bound, and a *value* the declaration is instantiated
    at -- which is what makes it comptime rather than generic. The written
    type does not say which, since a bound and a value type are both a type
@@ -342,7 +342,7 @@ type entry =
   (* The type an impl is for, so a type can list the impls that name it. *)
   ; impl_for : string option
   (* And the trait it implements, so a trait can list its implementers -- which
-     is the only way to find the impls for a primitive, since `int` has no page
+     is the only way to find the impls for a primitive, since `Int` has no page
      to carry them. *)
   ; impl_of : string option
   ; json : Json.t
@@ -363,7 +363,7 @@ let applied ~known ~params (name, args) =
 
 (* An impl is written with no name, so its id is built from the two things that
    identify it: the type it is for and the trait it implements, arguments
-   included -- `Index<int>` and `Index<Range>` for one type are two impls of one
+   included -- `Index<Int>` and `Index<Range>` for one type are two impls of one
    trait. Overlapping impls are rejected, so nothing else can collide. *)
 let impl_id ~target ~trait =
   match trait with
@@ -558,7 +558,7 @@ let rec declaration ~known ~places ~prefixes ~package ~exports (s : Ast.stmt) : 
         match trait with
         | None -> target_name
         (* The arguments are in the title because they are what tells two impls
-           of one trait apart: `Index<int>` and `Index<Range>` for one type are
+           of one trait apart: `Index<Int>` and `Index<Range>` for one type are
            two entries, and both would otherwise be called `Index for List`. *)
         | Some (t, []) -> display known t ^ " for " ^ target_name
         | Some (t, args) ->
@@ -601,83 +601,6 @@ let rec declaration ~known ~places ~prefixes ~package ~exports (s : Ast.stmt) : 
                        body.Ast.ib_assoc) )
               ; ( "methods"
                 , Json.List (List.map (method_def ~known ~params) body.Ast.ib_methods) )
-              ]
-        }
-      ])
-  | `Effect_decl (mangled, ps, ops) ->
-    located mangled (fun ~unit_ ~name ->
-      [ { name; kind = "effect"; impl_for = None; impl_of = None
-        ; id = mangled
-        ; unit_
-        ; json =
-            head
-              ~unit_
-              ~id:mangled
-              ~name
-              ~kind:"effect"
-              [ "generics", Json.List (List.map (fun n -> Json.String n) ps)
-              ; ( "ops"
-                , Json.List
-                    (List.map
-                       (fun (o : Ast.op_decl) ->
-                         let params = ps @ o.Ast.op_tparams in
-                         Json.Obj
-                           [ ( "name"
-                             , Json.String
-                                 (match split prefixes o.Ast.op_name with
-                                  | Some (_, written) -> written
-                                  | None -> o.Ast.op_name) )
-                           ; ( "kind"
-                             , Json.String
-                                 (match o.Ast.op_kind with
-                                  | Ast.Op_fn -> "fn"
-                                  | Ast.Op_ctl -> "ctl"
-                                  | Ast.Op_final -> "final ctl") )
-                           ; ( "generics"
-                             , Json.List
-                                 (List.map (fun n -> Json.String n) o.Ast.op_tparams) )
-                           ; "params", params_of ~known ~params o.Ast.op_params
-                           ; "ret", Json.opt (type_expr ~known ~params) o.Ast.op_ret
-                           ; "doc", doc_of o.Ast.op_attrs
-                           ; "attrs", attrs_of o.Ast.op_attrs
-                           ])
-                       ops) )
-              ]
-        }
-      ])
-  | `Handler_decl (mangled, h) ->
-    located mangled (fun ~unit_ ~name ->
-      [ { name; kind = "handler"; impl_for = None; impl_of = None
-        ; id = mangled
-        ; unit_
-        ; json =
-            head
-              ~unit_
-              ~id:mangled
-              ~name
-              ~kind:"handler"
-              [ "handles", applied ~known ~params:[] (h.Ast.handled, [])
-              ; ( "arms"
-                , Json.List
-                    (List.map
-                       (fun (a : Ast.stmt Ast.arm) ->
-                         Json.Obj
-                           [ ( "name"
-                             , Json.String
-                                 (match split prefixes a.Ast.arm_name with
-                                  | Some (_, written) -> written
-                                  | None -> a.Ast.arm_name) )
-                           ; ( "kind"
-                             , Json.String
-                                 (match a.Ast.arm_kind with
-                                  | Ast.Op_fn -> "fn"
-                                  | Ast.Op_ctl -> "ctl"
-                                  | Ast.Op_final -> "final ctl") )
-                           ; ( "params"
-                             , Json.List
-                                 (List.map (fun n -> Json.String n) a.Ast.arm_params) )
-                           ])
-                       h.Ast.arms) )
               ]
         }
       ])
@@ -738,13 +661,13 @@ let native_type () =
   in
   let rec go (t : Types.infer_ty) =
     match t with
-    | Types.IInt -> named "int" []
-    | Types.IFloat -> named "float" []
-    | Types.IStr -> named "string" []
-    | Types.IByte -> named "byte" []
-    | Types.IChr -> named "char" []
-    | Types.IBool -> named "bool" []
-    | Types.IUnit -> named "unit" []
+    | Types.IInt -> named "Int" []
+    | Types.IFloat -> named "Float" []
+    | Types.IStr -> named "String" []
+    | Types.IByte -> named "Byte" []
+    | Types.IChr -> named "Char" []
+    | Types.IBool -> named "Bool" []
+    | Types.IUnit -> named "Unit" []
     | Types.ITuple items ->
       Json.Obj [ "kind", Json.String "tuple"; "items", Json.List (List.map go items) ]
     | Types.INamed (name, args) -> named name (List.map go args)
@@ -875,8 +798,8 @@ let known_of (artifacts : Artifact.t list) =
 
 (* An impl is reached through its type *and* through its trait, so both carry
    the impls that name them and a renderer joins by id rather than scanning
-   every entry. The trait's side is not a convenience: `impl Add for int` has no
-   type page to be listed on, because `int` is a builtin and has no declaration,
+   every entry. The trait's side is not a convenience: `impl Add for Int` has no
+   type page to be listed on, because `Int` is a builtin and has no declaration,
    so the trait is the only place it can be found. *)
 let with_impls entries =
   let gather key =

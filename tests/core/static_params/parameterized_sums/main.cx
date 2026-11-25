@@ -16,7 +16,7 @@ fn identity<T>(x: T): T {
 
 var some_int = Option.Some(3);
 var some_str = Option.Some("hi");
-var nothing: Option<bool> = Option.None;
+var nothing: Option<Bool> = Option.None;
 
 match some_int {
     Option.Some(n) => { print(n); }
@@ -40,5 +40,5 @@ var boxed = Box { value: 7 };
 print(boxed.get());
 print(typeof(boxed).name);
 
-print(identity<int>(5));
-print(identity<string>("x"));
+print(identity<Int>(5));
+print(identity<String>("x"));

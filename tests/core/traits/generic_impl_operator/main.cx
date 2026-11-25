@@ -1,4 +1,4 @@
-type Vec2 { x: int, y: int }
+type Vec2 { x: Int, y: Int }
 
 impl Add<Vec2> for Vec2 {
     type Output = Vec2;
@@ -9,7 +9,7 @@ impl Add<Vec2> for Vec2 {
 }
 
 impl Eq for Vec2 {
-    fn eq(self, rhs: Vec2): bool {
+    fn eq(self, rhs: Vec2): Bool {
         return self.x == rhs.x && self.y == rhs.y;
     }
 }
@@ -25,7 +25,7 @@ impl Pair<T> {
         return self.total() + self.total();
     }
 
-    fn same(self): bool {
+    fn same(self): Bool {
         return self.a == self.b;
     }
 }

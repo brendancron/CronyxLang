@@ -6,14 +6,14 @@ trait Derived<A>: Base<A> {
     fn derived(self): A;
 }
 
-type Box { n: int }
+type Box { n: Int }
 
-impl Base<string> for Box {
-    fn base(self): string { return str(self.n); }
+impl Base<String> for Box {
+    fn base(self): String { return str(self.n); }
 }
 
-impl Derived<int> for Box {
-    fn derived(self): int { return self.n * 2; }
+impl Derived<Int> for Box {
+    fn derived(self): Int { return self.n * 2; }
 }
 
 print(str(Box { n: 1 }.derived()));

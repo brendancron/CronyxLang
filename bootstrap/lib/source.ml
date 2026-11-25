@@ -89,6 +89,8 @@ let static_params (cs : Ast.static_param list) =
               (if c.Ast.sp_pack then "..." else "") ^ c.Ast.sp_name ^ annotation c.Ast.sp_ty)
             cs))
 
+let inline (sg : Ast.signature) = if sg.Ast.inline then "inline " else ""
+
 let signature (sg : Ast.signature) =
   match sg.Ast.ret with
   | None -> ""
@@ -102,6 +104,7 @@ let signature (sg : Ast.signature) =
 
 let rec expr (e : Ast.expr) : string =
   match e.Ast.it with
+  | `Pre_checked n -> Printf.sprintf "processed#%d" n
   | `Unit -> "()"
   | `Int n -> string_of_int n
   | `Float n -> Token.float_to_string n
@@ -173,9 +176,24 @@ let rec expr (e : Ast.expr) : string =
               | Ast.St_value v -> expr v)
             static_args))
       (arguments args)
+  | `Static_ref (callee, static_args) ->
+    Printf.sprintf
+      "%s<%s>"
+      (expr callee)
+      (String.concat
+         ", "
+         (List.map
+            (function
+              | Ast.St_type t -> type_expr t
+              | Ast.St_value v -> expr v)
+            static_args))
   | `Method_call (receiver, name, _, args, _) ->
     Printf.sprintf "%s.%s(%s)" (expr receiver) name (arguments args)
   | `Typeof inner -> Printf.sprintf "typeof(%s)" (expr inner)
+  | `Declof (inner, None) -> Printf.sprintf "declof(%s)" (expr inner)
+  | `Declof (inner, Some static_args) ->
+    Printf.sprintf "declof(%s<%s>)" (expr inner) (String.concat ", " (List.map static_arg static_args))
+  | `Meta_expr body -> Printf.sprintf "meta { %s }" (String.concat " " (List.map (stmt 0) body))
   | `Code inner -> Printf.sprintf "code(%s)" (expr inner)
   | `Code_stmts body -> Printf.sprintf "code { %s }" (String.concat " " (List.map (stmt 0) body))
   | `Code_decl decl -> Printf.sprintf "code %s" (stmt 0 decl)
@@ -185,25 +203,28 @@ let rec expr (e : Ast.expr) : string =
       (String.concat ", " (List.map param params))
       (signature sg)
       (String.concat " " (List.map (stmt 0) body))
-  | `Run_expr (body, handlers, clause) ->
+  | `Run_expr (ret, body, handlers) ->
     Printf.sprintf
-      "run { %s }%s%s"
+      "%s { %s }%s"
+      (run_head ret)
       (valued_block body)
       (String.concat
          ""
          (List.map
             (function
-              | Ast.Named name -> Printf.sprintf " with %s;" name
-              | Ast.Inline h ->
+              | Ast.Named name -> Printf.sprintf " with %s" name
+              | Ast.Handle (handled, defs) ->
                 Printf.sprintf
-                  " handle %s { %s}"
-                  h.Ast.handled
-                  (String.concat "" (List.map (arm 0) h.Ast.arms)))
+                  " handle<%s> { %s}"
+                  (type_expr handled)
+                  (String.concat "" (List.map (method_def 0) defs))
+              | Ast.Bound (label, handler, value) ->
+                Printf.sprintf
+                  " bound %s = %s { %s}"
+                  label
+                  handler
+                  (String.concat "" (List.map (stmt 0) (Option.to_list value))))
             handlers))
-      (match clause with
-       | None -> ""
-       | Some c ->
-         Printf.sprintf " return (%s) { %s }" c.Ast.rc_param (valued_block c.Ast.rc_body))
 
   | `Match_expr (scrutinee, cases) ->
     Printf.sprintf
@@ -214,6 +235,14 @@ let rec expr (e : Ast.expr) : string =
          (List.map
             (fun (p, b) -> Printf.sprintf "%s => { %s }" (pattern p) (valued_block b))
             cases))
+
+and run_head = function
+  | None -> "run"
+  | Some t -> Printf.sprintf "run<%s>" (type_expr t)
+
+and static_arg = function
+  | Ast.St_type t -> type_expr t
+  | Ast.St_value v -> expr v
 
 and valued_block (b : (Ast.expr, Ast.stmt) Ast.valued_block) =
   String.concat " " (List.map (stmt 0) b.Ast.vb_stmts)
@@ -236,18 +265,66 @@ and payload_of (p : Ast.expr Ast.payload) =
 and block depth body =
   String.concat "" (List.map (stmt depth) body)
 
+(* The loop [Lower.c_for] makes of a `for`, told from one written as a `while`
+   by every node of it standing where the `for` does. *)
+and c_for span (body : Ast.stmt list) =
+  let same a b =
+    Source_map.Span.offsets a = Source_map.Span.offsets b
+    && String.equal (Source_map.Span.path a) (Source_map.Span.path b)
+  in
+  let at (s : Ast.stmt) = same s.Ast.span span in
+  let loop (l : Ast.stmt) =
+    match l.Ast.it with
+    | `While (cond, { Ast.it = `Block [ inner; { Ast.it = `Expr step; _ } ]; _ }) when at l -> Some (cond, step, inner)
+    | `Block
+        [ ({ Ast.it = `Var_decl (first, None, Some { Ast.it = `Bool true; _ }); _ } as declared)
+        ; ({ Ast.it =
+               `While
+                 ( { Ast.it = `Bool true; _ }
+                 , { Ast.it =
+                       `Block
+                         [ { Ast.it = `If ({ Ast.it = `Var first'; _ }, _, Some { Ast.it = `Expr step; _ }); _ }
+                         ; { Ast.it = `If ({ Ast.it = `Unop (Ast.Not, cond); _ }, { Ast.it = `Break; _ }, None); _ }
+                         ; inner
+                         ]
+                   ; _
+                   } )
+           ; _
+           } as w)
+        ]
+      when at l && at declared && at w && String.equal first Lower.first && String.equal first' Lower.first ->
+      Some (cond, step, inner)
+    | _ -> None
+  in
+  let cond_of (cond : Ast.expr) =
+    match cond.Ast.it with
+    | `Bool true when same cond.Ast.span span -> ""
+    | _ -> " " ^ expr cond
+  in
+  match body with
+  | [ l ] -> Option.map (fun (cond, step, inner) -> ";", cond_of cond, step, inner) (loop l)
+  | [ init; l ] -> Option.map (fun (cond, step, inner) -> String.trim (stmt 0 init), cond_of cond, step, inner) (loop l)
+  | _ -> None
+
 and stmt depth (s : Ast.stmt) : string =
   let line = line depth in
   let braced head body = line (Printf.sprintf "%s {" head) ^ block (depth + 1) body ^ line "}" in
   match s.Ast.it with
+  | `Pre_checked n -> line (Printf.sprintf "processed#%d;" n)
   | `Attributed (list, inner) ->
     (match String.trim (attrs ~depth list) with
      | "" -> ""
      | written -> pad depth ^ written ^ "\n")
     ^ stmt depth inner
   (* Printed back as it was written, rather than as the expression it is. *)
-  | `Expr { Ast.it = `Run_expr (body, handlers, None); _ } when body.Ast.vb_value = None ->
-    line "run {" ^ block (depth + 1) body.Ast.vb_stmts ^ handlers_of depth handlers
+  | `Expr { Ast.it = `Run_expr (ret, body, handlers); _ } ->
+    (* A run standing as a statement discards its value, which reads back as
+       the statement it was: one inside braces it fills is parsed as that
+       block's value, and printed as the value it is the next time round. *)
+    let value =
+      List.map (fun (v : Ast.expr) -> Ast.at v.Ast.span (`Expr v)) (Option.to_list body.Ast.vb_value)
+    in
+    line (run_head ret ^ " {") ^ block (depth + 1) (body.Ast.vb_stmts @ value) ^ handlers_of depth handlers
   | `Expr e -> line (expr e ^ ";")
   | `Var_tuple (names, init) ->
     line (Printf.sprintf "var (%s) = %s;" (String.concat ", " names) (expr init))
@@ -260,7 +337,11 @@ and stmt depth (s : Ast.stmt) : string =
          (match init with
           | None -> ""
           | Some v -> " = " ^ expr v))
-  | `Block body -> braced "" body
+  | `Block body ->
+    (match c_for s.Ast.span body with
+     | Some (init, cond, step, inner) ->
+       line (Printf.sprintf "for (%s%s; %s) {" init cond (expr step)) ^ nested depth inner ^ line "}"
+     | None -> line "{" ^ block (depth + 1) body ^ line "}")
   | `If (cond, then_branch, else_branch) ->
     let head = line (Printf.sprintf "if (%s) {" (expr cond)) in
     let then_part = head ^ nested depth then_branch in
@@ -269,21 +350,6 @@ and stmt depth (s : Ast.stmt) : string =
      | Some other -> then_part ^ line "} else {" ^ nested depth other ^ line "}")
   | `While (cond, body) ->
     line (Printf.sprintf "while (%s) {" (expr cond)) ^ nested depth body ^ line "}"
-  | `For (init, cond, step, body) ->
-    line
-      (Printf.sprintf
-         "for (%s %s; %s) {"
-         (match init with
-          | None -> ";"
-          | Some i -> String.trim (stmt 0 i))
-         (match cond with
-          | None -> ""
-          | Some c -> expr c)
-         (match step with
-          | None -> ""
-          | Some st -> expr st))
-    ^ nested depth body
-    ^ line "}"
   | `For_in (names, iterable, body) ->
     line
       (Printf.sprintf
@@ -297,7 +363,8 @@ and stmt depth (s : Ast.stmt) : string =
   | `Fn (name, params, sg, body) ->
     braced
       (Printf.sprintf
-         "fn %s%s(%s)%s%s"
+         "%sfn %s%s(%s)%s%s"
+         (inline sg)
          (match Ast.deriver_trait name with
           | Some _ -> "derive"
           | None -> name)
@@ -340,66 +407,10 @@ and stmt depth (s : Ast.stmt) : string =
   | `Type_members ({ Ast.it = `Type_decl (name, params, body); _ }, members) ->
     type_decl ~members depth name params body
   | `Type_members (decl, members) -> stmt depth decl ^ block depth members
-  | `Effect_decl (name, params, ops) -> effect_decl depth name params ops
-  | `Handler_decl (name, h) ->
-    line (Printf.sprintf "handler %s : %s {" name h.Ast.handled)
-    ^ String.concat "" (List.map (arm (depth + 1)) h.Ast.arms)
-    ^ line "}"
-  | `Run (body, handlers) ->
-    line "run {" ^ block (depth + 1) body ^ handlers_of depth handlers
-  | `Resume e ->
-    line
-      (match e with
-       | None -> "resume;"
-       | Some v -> Printf.sprintf "resume %s;" (expr v))
-  | `Discontinue -> line "discontinue;"
-  | `Trait_decl (name, params, sigs) ->
-    line
-      (Printf.sprintf
-         "trait %s%s%s {"
-         name
-         (match params with
-          | [] -> ""
-          | ps -> Printf.sprintf "<%s>" (String.concat ", " ps))
-         (match sigs.Ast.tb_super with
-          | [] -> ""
-          | supers ->
-            ": "
-            ^ String.concat
-                ", "
-                (List.map
-                   (fun (super, args) ->
-                     match args with
-                     | [] -> super
-                     | args ->
-                       Printf.sprintf
-                         "%s<%s>"
-                         super
-                         (String.concat ", " (List.map type_expr args)))
-                   supers)))
-    ^ String.concat
-        ""
-        (List.map
-           (fun (a : Ast.assoc_decl) ->
-             Printf.sprintf
-               "%s%stype %s;\n"
-               (pad (depth + 1))
-               (attrs ~depth:(depth + 1) a.Ast.ad_attrs)
-               a.Ast.ad_name)
-           sigs.Ast.tb_assoc)
-    ^ String.concat
-        ""
-        (List.map
-           (fun (m : Ast.method_sig) ->
-             Printf.sprintf
-               "%s%sfn %s(%s)%s;\n"
-               (pad (depth + 1))
-               (attrs ~depth:(depth + 1) m.Ast.ms_attrs)
-               m.Ast.ms_name
-               (String.concat ", " (List.map param m.Ast.ms_params))
-               (signature m.Ast.ms_signature))
-           sigs.Ast.tb_methods)
-    ^ line "}"
+  | `Trait_members ({ Ast.it = `Trait_decl (name, params, sigs); _ }, metas) ->
+    trait_decl ~metas depth name params sigs
+  | `Trait_members (decl, metas) -> stmt depth decl ^ block depth metas
+  | `Trait_decl (name, params, sigs) -> trait_decl depth name params sigs
   | `Impl_decl (trait, target, params, impl) ->
     line
       (Printf.sprintf
@@ -441,6 +452,57 @@ and stmt depth (s : Ast.stmt) : string =
   | `Match (scrutinee, cases) ->
     line (Printf.sprintf "match %s {" (expr scrutinee))
     ^ String.concat "" (List.map (case (depth + 1)) cases)
+    ^ line "}"
+
+and trait_decl ?(metas = []) depth name params (sigs : Ast.trait_body) =
+  let line = line depth in
+    line
+      (Printf.sprintf
+         "trait %s%s%s {"
+         name
+         (match params with
+          | [] -> ""
+          | ps -> Printf.sprintf "<%s>" (String.concat ", " ps))
+         (match sigs.Ast.tb_super with
+          | [] -> ""
+          | supers ->
+            ": "
+            ^ String.concat
+                ", "
+                (List.map
+                   (fun (super, args) ->
+                     match args with
+                     | [] -> super
+                     | args ->
+                       Printf.sprintf
+                         "%s<%s>"
+                         super
+                         (String.concat ", " (List.map type_expr args)))
+                   supers)))
+    ^ String.concat
+        ""
+        (List.map
+           (fun (a : Ast.assoc_decl) ->
+             Printf.sprintf
+               "%s%stype %s;\n"
+               (pad (depth + 1))
+               (attrs ~depth:(depth + 1) a.Ast.ad_attrs)
+               a.Ast.ad_name)
+           sigs.Ast.tb_assoc)
+    ^ String.concat
+        ""
+        (List.map
+           (fun (m : Ast.method_sig) ->
+             Printf.sprintf
+               "%s%sfn %s%s(%s)%s;\n"
+               (pad (depth + 1))
+               (attrs ~depth:(depth + 1) m.Ast.ms_attrs)
+               m.Ast.ms_name
+               (static_params m.Ast.ms_signature.Ast.static_params)
+               (String.concat ", " (List.map param m.Ast.ms_params))
+               (signature m.Ast.ms_signature))
+           sigs.Ast.tb_methods)
+    ^ block (depth + 1) metas
     ^ line "}"
 
 (* The braces are the enclosing form's; only the contents are printed. *)
@@ -490,9 +552,24 @@ and attrs ?(depth = 0) (list : Ast.attr list) =
 
 and type_decl ?(members = []) depth name params body =
   let line = line depth in
+  (* The parser stands each trait of `type X impl A, B` among the members as an
+     impl with no methods, so they are written back into the header. *)
+  let implemented, members =
+    List.partition_map
+      (fun (m : Ast.stmt) ->
+        match m.Ast.it with
+        | `Impl_decl (Some (trait, args), owner, _, { Ast.ib_assoc = []; ib_methods = [] })
+          when String.equal owner name ->
+          Left
+            (match args with
+             | [] -> trait
+             | args -> Printf.sprintf "%s<%s>" trait (String.concat ", " (List.map type_expr args)))
+        | _ -> Right m)
+      members
+  in
   let head =
     Printf.sprintf
-      "type %s%s {"
+      "type %s%s%s {"
       name
       (match params with
        | [] -> ""
@@ -507,6 +584,9 @@ and type_decl ?(members = []) depth name params body =
                    ^ p.Ast.tp_name
                    ^ annotation p.Ast.tp_ty)
                  ps)))
+      (match implemented with
+       | [] -> ""
+       | traits -> " impl " ^ String.concat ", " traits)
   in
   line head
   ^ (match body with
@@ -555,73 +635,32 @@ and type_decl ?(members = []) depth name params body =
      | members -> "\n" ^ block (depth + 1) members)
   ^ line "}"
 
-and effect_decl depth name params ops =
-  let line = line depth in
-  line
-    (Printf.sprintf
-       "effect %s%s {"
-       name
-       (match params with
-        | [] -> ""
-        | ps -> Printf.sprintf "<%s>" (String.concat ", " ps)))
-  ^ String.concat
-      ""
-      (List.map
-         (fun (o : Ast.op_decl) ->
-           Printf.sprintf
-             "%s%s%s %s%s(%s)%s;\n"
-             (pad (depth + 1))
-             (attrs ~depth:(depth + 1) o.Ast.op_attrs)
-             (match o.Ast.op_kind with
-              | Ast.Op_fn -> "fn"
-              | Ast.Op_ctl -> "ctl"
-              | Ast.Op_final -> "final ctl")
-             o.Ast.op_name
-             (match o.Ast.op_tparams with
-              | [] -> ""
-              | ps -> Printf.sprintf "<%s>" (String.concat ", " ps))
-             (String.concat ", " (List.map param o.Ast.op_params))
-             (match o.Ast.op_ret with
-              | None -> ""
-              | Some t -> ": " ^ type_expr t))
-         ops)
-  ^ line "}"
-
 (* Each clause reopens the brace the last one closed. *)
 and handlers_of depth handlers =
   let line = line depth in
   let clause (h : Ast.stmt Ast.handler_clause) =
     match h with
     | Ast.Named name -> line (Printf.sprintf "} with %s;" name)
-    | Ast.Inline h ->
-      line (Printf.sprintf "} handle %s {" h.Ast.handled)
-      ^ String.concat "" (List.map (arm (depth + 1)) h.Ast.arms)
+    | Ast.Handle (handled, defs) ->
+      line (Printf.sprintf "} handle<%s> {" (type_expr handled))
+      ^ String.concat "" (List.map (method_def (depth + 1)) defs)
+    | Ast.Bound (label, handler, value) ->
+      line (Printf.sprintf "} bound %s = %s {" label handler)
+      ^ String.concat "" (List.map (stmt (depth + 1)) (Option.to_list value))
   in
   let printed = String.concat "" (List.map clause handlers) in
   match List.rev handlers with
-  | Ast.Inline _ :: _ -> printed ^ line "}"
+  | (Ast.Handle _ | Ast.Bound _) :: _ -> printed ^ line "}"
   | _ -> printed
 
-and arm depth (a : Ast.stmt Ast.arm) =
-  let line = line depth in
-  line
-    (Printf.sprintf
-       "%s %s(%s) {"
-       (match a.Ast.arm_kind with
-        | Ast.Op_fn -> "fn"
-        | Ast.Op_ctl -> "ctl"
-        | Ast.Op_final -> "final ctl")
-       a.Ast.arm_name
-       (String.concat ", " a.Ast.arm_params))
-  ^ block (depth + 1) a.Ast.arm_body
-  ^ line "}"
 
 and method_def depth (m : (Ast.stmt, unit) Ast.method_def) =
   let line = line depth in
   line
     (Printf.sprintf
-       "%sfn %s%s(%s)%s {"
+       "%s%sfn %s%s(%s)%s {"
        (attrs ~depth m.Ast.md_attrs)
+       (inline m.Ast.md_signature)
        m.Ast.md_name
        (static_params m.Ast.md_signature.Ast.static_params)
        (String.concat ", " (List.map param m.Ast.md_params))

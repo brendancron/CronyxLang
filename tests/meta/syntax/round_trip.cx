@@ -1,25 +1,26 @@
 import { Decl } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
 
 meta {
     var decls: List<Decl> = [
         code type Shape {
-            Circle(int),
-            Rect { w: int, h: int },
+            Circle(Int),
+            Rect { w: Int, h: Int },
             Dot
         },
-        code type Point { x: int, y: int },
-        code effect Log { fn log(s: string): unit; },
+        code type Point { x: Int, y: Int },
+        code trait Log { fn log(s: String): Unit; },
         code impl Point {
-            fn sum(self): int { return self.x + self.y; }
+            fn sum(self): Int { return self.x + self.y; }
         },
-        code fn area(s: Shape): int {
+        code fn area(s: Shape): Int {
             match s {
                 Shape.Circle(r) => { return 3 * r * r; }
                 Shape.Rect { w, h } => { return w * h; }
                 Shape.Dot => { return 0; }
             }
         },
-        code fn exercise(): int {
+        code fn exercise(): Int {
             var total = 0;
             var (a, b) = (2, 3);
             total += a * b;
@@ -29,7 +30,7 @@ meta {
             }
             var n = 0;
             while (n < 3) { n += 1; }
-            var xs: List<int> = [10, 20, 30];
+            var xs: List<Int> = [10, 20, 30];
             xs[1] = 25;
             xs[0] += 1;
             for (x in xs) { total += x; }
@@ -37,21 +38,21 @@ meta {
             p.x = 4;
             p.y *= 3;
             total += p.sum();
-            var squared = (v: int) => v * v;
+            var squared = (v: Int) => v * v;
             total += squared(n);
             var kind = match Shape.Rect { w: 2, h: 5 } {
                 Shape.Rect { w, h } => w + h,
                 _ => 0
             };
             total += kind + area(Shape.Circle(2)) + area(Shape.Dot);
-            var said: List<string> = [];
+            var said: List<String> = [];
             {
                 defer { said.push("deferred"); }
                 said.push("first");
             }
-            run {
+            run<Unit> {
                 log("hello");
-            } handle Log {
+            } handle<Log> {
                 fn log(s) { said.push(s); }
             }
             print(said);
@@ -64,3 +65,48 @@ meta {
 }
 
 print(exercise());
+
+meta {
+    var reprinted = code fn reprinted() {
+        meta {
+            print(decl_source(code trait Ask {
+                @ctl fn ask(): Int;
+                @ctl fn fail<T>(why: String): T;
+                fn log(msg: String): Unit;
+            }));
+            print(decl_source(code trait EffectHandler<E, R> {
+                fn name(): String;
+                meta {
+                    match declof(E).kind {
+                        _ => { fail("not a trait"); }
+                    }
+                }
+            }));
+            print(decl_source(code fn uses(): Int {
+                var plain = declof(greet);
+                var keyed = declof(util.pick<Int, 3>);
+                var named = pick<Int>;
+                var three = meta { gen code(1 + 2); };
+                var ret = run<String> {
+                    var n = ask();
+                    "hehe"
+                } handle<Ask> {
+                    fn ask(resume) {
+                        var res = resume(5);
+                        return "complete";
+                    }
+                };
+                run<Unit> {
+                    choose([1, 2]);
+                } handle<Effect<Int>> {
+                    fn log(msg) { print(msg); }
+                    fn choose(options, k): Unit { discontinue(k); }
+                } with Picker;
+                return three;
+            }));
+        }
+    };
+    gen reprinted;
+}
+
+reprinted();

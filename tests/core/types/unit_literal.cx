@@ -1,16 +1,16 @@
-fn take(u: unit): string {
+fn take(u: Unit): String {
     return "got one";
 }
 
-fn make(): unit {
+fn make(): Unit {
     return ();
 }
 
-fn call(f: (unit) -> string): string {
+fn call(f: (Unit) -> String): String {
     return f(());
 }
 
-var value: unit = ();
+var value: Unit = ();
 print(take(value));
 print(take(make()));
 print(call((u) => { return "via callback"; }));

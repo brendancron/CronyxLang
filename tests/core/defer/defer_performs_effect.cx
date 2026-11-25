@@ -1,8 +1,8 @@
-effect Ask { ctl get(): int; }
+trait Ask { @ctl fn get(): Int; }
 
-fn use(): <Ask, Console> unit {
+fn use(): <Ask, Console> Unit {
     defer print(get());
     print("body");
 }
 
-run { use(); } handle Ask { ctl get() { resume 5; print("after"); } }
+run<Unit> { use(); } handle<Ask> { fn get(resume) { resume(5); print("after"); } }

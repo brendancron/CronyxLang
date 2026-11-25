@@ -1,6 +1,6 @@
 meta {
     var v = 7;
-    gen fn get(): int {
+    gen fn get(): Int {
         var v = 100;
         return v;
     }

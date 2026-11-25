@@ -1,13 +1,15 @@
-effect Yield { ctl yield(v: int): unit; }
+trait Yield {
+    @ctl fn yield(v: Int): Unit;
+}
 
-fn each(): <Yield> unit {
+fn each(): <Yield> Unit {
     yield(1);
     yield(2);
     yield(3);
 }
 
-var first = run { each() } handle Yield {
-    ctl yield(v) { return v; }
-} return (nothing) { 0 };
+var first = run<Int> { each(); 0 } handle<Yield> {
+    fn yield(v, resume) { return v; }
+};
 
 print(first);

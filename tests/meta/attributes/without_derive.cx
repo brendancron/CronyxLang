@@ -1,9 +1,9 @@
 type Person {
     @rename("full name")
-    name: string,
+    name: String,
 
     @unit("years")
-    age: int,
+    age: Int,
 }
 
 match typeof(Person).shape {

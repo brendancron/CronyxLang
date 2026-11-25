@@ -1,20 +1,19 @@
-// A variant payload is the same evaluation context as a record's fields.
-effect Ask { ctl get(): int; }
+trait Ask { @ctl fn get(): Int; }
 
 type Shape {
-    Circle { radius: int },
-    Rect { w: int, h: int },
+    Circle { radius: Int },
+    Rect { w: Int, h: Int },
 }
 
 fn make(): <Ask> Shape {
     return Shape.Rect { w: 2, h: get() };
 }
 
-run {
+run<Unit> {
     match make() {
         Shape.Rect { w, h } => { print(str(w) + "x" + str(h)); }
         Shape.Circle { radius } => { print(radius); }
     }
-} handle Ask {
-    ctl get() { resume 4; }
+} handle<Ask> {
+    fn get(resume) { resume(4); }
 }

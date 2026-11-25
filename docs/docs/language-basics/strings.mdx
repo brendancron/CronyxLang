@@ -4,7 +4,7 @@ sidebar_position: 6
 
 # Strings
 
-You've been printing strings since the first chapter. This one covers what else you can do with them: escapes, joining and converting, reading characters by index, slicing, iterating, comparing, and the built-in methods. Along the way you'll meet `char`, the type a string is made of.
+You've been printing strings since the first chapter. This one covers what else you can do with them: escapes, joining and converting, reading characters by index, slicing, iterating, comparing, and the built-in methods. Along the way you'll meet `Char`, the type a string is made of.
 
 ## String literals
 
@@ -96,13 +96,13 @@ h
 o
 ```
 
-`s[i]` is a `char`, not a one-character string — the next section covers the difference. An index past the end stops the program, the same as for an array.
+`s[i]` is a `Char`, not a one-character string — the next section covers the difference. An index past the end stops the program, the same as for an array.
 
 Strings can't be changed in place. `s[0] = 'j';` is a compile error: `A string cannot be assigned into.` To change a string, build a new one.
 
 ## Characters
 
-A `char` holds exactly one character and is written in single quotes:
+A `Char` holds exactly one character and is written in single quotes:
 
 ```cronyx
 var c = 'a';
@@ -119,7 +119,7 @@ true
 97
 ```
 
-`ord` returns a character's Unicode code point as an `int`, and `chr` turns a code point back into a `char`:
+`ord` returns a character's Unicode code point as an `Int`, and `chr` turns a code point back into a `Char`:
 
 ```cronyx
 print(chr(97));
@@ -133,10 +133,10 @@ c
 
 `chr` stops the program if the number isn't a code point a character can have, such as `-1`.
 
-`char`s are ordered by code point, which makes classifying one straightforward:
+`Char`s are ordered by code point, which makes classifying one straightforward:
 
 ```cronyx
-fn is_digit(c: char): bool {
+fn is_digit(c: Char): Bool {
     return c >= '0' && c <= '9';
 }
 
@@ -165,7 +165,7 @@ q
 7
 ```
 
-A `char` and a string are different types, even when the string has one character. `"a" == 'a'` is a type error, and so is `var c: char = "a";`. Use `str(c)` to turn a `char` into a string:
+A `Char` and a string are different types, even when the string has one character. `"a" == 'a'` is a type error, and so is `var c: Char = "a";`. Use `str(c)` to turn a `Char` into a string:
 
 ```cronyx
 var c = 'x';
@@ -201,7 +201,7 @@ The end index is exclusive, and a negative bound counts from the end, so `s[-3:]
 
 ## Iterating
 
-`for ... in` walks a string one `char` at a time:
+`for ... in` walks a string one `Char` at a time:
 
 ```cronyx
 var reversed = "";
@@ -215,7 +215,7 @@ print(reversed);
 olleh
 ```
 
-When you want the characters as a collection, `chars()` returns an `Array<char>`.
+When you want the characters as a collection, `chars()` returns an `Array<Char>`.
 
 ## Built-in methods
 
@@ -247,25 +247,25 @@ HELLO WORLD
 
 | Method                 | What it does                                                        |
 | ---------------------- | ------------------------------------------------------------------- |
-| `s.len()`              | Number of characters, as an `int`                                   |
+| `s.len()`              | Number of characters, as an `Int`                                   |
 | `s.contains(t)`        | `true` if `t` appears anywhere in `s`                               |
 | `s.starts_with(t)`     | `true` if `s` begins with `t`                                       |
 | `s.ends_with(t)`       | `true` if `s` ends with `t`                                         |
 | `s.index_of(t)`        | Position of the first `t` in `s`, or `-1` if there isn't one        |
 | `s.replace(t, u)`      | A copy of `s` with every `t` replaced by `u`                        |
-| `s.split(c)`           | An `Array<string>` of the pieces between each `c`                   |
-| `s.split_str(t)`       | An `Array<string>` of the pieces between each `t`                   |
+| `s.split(c)`           | An `Array<String>` of the pieces between each `c`                   |
+| `s.split_str(t)`       | An `Array<String>` of the pieces between each `t`                   |
 | `s.to_upper()`         | A copy with each ASCII letter in uppercase                          |
 | `s.to_lower()`         | A copy with each ASCII letter in lowercase                          |
-| `s.to_int()`           | The `int` the text spells, as an `Option<int>`                      |
-| `s.to_float()`         | The `float` the text spells, as an `Option<float>`                  |
+| `s.to_int()`           | The `Int` the text spells, as an `Option<Int>`                      |
+| `s.to_float()`         | The `Float` the text spells, as an `Option<Float>`                  |
 | `s.trim()`             | A copy without leading and trailing spaces, tabs, and newlines      |
-| `s.chars()`            | The characters, as an `Array<char>`                                 |
-| `s.bytes()`            | The UTF-8 encoding, as an `Array<byte>`                             |
+| `s.chars()`            | The characters, as an `Array<Char>`                                 |
+| `s.bytes()`            | The UTF-8 encoding, as an `Array<Byte>`                             |
 
 None of them modify `s`; the ones that produce a string return a new one.
 
-`split` takes a `char` — `s.split(' ')`, with single quotes. To split on more than one character, use `split_str`, which takes a string. Either way, two separators in a row produce an empty piece between them:
+`split` takes a `Char` — `s.split(' ')`, with single quotes. To split on more than one character, use `split_str`, which takes a string. Either way, two separators in a row produce an empty piece between them:
 
 ```cronyx
 var parts = "a,b,,c".split(',');
@@ -373,12 +373,12 @@ print(s.bytes().len());
 
 ## Try it
 
-Write a function `is_palindrome(s: string): bool` that returns `true` when `s` reads the same forwards and backwards. Compare characters from both ends, moving inward. `is_palindrome("racecar")` should print `true` and `is_palindrome("hello")` should print `false`.
+Write a function `is_palindrome(s: String): Bool` that returns `true` when `s` reads the same forwards and backwards. Compare characters from both ends, moving inward. `is_palindrome("racecar")` should print `true` and `is_palindrome("hello")` should print `false`.
 
 A working answer:
 
 ```cronyx
-fn is_palindrome(s: string): bool {
+fn is_palindrome(s: String): Bool {
     var i = 0;
     var j = s.len() - 1;
     while (i < j) {

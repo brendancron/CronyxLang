@@ -21,7 +21,6 @@ let iter = name "core/Iter" "Iter"
 let assertion = name "core/Assert" "Assertion"
 let assertion_failed = name "core/Assert" "failed"
 
-(* Found at run time by the printer, through the name an impl's method gets. *)
 let display = name "text/Format" "Display"
 let debug = name "text/Format" "Debug"
 
@@ -48,6 +47,21 @@ let is_less = ops "__is_less"
 let is_less_equal = ops "__is_less_equal"
 let is_greater = ops "__is_greater"
 let is_greater_equal = ops "__is_greater_equal"
+
+(* What an impl names to handle an effect whose operations take control. *)
+let effect_handler = name "core/EffectHandler" "EffectHandler"
+
+(* What a run means: its body handed to this, which splits it at each operation
+   that takes control. *)
+let transform_module = "core/Transform"
+let effect_transform = name transform_module "effect_transform"
+let effect_lambda = name transform_module "effect_lambda"
+
+(* What the transform hands the functions and handler methods it makes beyond
+   what their types show, declared there for the checker to read. *)
+let handed = name transform_module "__tx_shape"
+let handed_method = name transform_module "__tx_method_shape"
+let handed_abort = name transform_module "__tx_abort_shape"
 
 let reflect = name "meta/Reflect"
 let shape = reflect "TypeShape"

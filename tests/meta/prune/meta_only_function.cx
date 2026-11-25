@@ -1,0 +1,15 @@
+fn doubled(n: Int): Int {
+    return n * 2;
+}
+
+fn shared(n: Int): Int {
+    if (n <= 0) { return 1; }
+    return shared(n - 1) + 1;
+}
+
+meta {
+    print(doubled(21));
+    print(shared(1));
+}
+
+print(shared(2));

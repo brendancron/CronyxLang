@@ -1,0 +1,24 @@
+trait Show {
+    fn show(self): String;
+}
+type Point {
+    x: Int,
+    y: Int
+}
+fn say_a() {
+    print("a");
+}
+fn say_b() {
+    print("b");
+}
+impl Show for Point {
+    fn show(self): String {
+        return "Point";
+    }
+}
+print("first");
+say_a();
+say_b();
+var width = (2 * 3);
+print(Point { x: 1, y: 2 }.show());
+print(width);

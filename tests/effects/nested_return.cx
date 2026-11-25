@@ -1,16 +1,15 @@
-// A `return` inside a branch of a converted function still reaches the
-// continuation: it leaves the function, where the join only resumes the rest
-// of the body.
-effect E { ctl ask(): int; }
+trait E {
+    @ctl fn ask(): Int;
+}
 
-fn pick(n: int): int {
+fn pick(n: Int): Int {
     if (n == 0) { return 42; }
     return ask();
 }
 
-run {
+run<Unit> {
     print(pick(0));
     print(pick(1));
-} handle E {
-    ctl ask() { print("asked"); resume 7; }
+} handle<E> {
+    fn ask(resume) { print("asked"); resume(7); }
 }

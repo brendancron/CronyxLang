@@ -3,7 +3,7 @@
 // recursive `eval` has to stay polymorphic inside an arm that refines the very
 // parameter it is generic in.
 type Expr<T> {
-    Lit(int)                     -> Expr<int>,
+    Lit(Int)                     -> Expr<Int>,
     Pair<A, B>(Expr<A>, Expr<B>) -> Expr<(A, B)>,
     Fst<A, B>(Expr<(A, B)>)      -> Expr<A>,
 }

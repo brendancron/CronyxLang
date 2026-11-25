@@ -1,5 +1,5 @@
 type Coin { Heads, Tails }
-var side: int = match Coin.Heads {
+var side: Int = match Coin.Heads {
     Coin.Heads => { print("heads"); 1; }
     Coin.Tails => 2,
 };

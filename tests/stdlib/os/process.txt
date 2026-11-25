@@ -8,4 +8,4 @@ got abc
 200000
 done
 4
-caught NotFound("cronyx-no-such-program")
+caught no such file: cronyx-no-such-program

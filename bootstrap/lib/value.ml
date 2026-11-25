@@ -17,7 +17,6 @@ type value =
      here, not from the call. *)
   | Object of value * identity * (string * value) list
   | Fn of fn
-  (* Never outlives metaprocessing. *)
   | Span of Ast.span
   (* Apart from a string, so only what reflection handed out can be spliced
      into a name position. *)

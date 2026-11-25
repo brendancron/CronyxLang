@@ -1,15 +1,15 @@
 // A dot is a call with the receiver passed first.
-type Dog { name: string, age: int }
+type Dog { name: String, age: Int }
 
-fn describe(d: Dog): string { return d.name; }
-fn older(d: Dog, by: int): Dog { return Dog { name: d.name, age: d.age + by }; }
+fn describe(d: Dog): String { return d.name; }
+fn older(d: Dog, by: Int): Dog { return Dog { name: d.name, age: d.age + by }; }
 
 var rex = Dog { name: "rex", age: 3 };
 print(str(rex.describe()) + " " + str(describe(rex)));
 print(str(rex.older(2).age) + " " + str(older(rex, 2).age));
 
-fn doubled(n: int): int { return n * 2; }
+fn doubled(n: Int): Int { return n * 2; }
 print(str(3.doubled()) + " " + str((1 + 2).doubled()));
 
-fn shout(text: string): string { return text + "!"; }
+fn shout(text: String): String { return text + "!"; }
 print("hi".shout().shout());

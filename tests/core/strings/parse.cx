@@ -13,7 +13,7 @@ print("1.".to_float());
 print(".5".to_float());
 print("abc".to_float());
 
-fn total(fields: Array<string>): int {
+fn total(fields: Array<String>): Int {
     var sum = 0;
     for (field in fields) {
         match field.trim().to_int() {

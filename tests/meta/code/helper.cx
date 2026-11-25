@@ -4,7 +4,7 @@ fn doubled(v: Expr): Expr { return code(v + v); }
 
 fn build() {
     var body = doubled(code(21));
-    gen fn answer(): int { return body; }
+    gen fn answer(): Int { return body; }
 }
 meta build();
 print(answer());

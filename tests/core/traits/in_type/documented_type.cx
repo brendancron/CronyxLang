@@ -1,0 +1,23 @@
+/** A rectangle. */
+type Rect impl Display {
+    w: Int,
+    h: Int,
+    fn fmt(self): String { return "rect"; }
+}
+
+/** Counts up. */
+@cheap
+type Counter {
+    n: Int,
+    fn next(self): Int { return self.n + 1; }
+}
+
+fn local() {
+    /** Only here. */
+    type Pair { a: Int, b: Int, fn sum(self): Int { return self.a + self.b; } }
+    print(Pair { a: 2, b: 5 }.sum());
+}
+
+print(Rect { w: 3, h: 2 });
+print(Counter { n: 1 }.next());
+local();

@@ -1,8 +1,8 @@
-fn add(a: int, b: int): int {
+fn add(a: Int, b: Int): Int {
     return a + b;
 }
 
-fn greet(name: string): unit {
+fn greet(name: String): Unit {
     print("Hello " + name);
 }
 

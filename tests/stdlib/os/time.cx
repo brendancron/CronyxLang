@@ -16,18 +16,17 @@ print(Timestamp.from_unix_seconds(1790000000) + Duration.milliseconds(250));
 var d = Timestamp.from_unix_seconds(1790000000).utc();
 print([d.year, d.month, d.day, d.hour, d.minute, d.second]);
 
-fn timed(): <Time> string {
+fn timed(): <Time> String {
     var start = instant();
     var stamp = now();
     return str(stamp) + " took " + str(elapsed(start));
 }
 
-// A clock that moves on 1.25ms each time it is read.
 var ticks = 0;
-run {
+run<Unit> {
     print(timed());
     print(timed());
-} handle Time {
+} handle<Time> {
     fn now() { return Timestamp.from_unix_seconds(1790000000); }
     fn instant() {
         ticks = ticks + 1;
@@ -36,7 +35,6 @@ run {
     fn wait_until(at) { }
 }
 
-// The system's clocks, which only have to agree with each other.
 var before = now();
 var start = instant();
 print(elapsed(start) >= Duration.nanoseconds(0));

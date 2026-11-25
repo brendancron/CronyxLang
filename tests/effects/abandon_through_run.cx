@@ -1,35 +1,33 @@
-// An arm that abandons its own block abandons every block inside it too: the
-// unwind does not stop at the nearer one and carry on after it.
-effect Stop { ctl stop(): unit; }
-effect Other { ctl other(): unit; }
-effect Fail { final ctl fail(): unit; }
-effect Log { fn log(s: string): unit; }
+trait Stop { @ctl fn stop(): Unit; }
+trait Other { @ctl fn other(): Unit; }
+trait Fail { @ctl fn fail<T>(): T; }
+trait Log { fn log(s: String): Unit; }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         stop();
         print("after stop");
-    } handle Other { ctl other() { resume; } }
+    } handle<Other> { fn other(resume) { resume(()); } }
     print("after inner run");
-} handle Stop { ctl stop() { print("stopped through a ctl block"); } }
+} handle<Stop> { fn stop(resume) { print("stopped through a ctl block"); } }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         stop();
         print("after stop");
-    } handle Fail { final ctl fail() { print("failed"); } }
+    } handle<Fail> { fn fail(resume) { print("failed"); } }
     print("after inner run");
-} handle Stop { ctl stop() { print("stopped through a final ctl block"); } }
+} handle<Stop> { fn stop(resume) { print("stopped through a final ctl block"); } }
 
-run {
-    run {
-        run {
+run<Unit> {
+    run<Unit> {
+        run<Unit> {
             stop();
             print("after stop");
-        } handle Log { fn log(s) { print(s); } }
+        } handle<Log> { fn log(s) { print(s); } }
         print("after Log run");
-    } handle Fail { final ctl fail() { print("failed"); } }
+    } handle<Fail> { fn fail(resume) { print("failed"); } }
     print("after Fail run");
-} handle Stop { ctl stop() { print("stopped through two blocks that need no continuation"); } }
+} handle<Stop> { fn stop(resume) { print("stopped through two blocks that need no continuation"); } }
 
 print("end");

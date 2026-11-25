@@ -1,11 +1,11 @@
-effect Log { fn log(msg: string): unit; }
+trait Log { fn log(msg: String): Unit; }
 
-fn main(): unit {
-    handler quiet : Log {
-        fn log(msg) { print("handled " + msg); }
+fn main(): Unit {
+    type Quiet impl Log {
+        fn log(msg: String) { print("handled " + msg); }
     }
 
-    run { log("once"); } with quiet;
+    run<Unit> { log("once"); } with Quiet;
 }
 
 main();

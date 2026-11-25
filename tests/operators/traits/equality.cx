@@ -1,7 +1,7 @@
-type Point { x: int, y: int }
+type Point { x: Int, y: Int }
 
 impl Eq for Point {
-    fn eq(self, rhs: Point): bool {
+    fn eq(self, rhs: Point): Bool {
         return self.x == rhs.x && self.y == rhs.y;
     }
 }

@@ -110,7 +110,7 @@ print(x);
 A meta-scope variable is different. It won't exist at runtime, so the compiler works out its value while the meta block runs and writes that value into the generated code:
 
 ```cronyx
-fn twice(n: int): int {
+fn twice(n: Int): Int {
     return n * 2;
 }
 
@@ -130,7 +130,7 @@ meta {
 ```
 
 ```cronyx title="--dump-code"
-fn twice(n: int): int {
+fn twice(n: Int): Int {
     return (n * 2);
 }
 var y = 10;
@@ -149,11 +149,11 @@ The statement a `gen` emits is never run whole — `gen print(twice(a))` generat
 
 ### What can be written in
 
-A value written into generated code has to be something source code can spell: an `int`, `float`, `string`, `bool`, `char`, unit, and tuples, arrays, records, structs and enum values made of those. A struct is written back as the construction that builds it and an enum value as its variant, so both keep their type.
+A value written into generated code has to be something source code can spell: an `Int`, `Float`, `String`, `Bool`, `Char`, unit, and tuples, arrays, records, structs and enum values made of those. A struct is written back as the construction that builds it and an enum value as its variant, so both keep their type.
 
 ```cronyx
-type Point { x: int, y: int }
-type Shape { Dot, Circle(int) }
+type Point { x: Int, y: Int }
+type Shape { Dot, Circle(Int) }
 
 meta {
     var primes = [2, 3, 5, 7];
@@ -176,12 +176,12 @@ print(typeof(start).name);
 
 ```cronyx title="--dump-code"
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 type Shape {
     Dot,
-    Circle(int)
+    Circle(Int)
 }
 var table = [2, 3, 5, 7];
 var first = (1, "one");
@@ -263,7 +263,7 @@ Run with `--dump-code` and you'll see the three function declarations sitting at
 
 A subtle point worth lingering on: `fn_name` is being used in the *identifier position* — it's not a name being looked up at runtime, it's a name being *constructed* at compile time and spliced into the function declaration. When you see a meta-scope variable used where a function name or variable name would normally go, that's the splice happening.
 
-`.as_name()` is what makes the splice legal. A `string` is data; a `Name` is an identifier, and only a `Name` may stand where one is written. The conversion checks that the text could be an identifier at all, so `"greet-alice".as_name()` is rejected where `"greet_alice".as_name()` is not.
+`.as_name()` is what makes the splice legal. A `String` is data; a `Name` is an identifier, and only a `Name` may stand where one is written. The conversion checks that the text could be an identifier at all, so `"greet-alice".as_name()` is rejected where `"greet_alice".as_name()` is not.
 
 ## A generated name exists after its meta block
 

@@ -1,9 +1,9 @@
 type Move<...Args> {
-    name: string,
-    apply: (...Args) -> <Console> unit
+    name: String,
+    apply: (...Args) -> <Console> Unit
 }
 
-fn burn(a: int, b: int) {
+fn burn(a: Int, b: Int) {
     print(a + b);
 }
 

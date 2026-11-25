@@ -1,9 +1,9 @@
-effect log {
-    fn emit(msg: string): unit;
+trait Log {
+    fn emit(msg: String): Unit;
 }
 
-effect ask {
-    fn base(): int;
+trait Ask {
+    fn base(): Int;
 }
 
 fn map<T, U, E>(items: List<T>, f: (T) -> <E> U): <E> List<U> {
@@ -12,31 +12,31 @@ fn map<T, U, E>(items: List<T>, f: (T) -> <E> U): <E> List<U> {
     return out;
 }
 
-fn show(xs: List<int>) {
+fn show(xs: List<Int>) {
     print(str(xs[0]) + " " + str(xs[1]) + " " + str(xs[2]));
 }
 
-fn double(x: int): int {
+fn double(x: Int): Int {
     return x * 2;
 }
 
-fn noted(x: int): <log> int {
+fn noted(x: Int): <Log> Int {
     emit("saw " + str(x));
     return x + 1;
 }
 
-fn shifted(x: int): <ask, log> int {
+fn shifted(x: Int): <Ask, Log> Int {
     emit("shifting " + str(x));
     return x + base();
 }
 
 show(map([1, 2, 3], double));
 
-run {
+run<Unit> {
     show(map([1, 2, 3], noted));
     show(map([1, 2, 3], shifted));
-} handle log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
-} handle ask {
+} handle<Ask> {
     fn base() { return 10; }
 }

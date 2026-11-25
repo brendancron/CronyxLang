@@ -1,12 +1,10 @@
 import "helpers";
 
-fn kind(k: DeclarationKind): string {
+fn kind(k: DeclarationKind): String {
     match k {
         DeclarationKind.Function => { return "fn"; }
         DeclarationKind.Type => { return "type"; }
         DeclarationKind.Trait => { return "trait"; }
-        DeclarationKind.Effect => { return "effect"; }
-        DeclarationKind.Handler => { return "handler"; }
     }
     return "";
 }
@@ -24,7 +22,7 @@ meta {
                 if (str(d.name) == "triple") {
                     var f = d.name;
                     var call = code(f(14));
-                    gen fn tripled(): int { return call; }
+                    gen fn tripled(): Int { return call; }
                 }
             }
         }

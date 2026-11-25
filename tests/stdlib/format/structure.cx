@@ -1,0 +1,27 @@
+type Point { x: Int, label: String }
+
+type Origin;
+
+type Shape { Circle(Float), Square(Float), Empty }
+
+print(Point { x: 1, label: "a" });
+print(str(Point { x: 2, label: "b" }));
+print(Origin);
+print(Shape.Circle(1.5));
+print(Shape.Empty);
+
+var shapes: List<Shape> = [Shape.Square(2.0), Shape.Empty];
+print(shapes);
+
+type Tree { Leaf, Node(Tree, Int, Tree) }
+print(Tree.Node(Tree.Leaf, 1, Tree.Node(Tree.Leaf, 2, Tree.Leaf)));
+
+type Tagged { Rect { w: Int, h: Int } }
+print(debug(Tagged.Rect { w: 2, h: 3 }));
+
+type Holder<T> { held: T }
+print(Holder { held: Option.Some(Point { x: 3, label: "c" }) });
+print(Holder { held: "s" });
+
+print(() => 1);
+print({ act: () => 2, mark: 'c' });

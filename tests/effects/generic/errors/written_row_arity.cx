@@ -1,13 +1,13 @@
-effect Yield<T> {
-    ctl yield(value: T): unit;
+trait Yield<T> {
+    @ctl fn yield(value: T): Unit;
 }
 
-fn counted(high: int): <Yield<int, bool>> unit {
+fn counted(high: Int): <Yield<Int, Bool>> Unit {
     yield(high);
 }
 
-run {
+run<Unit> {
     counted(1);
-} handle Yield {
-    ctl yield(n) { print(str(n)); resume; }
+} handle<Yield<Int>> {
+    fn yield(n, resume) { print(str(n)); resume(()); }
 }

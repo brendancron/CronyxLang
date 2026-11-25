@@ -1,1 +1,1 @@
-[12:1] 'yield' is declared `fn`, so a handler may not answer it with `ctl`.
+[12:1] 'yield' takes 0 parameter(s) in this handler, but 1 are written.

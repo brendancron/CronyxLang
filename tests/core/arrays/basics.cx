@@ -8,8 +8,8 @@ grid[0][1] = 7;
 print(str(grid[0][1]) + " " + str(grid[1][0]));
 print(typeof(grid).name);
 
-var names: Array<string> = ["a", "b"];
+var names: Array<String> = ["a", "b"];
 print(str(names[1]) + " " + str(typeof(names).name));
 
-fn first(a: Array<int>): int { return a[0]; }
+fn first(a: Array<Int>): Int { return a[0]; }
 print(str(first(xs)) + " " + str(typeof(first).name));

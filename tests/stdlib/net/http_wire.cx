@@ -1,12 +1,12 @@
-import { async, race, both } from "std/async/Task";
-import { Throw, Result } from "std/core/Error";
+import { Async, race, both } from "std/async/Task";
+import { Throw, Result, attempt } from "std/core/Error";
 import { IoError } from "std/io/Io";
 import { tcp_listen, tcp_connect } from "std/net/Tcp";
 import { get, serve, Request, Response } from "std/net/Http";
 import { read_all } from "std/fs/File";
 import { decode } from "std/text/Utf8";
 
-fn text(bytes: Array<byte>): string {
+fn text(bytes: Array<Byte>): String {
     match decode(bytes) {
         Result.Ok(t) => { return t; }
         Result.Err(_) => { return "not text"; }
@@ -31,7 +31,7 @@ var (_, streamed) = both(
 raw.close();
 print(str(streamed.status) + ": " + streamed.body_text());
 
-fn ok(request: Request): <async, Throw<IoError>> Response { return Response.text(200, "fine"); }
+fn ok(request: Request): <Async, Throw<IoError>> Response { return Response.text(200, "fine"); }
 
 var listener = tcp_listen("127.0.0.1", 0);
 var port = listener.local_port();
@@ -50,10 +50,9 @@ race([
 listener.close();
 
 var refused = "fetched";
-run {
-    get("https://example.com/");
-} handle Throw {
-    final ctl throw(e) {
+match attempt(() => get("https://example.com/")) {
+    Result.Ok(_) => {}
+    Result.Err(e) => {
         match e {
             IoError.Other(message) => { refused = message; }
             _ => { refused = "another failure"; }

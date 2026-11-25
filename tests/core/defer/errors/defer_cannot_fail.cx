@@ -1,21 +1,24 @@
 import { Throw } from "std/core/Error";
 
-effect Stop { final ctl stop(): unit; }
+trait Stop { @abort fn stop<T>(): T; }
 
-fn risky(): <Throw<string>> unit { throw("no"); }
+fn risky(): <Throw<String>> Unit { throw("no"); }
 
-fn direct(): <Throw<string>> unit {
+fn direct(): <Throw<String>> Unit {
     defer throw("closing failed");
 }
 
-fn through_call(): <Throw<string>> unit {
+fn through_call(): <Throw<String>> Unit {
     defer risky();
 }
 
-fn own_effect(): <Stop> unit {
+fn own_effect(): <Stop> Unit {
     defer stop();
 }
 
-fn callback<E>(close: () -> <E> unit): <E> unit {
+fn callback<E>(close: () -> <E> Unit): <E> Unit {
     defer close();
 }
+
+run<Unit> { direct(); through_call(); callback(() => { risky(); }); } handle<Throw<String>> { fn throw(e) { } }
+run<Unit> { own_effect(); } handle<Stop> { fn stop() { } }

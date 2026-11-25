@@ -1,15 +1,13 @@
-// The inner block handles one instantiation and the outer another, so which
-// handler catches a `yield` follows from what it was instantiated at.
-effect Yield<T> { ctl yield(v: T): unit; }
+trait Yield<T> { @ctl fn yield(v: T): Unit; }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         yield(1);
         yield(2);
-    } handle Yield {
-        ctl yield(x) { print("inner" + " " + str(x)); resume; }
+    } handle<Yield<Int>> {
+        fn yield(x, resume) { print("inner" + " " + str(x)); resume(()); }
     }
     yield("done");
-} handle Yield {
-    ctl yield(s) { print("outer" + " " + str(s)); resume; }
+} handle<Yield<String>> {
+    fn yield(s, resume) { print("outer" + " " + str(s)); resume(()); }
 }

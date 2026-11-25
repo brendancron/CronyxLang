@@ -1,7 +1,7 @@
 @table("people")
 @version(2)
 type Person {
-    name: string,
+    name: String,
 }
 
 @test

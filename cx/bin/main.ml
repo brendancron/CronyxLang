@@ -24,8 +24,17 @@ let usage =
   \  --dump-source   echo the source before running\n\
   \  --dump-tokens   print the token stream\n\
   \  --dump-ast      print the parsed AST\n\
-  \  --dump-types    print the type-checked AST\n\
-  \  --dump-code     print the program as Cronyx, after metaprocessing\n\n\
+  \  --dump-types    print the type-checked program\n\
+  \  --dump-code     print the entry's own code as Cronyx, as metaprocessing left it\n\
+  \  --dump-processed  print the entry's own code as Cronyx, as the later passes\n\
+  \                  lowered it, and stop\n\
+  \  --show-processed  the same, then run the program\n\
+  \  --time          print compile, run and total time on stderr\n\
+  \  --sections      split the output for a tool: just before running, write a\n\
+  \                  `-- run --` line on stdout and on stderr. Before it is\n\
+  \                  compile time (meta output, diagnostics, `-- processed --`\n\
+  \                  and its code); after it is the run. With --time, the\n\
+  \                  timing line follows a `-- time --` line on stderr\n\n\
   \  -h, --help      show this message"
 
 (* Flags may appear in any order, but exactly one positional path is
@@ -46,6 +55,10 @@ let parse_run args =
       | "--dump-ast" -> dumps := { !dumps with Driver.ast = true }
       | "--dump-types" -> dumps := { !dumps with Driver.types = true }
       | "--dump-code" -> dumps := { !dumps with Driver.code = true }
+      | "--dump-processed" -> dumps := { !dumps with Driver.processed = true }
+      | "--time" -> dumps := { !dumps with Driver.time = true }
+      | "--show-processed" -> dumps := { !dumps with Driver.show_processed = true }
+      | "--sections" -> dumps := { !dumps with Driver.sections = true }
       | "-h" | "--help" ->
         print_endline usage;
         exit 0
@@ -88,7 +101,8 @@ let mode_of ?(dumps = false) args =
       | "--offline" -> { mode with Cx.Build.offline = true }
       | "--frozen" -> { Cx.Build.locked = true; offline = true }
       (* Read by [parse_run], which sees the same list. *)
-      | ("--dump-source" | "--dump-tokens" | "--dump-ast" | "--dump-types" | "--dump-code")
+      | ( "--dump-source" | "--dump-tokens" | "--dump-ast" | "--dump-types" | "--dump-code"
+        | "--dump-processed" | "--show-processed" | "--time" | "--sections" )
         when dumps -> mode
       | _ when String.length arg > 1 && Char.equal arg.[0] '-' ->
         Driver.die ("unknown option: " ^ arg ^ "\n" ^ usage)

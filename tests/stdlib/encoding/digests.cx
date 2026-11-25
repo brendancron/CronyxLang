@@ -1,0 +1,12 @@
+import { sha256 } from "std/crypto/Sha256";
+import { sha1 } from "std/crypto/Sha1";
+import "std/encoding/Hex";
+import "std/encoding/Base64";
+
+print(Hex.encode(sha256("abc".bytes())));
+print(Hex.encode(sha1("abc".bytes())));
+print(Base64.encode("foobar".bytes()));
+print(Base64.encode_with("hi?".bytes(), Base64.Alphabet.UrlSafe, false));
+
+var bytes: Array<Byte> = Base64.encode("abc".bytes()).bytes();
+print(Hex.encode(bytes));

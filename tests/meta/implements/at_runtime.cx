@@ -1,0 +1,4 @@
+type Plain { n: Int }
+
+print(implements(Int, Display));
+print(implements(Plain, Display));

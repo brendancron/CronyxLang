@@ -1,15 +1,15 @@
-effect E { ctl op(): int; }
+trait E { @ctl fn op(): Int; }
 
-fn work(base: int): <E> int { return base + op(); }
+fn work(base: Int): <E> Int { return base + op(); }
 
-var tasks: List<() -> <E> int> = [];
-var pending: List<() -> unit> = [];
+var pending: List<() -> <Console> Unit> = [];
 
-run {
+run<Unit> {
+    var tasks: List<() -> <E> Int> = [];
     tasks.push(() => { return work(10); });
     print(str(tasks[0]()));
-} handle E {
-    ctl op() { pending.push { resume 5; }; }
+} handle<E> {
+    fn op(resume) { pending.push { resume(5); }; }
 }
 
 print("draining");

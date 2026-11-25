@@ -1,0 +1,15 @@
+var seen: List<String> = [];
+
+fn twice(f: () -> <Console> Unit) {
+    print("twice");
+    f();
+    f();
+}
+
+run<Unit> {
+    twice(() => { print("in f"); });
+} handle<Console> {
+    fn write(to, text) { seen.push("seen " + text.trim()); }
+}
+twice(() => { print("at the top"); });
+for (line in seen) { print(line); }

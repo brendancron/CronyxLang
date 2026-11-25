@@ -1,0 +1,10 @@
+type Pair { first: Int, second: String }
+
+fn inspect(p: Pair, xs: List<Bool>) {
+    meta print(typeof(p.second));
+    meta print(typeof(xs[0]));
+    meta print(typeof(p).shape);
+    print(p.first);
+}
+
+inspect(Pair { first: 1, second: "b" }, [true]);

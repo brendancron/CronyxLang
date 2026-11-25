@@ -1,4 +1,4 @@
-fn sum(a: int) {
+fn sum(a: Int): Int {
     meta print("meta sum");
     if (a == 0) return 0;
     return a + sum(a-1);

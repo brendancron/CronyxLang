@@ -1,0 +1,5 @@
+import { Exit, Command, output } from "std/os/Process";
+
+var ran = output(Command.new("sh").args(["-c", "echo out"]));
+print(ran.stdout_text().trim());
+exit(ran.exit_code + 6);

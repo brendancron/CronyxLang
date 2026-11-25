@@ -1,0 +1,4 @@
+false
+double
+42
+1001

@@ -1,0 +1,4 @@
+trait Ask { @ctl fn ask(): Int; }
+fn give_up(k: (Int) -> <Console> Unit) { discontinue(k); }
+run<Unit> { print(ask()); } handle<Ask> { fn ask(resume) { give_up(resume); } }
+print("after");

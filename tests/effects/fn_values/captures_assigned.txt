@@ -1,0 +1,7 @@
+ok 3
+err empty
+ok 2
+err empty
+ok 5
+last cde
+5

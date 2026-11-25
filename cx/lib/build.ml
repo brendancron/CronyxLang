@@ -374,7 +374,8 @@ let file_roots ?(mode = unrestricted) ?note path =
    and the prelude, since the library is not itself compiled to an artifact
    yet. Two of them embedding the same module declare it twice, so the link
    keeps the first of each name -- and of each impl written in one file, which
-   has no name. An impl keyed by file as well as by what it implements is still
+   has no name, by its trait's arguments too: `Index<Int>` and `Index<Range>`
+   for one type are two impls. An impl keyed by file as well as by what it implements is still
    a conflict when two packages write it. *)
 let deduplicated (program : Ast.program) =
   let seen = Hashtbl.create 256 in
@@ -385,7 +386,10 @@ let deduplicated (program : Ast.program) =
         (String.concat
            " "
            [ "impl"
-           ; Option.fold ~none:"" ~some:fst trait
+           ; Option.fold
+               ~none:""
+               ~some:(fun (name, args) -> Printer.string_of_type_expr (Ast.at s.Ast.span (Ast.Ty_app (name, args))))
+               trait
            ; type_name
            ; Source_map.Span.path s.Ast.span
            ])

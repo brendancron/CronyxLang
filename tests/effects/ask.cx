@@ -1,0 +1,15 @@
+trait Ask {
+    fn ask(): Int;
+}
+
+fn double() {
+    return ask() * 2;
+}
+
+run<Unit> {
+    print(double());
+} handle<Ask> {
+    fn ask() {
+        return 21;
+    }
+}

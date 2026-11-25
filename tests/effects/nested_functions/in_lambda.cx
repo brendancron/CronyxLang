@@ -1,0 +1,15 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+var f = (limit: Int) => {
+    fn check(n: Int): Int {
+        if (n > limit) { return throw("over " + str(limit)); }
+        return n;
+    }
+    run<Unit> { print(check(1)); print(check(5)); } handle<Error> { fn throw(m) { print(m); } }
+};
+f(2);
+{
+    var tag = "block";
+    fn g(): Int { return throw(tag); }
+    run<Unit> { print(g()); } handle<Error> { fn throw(m) { print(m); } }
+}

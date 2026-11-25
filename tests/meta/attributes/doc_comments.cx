@@ -1,14 +1,14 @@
 /** A point in the plane. */
 type Point {
     /** How far along. */
-    x: int,
+    x: Int,
 
     /**
      * How far up.
      *
      * Measured from the origin.
      */
-    y: int,
+    y: Int,
 }
 
 /** How dark it is. */

@@ -1,25 +1,21 @@
-// A `final ctl` unwinds to the block it was installed on. Once that block sits
-// inside a converted function, "the rest" lives in continuation closures, and
-// the unwind has to stop at the same place it would otherwise — not escape
-// every continuation between here and the top.
-effect E { ctl ask(): int; }
-effect Fail { final ctl bail(): int; }
+trait E { @ctl fn ask(): Int; }
+trait Fail { @ctl fn bail<T>(): T; }
 
-fn g(): <E, Fail, Console> unit {
+fn g(): <E, Fail, Console> Unit {
     var t = ask();
     bail();
     print("UNREACHABLE");
 }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         g();
         print("UNREACHABLE-2");
-    } handle Fail { final ctl bail() { print("bailed"); } }
+    } handle<Fail> { fn bail(resume) { print("bailed"); } }
     print("after the fail run");
-} handle E {
-    ctl ask() {
-        resume 7;
+} handle<E> {
+    fn ask(resume) {
+        resume(7);
         print("E after");
     }
 }

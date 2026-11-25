@@ -1,0 +1,19 @@
+trait Exception {
+    @ctl fn throw(msg: String): Unit;
+}
+
+fn main() {
+    print("Start of Main");
+    run<Unit> {
+        print("Start of Run Block");
+        throw("Some Exception");
+        print("End of Run Block");
+    } handle<Exception> {
+        fn throw(msg, resume) {
+            print(msg);
+        }
+    }
+    print("End of Main");
+}
+
+main();

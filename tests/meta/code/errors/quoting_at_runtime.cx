@@ -1,0 +1,9 @@
+import { Expr } from "std/compiler/Ast";
+
+fn make(): Expr {
+    return code(1 + 2);
+}
+meta {
+    print(make().span);
+}
+print(make().span);

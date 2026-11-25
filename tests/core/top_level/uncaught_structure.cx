@@ -1,0 +1,7 @@
+import { Throw } from "std/core/Error";
+
+type Bad { Oops }
+
+fn risky(): <Throw<Bad>> Int { return throw(Bad.Oops); }
+
+print(risky());

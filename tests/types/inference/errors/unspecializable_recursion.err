@@ -1,1 +1,0 @@
-[6:1] 'find' calls itself at a new type each time, so there is no finite set of copies of it.

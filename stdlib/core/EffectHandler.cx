@@ -1,0 +1,77 @@
+/**
+ * What a handler implements. An effect is a trait written as its callers see
+ * it: an operation marked `@ctl` takes control of the continuation, and an
+ * unmarked one returns exactly once whatever handles it.
+ *
+ * `EffectHandler<E, R>` is `E` as a handler writes it, where `R` is what the
+ * run returns: each `@ctl` operation gains the continuation as its last
+ * parameter and returns `R`, generic in what the continuation performs,
+ * `(A) -> <ρ> R`, which the run binding the handler settles as what it passes
+ * outward; one marked `@abort` never resumes, so it gains no continuation and
+ * returns `R`; every other operation is kept as written. An
+ * effect with no `@ctl` operation is its own `EffectHandler`, so its handler
+ * implements the trait itself.
+ */
+
+import { Applied, DeclKind, MethodSig, Param, Signature, StaticParam, TypeExpr, TypeKind } from "std/compiler/Ast";
+
+trait EffectHandler<E, R> {
+    meta {
+        match declof(E).kind {
+            DeclKind.Trait(eff) => {
+                for (op in eff.methods) {
+                    gen handled(op);
+                }
+            }
+            _ => { panic(str(E) + " is not a trait, so it has no operations to handle"); }
+        }
+    }
+}
+
+fn marked(op: MethodSig, name: String): Bool {
+    for (a in op.attrs) {
+        if (str(a.name) == name) { return true; }
+    }
+    return false;
+}
+
+fn takes_control(op: MethodSig): Bool { return marked(op, "ctl") || marked(op, "abort"); }
+
+fn handled(op: MethodSig): MethodSig {
+    if (!takes_control(op)) { return op; }
+
+    var answer = TypeExpr.of(TypeKind.Named("R".as_name()));
+    var resumes = TypeExpr.of(TypeKind.Named("Unit".as_name()));
+    match op.signature.ret {
+        Option.Some(t) => { resumes = t; }
+        _ => {}
+    }
+
+    var row = "Rho".as_name();
+    var performs = [Applied { name: row, args: [] }];
+    var params: List<Param> = [];
+    for (p in op.params) { params.push(p); }
+    if (!marked(op, "abort")) {
+        params.push(Param {
+            name: "resume".as_name(),
+            ty: Option.Some(TypeExpr.of(TypeKind.Function([resumes], answer, performs))),
+            implicit: false
+        });
+    }
+
+    var static_params: List<StaticParam> = [];
+    for (sp in op.signature.static_params) { static_params.push(sp); }
+    static_params.push(StaticParam { name: row, ty: Option.None, pack: false });
+
+    return MethodSig {
+        name: op.name,
+        params: params,
+        signature: Signature {
+            ret: Option.Some(answer),
+            row: Option.Some(performs),
+            static_params: static_params,
+            inline: false
+        },
+        attrs: op.attrs
+    };
+}

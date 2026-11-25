@@ -1,10 +1,10 @@
 import { scratch } from "benchmarks";
-import { async, pause } from "std/async/Task";
+import { Async, pause } from "std/async/Task";
 import { Throw } from "std/core/Error";
 
-fn pure_step(): int { return 0; }
-fn async_step(): <async> int { return 0; }
-fn suspending_step(): <async> int {
+fn pure_step(): Int { return 0; }
+fn async_step(): <Async> Int { return 0; }
+fn suspending_step(): <Async> Int {
     var held = scratch(2000);
     pause();
     return held;
@@ -13,7 +13,7 @@ fn suspending_step(): <async> int {
 @bench(100)
 @time("linear")
 @memory("constant")
-fn pure_calls(n: int) {
+fn pure_calls(n: Int) {
     var total = 0;
     for (var i = 0; i < n; i += 1) { total += scratch(2000) + pure_step(); }
 }
@@ -22,7 +22,7 @@ fn pure_calls(n: int) {
 @bench(100)
 @time("linear")
 @memory("constant")
-fn async_calls(n: int) {
+fn async_calls(n: Int) {
     var total = 0;
     for (var i = 0; i < n; i += 1) { total += scratch(2000) + async_step(); }
 }
@@ -31,7 +31,7 @@ fn async_calls(n: int) {
 @bench(100)
 @time("linear")
 @memory("constant")
-fn suspending_calls(n: int) {
+fn suspending_calls(n: Int) {
     var total = 0;
     for (var i = 0; i < n; i += 1) { total += suspending_step(); }
 }
@@ -40,17 +40,21 @@ fn suspending_calls(n: int) {
 @bench(100)
 @time("linear")
 @memory("constant")
-fn suspending_in_run(n: int) {
+fn suspending_in_run(n: Int) {
     var total = 0;
     for (var i = 0; i < n; i += 1) {
-        run { total += suspending_step(); } handle Throw { final ctl throw(e) {} }
+        run<Unit> {
+            total += suspending_step();
+        } handle<Throw<String>> {
+            fn throw(e) {}
+        }
     }
 }
 
 @bench(100)
 @time("linear")
 @memory("constant")
-fn closure_calls(n: int) {
+fn closure_calls(n: Int) {
     var total = 0;
     for (var i = 0; i < n; i += 1) {
         var size = 2000;
@@ -59,13 +63,13 @@ fn closure_calls(n: int) {
     }
 }
 
-fn depth(n: int): int {
+fn depth(n: Int): Int {
     if (n == 0) { return 0; }
     return 1 + depth(n - 1);
 }
 
 @bench(2000)
 @time("linear")
-fn recursion(n: int) {
+fn recursion(n: Int) {
     for (var i = 0; i < 20; i += 1) { depth(n); }
 }

@@ -1,0 +1,6 @@
+fn doubled<n: Int>(): Int {
+    return meta { gen code(n * 2); };
+}
+
+print(doubled<3>());
+print(doubled<5>());

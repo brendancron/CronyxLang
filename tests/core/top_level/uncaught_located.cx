@@ -1,0 +1,15 @@
+import { Throw } from "std/core/Error";
+
+type LoadError { Missing(String) }
+
+fn caught<X, Rest>(main: () -> <Throw<X>, Rest> Unit): <Rest> Unit {
+    run<Unit> {
+        main();
+    } handle<Throw<X>> {
+        fn throw(e) { panic("failed: " + str(e)); }
+    }
+}
+
+fn load(): <Throw<LoadError>> Unit { throw(LoadError.Missing("config.toml")); }
+
+caught(load);

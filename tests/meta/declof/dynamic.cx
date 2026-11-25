@@ -1,0 +1,45 @@
+import { Expr, ExprKind, Stmt, StmtKind } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
+
+fn ask(): Int { return 5; }
+
+fn tell(n: Int) { print(n); }
+
+fn callee(e: Expr): Option<Name> {
+    match e.kind {
+        ExprKind.Call(f, _) => {
+            match f.kind {
+                ExprKind.Var(n) => { return Option.Some(n); }
+                _ => { return Option.None; }
+            }
+        }
+        _ => { return Option.None; }
+    }
+}
+
+fn called(s: Stmt): Option<Name> {
+    match s.kind {
+        StmtKind.Let(_, _, init) => {
+            match init {
+                Option.Some(e) => { return callee(e); }
+                _ => { return Option.None; }
+            }
+        }
+        StmtKind.Expression(e) => { return callee(e); }
+        _ => { return Option.None; }
+    }
+}
+
+meta {
+    var body = code {
+        var n = ask();
+        tell(n);
+    };
+    for (s in body) {
+        match called(s) {
+            Option.Some(name) => { print(decl_source(declof(name))); }
+            _ => {}
+        }
+    }
+}
+tell(ask());

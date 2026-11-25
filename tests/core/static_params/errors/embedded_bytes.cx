@@ -1,4 +1,4 @@
-fn tag<label: string>() {
+fn tag<label: String>() {
     print(label);
 }
 tag<embed("hello.txt")>();

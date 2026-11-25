@@ -1,0 +1,18 @@
+trait Log { fn log(msg: String): Unit; }
+
+fn greet(name: String) {
+    log("hello, " + name);
+}
+
+type Shout {}
+impl Log for Shout {
+    fn log(msg: String) { print(msg + "!"); }
+}
+
+type Whisper {}
+impl Log for Whisper {
+    fn log(msg: String) { print("(" + msg + ")"); }
+}
+
+run<Unit> { greet("ada"); } with Shout;
+run<Unit> { greet("bo"); } with Whisper;

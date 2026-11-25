@@ -1,15 +1,14 @@
-effect Yield<T> {
-    ctl yield(value: T): unit;
+trait Yield<T> {
+    @ctl fn yield(value: T): Unit;
 }
 
-// The first use fixes what the row carries, so the second has to agree with it.
 fn both() {
     yield(1);
     yield("two");
 }
 
-run {
+run<Unit> {
     both();
-} handle Yield {
-    ctl yield(v) { print(str(v)); resume; }
+} handle<Yield<Int>> {
+    fn yield(v, resume) { print(str(v)); resume(()); }
 }

@@ -60,9 +60,9 @@ With those properties in mind, the surface mechanism is small:
 
 Every example we just looked at — errors, async, generators, callbacks, IO — turns out to be the same construction with different operations and different handlers. Throughout this section we'll build all of them with the same three constructs:
 
-- `effect Name { ... }` — declare an effect.
+- `trait Name { ... }` — declare an effect: a trait whose methods are its operations.
 - `op(args)` — perform one of the effect's operations.
-- `run { ... } handle Name { ... }` — install a handler over a block.
+- `run<T> { ... } handle<Name> { ... }` — install a handler over a block that answers a `T`.
 
 Same syntax for declaring an exception as for declaring async. Same syntax for handling a generator as for handling logging. There is one mechanism, and it works for all of these because all of these are the same idea.
 
@@ -80,7 +80,7 @@ The unification isn't just an aesthetic win — it makes things *possible* that 
 
 ## The cost
 
-Effects aren't free, but you pay only for the kind you use. An effect whose handlers never pause the caller — its operations answer and return (`fn`), or abort outright (`final ctl`) — is compiled to a hidden argument: the handler is passed down, and performing an operation is an ordinary call. An effect with a `ctl` operation, whose handler can pause the caller, needs more. Every function that can perform it, directly or through a callee, up to the `run` that handles it, is rewritten so its remaining work can be saved as a continuation and resumed later.
+Effects aren't free, but you pay only for the kind you use. An effect whose handlers always answer and let the caller carry on — every operation a plain `fn` — is compiled to a hidden argument: the handler is passed down, and performing an operation is an ordinary call. An operation marked `@ctl` or `@abort`, whose handler takes control away from the caller, needs more. Every function that can perform it, directly or through a callee, up to the `run` that handles it, is rewritten so its remaining work can be saved as a continuation and resumed later.
 
 Code that performs no effects is untouched — the transformation is selective. Code paths that perform effects pay a small cost; code paths that don't, don't. In practice this is fine for almost everything: the kinds of work that benefit from effects (IO, error recovery, generators) already operate well above the threshold where this cost matters.
 
@@ -89,17 +89,17 @@ Code that performs no effects is untouched — the transformation is selective. 
 Here's the simplest non-trivial effect — a logging effect with an inline handler:
 
 ```cronyx
-effect log {
-    fn log(msg: string): unit;
+trait Log {
+    fn log(msg: String): Unit;
 }
 
-fn greet(name: string) {
+fn greet(name: String) {
     log("Hello, " + name);
 }
 
-run {
+run<Unit> {
     greet("Brendan");
-} handle log {
+} handle<Log> {
     fn log(msg) {
         print("From handler: " + msg);
     }
@@ -110,7 +110,7 @@ run {
 From handler: Hello, Brendan
 ```
 
-`greet` performed a `log` effect; the surrounding handler decided what to do with it (in this case, print with a prefix). Notice that `greet` didn't have to know anything about how logs are produced — it just declares "I want to log this." Swap the handler and the same `greet` writes to a file, batches messages, or drops them entirely. The function never changes.
+`greet` performed the `Log` effect; the surrounding handler decided what to do with it (in this case, print with a prefix). Notice that `greet` didn't have to know anything about how logs are produced — it just declares "I want to log this." Swap the handler and the same `greet` writes to a file, batches messages, or drops them entirely. The function never changes.
 
 ## What's next
 

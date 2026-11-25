@@ -1,23 +1,22 @@
-// A field initializer is an evaluation context like any other: the fields
-// before the suspension are already evaluated and have to survive it, and the
-// literal is built once the continuation supplies the rest.
-effect Ask { ctl get(): int; }
+trait Ask {
+    @ctl fn get(): Int;
+}
 
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 fn make(): <Ask> Point {
     return Point { x: 1, y: get() };
 }
 
-run {
+run<Unit> {
     var p = make();
     print(str(p.x) + " " + str(p.y));
-} handle Ask {
-    ctl get() {
-        resume 5;
+} handle<Ask> {
+    fn get(resume) {
+        resume(5);
         print("after");
     }
 }

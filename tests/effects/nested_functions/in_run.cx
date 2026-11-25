@@ -1,0 +1,13 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+run<Unit> {
+    var scale = 10;
+    fn inner(m: Int): Int {
+        if (m > 2) { return throw("refused " + str(m)); }
+        return m * scale;
+    }
+    print(inner(1));
+    print(inner(3));
+} handle<Error> {
+    fn throw(m) { print(m); }
+}

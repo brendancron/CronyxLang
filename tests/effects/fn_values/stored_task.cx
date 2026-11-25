@@ -1,0 +1,13 @@
+trait Sched { @ctl fn tick(): Unit; }
+
+fn run_one(task: () -> <Sched> Unit) {
+    run<Unit> { task(); } handle<Sched> {
+        fn tick(resume) { print("tick"); resume(()); }
+    }
+}
+
+var tasks: List<() -> <Sched> Unit> = [() => { tick(); tick(); }];
+run_one(tasks[0]);
+
+var start = run_one;
+start(() => { tick(); });

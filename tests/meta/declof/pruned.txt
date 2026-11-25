@@ -1,0 +1,6 @@
+lonely's meta block runs
+fn lonely() {
+    print("never called");
+}
+
+done

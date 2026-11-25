@@ -1,9 +1,9 @@
-effect logger { fn log(msg: string): unit; }
-effect counter { fn tick(): unit; }
+trait Logger { fn log(msg: String): Unit; }
+trait Counter { fn tick(): Unit; }
 
-fn greet(name: string) { log("hi " + name); tick(); }
+fn greet(name: String) { log("hi " + name); tick(); }
 fn indirect() { greet("x"); }
-fn pure_fn(n: int): int { return n + 1; }
+fn pure_fn(n: Int): Int { return n + 1; }
 
 print(typeof(log).name);
 print(typeof(greet).name);

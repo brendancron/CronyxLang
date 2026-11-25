@@ -1,32 +1,32 @@
-effect Ask { ctl get(): int; }
+trait Ask { @ctl fn get(): Int; }
 
 trait Speaker {
-    fn speak(self): <Ask> string;
+    fn speak(self): <Ask> String;
 }
 
 type Cat;
 type Dog;
 
 impl Speaker for Cat {
-    fn speak(self): <Ask> string {
+    fn speak(self): <Ask> String {
         return "meow " + str(get());
     }
 }
 
 impl Speaker for Dog {
-    fn speak(self): <Ask> string {
+    fn speak(self): <Ask> String {
         return "woof " + str(get());
     }
 }
 
-fn main(): unit {
+fn main(): Unit {
     var speakers: List<Speaker> = [Cat, Dog];
-    run {
+    run<Unit> {
         for (s in speakers) {
             print(s.speak());
         }
     }
-    handle Ask { ctl get() { resume 1; print("after the resume"); } }
+    handle<Ask> { fn get(resume) { resume(1); print("after the resume"); } }
 }
 
 main();

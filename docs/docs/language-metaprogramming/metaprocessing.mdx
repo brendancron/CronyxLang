@@ -74,7 +74,7 @@ The `total` variable lives only inside the meta block — it doesn't survive int
 print("A");
 meta print("B");
 
-fn shout(s: string) {
+fn shout(s: String) {
     meta print("C");
     print(s + "!");
 }
@@ -98,7 +98,7 @@ F
 That has a consequence worth knowing: **code nothing reaches is never metaprocessed.** A function no reached code calls never has its meta blocks run, and it isn't part of the compiled program at all:
 
 ```cronyx
-fn report(label: string) {
+fn report(label: String) {
     meta print("compiling report");
     print(label);
 }
@@ -136,9 +136,9 @@ compiling the loop body
 3
 ```
 
-### Unreached code is still checked
+### Unreached code isn't checked
 
-Skipping code nobody reaches is not the same as ignoring it. Before the walk starts, the compiler type-checks the whole program, reached or not, so a mistake in a function you haven't called yet is still an error:
+The walk is also what decides what gets type-checked: the compiler checks the code the walk reaches, and nothing else. A mistake in a function nothing calls isn't reported:
 
 ```cronyx
 fn never() {
@@ -149,12 +149,10 @@ print("hi");
 ```
 
 ```
-No operator + for int and string: int does not implement Add<string>.
+hi
 ```
 
-What this early check can't see is anything a meta block decides — code a meta block will generate, or a type that depends on a compile-time value. Those parts are checked once the walk has run the meta blocks, which is covered in the chapters ahead.
-
-That includes names. A meta block could still generate a function, type or field of any name, so the early check never reports a name as undefined. A misspelled call in code the walk never reaches goes unreported until something reaches it.
+Call `never()` anywhere the walk goes and the same program fails with `No operator + for Int and String: Int does not implement Add<String>.` It's the same rule as for meta blocks: code nothing reaches isn't part of the program, so there's nothing to check. Each body is checked after the walk has run the meta blocks it reaches, so anything they generate already exists by then. A test that calls a function is what makes sure it's checked.
 
 ## Nested meta blocks
 

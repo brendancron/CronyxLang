@@ -22,7 +22,7 @@ type entry =
   }
 
 (* [targets] is the trait's arguments as they were written, which is what one
-   impl's method is told apart by: `To<string>` and `To<bool>` on one type each
+   impl's method is told apart by: `To<String>` and `To<Bool>` on one type each
    bring a `to`. *)
 type method_entry =
   { mangled : string
@@ -100,7 +100,7 @@ let register_entry t owner method_ entry =
 let method_entries t owner method_ =
   Option.value ~default:[] (Hashtbl.find_opt t.entries (owner, method_))
 
-(* The impl a method came from, as a diagnostic says it: `To<bool>`, or the type
+(* The impl a method came from, as a diagnostic says it: `To<Bool>`, or the type
    itself for an impl that answers no trait. A name from another module carries
    that module's prefix, which the program never wrote. *)
 let describe_entry owner e =
@@ -118,7 +118,7 @@ let describe_entry owner e =
       (written trait)
       (String.concat ", " (List.map written e.targets))
 
-(* The written targets pick one, so `f.to<bool>()` reaches the impl that a call
+(* The written targets pick one, so `f.to<Bool>()` reaches the impl that a call
    by name alone could not. *)
 let entry_with_targets t owner method_ targets =
   let matches e =
@@ -130,26 +130,23 @@ let entry_with_targets t owner method_ targets =
 (* A bound names the entry outright, so a call it dispatched asks no table which
    impl it reaches -- unless the impl wrote the trait's arguments in its own
    parameters: `impl Sized<T> for List<T>` is mangled with `T`, and a bound at
-   `Sized<float>` names `float`. Then it is the type's one impl of that trait. *)
+   `Sized<Float>` names `Float`. Then it is the type's one impl of that trait. *)
 let dispatched t (d : Types.ty Ast.dispatch) owner method_ =
-  match d.Ast.dp_instance with
-  | Some copy -> copy
-  | None ->
-    let written ty = Option.value (Types.type_name ty) ~default:"_" in
-    let targets = List.map written d.Ast.dp_targets in
-    let exact = Ast.dispatched_method_name owner d.Ast.dp_trait targets method_ in
-    let entries = method_entries t owner method_ in
-    if List.exists (fun e -> String.equal e.mangled exact) entries
-    then exact
-    else (
-      match
-        List.filter
-          (fun e ->
-            e.trait = Some d.Ast.dp_trait && List.length e.targets = List.length targets)
-          entries
-      with
-      | [ only ] -> only.mangled
-      | _ -> exact)
+  let written ty = Option.value (Types.type_name ty) ~default:"_" in
+  let targets = List.map written d.Ast.dp_targets in
+  let exact = Ast.dispatched_method_name owner d.Ast.dp_trait targets method_ in
+  let entries = method_entries t owner method_ in
+  if List.exists (fun e -> String.equal e.mangled exact) entries
+  then exact
+  else (
+    match
+      List.filter
+        (fun e ->
+          e.trait = Some d.Ast.dp_trait && List.length e.targets = List.length targets)
+        entries
+    with
+    | [ only ] -> only.mangled
+    | _ -> exact)
 
 (* A call left ambiguous is rejected before here, so the head is the one entry
    a receiver's method has. *)

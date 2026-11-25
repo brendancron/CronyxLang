@@ -1,0 +1,41 @@
+import { MethodSig, Param, Signature, TypeExpr, TypeKind } from "std/compiler/Ast";
+
+fn sig_named(name: String, ret: String): MethodSig {
+    return MethodSig {
+        name: name.as_name(),
+        params: [Param { name: "self".as_name(), ty: Option.None, implicit: false }],
+        signature: Signature {
+            ret: Option.Some(TypeExpr.of(TypeKind.Named(ret.as_name()))),
+            row: Option.None,
+            static_params: [], inline: false
+        },
+        attrs: []
+    };
+}
+
+trait Shown<T> {
+    meta {
+        print("making Shown<" + typeof(T).name + ">");
+        gen sig_named("show", "String");
+    }
+}
+
+type A {}
+type B {}
+type C {}
+
+impl Shown<Int> for A {
+    fn show(self): String { return "an A"; }
+}
+
+impl Shown<String> for B {
+    fn show(self): String { return "a B"; }
+}
+
+impl Shown<Int> for C {
+    fn show(self): String { return "a C"; }
+}
+
+print(A {}.show());
+print(B {}.show());
+print(C {}.show());

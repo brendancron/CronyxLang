@@ -23,7 +23,7 @@ let escape text =
 (* `#` is in every id and must be percent-encoded in a fragment, which makes a
    link unreadable in a status bar. A dot reads as the path it is.
 
-   An impl's id also carries the trait's written arguments -- `Into<float>` --
+   An impl's id also carries the trait's written arguments -- `Into<Float>` --
    and those go the same way: an angle bracket in an anchor is an angle bracket
    in a URL. Folding them cannot collide, because what differed before the fold
    still differs after it. *)
@@ -261,7 +261,7 @@ let rec type_html ~from ~table node =
 
 (* An absent row was left to inference and says nothing; a written empty one
    says the function performs no effect, which is worth printing. It stands
-   before the type it decorates -- `-> <E> bool`, not `-> bool <E>` -- because
+   before the type it decorates -- `-> <E> Bool`, not `-> Bool <E>` -- because
    that is where it is written and `--dump-code` prints it there. *)
 and row_html ~from ~table row =
   if Json.is_null row
@@ -301,7 +301,7 @@ let params_html ~from ~table ps =
 
 (* `<>` parameters. A bound and a value are both written as a name with a type
    and mean different things -- `<T: Ord>` is a generic the checker constrains,
-   `<n: int>` is a value a copy is made for -- so each is styled as what it is
+   `<n: Int>` is a value a copy is made for -- so each is styled as what it is
    and neither is left for a reader to infer. *)
 let statics_html ~from ~table ps =
   match Json.items ps with
@@ -500,7 +500,7 @@ let signature_html ~from ~table entry =
   | "impl" ->
     let trait = Json.field "trait" entry in
     (* The parameters belong to the target, which is where they are written:
-       `impl Index<int> for List<T>`. *)
+       `impl Index<Int> for List<T>`. *)
     let target =
       type_html ~from ~table (Json.field "for" entry)
       ^ statics_html ~from ~table (Json.field "generics" entry)
@@ -514,15 +514,6 @@ let signature_html ~from ~table entry =
         (applied_html ~from ~table trait)
         (kw "for")
         target
-  | "effect" ->
-    Printf.sprintf "%s %s%s" (kw "effect") name (names_html (Json.field "generics" entry))
-  | "handler" ->
-    let handles = Json.field "handles" entry in
-    Printf.sprintf
-      "%s %s : %s"
-      (kw "handler")
-      name
-      (link ~from ~table (Json.text (Json.field "ref" handles)) (Json.text (Json.field "name" handles)))
   | "var" ->
     let ty = Json.field "type" entry in
     Printf.sprintf
@@ -533,7 +524,7 @@ let signature_html ~from ~table entry =
   | _ -> name
 
 (* The impls a type or a trait carries. A trait's are the only way to reach an
-   impl for a primitive: `int` has no declaration and so no page to list it on. *)
+   impl for a primitive: `Int` has no declaration and so no page to list it on. *)
 let impls_html ~from ~table ~label entry =
   match Json.items (Json.field "impls" entry) with
   | [] -> ""
@@ -554,7 +545,7 @@ let impls_html ~from ~table ~label entry =
               link ~from ~table id name)
             ids))
 
-(* `type Item;` in a trait, and `type Item = int;` in an impl that binds it. *)
+(* `type Item;` in a trait, and `type Item = Int;` in an impl that binds it. *)
 let assoc_html ~from ~table entry =
   String.concat
     ""
@@ -585,33 +576,6 @@ let members_html ~from ~table entry =
   | "impl" ->
     assoc_html ~from ~table entry
     ^ String.concat "" (List.map (method_html ~from ~table) (Json.items (Json.field "methods" entry)))
-  | "effect" ->
-    String.concat
-      ""
-      (List.map
-         (fun o ->
-           Printf.sprintf
-             "<div class=\"member\"><div class=\"sig\"><span class=\"kw\">%s</span> %s%s(%s)%s</div>\n%s%s</div>\n"
-             (escape (Json.text (Json.field "kind" o)))
-             (escape (Json.text (Json.field "name" o)))
-             (names_html (Json.field "generics" o))
-             (params_html ~from ~table (Json.field "params" o))
-             (let r = Json.field "ret" o in
-              if Json.is_null r then "" else ": " ^ type_html ~from ~table r)
-             (attrs_html o)
-             (doc_html o))
-         (Json.items (Json.field "ops" entry)))
-  | "handler" ->
-    String.concat
-      ""
-      (List.map
-         (fun a ->
-           Printf.sprintf
-             "<div class=\"member\"><div class=\"sig\"><span class=\"kw\">%s</span> %s(%s)</div></div>\n"
-             (escape (Json.text (Json.field "kind" a)))
-             (escape (Json.text (Json.field "name" a)))
-             (String.concat ", " (List.map (fun p -> escape (Json.text p)) (Json.items (Json.field "params" a)))))
-         (Json.items (Json.field "arms" entry)))
   | _ -> ""
 
 (* Where the declaration was written. The line is the index's; the file is the
@@ -645,8 +609,6 @@ let entry_html ~from ~table ~path entry =
 let kinds =
   [ "type", "Types"
   ; "trait", "Traits"
-  ; "effect", "Effects"
-  ; "handler", "Handlers"
   ; "fn", "Functions"
   ; "var", "Values"
   ; "impl", "Implementations"

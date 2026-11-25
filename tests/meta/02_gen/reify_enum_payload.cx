@@ -1,4 +1,4 @@
-type E { A, B(int, string) }
+type E { A, B(Int, String) }
 meta {
     var e = E.B(4, "four");
     gen var ee = e;

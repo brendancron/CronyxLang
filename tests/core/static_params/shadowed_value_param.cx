@@ -1,4 +1,4 @@
-fn scaled<n: int>(x: int): int {
+fn scaled<n: Int>(x: Int): Int {
     var n = 100;
     return x * n;
 }

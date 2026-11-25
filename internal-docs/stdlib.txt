@@ -3,11 +3,13 @@ std/
 ├── core/                  # Fundamental primitives, types, and language traits
 │   ├── Array              # Fixed-size primitive array and slicing
 │   ├── Assert             # Basic assertion mechanisms
+│   ├── EffectHandler      # What a handler implements: an effect's operations, with a continuation for each `@ctl` one
 │   ├── Error              # Throw, Result, Failure, Fallible; attempt and rethrow
 │   ├── Iter               # The Iter type that `for` consumes, and Iterable over List and Array
 │   ├── Ops                # Fundamental operator traits
 │   ├── Option             # Optional value type (Some/None)
-│   └── Range              # Slice and loop bounds
+│   ├── Range              # Slice and loop bounds
+│   └── Transform          # What a `run` means: its body split at each call that takes control
 ├── iter/                  # Building and transforming sequences
 │   ├── Yield              # The Yield effect, and `iterator` to pull a producer lazily
 │   └── Adapters           # map, filter, zip, enumerate, take, chain, collect over Iter

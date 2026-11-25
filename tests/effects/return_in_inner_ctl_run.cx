@@ -1,25 +1,21 @@
-// The `return` sits in the continuation the inner handler resumes, so it fires
-// while the body is being re-entered rather than on the way in. It leaves `f`,
-// which is outside the block `tick` was handled on, so the handler's own sequel
-// is unwound past along with the `ask` below.
-effect E { ctl ask(): int; }
-effect Inner { ctl tick(): int; }
+trait E { @ctl fn ask(): Int; }
+trait Inner { @ctl fn tick(): Int; }
 
-fn f(): <E, Console> int {
-    run {
+fn f(): <E, Console> Int {
+    run<Unit> {
         var n = tick();
         return n + 1;
-    } handle Inner {
-        ctl tick() {
-            resume 1;
+    } handle<Inner> {
+        fn tick(resume) {
+            resume(1);
             print("UNREACHABLE");
         }
     }
     return ask();
 }
 
-run {
+run<Unit> {
     print(f());
-} handle E {
-    ctl ask() { resume 7; }
+} handle<E> {
+    fn ask(resume) { resume(7); }
 }

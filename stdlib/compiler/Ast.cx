@@ -34,12 +34,14 @@ import { AttrArg } from "../meta/Reflect";
 /** An expression. */
 type Expr {
     kind: ExprKind,
-    span: Span
+    span: Span,
+    /** Its type, in code `processed` handed back; `None` in a quote. */
+    ty: Option<TypeExpr>
 }
 
 impl Expr {
     /** The expression, marked as generated. */
-    fn of(kind: ExprKind): Expr { return Expr { kind: kind, span: __span_generated() }; }
+    fn of(kind: ExprKind): Expr { return Expr { kind: kind, span: __span_generated(), ty: Option.None }; }
 }
 
 /** A statement. A declaration inside a block is one too, as `Declare`. */
@@ -86,15 +88,15 @@ type BinOp {
 
 type ExprKind {
     Unit,
-    Int(int),
-    Float(float),
-    Str(string),
-    Char(char),
-    Bool(bool),
+    Int(Int),
+    Float(Float),
+    Str(String),
+    Char(Char),
+    Bool(Bool),
     /** A name reflection handed out, standing as a value. */
     NameLit(Name),
     /** What `embed` read, as it was on disk. */
-    Bytes(Array<byte>),
+    Bytes(Array<Byte>),
 
     Var(Name),
     Assign(Name, Expr),
@@ -104,8 +106,10 @@ type ExprKind {
     Or(Expr, Expr),
     Call(Expr, List<Expr>),
     MethodCall(Expr, Name, List<Expr>),
-    /** `f<int, 3>(x)`. */
+    /** `f<Int, 3>(x)`. */
     StaticCall(Expr, List<StaticArg>, List<Expr>),
+    /** `f<Int>`, named as a value. */
+    StaticRef(Expr, List<StaticArg>),
 
     /** `x += e`. */
     Compound(BinOp, Name, Expr),
@@ -115,7 +119,7 @@ type ExprKind {
     Index(Expr, Expr),
     IndexAssign(Expr, Expr, Expr),
     Tuple(List<Expr>),
-    TupleGet(Expr, int),
+    TupleGet(Expr, Int),
     /** `...args`, in an argument list. */
     Spread(Expr),
 
@@ -125,9 +129,9 @@ type ExprKind {
     FieldAssign(Expr, Name, Expr),
     /** `Point { x: 1, y: 2 }`. */
     New(Name, List<FieldInit>),
-    /** `Box<int>(x)`. */
+    /** `Box<Int>(x)`. */
     NewCall(Name, List<TypeExpr>, List<Expr>),
-    /** `new Box<int> { … }`. */
+    /** `new Box<Int> { … }`. */
     NewGeneric(Name, List<StaticArg>, List<FieldInit>),
     /** `Option.Some(x)`. */
     NewVariant(Name, Name, Args),
@@ -135,13 +139,20 @@ type ExprKind {
     Collection(List<Expr>),
 
     Lambda(List<Param>, Signature, List<Stmt>),
-    Run(ValuedBlock, List<HandlerClause>, Option<ReturnClause>),
+    /** The type is the `<R>` written after `run`. */
+    Run(Option<TypeExpr>, ValuedBlock, List<HandlerClause>),
     Match(Expr, List<ValuedArm>),
 
     Typeof(Expr),
+    /** `declof(f)`, or `declof(f<Int>)` with the key written. */
+    Declof(Expr, Option<List<StaticArg>>),
+    /** `meta { … }` standing where a value is wanted. */
+    Meta(List<Stmt>),
     QuoteExpr(Expr),
     QuoteStmts(List<Stmt>),
-    QuoteDecl(Decl)
+    QuoteDecl(Decl),
+    /** Code already processed, by the compiler's number for it: it is checked as it was, not again. */
+    Processed(Int)
 }
 
 /** `name: value`, in a record or a constructor. */
@@ -167,12 +178,6 @@ type StaticArg {
 type ValuedBlock {
     stmts: List<Stmt>,
     value: Option<Expr>
-}
-
-/** `return(r) => { … }` after a `run`'s handlers. */
-type ReturnClause {
-    param: Name,
-    body: ValuedBlock
 }
 
 /** An arm of a `match` used as a value. */
@@ -221,14 +226,13 @@ type StmtKind {
     Continue,
     Defer(Stmt),
     Match(Expr, List<MatchArm>),
-    Run(List<Stmt>, List<HandlerClause>),
-    Resume(Option<Expr>),
-    Discontinue,
     Meta(List<Stmt>),
     Gen(Stmt),
     /** `derive Eq, Debug for Point;`. */
     Derive(List<Name>, Name),
-    Declare(Decl)
+    Declare(Decl),
+    /** A statement already processed, by the compiler's number for it: it is checked as it was, not again. */
+    Processed(Int)
 }
 
 type DeclKind {
@@ -237,10 +241,9 @@ type DeclKind {
     /** A type with members after its fields: the declaration, then its functions and meta blocks. */
     TypeWithMembers(TypeDecl, List<Stmt>),
     Trait(TraitDecl),
+    /** A trait with meta blocks among its members: the declaration, then the blocks. */
+    TraitWithMembers(TraitDecl, List<Stmt>),
     Impl(ImplDecl),
-    Effect(EffectDecl),
-    /** `handler name : Effect { … }`. */
-    Handler(Name, Handler),
     Import(Import),
     GlobalImport(Import)
 }
@@ -304,12 +307,6 @@ type ImplDecl {
     methods: List<MethodDef>
 }
 
-type EffectDecl {
-    name: Name,
-    params: List<Name>,
-    ops: List<OpDecl>
-}
-
 type MethodSig {
     name: Name,
     params: List<Param>,
@@ -331,72 +328,55 @@ type AssocDecl {
     attrs: List<Attribute>
 }
 
-/** `type Item = int;` in an impl. */
+/** `type Item = Int;` in an impl. */
 type AssocDef {
     name: Name,
     ty: TypeExpr,
     attrs: List<Attribute>
 }
 
-type OpKind { Fn, Ctl, Final }
-
-type OpDecl {
-    name: Name,
-    kind: OpKind,
-    /** The operation's own, on top of its effect's. */
-    type_params: List<Name>,
-    params: List<Param>,
-    ret: Option<TypeExpr>,
-    attrs: List<Attribute>
-}
-
-type Handler {
-    handles: Name,
-    arms: List<Arm>
-}
-
-type Arm {
-    name: Name,
-    kind: OpKind,
-    params: List<Name>,
-    body: List<Stmt>
-}
-
 type HandlerClause {
-    Inline(Handler),
-    /** A handler declared elsewhere, by name. */
-    Named(Name)
+    /** `with H`: a type implementing the effects it binds. */
+    Named(Name),
+    /** `handle<E> { fn op(…) { … } }`. */
+    Handle(TypeExpr, List<MethodDef>),
+    /**
+     * What a transform makes of a run: the effect, the handler bound to it,
+     * and the declaration of the handler's value, which stands outside the run.
+     */
+    Bound(Name, Name, Option<Stmt>)
 }
+
 
 type Import {
     /** `import "geom";`. */
-    Qualified(string),
+    Qualified(String),
     /** `import "geom" as g;`. */
-    Aliased(string, Name),
+    Aliased(String, Name),
     /** `import { Point, origin } from "geom";`. */
-    Selective(List<Name>, string),
+    Selective(List<Name>, String),
     /** `import "geom/…";` with a star: everything the module declares. */
-    Wildcard(string)
+    Wildcard(String)
 }
 
 type Param {
     name: Name,
     ty: Option<TypeExpr>,
     /** A trailing lambda's parameter nobody wrote: `it`. */
-    implicit: bool
+    implicit: Bool
 }
 
 type StaticParam {
     name: Name,
     ty: Option<TypeExpr>,
     /** Collects the rest of the written arguments. */
-    pack: bool
+    pack: Bool
 }
 
 type TypeParam {
     name: Name,
-    pack: bool,
-    /** `n: int`: a value the type is instantiated at. */
+    pack: Bool,
+    /** `n: Int`: a value the type is instantiated at. */
     ty: Option<TypeExpr>
 }
 
@@ -405,7 +385,9 @@ type Signature {
     ret: Option<TypeExpr>,
     /** `None` leaves the effects to inference; `Some` closes them. */
     row: Option<List<Applied>>,
-    static_params: List<StaticParam>
+    static_params: List<StaticParam>,
+    /** Written `inline fn`: every call is replaced by the body. */
+    inline: Bool
 }
 
 /** A name with arguments: a trait in an impl, an effect in a row. */
@@ -436,7 +418,7 @@ type TypeKind {
     Assoc(TypeExpr, Name),
     /** `Output = T`, in a bound. */
     Bind(Name, TypeExpr),
-    /** `<async, E>` where a type's parameter stands in a row. */
+    /** `<Async, E>` where a type's parameter stands in a row. */
     Row(List<Applied>)
 }
 
@@ -444,4 +426,138 @@ type TypeKind {
 type FieldType {
     name: Name,
     ty: TypeExpr
+}
+
+/** An operation of an effect, as a call to it names it. */
+type Operation {
+    /** The trait. */
+    label: Name,
+    /** The method, as a handler writes it. */
+    name: Name,
+    /** Marked `@ctl`: it is handed the rest of its caller. */
+    takes_control: Bool,
+    /** Marked `@abort`: it never resumes, and its handler is written without the continuation. */
+    aborts: Bool,
+    /** How many arguments a call to it writes: a call handed its continuation has more. */
+    arity: Int
+}
+
+/** The operation `callee` names, if it names one. */
+fn operation_of(callee: Expr): Option<Operation> {
+    match callee.kind {
+        ExprKind.Var(n) => { return __operation(n); }
+        _ => { return Option.None; }
+    }
+}
+
+/** A row label standing for whatever else a function type it is written in performs. */
+fn open_row(): Name { return __open_row(); }
+
+/** The arguments of the effect `label` the handler `bound` binds in a bound run, or none where they are not settled. */
+fn bound_arguments(bound: Name, label: Name): List<TypeExpr> { return __bound_arguments(bound, label); }
+
+/** The type processed code shows where the checker had not settled one, inside a function's type. */
+fn open_type(): Name { return __open_type(); }
+
+/** The static parameter a transform marks the functions it makes for itself with. */
+fn plain_marker(): Name { return __plain_marker(); }
+
+/** The static parameter marking a function a transform made taking more than its type shows, as `std/core/Transform`'s `__tx_shape` says. */
+fn handed_marker(): Name { return __handed_marker(); }
+
+/** The static parameter marking a handler's method a transform made taking more than its operation shows, as `__tx_method_shape` says. */
+fn handed_method_marker(): Name { return __handed_method_marker(); }
+
+/** The parameter a function that takes control is handed the handler of `label` in. */
+fn handler_param(label: Name): Name { return __handler_param(label); }
+
+/** The operation `method` of the effect `label`, as a handler of it names the method. */
+fn operation_in(label: Name, method: Name): Option<Operation> { return __operation_in(label, method); }
+
+/** Every operation of the effect `label`, in the order it declares them. */
+fn operations(label: Name): List<Operation> { return __operations(label); }
+
+/** The effects the method `method` of the trait `t` writes in its row; none when `t` is no trait. */
+fn method_row(t: Name, method: Name): Array<Name> { return __method_row(t, method); }
+
+/** The type of the field `field` of a value of type `t`, when `t` is a record that has one. */
+fn field_type(t: Option<TypeExpr>, field: Name): Option<TypeExpr> { return __field_type(t, field); }
+
+/** Whether the effect `label` has an operation that takes control. */
+fn controls(label: Name): Bool { return __controls(label); }
+
+/** Whether `callee` names a function the program declares, rather than a value. */
+fn names_function(callee: Expr): Bool {
+    match callee.kind {
+        ExprKind.Var(n) => { return __names_function(n); }
+        _ => { return false; }
+    }
+}
+
+/**
+ * The block as the checker reads it where the meta block asking stands, each
+ * expression with its `ty`: what code generated there would be. Nothing it
+ * calls is part of the program unless the code generated from it calls it
+ * too. A block at the top level has no such place, and may not ask.
+ */
+fn processed(body: ValuedBlock): ValuedBlock { return __processed(body); }
+
+/** What the block `processed` last handed back performs, each effect at the arguments it settled. */
+fn processed_row(): List<Applied> { return __processed_row(); }
+
+/** What the methods that take control of the run being transformed perform, each effect at the arguments it settled. */
+fn arms_row(): List<Applied> { return __arms_row(); }
+
+/** A function's declaration, its body typed as `processed` types a block. */
+fn processed_fn(d: Decl): Decl { return __processed_fn(d); }
+
+/** A name no program can write and no other `fresh` hands out, shown as `prefix`. */
+fn fresh(prefix: String): Name { return __fresh_name(prefix); }
+
+/** The function a callee of processed code reaches: the instance its type settles. */
+fn declof_call(callee: Expr): Decl {
+    match callee.kind {
+        ExprKind.Var(n) => { return __declof_call(n, callee.ty, callee.span); }
+        _ => { return compile_error(callee.span, "Only a named function has a declaration."); }
+    }
+}
+
+/** The function a callee of processed code reaches, when it is one `declof` can show. */
+fn declared_call(callee: Expr): Option<Decl> {
+    match callee.kind {
+        ExprKind.Var(n) => { return __declared_call(n, callee.ty, callee.span); }
+        _ => { return Option.None; }
+    }
+}
+
+/** The method `method` of the named handler a bound run calls `handler`, as its impl writes it. */
+fn named_method(handler: Name, method: Name): Option<Decl> { return __named_method(handler, method); }
+
+/** A name for the instance a callee of processed code reaches, the same for every callee reaching it. */
+fn instance_of(callee: Expr): Name {
+    match callee.kind {
+        ExprKind.Var(n) => { return __instance_of(n, callee.ty, callee.span); }
+        _ => { return compile_error(callee.span, "Only a named function has an instance."); }
+    }
+}
+
+/** What a meta block of this program remembered under `key`, in this block or an earlier one. */
+fn remembered(key: List<Name>): Option<Name> { return __remembered(key); }
+
+/** Keeps `value` under `key` for the rest of the program's meta blocks. */
+fn remember(key: List<Name>, value: Name) { __remember(key, value); }
+
+/** Declares `d` at the program's top level, as a `gen` there would. */
+fn declare(d: Decl) { __declare(d); }
+
+/**
+ * Declares `d` where the function a callee of processed code reaches is
+ * declared: at the top level, or beside it in the block declaring it, where
+ * its body sees what that function's sees.
+ */
+fn declare_beside(callee: Expr, d: Decl) {
+    match callee.kind {
+        ExprKind.Var(n) => { __declare_beside(n, callee.span, d); }
+        _ => { compile_error(callee.span, "Only a named function is declared beside."); }
+    }
 }

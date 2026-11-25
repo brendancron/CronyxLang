@@ -1,0 +1,36 @@
+trait Ask { @ctl fn ask(): Int; }
+
+type Coin { Heads, Tails }
+
+type Pair { left: Int, right: Int }
+
+fn noisy(tag: String, n: Int): Int {
+    print("evaluated " + tag);
+    return n;
+}
+
+fn flip(n: Int): Coin {
+    if (n % 2 == 0) { return Coin.Heads; }
+    return Coin.Tails;
+}
+
+var answers = run<String> {
+    var total = 1;
+    total += ask();
+    print("total " + str(total));
+    var named = match flip(ask()) {
+        Coin.Heads => "heads " + str(ask()),
+        Coin.Tails => "tails"
+    };
+    print(named);
+    var p = Pair { left: noisy("left", 1), right: ask() };
+    print(str(p.left) + "," + str(p.right));
+    var xs = [noisy("first", 10), ask(), noisy("third", 30)];
+    print(xs[1]);
+    if (total > 1 && ask() > 0) { print("both"); }
+    if (total < 0 || ask() > 0) { print("either"); }
+    str(total)
+} handle<Ask> {
+    fn ask(resume) { return resume(2); }
+};
+print(answers);

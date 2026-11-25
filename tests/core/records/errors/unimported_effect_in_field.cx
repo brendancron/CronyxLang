@@ -1,7 +1,7 @@
-type Route { path: string, call: (int) -> <Throw<string>> int }
+type Route { path: String, call: (Int) -> <Throw<String>> Int }
 
-fn route(path: string): Route {
-    var call = (n: int) => { return n; };
+fn route(path: String): Route {
+    var call = (n: Int) => { return n; };
     return Route { path: path, call: call };
 }
 print(route("/").path);

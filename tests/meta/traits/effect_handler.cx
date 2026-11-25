@@ -1,0 +1,90 @@
+import { DeclKind, MethodSig, Param, Signature, TypeExpr, TypeKind } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
+import { fail } from "std/core/Error";
+
+trait EffectHandler<E, R> {
+    meta {
+        match declof(E).kind {
+            DeclKind.Trait(eff) => {
+                for (op in eff.methods) {
+                    gen handled(op);
+                }
+            }
+            _ => { fail<Unit>(str(E) + " is not a trait, so it has no operations to handle"); }
+        }
+    }
+}
+
+fn takes_control(op: MethodSig): Bool {
+    for (a in op.attrs) {
+        if (str(a.name) == "ctl") { return true; }
+    }
+    return false;
+}
+
+fn handled(op: MethodSig): MethodSig {
+    if (!takes_control(op)) { return op; }
+
+    var answer = TypeExpr.of(TypeKind.Named("R".as_name()));
+    var resumes = TypeExpr.of(TypeKind.Named("Unit".as_name()));
+    match op.signature.ret {
+        Option.Some(t) => { resumes = t; }
+        _ => {}
+    }
+
+    var params: List<Param> = [];
+    for (p in op.params) { params.push(p); }
+    params.push(Param {
+        name: "resume".as_name(),
+        ty: Option.Some(TypeExpr.of(TypeKind.Function([resumes], answer, []))),
+        implicit: false
+    });
+
+    return MethodSig {
+        name: op.name,
+        params: params,
+        signature: Signature {
+            ret: Option.Some(answer),
+            row: Option.None,
+            static_params: op.signature.static_params, inline: false
+        },
+        attrs: op.attrs
+    };
+}
+
+trait Effect {
+    fn log(msg: String): Unit;
+    @ctl fn choose(options: Array<Int>): Int;
+}
+
+type Picker {}
+
+impl EffectHandler<Effect, String> for Picker {
+    fn log(msg: String): Unit {
+        print(msg);
+    }
+    fn choose(options: Array<Int>, resume: (Int) -> String): String {
+        var last = "";
+        for (x in options) { last = resume(x); }
+        return last;
+    }
+}
+
+type Collector<R> {}
+
+impl EffectHandler<Effect, R> for Collector<R> {
+    fn log(msg: String): Unit {
+        print("collected: " + msg);
+    }
+    fn choose(options: Array<Int>, resume: (Int) -> R): R {
+        return resume(options[0]);
+    }
+}
+
+meta {
+    print(decl_source(declof(EffectHandler<Effect, String>)));
+    print(decl_source(declof(EffectHandler<Effect, Int>)));
+}
+
+Picker.log("picking");
+print(Picker.choose([1, 2], (x) => str(x)));

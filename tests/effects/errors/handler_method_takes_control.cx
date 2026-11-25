@@ -1,0 +1,20 @@
+trait Log {
+    fn log(msg: String): Unit;
+}
+
+trait Stop { @ctl fn stop(): Unit; }
+
+fn greet(name: String): Unit {
+    log("hello " + name);
+    log("bye " + name);
+}
+
+run<Unit> {
+    run<Unit> {
+        greet("ada");
+    } handle<Log> {
+        fn log(msg) { print(msg); stop(); }
+    }
+} handle<Stop> {
+    fn stop(resume) { print("stopped"); }
+}

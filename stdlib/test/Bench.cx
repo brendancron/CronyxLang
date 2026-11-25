@@ -21,7 +21,7 @@
  * ```
  * @bench(1000)
  * @memory("constant")
- * fn calls(n: int) {
+ * fn calls(n: Int) {
  *     for (var i = 0; i < n; i += 1) { step(); }
  * }
  * ```
@@ -38,8 +38,8 @@ import { attr } from "../meta/Derive";
 
 /** How long a piece of code took, over how many runs. */
 type Measurement {
-    name: string,
-    runs: int,
+    name: String,
+    runs: Int,
     total: Duration
 }
 
@@ -52,13 +52,13 @@ impl Measurement {
 }
 
 impl Display for Measurement {
-    fn fmt(self): string {
+    fn fmt(self): String {
         return self.name + ": " + str(self.runs) + " runs, " + str(self.each()) + " each";
     }
 }
 
 /** Runs `body` `runs` times, after one run to warm up, and measures how long they took together. */
-fn bench<E>(name: string, runs: int, body: () -> <E> unit): <Time, E> Measurement {
+fn bench<E>(name: String, runs: Int, body: () -> <E> Unit): <Time, E> Measurement {
     body();
     var start = instant();
     for (var i = 0; i < runs; i += 1) { body(); }
@@ -84,24 +84,24 @@ fn collect_benches(m: Module) {
         names.push(code(label));
         var plan = str(__size_of(d)) + "\t" + __class_of(d, "time") + "\t" + __class_of(d, "memory");
         plans.push(code(plan));
-        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span };
-        var size = Expr { kind: ExprKind.Var("size".as_name()), span: d.span };
-        var call = Expr { kind: ExprKind.Call(callee, [size]), span: d.span };
+        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span, ty: Option.None };
+        var size = Expr { kind: ExprKind.Var("size".as_name()), span: d.span, ty: Option.None };
+        var call = Expr { kind: ExprKind.Call(callee, [size]), span: d.span, ty: Option.None };
         var index = i;
         for (s in code { if (selected == index) { call; } }) { chain.push(s); }
     }
     var all = Expr.of(ExprKind.Collection(names));
     var every = Expr.of(ExprKind.Collection(plans));
-    gen fn __bench_names(): List<string> { return all; }
-    gen fn __bench_plans(): List<string> { return every; }
-    gen fn __bench_run(selected: int, size: int) { chain; }
+    gen fn __bench_names(): List<String> { return all; }
+    gen fn __bench_plans(): List<String> { return every; }
+    gen fn __bench_run(selected: Int, size: Int) { chain; }
 }
 
 /**
  * Runs the benchmark `cx bench` chose for this process at the size it chose,
  * or lists each one's name and plan when none was chosen.
  */
-fn run_benches<E>(names: List<string>, plans: List<string>, body: (int, int) -> <E> unit): <E> unit {
+fn run_benches<E>(names: List<String>, plans: List<String>, body: (Int, Int) -> <E> Unit): <Console, E> Unit {
     var mark = str(chr(30));
     var selected = __test_selected();
     if (selected < 0) {
@@ -139,7 +139,7 @@ fn __benches_in(m: Module): List<Declaration> {
     return found;
 }
 
-fn __size_of(d: Declaration): int {
+fn __size_of(d: Declaration): Int {
     match attr(d.attrs, "bench") {
         Option.Some(a) => {
             if (a.args.len() == 0) { return 1000; }
@@ -156,7 +156,7 @@ fn __size_of(d: Declaration): int {
     return 0;
 }
 
-fn __class_of(d: Declaration, name: string): string {
+fn __class_of(d: Declaration, name: String): String {
     match attr(d.attrs, name) {
         Option.Some(a) => {
             if (a.args.len() == 1) {

@@ -1,0 +1,19 @@
+import { Throw, attempt } from "std/core/Error";
+
+fn twice(n: Int): <Throw<String>> Int {
+    var i = 0;
+    var total = 0;
+    while (i < 2) {
+        total = total + checked(n);
+        i = i + 1;
+    }
+    return total;
+}
+
+fn checked(n: Int): <Throw<String>> Int {
+    if (n < 0) { throw("negative"); }
+    return n;
+}
+
+print(twice(2));
+print(attempt(() => twice(-1)));

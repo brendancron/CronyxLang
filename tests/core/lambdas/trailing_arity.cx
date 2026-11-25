@@ -1,6 +1,6 @@
-fn run_twice(g: () -> <Console> unit) { g(); g(); }
-fn mapped(v: int, g: (int) -> int): int { return g(v); }
-fn zip(g: (int, int) -> int): int { return g(1, 2); }
+fn run_twice(g: () -> <Console> Unit) { g(); g(); }
+fn mapped(v: Int, g: (Int) -> Int): Int { return g(v); }
+fn zip(g: (Int, Int) -> Int): Int { return g(1, 2); }
 
 run_twice { print("tick"); };
 print(mapped(21) { it * 2 });

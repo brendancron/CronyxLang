@@ -1,0 +1,4 @@
+picking
+picked 3
+picked 4
+40

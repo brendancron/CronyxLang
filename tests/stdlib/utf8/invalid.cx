@@ -3,7 +3,7 @@ import { IoError, Reader, lines } from "std/io/Io";
 import { Result, attempt } from "std/core/Error";
 import { decode } from "std/text/Utf8";
 import { Throw } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
 // "ok\nhé\n" with the é's second byte replaced by 0xff, so the é, which
 // begins at offset 4, is no longer a character.
@@ -20,10 +20,10 @@ match read {
     Result.Err(e) => { print(e); }
 }
 
-type Given { data: Array<byte>, at: int }
+type Given { data: Array<Byte>, at: Int }
 
 impl Reader for Given {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         if (self.at >= self.data.len()) { return Option.None; }
         var chunk = self.data[self.at:self.data.len()];
         self.at = self.data.len();
@@ -31,8 +31,8 @@ impl Reader for Given {
     }
 }
 
-fn all_lines(from: Reader): <async, Throw<IoError>> List<string> {
-    var seen: List<string> = [];
+fn all_lines(from: Reader): <Async, Throw<IoError>> List<String> {
+    var seen: List<String> = [];
     for (line in lines(from)) { seen.push(line); }
     return seen;
 }

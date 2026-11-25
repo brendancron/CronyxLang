@@ -1,1 +1,1 @@
-[14:1] This handler settles 'T' at int, but 'suspend' is handled once for every type its call sites use.
+[14:1] This handler settles 'T' at Int, but 'suspend' is handled once for every type its call sites use.

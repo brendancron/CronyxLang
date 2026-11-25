@@ -16,7 +16,7 @@
  * to the directory the program was started in.
  */
 
-import { async } from "../async/Task";
+import { Async, suspend } from "../async/Task";
 import { Throw, Result, Failure } from "../core/Error";
 import { Reader, Writer, Closer, IoError, using } from "../io/Io";
 import { decode } from "../text/Utf8";
@@ -48,19 +48,19 @@ type Metadata {
     kind: EntryKind,
 
     /** In bytes. */
-    size: int
+    size: Int
 }
 
 /** An open file, closed with `using`. */
 trait File: Reader, Writer, Closer<IoError> {}
 
 /** Opening files. */
-effect Fs {
+trait Fs {
     /**
      * The file at the path, or why it could not be opened. A failure is a value
      * here so it reaches the caller: `open_file` throws it where it was asked.
      */
-    ctl open(path: string, mode: Mode): Result<File, IoError>;
+    fn open(path: String, mode: Mode): Result<File, IoError>;
 }
 
 /**
@@ -68,21 +68,21 @@ effect Fs {
  * `Fs`, since a test that hands out files of its own seldom wants to answer
  * for directories too. A failure is a value, as `open`'s is.
  */
-effect Dirs {
+trait Dirs {
     /** The names in the directory, in order, without `.` and `..`. */
-    fn read_dir(path: string): Result<Array<string>, IoError>;
+    fn read_dir(path: String): Result<Array<String>, IoError>;
 
     /** What is at the path. A link is followed. */
-    fn stat(path: string): Result<Metadata, IoError>;
+    fn stat(path: String): Result<Metadata, IoError>;
 
     /** A new, empty directory at the path, whose parent must exist. */
-    fn create_dir(path: string): Result<unit, IoError>;
+    fn create_dir(path: String): Result<Unit, IoError>;
 
     /** Removes the file, or the directory if it is empty. */
-    fn remove(path: string): Result<unit, IoError>;
+    fn remove(path: String): Result<Unit, IoError>;
 
     /** Moves what is at the first path to the second, replacing a file there. */
-    fn rename(from: string, to: string): Result<unit, IoError>;
+    fn rename(from: String, to: String): Result<Unit, IoError>;
 }
 
 fn __thrown<T>(outcome: Result<T, IoError>): <Throw<IoError>> T {
@@ -93,22 +93,22 @@ fn __thrown<T>(outcome: Result<T, IoError>): <Throw<IoError>> T {
 }
 
 /** The file at the path, opened for the mode. */
-fn open_file(path: string, mode: Mode): <Fs, Throw<IoError>> File {
+fn open_file(path: String, mode: Mode): <Fs, Throw<IoError>> File {
     return __thrown(open(path, mode));
 }
 
 /** The names in the directory, in order. */
-fn list_dir(path: string): <Dirs, Throw<IoError>> Array<string> {
+fn list_dir(path: String): <Dirs, Throw<IoError>> Array<String> {
     return __thrown(read_dir(path));
 }
 
 /** What is at the path. */
-fn metadata(path: string): <Dirs, Throw<IoError>> Metadata {
+fn metadata(path: String): <Dirs, Throw<IoError>> Metadata {
     return __thrown(stat(path));
 }
 
 /** Whether anything is at the path. */
-fn exists(path: string): <Dirs> bool {
+fn exists(path: String): <Dirs> Bool {
     match stat(path) {
         Result.Ok(_) => { return true; }
         Result.Err(_) => { return false; }
@@ -116,7 +116,7 @@ fn exists(path: string): <Dirs> bool {
 }
 
 /** Whether a directory is at the path. */
-fn is_dir(path: string): <Dirs> bool {
+fn is_dir(path: String): <Dirs> Bool {
     match stat(path) {
         Result.Ok(m) => {
             match m.kind {
@@ -130,12 +130,12 @@ fn is_dir(path: string): <Dirs> bool {
 }
 
 /** A new, empty directory at the path, whose parent must exist. */
-fn make_dir(path: string): <Dirs, Throw<IoError>> unit {
+fn make_dir(path: String): <Dirs, Throw<IoError>> Unit {
     __thrown(create_dir(path));
 }
 
 /** A directory at the path, and each of its parents that is missing. One already there is left alone. */
-fn make_dirs(path: string): <Dirs, Throw<IoError>> unit {
+fn make_dirs(path: String): <Dirs, Throw<IoError>> Unit {
     if (is_dir(path)) { return; }
     match parent(path) {
         Option.Some(above) => { make_dirs(above); }
@@ -145,12 +145,12 @@ fn make_dirs(path: string): <Dirs, Throw<IoError>> unit {
 }
 
 /** Removes the file, or the directory if it is empty. */
-fn remove_path(path: string): <Dirs, Throw<IoError>> unit {
+fn remove_path(path: String): <Dirs, Throw<IoError>> Unit {
     __thrown(remove(path));
 }
 
 /** Removes the file, or the directory and everything in it. */
-fn remove_all(path: string): <Dirs, Throw<IoError>> unit {
+fn remove_all(path: String): <Dirs, Throw<IoError>> Unit {
     if (is_dir(path)) {
         for (name in list_dir(path)) { remove_all(join(path, name)); }
     }
@@ -158,13 +158,13 @@ fn remove_all(path: string): <Dirs, Throw<IoError>> unit {
 }
 
 /** Moves what is at the first path to the second, replacing a file there. */
-fn move_path(from: string, to: string): <Dirs, Throw<IoError>> unit {
+fn move_path(from: String, to: String): <Dirs, Throw<IoError>> Unit {
     __thrown(rename(from, to));
 }
 
 /** Everything a reader has left. */
-fn read_all(from: Reader): <async, Throw<IoError>> Array<byte> {
-    var collected: List<byte> = [];
+fn read_all(from: Reader): <Async, Throw<IoError>> Array<Byte> {
+    var collected: List<Byte> = [];
     var done = false;
     while (!done) {
         match from.read(65536) {
@@ -176,12 +176,12 @@ fn read_all(from: Reader): <async, Throw<IoError>> Array<byte> {
 }
 
 /** The bytes of the file at the path. */
-fn read_file(path: string): <Fs, async, Throw<IoError>> Array<byte> {
+fn read_file(path: String): <Fs, Async, Throw<IoError>> Array<Byte> {
     return using(open_file(path, Mode.Read)) { file -> read_all(file) };
 }
 
 /** The file at the path, as text. Throws, naming the offset, if it is not UTF-8. */
-fn read_text(path: string): <Fs, async, Throw<IoError>> string {
+fn read_text(path: String): <Fs, Async, Throw<IoError>> String {
     match decode(read_file(path)) {
         Result.Ok(text) => { return text; }
         Result.Err(e) => { throw(IoError.Other(path + ": " + e.message())); }
@@ -190,30 +190,30 @@ fn read_text(path: string): <Fs, async, Throw<IoError>> string {
 }
 
 /** Replaces the file at the path with the bytes, creating it if need be. */
-fn write_file(path: string, data: Array<byte>): <Fs, async, Throw<IoError>> unit {
+fn write_file(path: String, data: Array<Byte>): <Fs, Async, Throw<IoError>> Unit {
     using(open_file(path, Mode.Write)) { file -> file.write(data); };
 }
 
 /** Replaces the file at the path with the text, creating it if need be. */
-fn write_text(path: string, text: string): <Fs, async, Throw<IoError>> unit {
+fn write_text(path: String, text: String): <Fs, Async, Throw<IoError>> Unit {
     write_file(path, text.bytes());
 }
 
 // ---- files on disk, which the root hands out ----
 
-fn __failure(status: int, path: string, message: string): IoError {
+fn __failure(status: Int, path: String, message: String): IoError {
     if (status == 1) { return IoError.NotFound(path); }
     if (status == 2) { return IoError.Denied(path); }
     return IoError.Other(message);
 }
 
 type DiskFile {
-    fd: int,
-    path: string
+    fd: Int,
+    path: String
 }
 
 impl Reader for DiskFile {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         var (status, data, message) = suspend { it(__file_read(self.fd, max)) };
         if (status != 0) { throw(__failure(status, self.path, message)); }
         if (data.len() == 0) { return Option.None; }
@@ -222,14 +222,14 @@ impl Reader for DiskFile {
 }
 
 impl Writer for DiskFile {
-    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+    fn write(self, data: Array<Byte>): <Async, Throw<IoError>> Unit {
         var (status, message) = suspend { it(__file_write(self.fd, data)) };
         if (status != 0) { throw(__failure(status, self.path, message)); }
     }
 }
 
 impl Closer<IoError> for DiskFile {
-    fn close(self): <async, Throw<IoError>> unit {
+    fn close(self): <Async, Throw<IoError>> Unit {
         var (status, message) = suspend { it(__file_close(self.fd)) };
         if (status != 0) { throw(__failure(status, self.path, message)); }
     }
@@ -238,7 +238,7 @@ impl Closer<IoError> for DiskFile {
 impl File for DiskFile {}
 
 /** How the root answers `open`: with a file on disk. */
-fn __open_on_disk(path: string, mode: Mode): Result<File, IoError> {
+fn __open_on_disk(path: String, mode: Mode): Result<File, IoError> {
     var how = 0;
     match mode {
         Mode.Read => { how = 0; }
@@ -251,21 +251,21 @@ fn __open_on_disk(path: string, mode: Mode): Result<File, IoError> {
     return Result.Ok(file);
 }
 
-fn __done(path: string, outcome: (int, string)): Result<unit, IoError> {
+fn __done(path: String, outcome: (Int, String)): Result<Unit, IoError> {
     var (status, message) = outcome;
     if (status != 0) { return Result.Err(__failure(status, path, message)); }
     return Result.Ok(());
 }
 
 /** How the root answers `read_dir`: from the disk. */
-fn __read_dir_on_disk(path: string): Result<Array<string>, IoError> {
+fn __read_dir_on_disk(path: String): Result<Array<String>, IoError> {
     var (status, names, message) = __fs_list(path);
     if (status != 0) { return Result.Err(__failure(status, path, message)); }
     return Result.Ok(names);
 }
 
 /** How the root answers `stat`: from the disk. */
-fn __stat_on_disk(path: string): Result<Metadata, IoError> {
+fn __stat_on_disk(path: String): Result<Metadata, IoError> {
     var (status, kind, size, message) = __fs_metadata(path);
     if (status != 0) { return Result.Err(__failure(status, path, message)); }
     var k = EntryKind.Other;
@@ -275,16 +275,16 @@ fn __stat_on_disk(path: string): Result<Metadata, IoError> {
 }
 
 /** How the root answers `create_dir`: on the disk. */
-fn __create_dir_on_disk(path: string): Result<unit, IoError> {
+fn __create_dir_on_disk(path: String): Result<Unit, IoError> {
     return __done(path, __fs_make_dir(path));
 }
 
 /** How the root answers `remove`: on the disk. */
-fn __remove_on_disk(path: string): Result<unit, IoError> {
+fn __remove_on_disk(path: String): Result<Unit, IoError> {
     return __done(path, __fs_remove(path));
 }
 
 /** How the root answers `rename`: on the disk. */
-fn __rename_on_disk(from: string, to: string): Result<unit, IoError> {
+fn __rename_on_disk(from: String, to: String): Result<Unit, IoError> {
     return __done(from, __fs_rename(from, to));
 }

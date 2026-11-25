@@ -1,0 +1,11 @@
+trait Ask { @ctl fn ask(): Int; }
+
+fn total(n: Int) {
+    if (n == 0) { return 0; }
+    return ask() + total(n - 1);
+}
+
+var v = run<Int> { total(3) } handle<Ask> {
+    fn ask(resume) { return resume(2); }
+};
+print(v);

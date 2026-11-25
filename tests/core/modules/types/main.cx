@@ -16,6 +16,6 @@ match geom.Shape.Circle(7) {
     _ => { print(0); }
 }
 
-type Point2 { x: int }
+type Point2 { x: Int }
 var mine = Point2 { x: 9 };
 print(mine.x);

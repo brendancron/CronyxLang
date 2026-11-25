@@ -1,0 +1,6 @@
+import { decl_source } from "std/compiler/Printer";
+
+meta {
+    var name = "nothing".as_name();
+    print(decl_source(declof(name)));
+}

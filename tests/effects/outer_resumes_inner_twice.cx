@@ -1,0 +1,16 @@
+trait M { @ctl fn m(): Int; }
+trait L { @ctl fn l(): Unit; }
+
+run<Unit> {
+    run<Unit> {
+        var a = m();
+        l();
+        var b = m();
+        print("body " + str(a) + " " + str(b));
+    } handle<M> {
+        fn m(resume) { resume(1); print("m arm after"); }
+    }
+    print("after M");
+} handle<L> {
+    fn l(resume) { resume(()); resume(()); }
+}

@@ -9,7 +9,7 @@
  * ```
  * import { HashMap, new } from "std/collections/HashMap";
  *
- * var ages = new<string, int>();
+ * var ages = new<String, Int>();
  * ages.set("ada", 36);
  * print(ages.get("ada"));        // Some(36)
  * print(ages.contains("nobody")); // false
@@ -24,19 +24,19 @@ import { Hash } from "../ops/Hash";
 // Open addressing with linear probing, over the same slot scheme as HashSet:
 // a slot holds an index into the parallel `keys` and `vals`, or `empty` for
 // one never used and `deleted` for one vacated.
-fn empty(): int { return 0 - 1; }
-fn deleted(): int { return 0 - 2; }
+fn empty(): Int { return 0 - 1; }
+fn deleted(): Int { return 0 - 2; }
 
 type HashMap<K, V> {
-    slots: List<int>,
+    slots: List<Int>,
     keys: List<K>,
     vals: List<V>,
-    size: int,
-    capacity: int
+    size: Int,
+    capacity: Int
 }
 
-fn filled(capacity: int): List<int> {
-    var slots: List<int> = [];
+fn filled(capacity: Int): List<Int> {
+    var slots: List<Int> = [];
     var at = 0;
     while (at < capacity) {
         slots.push(empty());
@@ -54,14 +54,14 @@ fn new<K, V>(): HashMap<K, V> {
     };
 }
 
-fn start_at<K: Hash>(key: K, capacity: int): int {
+fn start_at<K: Hash>(key: K, capacity: Int): Int {
     var h = key.hash() % capacity;
     if (h < 0) { return 0 - h; }
     return h;
 }
 
 // The index into `keys` for this key, or `empty` when it is absent.
-fn find<K: Hash, V>(map: HashMap<K, V>, key: K): int {
+fn find<K: Hash, V>(map: HashMap<K, V>, key: K): Int {
     var at = start_at(key, map.capacity);
     var probes = 0;
     while (probes < map.capacity) {
@@ -75,13 +75,13 @@ fn find<K: Hash, V>(map: HashMap<K, V>, key: K): int {
 }
 
 fn probe_insert<K: Hash, V>(
-    slots: List<int>,
+    slots: List<Int>,
     keys: List<K>,
     vals: List<V>,
-    capacity: int,
+    capacity: Int,
     key: K,
     value: V
-): bool {
+): Bool {
     var at = start_at(key, capacity);
     var probes = 0;
     var vacated = empty();
@@ -117,10 +117,10 @@ fn probe_insert<K: Hash, V>(
 
 impl HashMap<K, V> {
     /** How many keys the map holds. */
-    fn size(self): int { return self.size; }
+    fn size(self): Int { return self.size; }
 
     /** Whether the map holds this key. */
-    fn contains(self, key: K): bool { return find(self, key) != empty(); }
+    fn contains(self, key: K): Bool { return find(self, key) != empty(); }
 
     /** The key's value, or `None` if the map has no such key. */
     fn get(self, key: K): Option<V> {
@@ -150,7 +150,7 @@ impl HashMap<K, V> {
      * The slot is marked rather than emptied: a probe that stopped at an empty
      * slot would stop short of keys that landed past this one.
      */
-    fn remove(self, key: K): bool {
+    fn remove(self, key: K): Bool {
         var at = start_at(key, self.capacity);
         var probes = 0;
         while (probes < self.capacity) {

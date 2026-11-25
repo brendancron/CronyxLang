@@ -1,5 +1,5 @@
-Map([{ key: "host", value: Str("localhost") }, { key: "port_number", value: Int(8080) }, { key: "tags", value: Seq([Str("a"), Str("b")]) }, { key: "limit", value: Null }, { key: "shapes", value: Seq([Map([{ key: "Circle", value: Int(2) }]), Map([{ key: "Rect", value: Map([{ key: "w", value: Int(3) }, { key: "h", value: Int(4) }]) }]), Map([{ key: "Line", value: Seq([Int(1), Int(5)]) }]), Str("Dot")]) }])
+Data.Map([Entry { key: "host", value: Data.Str("localhost") }, Entry { key: "port_number", value: Data.Int(8080) }, Entry { key: "tags", value: Data.Seq([Data.Str("a"), Data.Str("b")]) }, Entry { key: "limit", value: Data.Null }, Entry { key: "shapes", value: Data.Seq([Data.Map([Entry { key: "Circle", value: Data.Int(2) }]), Data.Map([Entry { key: "Rect", value: Data.Map([Entry { key: "w", value: Data.Int(3) }, Entry { key: "h", value: Data.Int(4) }]) }]), Data.Map([Entry { key: "Line", value: Data.Seq([Data.Int(1), Data.Int(5)]) }]), Data.Str("Dot")]) }])
 localhost 8080 ["a", "b"] None None
-[Circle(2), Rect(3, 4), Line(1, 5), Dot]
+[Shape.Circle(2), Shape.Rect(3, 4), Shape.Line(1, 5), Shape.Dot]
 port_number: expected an int, found a string
 shapes[0].Rect.h: missing

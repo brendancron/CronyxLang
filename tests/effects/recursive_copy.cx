@@ -1,0 +1,37 @@
+trait Tick { @ctl fn tick(): Int; }
+
+fn countdown(n: Int): Int {
+    if (n == 0) { return 0; }
+    var step = tick();
+    return step + countdown(n - 1);
+}
+
+fn is_even(n: Int): Bool {
+    if (n == 0) { return true; }
+    tick();
+    return is_odd(n - 1);
+}
+
+fn is_odd(n: Int): Bool {
+    if (n == 0) { return false; }
+    tick();
+    return is_even(n - 1);
+}
+
+fn sum(xs: List<Int>, i: Int): Int {
+    if (i == xs.len()) { return 0; }
+    return xs[i] * tick() + sum(xs, i + 1);
+}
+
+var ticks = 0;
+run<Unit> {
+    print(countdown(4));
+    print(is_even(5));
+    print(is_odd(5));
+    print(sum([1, 2, 3], 0));
+} handle<Tick> {
+    fn tick(resume) {
+        ticks += 1;
+        resume(ticks);
+    }
+}

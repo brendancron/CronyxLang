@@ -1,33 +1,37 @@
-import { Throw } from "std/core/Error";
+trait Throw<X> { @ctl fn throw<T>(err: X): T; }
 
-effect Park { ctl park(): unit; }
+trait Park { @ctl fn park(): Unit; }
 
-var stops: List<() -> unit> = [];
-var wakes: List<() -> unit> = [];
+var stops: List<() -> <Console> Unit> = [];
+var wakes: List<() -> <Console> Unit> = [];
 
-fn parked<E>(task: () -> <Park, Throw<string>, E> unit): <E> unit {
-    run {
-        run {
+fn parked<E>(
+    stops: List<() -> <Console> Unit>,
+    wakes: List<() -> <Console> Unit>,
+    task: () -> <Park, Throw<String>, E> Unit,
+): <Console, E> Unit {
+    run<Unit> {
+        run<Unit> {
             task();
-        } handle Throw {
-            final ctl throw(e) {
+        } handle<Throw<String>> {
+            fn throw(e, resume) {
                 print("failed: " + e);
                 stops[2]();
                 stops[1]();
             }
         }
-    } handle Park {
-        ctl park() {
-            stops.push(() => { discontinue; });
-            wakes.push(() => { resume; });
+    } handle<Park> {
+        fn park(resume) {
+            stops.push(() => { discontinue(resume); });
+            wakes.push(() => { resume(()); });
         }
     }
 }
 
-parked(() => {
+parked(stops, wakes, () => {
     defer { print("outer cleans up"); }
-    parked(() => { park(); throw("boom"); });
-    parked(() => { defer { print("inner cleans up"); } park(); print("inner resumed"); });
+    parked(stops, wakes, () => { park(); throw("boom"); });
+    parked(stops, wakes, () => { defer { print("inner cleans up"); } park(); print("inner resumed"); });
     park();
     print("outer resumed");
 });

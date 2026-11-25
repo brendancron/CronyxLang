@@ -1,4 +1,4 @@
-(string) -> <logger> unit
-(string) -> <counter, logger> unit
-() -> <counter, logger> unit
-(int) -> int
+(String) -> <Logger> Unit
+(String) -> <Counter, Logger> Unit
+() -> <Counter, Logger> Unit
+(Int) -> Int

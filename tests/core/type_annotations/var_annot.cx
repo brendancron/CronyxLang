@@ -1,6 +1,6 @@
-var x: int = 42;
-var name: string = "Alice";
-var flag: bool = true;
+var x: Int = 42;
+var name: String = "Alice";
+var flag: Bool = true;
 
 print(x);
 print(name);

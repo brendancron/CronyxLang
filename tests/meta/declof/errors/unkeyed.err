@@ -1,0 +1,1 @@
+[7:23] 'id' takes static parameters, so declof needs its key written: declof(id<…>).

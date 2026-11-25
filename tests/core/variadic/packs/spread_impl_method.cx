@@ -1,23 +1,23 @@
 trait Fire {
-    fn fire(self): int;
+    fn fire(self): Int;
 }
 
 type Slot<...Args> {
-    use: (...Args) -> int,
+    use: (...Args) -> Int,
     intent: (...Args)
 }
 
 impl Fire for Slot<...Args> {
-    fn fire(self): int {
+    fn fire(self): Int {
         return self.use(...self.intent);
     }
 }
 
-fn add(a: int, b: int): int {
+fn add(a: Int, b: Int): Int {
     return a + b;
 }
 
-fn one(): int {
+fn one(): Int {
     return 7;
 }
 

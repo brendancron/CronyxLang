@@ -1,0 +1,5 @@
+fn label<a: Int>(b: String): String {
+    return a + b;
+}
+
+print("never called");

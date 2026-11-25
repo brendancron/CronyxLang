@@ -1,0 +1,25 @@
+trait Log {
+    fn log(msg: String): Unit;
+}
+
+fn greet(name: String) {
+    log("hello " + name);
+}
+
+var out: List<String> = [];
+var count = 0;
+
+run<Unit> {
+    greet("ada");
+    greet("bob");
+} handle<Log> {
+    fn log(msg) {
+        out.push(msg);
+        count = count + 1;
+    }
+}
+
+print(count);
+for (m in out) {
+    print(m);
+}

@@ -6,33 +6,33 @@ trait Derived<A>: Base<A> {
     fn derived(self): A;
 }
 
-type Box { n: int }
+type Box { n: Int }
 
-impl Base<int> for Box {
-    fn base(self): int { return self.n; }
+impl Base<Int> for Box {
+    fn base(self): Int { return self.n; }
 }
 
-impl Derived<int> for Box {
-    fn derived(self): int { return self.n * 2; }
+impl Derived<Int> for Box {
+    fn derived(self): Int { return self.n * 2; }
 }
 
-impl Base<string> for Tag {
-    fn base(self): string { return self.label; }
+impl Base<String> for Tag {
+    fn base(self): String { return self.label; }
 }
 
-type Tag { label: string }
+type Tag { label: String }
 
-impl Derived<string> for Tag {
-    fn derived(self): string { return self.label + "!"; }
+impl Derived<String> for Tag {
+    fn derived(self): String { return self.label + "!"; }
 }
 
-fn reached<X: Derived<int>>(x: X): int { return x.base() + x.derived(); }
+fn reached<X: Derived<Int>>(x: X): Int { return x.base() + x.derived(); }
 
-fn spoken<X: Derived<string>>(x: X): string { return x.base() + " " + x.derived(); }
+fn spoken<X: Derived<String>>(x: X): String { return x.base() + " " + x.derived(); }
 
 print(str(reached(Box { n: 10 })));
 print(spoken(Tag { label: "hi" }));
 
-fn through(x: Derived<int>): int { return x.base(); }
+fn through(x: Derived<Int>): Int { return x.base(); }
 
 print(str(through(Box { n: 7 })));

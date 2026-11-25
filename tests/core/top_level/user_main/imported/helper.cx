@@ -1,0 +1,6 @@
+print("not run either");
+
+fn main(): Int {
+    print("an ordinary function");
+    return 5;
+}

@@ -8,34 +8,34 @@ Two small things stand between the examples so far and a real program: handlers 
 
 ## Naming a handler
 
-`handler <name> : <effect> { ... }` gives a handler a name, and `with <name>` installs it:
+A handler written once and reused is a type that implements the effect's trait, and `with <Type>` installs it:
 
 ```cronyx
-effect log {
-    fn log(msg: string): unit;
+trait Log {
+    fn log(msg: String): Unit;
 }
 
-fn greet(name: string): unit {
+fn greet(name: String): Unit {
     log("Hello, " + name);
 }
 
-run {
+run<Unit> {
     greet("Brendan");
-} handle log {
-    fn log(msg: string) {
+} handle<Log> {
+    fn log(msg: String) {
         print("From inline handler: " + msg);
     }
 }
 
-handler basic_log_handler : log {
-    fn log(msg: string) {
+type BasicLog impl Log {
+    fn log(msg: String) {
         print("From handler definition: " + msg);
     }
 }
 
-run {
+run<Unit> {
     greet("Brendan");
-} with basic_log_handler;
+} with BasicLog;
 ```
 
 ```
@@ -43,24 +43,24 @@ From inline handler: Hello, Brendan
 From handler definition: Hello, Brendan
 ```
 
-The two `run` blocks are equivalent; the second one names its policy instead of restating it. A named handler is the unit you'd share across a program — `console_log`, `null_log`, `capturing_log` for tests — so that installing one is a single line at each site.
+The two `run` blocks are equivalent; the second one names its policy instead of restating it. In fact the inline `handle<Log> { ... }` *is* an impl of `Log`, for a type the block makes up on the spot. A named handler is the unit you'd share across a program — `ConsoleLog`, `NullLog`, `CapturingLog` for tests — so that installing one is a single line at each site.
 
 A named handler can be declared inside a function, next to the code that uses it:
 
 ```cronyx
-effect log {
-    fn log(msg: string): unit;
+trait Log {
+    fn log(msg: String): Unit;
 }
 
-fn quietly(name: string) {
-    handler drop_log : log {
-        fn log(msg) { }
+fn quietly(name: String) {
+    type DropLog impl Log {
+        fn log(msg: String) { }
     }
 
-    run {
+    run<Unit> {
         log("noise from " + name);
         print("did the work");
-    } with drop_log;
+    } with DropLog;
 }
 
 quietly("worker");
@@ -70,36 +70,69 @@ quietly("worker");
 did the work
 ```
 
+An effect with a `@ctl` operation is handled a little differently, because its arm takes a continuation and answers for the block, and the block's type is up to each `run`. Its handler implements `EffectHandler<E, R>`, the standard library's trait for "a handler of `E` in a block answering `R`" — the same trait an inline `handle<E>` implements — and is generic over `R` so that it works under any block:
+
+```cronyx
+trait Counter {
+    @ctl fn tick(): Unit;
+}
+
+type Ticks<R> impl EffectHandler<Counter, R> {
+    fn tick(resume: (Unit) -> R): R {
+        print("[TICK]");
+        return resume(());
+    }
+}
+
+run<Unit> {
+    tick();
+    print("after");
+} with Ticks;
+
+var n = run<Int> {
+    tick();
+    5
+} with Ticks;
+print(n);
+```
+
+```
+[TICK]
+after
+[TICK]
+5
+```
+
 ## Handling several effects over one block
 
 A `run` block takes as many `handle` clauses as it needs:
 
 ```cronyx
-effect logger {
-    fn log(msg: string): unit;
+trait Logger {
+    fn log(msg: String): Unit;
 }
 
-effect counter {
-    ctl tick(): unit;
+trait Counter {
+    @ctl fn tick(): Unit;
 }
 
-fn greet(name: string) {
+fn greet(name: String) {
     log("Hello, " + name);
     tick();
     log("Bye, " + name);
 }
 
-run {
+run<Unit> {
     greet("Alice");
     greet("Bob");
-} handle logger {
+} handle<Logger> {
     fn log(msg) {
         print("[LOG] " + msg);
     }
-} handle counter {
-    ctl tick() {
+} handle<Counter> {
+    fn tick(resume) {
         print("[TICK]");
-        resume;
+        resume(());
     }
 }
 ```
@@ -115,28 +148,28 @@ run {
 
 `greet` performs two unrelated effects, declared separately by whoever needed them, and the block discharges both. Nothing had to anticipate the combination: there's no `LoggingAndCounting` interface, and the two effects never mention each other.
 
-`with` mixes freely with `handle` in the same chain, so a shared logging handler and a one-off counter arm can sit side by side.
+`with` mixes freely with `handle` in the same chain, so a shared logging handler and a one-off counter arm can sit side by side. Two handlers for the same effect on one block is an error.
 
 ## Stacking, and which handler wins
 
 Handlers nest. An inner `run` handles the operations performed inside it; anything it doesn't handle passes outward to whichever enclosing handler does:
 
 ```cronyx
-effect log { fn log(msg: string): unit; }
-effect ask { fn ask(): int; }
+trait Log { fn log(msg: String): Unit; }
+trait Ask { fn ask(): Int; }
 
 fn work() {
     log("asking");
     return ask();
 }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         print(work());
-    } handle ask {
+    } handle<Ask> {
         fn ask() { return 42; }
     }
-} handle log {
+} handle<Log> {
     fn log(msg) { print("[outer] " + msg); }
 }
 ```
@@ -146,24 +179,24 @@ run {
 42
 ```
 
-`work` performs both effects. The inner block discharges `ask`; `log` travels past it to the outer one. If two handlers for the *same* effect are in scope, the innermost enclosing one takes the operation — the usual dynamic scoping rule, and the reason a nested block can locally override a policy set further out:
+`work` performs both effects. The inner block discharges `Ask`; `Log` travels past it to the outer one. If two handlers for the *same* effect are in scope, the innermost enclosing one takes the operation — the usual dynamic scoping rule, and the reason a nested block can locally override a policy set further out:
 
 ```cronyx
-effect log { fn log(msg: string): unit; }
+trait Log { fn log(msg: String): Unit; }
 
-fn greet(name: string) {
+fn greet(name: String) {
     log("hello " + name);
 }
 
-run {
+run<Unit> {
     greet("outer");
-    run {
+    run<Unit> {
         greet("inner");
-    } handle log {
+    } handle<Log> {
         fn log(msg) { print("[inner] " + msg); }
     }
     greet("outer again");
-} handle log {
+} handle<Log> {
     fn log(msg) { print("[outer] " + msg); }
 }
 ```
@@ -179,23 +212,23 @@ run {
 A handler arm is ordinary code, so it can perform an effect — one its own `run` block doesn't handle, which then has to be handled further out:
 
 ```cronyx
-effect log { fn log(msg: string): unit; }
-effect audit { fn record(what: string): unit; }
+trait Log { fn log(msg: String): Unit; }
+trait Audit { fn record(what: String): Unit; }
 
-fn transfer(amount: int) {
+fn transfer(amount: Int) {
     log("transferring " + str(amount));
 }
 
-run {
-    run {
+run<Unit> {
+    run<Unit> {
         transfer(100);
-    } handle log {
+    } handle<Log> {
         fn log(msg) {
             record(msg);
             print(msg);
         }
     }
-} handle audit {
+} handle<Audit> {
     fn record(what) { print("AUDIT: " + what); }
 }
 ```
@@ -205,20 +238,20 @@ AUDIT: transferring 100
 transferring 100
 ```
 
-The `log` arm performs `audit`, which is discharged by the enclosing block. This is how you layer policy — a handler that adds tracing, retries, or rate limiting on top of another effect, rather than one that has to do everything itself.
+The `log` arm performs `Audit`, which is discharged by the enclosing block. This is how you layer policy — a handler that adds tracing, retries, or rate limiting on top of another effect, rather than one that has to do everything itself.
 
 ## Try it
 
-Declare `metrics` with `fn count(name: string): unit` and reuse a named handler for it across two `run` blocks, one of which also handles a `log` effect inline.
+Declare `Metrics` with `fn count(name: String): Unit` and reuse a named handler for it across two `run` blocks, one of which also handles a `Log` effect inline.
 
 A working answer:
 
 ```cronyx
-effect metrics { fn count(name: string): unit; }
-effect log { fn log(msg: string): unit; }
+trait Metrics { fn count(name: String): Unit; }
+trait Log { fn log(msg: String): Unit; }
 
-handler print_metrics : metrics {
-    fn count(name) { print("count " + name); }
+type PrintMetrics impl Metrics {
+    fn count(name: String) { print("count " + name); }
 }
 
 fn checkout() {
@@ -230,13 +263,13 @@ fn checkout_verbose() {
     count("checkout");
 }
 
-run {
+run<Unit> {
     checkout();
-} with print_metrics;
+} with PrintMetrics;
 
-run {
+run<Unit> {
     checkout_verbose();
-} with print_metrics handle log {
+} with PrintMetrics handle<Log> {
     fn log(msg) { print("[log] " + msg); }
 }
 ```

@@ -1,11 +1,11 @@
 trait Speaker {
-    fn speak(self): string;
+    fn speak(self): String;
 }
 
 type Cat;
 
 impl Speaker for Cat {
-    fn speak(self): string {
+    fn speak(self): String {
         return "meow";
     }
 }

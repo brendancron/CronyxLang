@@ -1,0 +1,7 @@
+trait Shout { fn shout(self): String; }
+type Point { x: Int }
+type Box<T> { held: T }
+impl Shout for Box<T: Display> { fn shout(self): String { return str(self.held) + "!"; } }
+
+fn loud<T: Shout>(v: T): String { return v.shout(); }
+print(loud(Box { held: Point { x: 2 } }));

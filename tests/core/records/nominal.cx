@@ -1,12 +1,12 @@
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 // Same fields, different type.
 type Pixel {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 var p = Point { x: 1, y: 2 };

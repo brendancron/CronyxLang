@@ -1,0 +1,27 @@
+import { Throw } from "Error";
+
+trait Async {
+    @ctl fn pause(): Unit;
+}
+
+fn block_on<X, E>(main: () -> <Async, Throw<X>, E> Unit): <Console, E> Unit {
+    var ready: List<() -> <Console, E> Unit> = [];
+    var finished = false;
+    run<Unit> {
+        run<Unit> {
+            main();
+        } handle<Throw<X>> {
+            fn throw(e, resume) { panic("uncaught failure: " + str(e)); }
+        }
+        finished = true;
+    } handle<Async> {
+        fn pause(resume) { ready.push { resume(()); }; }
+    }
+    var at = 0;
+    while (at < ready.len()) {
+        var next = ready[at];
+        at += 1;
+        next();
+    }
+    if (!finished) { panic("deadlock: every task is waiting, and nothing is left to wake one"); }
+}

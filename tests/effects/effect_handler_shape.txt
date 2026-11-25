@@ -1,0 +1,9 @@
+trait EffectHandler<Effect, String> {
+    fn log(msg: String): Unit;
+    @ctl fn choose<Rho>(options: Array<Int>, resume: (Int) -> <Rho> String): <Rho> String;
+}
+
+trait EffectHandler<Fail, Int> {
+    @ctl fn throw<T, Rho>(msg: String, resume: (T) -> <Rho> Int): <Rho> Int;
+}
+

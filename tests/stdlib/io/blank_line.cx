@@ -1,11 +1,11 @@
 import { Reader, IoError } from "std/io/Io";
 import { Throw } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
-type Given { data: Array<byte>, at: List<int> }
+type Given { data: Array<Byte>, at: List<Int> }
 
 impl Reader for Given {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         var start = self.at[0];
         if (start >= self.data.len()) { return Option.None; }
         var stop = start + max;
@@ -15,7 +15,7 @@ impl Reader for Given {
     }
 }
 
-fn greet_all(): <Stdin, Console, async, Throw<IoError>> unit {
+fn greet_all(): <Stdin, Console, Async, Throw<IoError>> Unit {
     var more = true;
     while (more) {
         match read_line() {
@@ -27,9 +27,9 @@ fn greet_all(): <Stdin, Console, async, Throw<IoError>> unit {
 
 var given = Given { data: "ada\n\ncy".bytes(), at: [0] };
 
-run {
+run<Unit> {
     greet_all();
-} handle Stdin {
+} handle<Stdin> {
     fn stdin() {
         var input: Reader = given;
         return input;

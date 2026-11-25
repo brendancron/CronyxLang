@@ -1,21 +1,21 @@
-effect Log { fn log(s: string): unit; }
-effect Tick { fn tick(): unit; }
-effect Ask { ctl ask(): int; }
+trait Log { fn log(s: String): Unit; }
+trait Tick { fn tick(): Unit; }
+trait Ask { @ctl fn ask(): Int; }
 
-fn call_it<E>(f: () -> <Log, Tick, E> unit): <Log, Tick, E> unit { f(); }
+fn call_it<E>(f: () -> <Log, Tick, E> Unit): <Log, Tick, E> Unit { f(); }
 
 fn only_logs() { log("only logs"); }
 fn nothing() { print("performs nothing"); }
 fn asks() { log("asked " + str(ask())); }
 
-run {
+run<Unit> {
     call_it(only_logs);
     call_it(nothing);
     call_it(asks);
-} handle Log {
+} handle<Log> {
     fn log(s) { print(s); }
-} handle Tick {
+} handle<Tick> {
     fn tick() { }
-} handle Ask {
-    ctl ask() { resume 42; }
+} handle<Ask> {
+    fn ask(resume) { resume(42); }
 }

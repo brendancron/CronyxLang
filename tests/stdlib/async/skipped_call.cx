@@ -1,8 +1,8 @@
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
-fn ready(): <async> int { return 1; }
+fn ready(): <Async> Int { return 1; }
 
-fn maybe(call: bool): int {
+fn maybe(call: Bool): Int {
     var held = [1, 2, 3];
     if (call) { ready(); }
     return held.len();

@@ -1,25 +1,25 @@
 trait Speaker {
-    fn speak(self): string;
+    fn speak(self): String;
 }
 
 type Cat;
 type Dog;
-type Parrot { word: string }
+type Parrot { word: String }
 
 impl Speaker for Cat {
-    fn speak(self): string {
+    fn speak(self): String {
         return "meow";
     }
 }
 
 impl Speaker for Dog {
-    fn speak(self): string {
+    fn speak(self): String {
         return "woof";
     }
 }
 
 impl Speaker for Parrot {
-    fn speak(self): string {
+    fn speak(self): String {
         return self.word;
     }
 }

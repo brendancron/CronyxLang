@@ -106,6 +106,7 @@ let frame ~palette ~entry (e : Diagnostic.error) =
           (String.make marked '~')
           palette.off));
   rule "└─";
+  Option.iter (fun note -> add (Printf.sprintf "%s %snote:%s %s\n" gutter palette.bold palette.off note)) e.Diagnostic.note;
   Buffer.contents buf
 
 let color_wanted channel =

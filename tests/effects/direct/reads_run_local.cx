@@ -1,0 +1,18 @@
+fn report(n: Int) {
+    print("report " + str(n));
+}
+
+fn collect(prefix: String): List<String> {
+    var lines: List<String> = [];
+    run<Unit> {
+        report(1);
+        report(2);
+    } handle<Console> {
+        fn write(to, text) { lines.push(prefix + text); }
+    }
+    return lines;
+}
+
+for (line in collect("a: ")) { print(line.trim()); }
+for (line in collect("b: ")) { print(line.trim()); }
+report(3);

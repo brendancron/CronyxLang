@@ -1,18 +1,18 @@
-effect async {
-    ctl suspend<T>(register: ((T) -> unit) -> unit): T;
+trait Async {
+    @ctl fn suspend<T>(register: ((T) -> Unit) -> Unit): T;
 }
 
-var ready: List<() -> unit> = [];
+var ready: List<() -> Unit> = [];
 
-fn main(): <async, Console> unit {
+fn start(): <Async, Console> Unit {
     var n = suspend((wake) => { ready.push { wake(1); }; });
     print("got " + str(n));
     var word = suspend((wake) => { ready.push { wake("hi"); }; });
     print("got " + word);
 }
 
-run {
-    main();
-} handle async {
-    ctl suspend(register) { register((value) => { var n = value + 0; resume value; }); }
+run<Unit> {
+    start();
+} handle<Async> {
+    fn suspend(register, resume) { register((value) => { var n = value + 0; }); }
 }

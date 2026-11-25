@@ -1,12 +1,12 @@
 // The receiver's type is settled by the function that takes it, so a literal
 // with no annotation still finds one.
-fn each(items: List<int>, f: (int) -> int): List<int> {
-    var out: List<int> = [];
+fn each(items: List<Int>, f: (Int) -> Int): List<Int> {
+    var out: List<Int> = [];
     for (v in items) { out.push(f(v)); }
     return out;
 }
 
-fn total(items: List<int>): int {
+fn total(items: List<Int>): Int {
     var sum = 0;
     for (v in items) { sum = sum + v; }
     return sum;

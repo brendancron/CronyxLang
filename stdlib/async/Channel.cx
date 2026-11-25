@@ -20,49 +20,49 @@
  * several at once.
  */
 
-import { async } from "Task";
+import { Async } from "Task";
 import { Yield, iterator } from "../iter/Yield";
 
 /** A queue between tasks, holding at most `capacity` values. */
 type Channel<T> {
     items: List<T>,
     // Where the front is in `items`: what is before it has been received.
-    head: int,
-    capacity: int,
-    closed: bool,
+    head: Int,
+    capacity: Int,
+    closed: Bool,
     // Tasks waiting for a value, and for room. Each is woken to look again
     // rather than handed anything, so a `select` that has already gone another
     // way loses nothing by being woken.
-    readers: List<() -> unit>,
-    writers: List<() -> unit>
+    readers: List<() -> Unit>,
+    writers: List<() -> Unit>
 }
 
 /** A channel holding at most `capacity` values. Panics unless `capacity` is at least 1. */
-fn channel<T>(capacity: int): Channel<T> {
+fn channel<T>(capacity: Int): Channel<T> {
     if (capacity < 1) { panic("a channel holds at least one value"); }
     return Channel { items: [], head: 0, capacity: capacity, closed: false, readers: [], writers: [] };
 }
 
 /** One way a `select` may go: a channel it waits on, and what it returns if that one is ready first. */
 type Case<R> {
-    ready: () -> bool,
+    ready: () -> Bool,
     take: () -> R,
-    watch: (() -> unit) -> unit
+    watch: (() -> Unit) -> Unit
 }
 
 impl Channel<T> {
     /** Puts a value at the back, waiting for room while the channel is full. Panics if it is closed. */
-    fn send(self, value: T) {
+    fn send(self, value: T): <Async> Unit {
         while (self.len() >= self.capacity && !self.closed) {
-            suspend { self.writers.push(() => { it(()); }); };
+            park((wake: () -> Unit) => { self.writers.push(wake); });
         }
         self.__put(value);
     }
 
     /** The value at the front, waiting for one while the channel is empty, or `None` once it is closed and empty. */
-    fn recv(self): Option<T> {
+    fn recv(self): <Async> Option<T> {
         while (self.len() == 0 && !self.closed) {
-            suspend { self.readers.push(() => { it(()); }); };
+            park((wake: () -> Unit) => { self.readers.push(wake); });
         }
         return self.__take();
     }
@@ -78,10 +78,10 @@ impl Channel<T> {
     }
 
     /** How many values are waiting to be received. */
-    fn len(self): int { return self.items.len() - self.head; }
+    fn len(self): Int { return self.items.len() - self.head; }
 
     /** Every value until the channel is closed and empty, receiving each as it is asked for. */
-    fn values(self): Iter<T, <async>> {
+    fn values(self): Iter<T, <Async>> {
         return iterator {
             var more = true;
             while (more) {
@@ -137,29 +137,29 @@ impl Channel<T> {
  * Waits until one of the cases is ready, takes it, and returns what it gives.
  * Of several ready at once, the first listed is taken.
  */
-fn select<R>(cases: List<Case<R>>): R {
+fn select<R>(cases: List<Case<R>>): <Async> R {
     while (true) {
         for (case in cases) {
             if (case.ready()) { return case.take(); }
         }
-        suspend {
+        park((wake: () -> Unit) => {
             var woken = false;
             var once = () => {
                 if (!woken) {
                     woken = true;
-                    it(());
+                    wake();
                 }
             };
             for (case in cases) { case.watch(once); }
-        };
+        });
     }
     panic("unreachable");
 }
 
 // Emptied before any is called, since each one woken may wait again and add
 // itself back.
-fn __wake_all(waiting: List<() -> unit>) {
-    var woken: List<() -> unit> = [];
+fn __wake_all(waiting: List<() -> Unit>) {
+    var woken: List<() -> Unit> = [];
     while (waiting.len() > 0) { woken.push(waiting.pop()); }
     var i = woken.len() - 1;
     while (i >= 0) {

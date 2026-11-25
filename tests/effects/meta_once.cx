@@ -1,0 +1,27 @@
+trait Log { fn log(msg: String): Unit; }
+trait Ask { @ctl fn ask(): Int; }
+
+fn report(n: Int): <Log> Unit {
+    meta { print("report is processed"); }
+    log("n = " + str(n));
+}
+
+fn asking(): <Ask, Log> Unit {
+    meta { print("asking is processed"); }
+    report(ask());
+}
+
+run<Unit> {
+    report(1);
+} handle<Log> {
+    fn log(msg) { print("first: " + msg); }
+}
+
+run<Unit> {
+    report(2);
+    asking();
+} handle<Log> {
+    fn log(msg) { print("second: " + msg); }
+} handle<Ask> {
+    fn ask(resume) { resume(3); }
+}

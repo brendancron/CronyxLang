@@ -1,8 +1,8 @@
-type Box { v: int }
+type Box { v: Int }
 
 impl Box {
-    fn apply(self, g: (int) -> int): int { return g(self.v); }
-    fn combine(self, extra: int, g: (int) -> int): int { return g(self.v + extra); }
+    fn apply(self, g: (Int) -> Int): Int { return g(self.v); }
+    fn combine(self, extra: Int, g: (Int) -> Int): Int { return g(self.v + extra); }
 }
 
 var b = Box { v: 21 };

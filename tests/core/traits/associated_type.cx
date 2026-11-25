@@ -4,21 +4,21 @@ trait Container {
     fn first(self): Item;
 }
 
-type Bag { values: Array<int> }
-type Label { text: string }
+type Bag { values: Array<Int> }
+type Label { text: String }
 
 impl Container for Bag {
-    type Item = int;
+    type Item = Int;
 
-    fn first(self): int {
+    fn first(self): Int {
         return self.values[0];
     }
 }
 
 impl Container for Label {
-    type Item = string;
+    type Item = String;
 
-    fn first(self): string {
+    fn first(self): String {
         return self.text;
     }
 }

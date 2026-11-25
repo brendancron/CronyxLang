@@ -1,4 +1,4 @@
-fn apply(g: (int) -> int, v: int): int { return g(v); }
+fn apply(g: (Int) -> Int, v: Int): Int { return g(v); }
 
 print(apply((x) => x * 2, 21));
 print(apply((x) => { return x + 1; }, 41));

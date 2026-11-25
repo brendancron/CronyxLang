@@ -19,7 +19,7 @@ import {
     Expr, ExprKind, Stmt, StmtKind, Decl, DeclKind, TypeExpr, TypeKind, UnOp, BinOp,
     FieldInit, Args, StaticArg, ValuedBlock, ValuedArm, MatchArm, Pattern, Bindings,
     TypeDecl, TypeBody, FieldDecl, VariantDecl, Payload, FnDecl, ImplDecl, TraitDecl,
-    EffectDecl, MethodDef, OpKind, Handler, Arm, HandlerClause, Import, Param, StaticParam,
+    MethodDef, HandlerClause, Import, Param, StaticParam,
     TypeParam, Signature, Applied, Attribute, FieldType
 } from "Ast";
 import { AttrArg } from "../meta/Reflect";
@@ -27,30 +27,30 @@ import { join } from "../collections/List";
 import { repeat } from "../text/String";
 
 /** The expression as source text. */
-fn expr_source(e: Expr): string { return __expr(e); }
+fn expr_source(e: Expr): String { return __expr(e); }
 
 /** The statement as source text, one or more lines, each ending in a newline. */
-fn stmt_source(s: Stmt): string { return __stmt(0, s); }
+fn stmt_source(s: Stmt): String { return __stmt(0, s); }
 
 /** The declaration as source text, ending in a newline. */
-fn decl_source(d: Decl): string { return __decl(0, d); }
+fn decl_source(d: Decl): String { return __decl(0, d); }
 
 /** The type as source text. */
-fn type_source(t: TypeExpr): string { return __type(t); }
+fn type_source(t: TypeExpr): String { return __type(t); }
 
 /** The statements as source text, as a file holding them would read. */
-fn source(stmts: List<Stmt>): string { return __block(0, stmts); }
+fn source(stmts: List<Stmt>): String { return __block(0, stmts); }
 
-fn __each<T>(items: List<T>, separator: string, show: (T) -> string): string {
-    var shown: List<string> = [];
+fn __each<T>(items: List<T>, separator: String, show: (T) -> String): String {
+    var shown: List<String> = [];
     for (item in items) { shown.push(show(item)); }
     return join(shown, separator);
 }
 
-fn __pad(depth: int): string { return repeat("    ", depth); }
-fn __line(depth: int, text: string): string { return __pad(depth) + text + "\n"; }
+fn __pad(depth: Int): String { return repeat("    ", depth); }
+fn __line(depth: Int, text: String): String { return __pad(depth) + text + "\n"; }
 
-fn __escaped(text: string, quote: string): string {
+fn __escaped(text: String, quote: String): String {
     var out = text.replace("\\", "\\\\");
     out = out.replace(quote, "\\" + quote);
     out = out.replace("\n", "\\n");
@@ -58,7 +58,7 @@ fn __escaped(text: string, quote: string): string {
     return out.replace("\r", "\\r");
 }
 
-fn __unop(op: UnOp): string {
+fn __unop(op: UnOp): String {
     match op {
         UnOp.Neg => { return "-"; }
         UnOp.Not => { return "!"; }
@@ -67,7 +67,7 @@ fn __unop(op: UnOp): string {
     return "";
 }
 
-fn __binop(op: BinOp): string {
+fn __binop(op: BinOp): String {
     match op {
         BinOp.Add => { return "+"; }
         BinOp.Sub => { return "-"; }
@@ -89,17 +89,17 @@ fn __binop(op: BinOp): string {
     return "";
 }
 
-fn __row(row: List<Applied>): string {
+fn __row(row: List<Applied>): String {
     if (row.len() == 0) { return ""; }
     return " <" + __each(row, ", ", __applied) + ">";
 }
 
-fn __applied(a: Applied): string {
+fn __applied(a: Applied): String {
     if (a.args.len() == 0) { return str(a.name); }
     return str(a.name) + "<" + __each(a.args, ", ", __type) + ">";
 }
 
-fn __type(t: TypeExpr): string {
+fn __type(t: TypeExpr): String {
     match t.kind {
         TypeKind.Named(n) => { return str(n); }
         TypeKind.Applied(n, args) => { return str(n) + "<" + __each(args, ", ", __type) + ">"; }
@@ -125,9 +125,9 @@ fn __type(t: TypeExpr): string {
     return "";
 }
 
-fn __field_type(f: FieldType): string { return str(f.name) + ": " + __type(f.ty); }
+fn __field_type(f: FieldType): String { return str(f.name) + ": " + __type(f.ty); }
 
-fn __annotation(t: Option<TypeExpr>): string {
+fn __annotation(t: Option<TypeExpr>): String {
     match t {
         Option.Some(ty) => { return ": " + __type(ty); }
         Option.None => { return ""; }
@@ -135,9 +135,9 @@ fn __annotation(t: Option<TypeExpr>): string {
     return "";
 }
 
-fn __param(p: Param): string { return str(p.name) + __annotation(p.ty); }
+fn __param(p: Param): String { return str(p.name) + __annotation(p.ty); }
 
-fn __static_params(ps: List<StaticParam>): string {
+fn __static_params(ps: List<StaticParam>): String {
     if (ps.len() == 0) { return ""; }
     return "<" + __each(ps, ", ", (p: StaticParam) => {
         var dots = "";
@@ -146,7 +146,7 @@ fn __static_params(ps: List<StaticParam>): string {
     }) + ">";
 }
 
-fn __type_params(ps: List<TypeParam>): string {
+fn __type_params(ps: List<TypeParam>): String {
     if (ps.len() == 0) { return ""; }
     return "<" + __each(ps, ", ", (p: TypeParam) => {
         var dots = "";
@@ -155,9 +155,14 @@ fn __type_params(ps: List<TypeParam>): string {
     }) + ">";
 }
 
-fn __names(ns: List<Name>): string { return __each(ns, ", ", (n: Name) => str(n)); }
+fn __names(ns: List<Name>): String { return __each(ns, ", ", (n: Name) => str(n)); }
 
-fn __signature(sg: Signature): string {
+fn __inline_mark(sg: Signature): String {
+    if (sg.inline) { return "inline "; }
+    return "";
+}
+
+fn __signature(sg: Signature): String {
     match sg.ret {
         Option.None => { return ""; }
         Option.Some(ret) => {
@@ -172,7 +177,7 @@ fn __signature(sg: Signature): string {
     return "";
 }
 
-fn __expr(e: Expr): string {
+fn __expr(e: Expr): String {
     match e.kind {
         ExprKind.Unit => { return "()"; }
         ExprKind.Int(n) => { return str(n); }
@@ -194,6 +199,9 @@ fn __expr(e: Expr): string {
         }
         ExprKind.StaticCall(callee, statics, args) => {
             return __expr(callee) + "<" + __each(statics, ", ", __static_arg) + ">(" + __each(args, ", ", __expr) + ")";
+        }
+        ExprKind.StaticRef(callee, statics) => {
+            return __expr(callee) + "<" + __each(statics, ", ", __static_arg) + ">";
         }
         ExprKind.Compound(op, n, v) => { return str(n) + " " + __binop(op) + "= " + __expr(v); }
         ExprKind.CompoundIndex(op, target, index, v) => {
@@ -229,19 +237,23 @@ fn __expr(e: Expr): string {
         ExprKind.Lambda(params, sg, body) => {
             return "(" + __each(params, ", ", __param) + ")" + __signature(sg) + " => { " + __inline(body) + "}";
         }
-        ExprKind.Run(body, clauses, ret) => {
-            var parts: List<string> = ["run { " + __valued(body) + " }"];
+        ExprKind.Run(ty, body, clauses) => {
+            var parts: List<String> = [__run_head(ty) + " { " + __valued(body) + " }"];
             for (c in clauses) {
                 match c {
                     HandlerClause.Named(n) => { parts.push(" with " + str(n) + ";"); }
-                    HandlerClause.Inline(h) => {
-                        parts.push(" handle " + str(h.handles) + " { " + __each(h.arms, "", (a: Arm) => __arm(0, a)) + "}");
+                    HandlerClause.Handle(handled, defs) => {
+                        parts.push(" handle<" + __type(handled) + "> { " + __each(defs, "", (m: MethodDef) => __method(0, m)) + "}");
+                    }
+                    HandlerClause.Bound(label, bound, value) => {
+                        var held = "";
+                        match value {
+                            Option.Some(s) => { held = __stmt(0, s); }
+                            Option.None => {}
+                        }
+                        parts.push(" bound " + str(label) + " = " + str(bound) + " { " + held + "}");
                     }
                 }
-            }
-            match ret {
-                Option.Some(r) => { parts.push(" return (" + str(r.param) + ") { " + __valued(r.body) + " }"); }
-                Option.None => {}
             }
             return __str_join(parts.items, parts.count);
         }
@@ -251,15 +263,31 @@ fn __expr(e: Expr): string {
             }) + " }";
         }
         ExprKind.Typeof(inner) => { return "typeof(" + __expr(inner) + ")"; }
+        ExprKind.Declof(inner, statics) => {
+            match statics {
+                Option.Some(args) => { return "declof(" + __expr(inner) + "<" + __each(args, ", ", __static_arg) + ">)"; }
+                Option.None => { return "declof(" + __expr(inner) + ")"; }
+            }
+        }
+        ExprKind.Meta(body) => { return "meta { " + __inline(body) + "}"; }
         ExprKind.QuoteExpr(inner) => { return "code(" + __expr(inner) + ")"; }
         ExprKind.QuoteStmts(body) => { return "code { " + __inline(body) + "}"; }
         ExprKind.QuoteDecl(d) => { return "code " + __decl(0, d).trim(); }
+        ExprKind.Processed(n) => { return "processed#" + str(n); }
     }
     return "";
 }
 
-fn __inline(body: List<Stmt>): string {
-    var parts: List<string> = [];
+fn __run_head(ty: Option<TypeExpr>): String {
+    match ty {
+        Option.Some(t) => { return "run<" + __type(t) + ">"; }
+        Option.None => { return "run"; }
+    }
+    return "";
+}
+
+fn __inline(body: List<Stmt>): String {
+    var parts: List<String> = [];
     for (s in body) {
         parts.push(__stmt(0, s).trim());
         parts.push(" ");
@@ -267,7 +295,7 @@ fn __inline(body: List<Stmt>): string {
     return __str_join(parts.items, parts.count);
 }
 
-fn __valued(b: ValuedBlock): string {
+fn __valued(b: ValuedBlock): String {
     var out = __inline(b.stmts);
     match b.value {
         Option.Some(v) => { out = out + __expr(v); }
@@ -276,9 +304,9 @@ fn __valued(b: ValuedBlock): string {
     return out.trim();
 }
 
-fn __field_init(f: FieldInit): string { return str(f.name) + ": " + __expr(f.value); }
+fn __field_init(f: FieldInit): String { return str(f.name) + ": " + __expr(f.value); }
 
-fn __static_arg(a: StaticArg): string {
+fn __static_arg(a: StaticArg): String {
     match a {
         StaticArg.Type(t) => { return __type(t); }
         StaticArg.Value(v) => { return __expr(v); }
@@ -286,7 +314,7 @@ fn __static_arg(a: StaticArg): string {
     return "";
 }
 
-fn __args(a: Args): string {
+fn __args(a: Args): String {
     match a {
         Args.None => { return ""; }
         Args.Positional(items) => {
@@ -298,7 +326,7 @@ fn __args(a: Args): string {
     return "";
 }
 
-fn __pattern(p: Pattern): string {
+fn __pattern(p: Pattern): String {
     match p {
         Pattern.Wild => { return "_"; }
         Pattern.Variant(t, v, bindings) => {
@@ -319,14 +347,14 @@ fn __pattern(p: Pattern): string {
     return "";
 }
 
-fn __block(depth: int, body: List<Stmt>): string {
-    var parts: List<string> = [];
+fn __block(depth: Int, body: List<Stmt>): String {
+    var parts: List<String> = [];
     for (s in body) { parts.push(__stmt(depth, s)); }
     return __str_join(parts.items, parts.count);
 }
 
 // The braces are the enclosing form's; only the contents are printed.
-fn __nested(depth: int, s: Stmt): string {
+fn __nested(depth: Int, s: Stmt): String {
     match s.kind {
         StmtKind.Block(body) => { return __block(depth + 1, body); }
         _ => { return __stmt(depth + 1, s); }
@@ -334,19 +362,14 @@ fn __nested(depth: int, s: Stmt): string {
     return "";
 }
 
-fn __stmt(depth: int, s: Stmt): string {
+fn __stmt(depth: Int, s: Stmt): String {
     match s.kind {
         StmtKind.Expression(e) => {
             match e.kind {
-                ExprKind.Run(body, clauses, ret) => {
-                    match ret {
+                ExprKind.Run(ty, body, clauses) => {
+                    match body.value {
                         Option.None => {
-                            match body.value {
-                                Option.None => {
-                                    return __line(depth, "run {") + __block(depth + 1, body.stmts) + __handlers(depth, clauses);
-                                }
-                                _ => {}
-                            }
+                            return __line(depth, __run_head(ty) + " {") + __block(depth + 1, body.stmts) + __handlers(depth, clauses);
                         }
                         _ => {}
                     }
@@ -411,7 +434,7 @@ fn __stmt(depth: int, s: Stmt): string {
         StmtKind.Continue => { return __line(depth, "continue;"); }
         StmtKind.Defer(inner) => { return __line(depth, "defer {") + __nested(depth, inner) + __line(depth, "}"); }
         StmtKind.Match(scrutinee, arms) => {
-            var parts: List<string> = [__line(depth, "match " + __expr(scrutinee) + " {")];
+            var parts: List<String> = [__line(depth, "match " + __expr(scrutinee) + " {")];
             for (a in arms) {
                 parts.push(__line(depth + 1, __pattern(a.pattern) + " => {"));
                 parts.push(__block(depth + 2, a.body));
@@ -420,29 +443,20 @@ fn __stmt(depth: int, s: Stmt): string {
             parts.push(__line(depth, "}"));
             return __str_join(parts.items, parts.count);
         }
-        StmtKind.Run(body, clauses) => {
-            return __line(depth, "run {") + __block(depth + 1, body) + __handlers(depth, clauses);
-        }
-        StmtKind.Resume(v) => {
-            match v {
-                Option.Some(x) => { return __line(depth, "resume " + __expr(x) + ";"); }
-                Option.None => { return __line(depth, "resume;"); }
-            }
-        }
-        StmtKind.Discontinue => { return __line(depth, "discontinue;"); }
         StmtKind.Meta(body) => { return __line(depth, "meta {") + __block(depth + 1, body) + __line(depth, "}"); }
         StmtKind.Gen(inner) => { return __line(depth, "gen") + __nested(depth, inner); }
         StmtKind.Derive(traits, target) => {
             return __line(depth, "derive " + __names(traits) + " for " + str(target) + ";");
         }
         StmtKind.Declare(d) => { return __decl(depth, d); }
+        StmtKind.Processed(n) => { return __line(depth, "processed#" + str(n) + ";"); }
     }
     return "";
 }
 
 // Each clause reopens the brace the last one closed.
-fn __handlers(depth: int, clauses: List<HandlerClause>): string {
-    var parts: List<string> = [];
+fn __handlers(depth: Int, clauses: List<HandlerClause>): String {
+    var parts: List<String> = [];
     var closed = true;
     for (c in clauses) {
         match c {
@@ -450,9 +464,17 @@ fn __handlers(depth: int, clauses: List<HandlerClause>): string {
                 parts.push(__line(depth, "} with " + str(n) + ";"));
                 closed = true;
             }
-            HandlerClause.Inline(h) => {
-                parts.push(__line(depth, "} handle " + str(h.handles) + " {"));
-                parts.push(__each(h.arms, "", (a: Arm) => __arm(depth + 1, a)));
+            HandlerClause.Handle(handled, defs) => {
+                parts.push(__line(depth, "} handle<" + __type(handled) + "> {"));
+                parts.push(__each(defs, "", (m: MethodDef) => __method(depth + 1, m)));
+                closed = false;
+            }
+            HandlerClause.Bound(label, bound, value) => {
+                parts.push(__line(depth, "} bound " + str(label) + " = " + str(bound) + " {"));
+                match value {
+                    Option.Some(s) => { parts.push(__stmt(depth + 1, s)); }
+                    Option.None => {}
+                }
                 closed = false;
             }
         }
@@ -461,22 +483,13 @@ fn __handlers(depth: int, clauses: List<HandlerClause>): string {
     return __str_join(parts.items, parts.count);
 }
 
-fn __op_kind(k: OpKind): string {
-    match k {
-        OpKind.Fn => { return "fn"; }
-        OpKind.Ctl => { return "ctl"; }
-        OpKind.Final => { return "final ctl"; }
-    }
-    return "";
-}
-
-fn __arm(depth: int, a: Arm): string {
-    return __line(depth, __op_kind(a.kind) + " " + str(a.name) + "(" + __names(a.params) + ") {")
-        + __block(depth + 1, a.body)
+fn __method(depth: Int, m: MethodDef): String {
+    return __member_attrs(depth, m.attrs) + __inline_mark(m.signature) + "fn " + str(m.name) + __static_params(m.signature.static_params) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + " {\n"
+        + __block(depth + 1, m.body)
         + __line(depth, "}");
 }
 
-fn __attr_arg(a: AttrArg): string {
+fn __attr_arg(a: AttrArg): String {
     match a {
         AttrArg.Str(s) => { return "\"" + __escaped(s, "\"") + "\""; }
         AttrArg.Int(n) => { return str(n); }
@@ -487,7 +500,7 @@ fn __attr_arg(a: AttrArg): string {
 }
 
 // A doc comment rides as an attribute, and is written back as the comment.
-fn __doc(a: Attribute): Option<string> {
+fn __doc(a: Attribute): Option<String> {
     if (str(a.name) != "doc" || a.args.len() != 1) { return Option.None; }
     match a.args[0] {
         AttrArg.Str(text) => { return Option.Some(text); }
@@ -496,10 +509,10 @@ fn __doc(a: Attribute): Option<string> {
     return Option.None;
 }
 
-fn __doc_comment(depth: int, text: string): string {
+fn __doc_comment(depth: Int, text: String): String {
     var lines = text.split('\n');
     if (lines.len() == 1) { return __line(depth, "/** " + text + " */"); }
-    var parts: List<string> = [__line(depth, "/**")];
+    var parts: List<String> = [__line(depth, "/**")];
     for (l in lines) {
         if (l == "") { parts.push(__line(depth, " *")); } else { parts.push(__line(depth, " * " + l)); }
     }
@@ -507,14 +520,14 @@ fn __doc_comment(depth: int, text: string): string {
     return __str_join(parts.items, parts.count);
 }
 
-fn __attribute(a: Attribute): string {
+fn __attribute(a: Attribute): String {
     var args = "";
     if (a.args.len() > 0) { args = "(" + __each(a.args, ", ", __attr_arg) + ")"; }
     return "@" + str(a.name) + args;
 }
 
-fn __attrs(depth: int, attrs: List<Attribute>): string {
-    var parts: List<string> = [];
+fn __attrs(depth: Int, attrs: List<Attribute>): String {
+    var parts: List<String> = [];
     for (a in attrs) {
         match __doc(a) {
             Option.Some(text) => { parts.push(__doc_comment(depth, text)); }
@@ -526,9 +539,9 @@ fn __attrs(depth: int, attrs: List<Attribute>): string {
 
 // On the member's own line, so a doc comment goes above it and takes the
 // member's indent with it.
-fn __member_attrs(depth: int, attrs: List<Attribute>): string {
-    var above: List<string> = [];
-    var inline: List<string> = [];
+fn __member_attrs(depth: Int, attrs: List<Attribute>): String {
+    var above: List<String> = [];
+    var inline: List<String> = [];
     for (a in attrs) {
         match __doc(a) {
             Option.Some(text) => { above.push(__doc_comment(depth, text)); }
@@ -541,63 +554,31 @@ fn __member_attrs(depth: int, attrs: List<Attribute>): string {
     return __str_join(above.items, above.count) + __pad(depth) + __str_join(inline.items, inline.count);
 }
 
-fn __decl(depth: int, d: Decl): string {
+fn __decl(depth: Int, d: Decl): String {
     var head = __attrs(depth, d.attrs);
     match d.kind {
         DeclKind.Fn(f) => {
-            return head + __line(depth, "fn " + str(f.name) + __static_params(f.signature.static_params) + "(" + __each(f.params, ", ", __param) + ")" + __signature(f.signature) + " {")
+            return head + __line(depth, __inline_mark(f.signature) + "fn " + str(f.name) + __static_params(f.signature.static_params) + "(" + __each(f.params, ", ", __param) + ")" + __signature(f.signature) + " {")
                 + __block(depth + 1, f.body)
                 + __line(depth, "}");
         }
         DeclKind.Type(t) => { return head + __type_decl(depth, t, []); }
         DeclKind.TypeWithMembers(t, members) => { return head + __type_decl(depth, t, members); }
-        DeclKind.Trait(t) => {
-            var params = "";
-            if (t.params.len() > 0) { params = "<" + __names(t.params) + ">"; }
-            var supers = "";
-            if (t.supers.len() > 0) { supers = ": " + __each(t.supers, ", ", __applied); }
-            var parts: List<string> = [head, __line(depth, "trait " + str(t.name) + params + supers + " {")];
-            for (a in t.assoc) { parts.push(__member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + ";\n"); }
-            for (m in t.methods) {
-                parts.push(__member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + ";\n");
-            }
-            parts.push(__line(depth, "}"));
-            return __str_join(parts.items, parts.count);
-        }
+        DeclKind.Trait(t) => { return head + __trait_decl(depth, t, []); }
+        DeclKind.TraitWithMembers(t, metas) => { return head + __trait_decl(depth, t, metas); }
         DeclKind.Impl(i) => {
             var implements = "";
             match i.implements {
                 Option.Some(t) => { implements = __applied(t) + " for "; }
                 Option.None => {}
             }
-            var parts: List<string> = [head, __line(depth, "impl " + implements + str(i.target) + __type_params(i.params) + " {")];
+            var parts: List<String> = [head, __line(depth, "impl " + implements + str(i.target) + __type_params(i.params) + " {")];
             for (a in i.assoc) {
                 parts.push(__member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + " = " + __type(a.ty) + ";\n");
             }
-            for (m in i.methods) {
-                parts.push(__member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + __static_params(m.signature.static_params) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + " {\n");
-                parts.push(__block(depth + 2, m.body));
-                parts.push(__line(depth + 1, "}"));
-            }
+            for (m in i.methods) { parts.push(__method(depth + 1, m)); }
             parts.push(__line(depth, "}"));
             return __str_join(parts.items, parts.count);
-        }
-        DeclKind.Effect(ef) => {
-            var params = "";
-            if (ef.params.len() > 0) { params = "<" + __names(ef.params) + ">"; }
-            var parts: List<string> = [head, __line(depth, "effect " + str(ef.name) + params + " {")];
-            for (o in ef.ops) {
-                var tparams = "";
-                if (o.type_params.len() > 0) { tparams = "<" + __names(o.type_params) + ">"; }
-                parts.push(__member_attrs(depth + 1, o.attrs) + __op_kind(o.kind) + " " + str(o.name) + tparams + "(" + __each(o.params, ", ", __param) + ")" + __annotation(o.ret) + ";\n");
-            }
-            parts.push(__line(depth, "}"));
-            return __str_join(parts.items, parts.count);
-        }
-        DeclKind.Handler(n, h) => {
-            return head + __line(depth, "handler " + str(n) + " : " + str(h.handles) + " {")
-                + __each(h.arms, "", (a: Arm) => __arm(depth + 1, a))
-                + __line(depth, "}");
         }
         DeclKind.Import(i) => { return head + __line(depth, __import(i)); }
         DeclKind.GlobalImport(i) => { return head + __line(depth, "global " + __import(i)); }
@@ -605,7 +586,23 @@ fn __decl(depth: int, d: Decl): string {
     return "";
 }
 
-fn __import(i: Import): string {
+fn __trait_decl(depth: Int, t: TraitDecl, metas: List<Stmt>): String {
+    var params = "";
+    if (t.params.len() > 0) { params = "<" + __names(t.params) + ">"; }
+    var supers = "";
+    if (t.supers.len() > 0) { supers = ": " + __each(t.supers, ", ", __applied); }
+    var parts: List<String> = [__line(depth, "trait " + str(t.name) + params + supers + " {")];
+    for (a in t.assoc) { parts.push(__member_attrs(depth + 1, a.attrs) + "type " + str(a.name) + ";\n"); }
+    for (m in t.methods) {
+        parts.push(__member_attrs(depth + 1, m.attrs) + "fn " + str(m.name) + __static_params(m.signature.static_params) + "(" + __each(m.params, ", ", __param) + ")" + __signature(m.signature) + ";\n");
+    }
+    parts.push(__block(depth + 1, metas));
+    parts.push(__line(depth, "}"));
+    return __str_join(parts.items, parts.count);
+}
+
+fn __import(i: Import): String {
+
     match i {
         Import.Qualified(path) => { return "import \"" + __escaped(path, "\"") + "\";"; }
         Import.Aliased(path, alias) => { return "import \"" + __escaped(path, "\"") + "\" as " + str(alias) + ";"; }
@@ -617,9 +614,9 @@ fn __import(i: Import): string {
     return "";
 }
 
-fn __type_decl(depth: int, t: TypeDecl, members: List<Stmt>): string {
+fn __type_decl(depth: Int, t: TypeDecl, members: List<Stmt>): String {
     var out = __line(depth, "type " + str(t.name) + __type_params(t.params) + " {");
-    var parts: List<string> = [];
+    var parts: List<String> = [];
     match t.body {
         TypeBody.Fields(fields) => {
             for (f in fields) { parts.push(__member_attrs(depth + 1, f.attrs) + str(f.name) + ": " + __type(f.ty)); }

@@ -1,0 +1,65 @@
+import { Expr, ExprKind, Stmt, StmtKind, ValuedBlock, processed } from "std/compiler/Ast";
+import { expr_source, type_source } from "std/compiler/Printer";
+
+trait Fail {
+    @ctl fn throw<T>(msg: String): T;
+}
+
+fn number(ok: Bool): Int {
+    if (ok) { return 1; }
+    return throw("no number");
+}
+
+fn typed(e: Expr): String {
+    match e.ty {
+        Option.Some(t) => { return expr_source(e) + " : " + type_source(t); }
+        _ => { return expr_source(e) + " : ?"; }
+    }
+}
+
+fn show(e: Expr): Unit {
+    print(typed(e));
+    match e.kind {
+        ExprKind.Call(f, args) => {
+            show(f);
+            for (a in args) { show(a); }
+        }
+        ExprKind.Binary(_, a, b) => {
+            show(a);
+            show(b);
+        }
+        _ => {}
+    }
+}
+
+fn go(y: Int) {
+    meta {
+        var p = processed(ValuedBlock {
+            stmts: code {
+                var label = "n";
+                print(label + str(number(y > 1)));
+            },
+            value: Option.Some(code(y * 2))
+        });
+        for (s in p.stmts) {
+            match s.kind {
+                StmtKind.Let(_, _, init) => {
+                    match init {
+                        Option.Some(e) => { show(e); }
+                        _ => {}
+                    }
+                }
+                StmtKind.Expression(e) => { show(e); }
+                _ => {}
+            }
+        }
+        match p.value {
+            Option.Some(e) => { show(e); }
+            _ => {}
+        }
+        var quoted = code(y);
+        print(typed(quoted));
+    }
+}
+
+go(3);

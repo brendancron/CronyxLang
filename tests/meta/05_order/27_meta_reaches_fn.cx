@@ -1,4 +1,4 @@
-fn helper(): int {
+fn helper(): Int {
     meta print("helper meta");
     return 1;
 }

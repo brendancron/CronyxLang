@@ -1,6 +1,6 @@
 type Empty { }
 type Marker;
-type R { a: int }
+type R { a: Int }
 
 fn f(e: Empty): R { return R { a: 1 }; }
 

@@ -1,11 +1,11 @@
 type Shape {
-    @tag("c") Circle(int),
-    @tag("r") Rect(int, int),
+    @tag("c") Circle(Int),
+    @tag("r") Rect(Int, Int),
     Point,
 }
 
 trait Tagged {
-    fn tags(self): string;
+    fn tags(self): String;
 }
 
 fn derive(shape: TypeShape) for Tagged {
@@ -29,7 +29,7 @@ fn derive(shape: TypeShape) for Tagged {
                 text = code(text + " " + head);
             }
             gen impl Tagged for t {
-                fn tags(self): string { return text; }
+                fn tags(self): String { return text; }
             }
         }
         _ => {}

@@ -1,15 +1,15 @@
-effect Log { fn log(s: string): unit; }
+trait Log { fn log(s: String): Unit; }
 
-fn call<E>(action: () -> <E> unit): <E> unit { action(); }
+fn call<E>(action: () -> <E> Unit): <E> Unit { action(); }
 
-fn first<E>(actions: List<() -> <E> unit>): <E> unit {
+fn first<E>(actions: List<() -> <E> Unit>): <E> Unit {
     call(actions[0]);
 }
 
 fn task() { log("task"); }
 
-run {
+run<Unit> {
     first([ task ]);
-} handle Log {
+} handle<Log> {
     fn log(s) { print(s); }
 }

@@ -1,5 +1,5 @@
 1 a
 a 1
-((int, string)) -> (string, int)
-b Array<(int, string)>
+((Int, String)) -> (String, Int)
+b Array<(Int, String)>
 true

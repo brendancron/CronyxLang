@@ -4,8 +4,8 @@
  * ```
  * import { TryTo } from "std/ops/TryTo";
  *
- * print("42".try_to<int>());     // Some(42)
- * print("apples".try_to<int>()); // Option.None
+ * print("42".try_to<Int>());     // Some(42)
+ * print("apples".try_to<Int>()); // Option.None
  * ```
  *
  * `Option` rather than an effect: there is one way to fail and nothing to say
@@ -21,11 +21,11 @@ trait TryTo<T> {
     fn try_to(self): Option<T>;
 }
 
-// A string converts to either, so both calls write which: `s.try_to<int>()`.
-impl TryTo<int> for string {
-    fn try_to(self): Option<int> { return self.to_int(); }
+// A string converts to either, so both calls write which: `s.try_to<Int>()`.
+impl TryTo<Int> for String {
+    fn try_to(self): Option<Int> { return self.to_int(); }
 }
 
-impl TryTo<float> for string {
-    fn try_to(self): Option<float> { return self.to_float(); }
+impl TryTo<Float> for String {
+    fn try_to(self): Option<Float> { return self.to_float(); }
 }

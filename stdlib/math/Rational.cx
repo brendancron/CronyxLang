@@ -11,7 +11,7 @@
  *
  * A `Rational` is always in lowest terms with a positive denominator, so two
  * equal fractions are the same pair and `==` compares them field by field.
- * Dividing by zero panics, as it does on an `int`.
+ * Dividing by zero panics, as it does on an `Int`.
  */
 
 import { BigInt } from "BigInt";
@@ -29,7 +29,7 @@ derive Eq for Rational;
 
 impl Rational {
     /** `numerator / denominator`. Panics if `denominator` is zero. */
-    fn of(numerator: int, denominator: int): Rational {
+    fn of(numerator: Int, denominator: Int): Rational {
         return __reduced(BigInt.of(numerator), BigInt.of(denominator));
     }
 
@@ -42,7 +42,7 @@ impl Rational {
      * The float's exact value, which every finite float has: `0.1` is
      * `3602879701896397/36028797018963968`. `None` for NaN and the infinities.
      */
-    fn from_float(x: float): Option<Rational> {
+    fn from_float(x: Float): Option<Rational> {
         if (!__float_is_finite(x)) { return Option.None; }
         // Doubling a float is exact, and one with a fraction is below 2^53, so
         // this stops with the float's value scaled to a whole number.
@@ -55,11 +55,11 @@ impl Rational {
         return Option.Some(__reduced(__whole(scaled), BigInt.of(2).pow(halvings)));
     }
 
-    /** The value as a `float`, rounded. */
-    fn to_float(self): float { return self.numerator.to_float() / self.denominator.to_float(); }
+    /** The value as a `Float`, rounded. */
+    fn to_float(self): Float { return self.numerator.to_float() / self.denominator.to_float(); }
 
     /** Whether the denominator is 1. */
-    fn is_whole(self): bool { return self.denominator == BigInt.of(1); }
+    fn is_whole(self): Bool { return self.denominator == BigInt.of(1); }
 }
 
 impl Add<Rational> for Rational {
@@ -115,9 +115,9 @@ impl Signed for Rational {
     fn sign(self): Rational { return Rational { numerator: self.numerator.sign(), denominator: BigInt.of(1) }; }
 }
 
-impl Pow<int> for Rational {
+impl Pow<Int> for Rational {
     /** A negative exponent is the reciprocal's power. Panics for zero to a negative power. */
-    fn pow(self, exponent: int): Rational {
+    fn pow(self, exponent: Int): Rational {
         if (exponent < 0) { return __reduced(self.denominator.pow(-exponent), self.numerator.pow(-exponent)); }
         return Rational { numerator: self.numerator.pow(exponent), denominator: self.denominator.pow(exponent) };
     }
@@ -125,14 +125,14 @@ impl Pow<int> for Rational {
 
 impl Display for Rational {
     /** `1/2`, and `3` for a whole number. */
-    fn fmt(self): string {
+    fn fmt(self): String {
         if (self.is_whole()) { return str(self.numerator); }
         return str(self.numerator) + "/" + str(self.denominator);
     }
 }
 
 impl Debug for Rational {
-    fn debug(self): string { return self.fmt(); }
+    fn debug(self): String { return self.fmt(); }
 }
 
 fn __reduced(numerator: BigInt, denominator: BigInt): Rational {
@@ -160,9 +160,9 @@ fn __gcd(a: BigInt, b: BigInt): BigInt {
 
 // A whole-numbered float's exact value, bit by bit: halving one is exact, and
 // so is what is left after taking the halves back.
-fn __whole(x: float): BigInt {
+fn __whole(x: Float): BigInt {
     var rest = __float_copysign(x, 1.0);
-    var bits: List<int> = [];
+    var bits: List<Int> = [];
     while (rest >= 1.0) {
         var half = __float_floor(rest / 2.0);
         bits.push((rest - half * 2.0).to_int());

@@ -1,7 +1,7 @@
-type Stack { n: int }
+type Stack { n: Int }
 
 impl Stack {
-    fn push(self, v: int) {
+    fn push(self, v: Int) {
         self.n = self.n + v;
     }
 }

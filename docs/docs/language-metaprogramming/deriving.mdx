@@ -20,7 +20,7 @@ A deriver is a function with a fixed signature, written with the trait it derive
 
 ```cronyx
 trait Named {
-    fn type_name(self): string;
+    fn type_name(self): String;
 }
 
 fn derive(shape: TypeShape) for Named {
@@ -28,7 +28,7 @@ fn derive(shape: TypeShape) for Named {
         TypeShape.Product(t, _, fields) => {
             var label = str(t);
             gen impl Named for t {
-                fn type_name(self): string { return label; }
+                fn type_name(self): String { return label; }
             }
         }
         _ => {}
@@ -36,7 +36,7 @@ fn derive(shape: TypeShape) for Named {
 }
 
 type Cat;
-type Point { x: int, y: int }
+type Point { x: Int, y: Int }
 
 derive Named for Cat;
 derive Named for Point;
@@ -69,7 +69,7 @@ A deriver that walks the fields needs to build an expression piece by piece — 
 
 ```cronyx
 trait Show {
-    fn show(self): string;
+    fn show(self): String;
 }
 
 fn derive(shape: TypeShape) for Show {
@@ -83,14 +83,14 @@ fn derive(shape: TypeShape) for Show {
                 text = code(text + label + str(self.field));
             }
             gen impl Show for t {
-                fn show(self): string { return text; }
+                fn show(self): String { return text; }
             }
         }
         _ => {}
     }
 }
 
-type Point { x: int, y: int }
+type Point { x: Int, y: Int }
 
 derive Show for Point;
 
@@ -102,14 +102,23 @@ print(p.show());
 Point x=3 y=4
 ```
 
-Each trip around the loop wraps the expression built so far in a bigger one. Inside `code(...)`, each meta variable is replaced by what it holds — `name` and `label` by their strings, the earlier `text` by the expression built so far, and `field` by the field's name — while `self` stays a name for the running program. Keep the computing outside: put a value in a meta variable first, as `name` and `label` are here, and use the variable inside `code(...)`. The impl it produced, from `--dump-code`:
+Each trip around the loop wraps the expression built so far in a bigger one. Inside `code(...)`, each meta variable is replaced by what it holds — `name` and `label` by their strings, the earlier `text` by the expression built so far, and `field` by the field's name — while `self` stays a name for the running program. Keep the computing outside: put a value in a meta variable first, as `name` and `label` are here, and use the variable inside `code(...)`. The program after the meta phase, from `--dump-code`, has the impl in place of the `derive` and no deriver, which only the meta phase ran:
 
 ```cronyx title="--dump-code"
+trait Show {
+    fn show(self): String;
+}
+type Point {
+    x: Int,
+    y: Int
+}
 impl Show for Point {
-    fn show(self): string {
+    fn show(self): String {
         return (((("Point" + " x=") + str(self.x)) + " y=") + str(self.y));
     }
 }
+var p = Point { x: 3, y: 4 };
+print(p.show());
 ```
 
 Add a field to `Point` and the impl picks it up on the next compile. That's the point of deriving: the impl can't drift, because nobody writes it.
@@ -144,7 +153,7 @@ fn derive(shape: TypeShape) for Blank {
     }
 }
 
-type Config { name: string, host: string }
+type Config { name: String, host: String }
 
 derive Blank for Config;
 
@@ -164,7 +173,7 @@ Statements and declarations can be quoted too. `code { … }` is a `List<Stmt>`,
 import { Decl } from "std/compiler/Ast";
 
 meta {
-    var helper: Decl = code fn twice(n: int): int { return n * 2; };
+    var helper: Decl = code fn twice(n: Int): Int { return n * 2; };
     gen helper;
 }
 
@@ -203,7 +212,7 @@ What a `derive` generates follows the rule for any generated name: it exists onc
 
 ```cronyx
 trait Named {
-    fn type_name(self): string;
+    fn type_name(self): String;
 }
 
 fn derive(shape: TypeShape) for Named {
@@ -211,7 +220,7 @@ fn derive(shape: TypeShape) for Named {
         TypeShape.Product(t, _, fields) => {
             var label = str(t);
             gen impl Named for t {
-                fn type_name(self): string { return label; }
+                fn type_name(self): String { return label; }
             }
         }
         _ => {}
@@ -234,13 +243,13 @@ Put each `derive` right after the type it's for, and this never comes up.
 
 ## Try it
 
-Write a deriver for `Fields`, a trait with one method `field_count(self): int`, that returns how many fields the type has. Derive it for `Point { x: int, y: int }` and for a three-field `Color`.
+Write a deriver for `Fields`, a trait with one method `field_count(self): Int`, that returns how many fields the type has. Derive it for `Point { x: Int, y: Int }` and for a three-field `Color`.
 
 A working answer:
 
 ```cronyx
 trait Fields {
-    fn field_count(self): int;
+    fn field_count(self): Int;
 }
 
 fn derive(shape: TypeShape) for Fields {
@@ -251,15 +260,15 @@ fn derive(shape: TypeShape) for Fields {
                 count = count + 1;
             }
             gen impl Fields for t {
-                fn field_count(self): int { return count; }
+                fn field_count(self): Int { return count; }
             }
         }
         _ => {}
     }
 }
 
-type Point { x: int, y: int }
-type Color { r: int, g: int, b: int }
+type Point { x: Int, y: Int }
+type Color { r: Int, g: Int, b: Int }
 
 derive Fields for Point;
 derive Fields for Color;
@@ -282,7 +291,7 @@ Across these six chapters you've seen the full metaprogramming story:
 - **[Metaprocessing](./metaprocessing.mdx)** — `meta` blocks, run by a walk over the code your program reaches, all before the program starts.
 - **[Generation](./generation.mdx)** — `gen` for splicing values, statements, and declarations from compile time into the runtime program.
 - **[Reflection](./reflection.mdx)** — `typeof` for inspecting types at compile time, with zero runtime cost.
-- **[Static parameters](./static-params.mdx)** — `<T>` and `<n: int>`, one compiled copy per argument list.
+- **[Static parameters](./static-params.mdx)** — `<T>` and `<n: Int>`, one compiled copy per argument list.
 - **[Compile-time functions](./compile-time-functions.mdx)** — ordinary functions called from meta blocks, comptime functions whose meta blocks write a body per argument, and functions that generate declarations.
 - **Deriving** — a generator for a trait, invoked with one line per type.
 

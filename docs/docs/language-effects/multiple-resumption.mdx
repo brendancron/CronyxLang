@@ -6,16 +6,16 @@ sidebar_position: 7
 
 `resume` comes back, like a normal call. Nothing says you may only make it once.
 
-That single sentence is where effects part company with every mainstream control-flow construct. `catch` can't re-run the code that threw — the stack is gone. `await` continues its function exactly once; nothing can run the code after it a second time. A `ctl` arm holds the rest of the computation as a value it can invoke as often as it likes, so calling it twice runs the rest of the program twice, once per answer.
+That single sentence is where effects part company with every mainstream control-flow construct. `catch` can't re-run the code that threw — the stack is gone. `await` continues its function exactly once; nothing can run the code after it a second time. A `@ctl` arm holds the rest of the computation as a function it can call as often as it likes, so calling it twice runs the rest of the program twice, once per answer.
 
 ## Two answers to one question
 
 ```cronyx
-effect flip {
-    ctl flip(): bool;
+trait Flip {
+    @ctl fn flip(): Bool;
 }
 
-run {
+run<Unit> {
     print("I'm thirsty");
     var wants_tea = flip();
     var wants_coffee = flip();
@@ -26,10 +26,10 @@ run {
     } else {
         print("I'm having water");
     }
-} handle flip {
-    ctl flip() {
-        resume false;
-        resume true;
+} handle<Flip> {
+    fn flip(resume) {
+        resume(false);
+        resume(true);
     }
 }
 ```
@@ -42,7 +42,7 @@ I'm having oolong
 I'm having oolong
 ```
 
-Read the output against the arm. `"I'm thirsty"` prints once — it happens before any `flip`, so it's not part of any continuation. Then the first `flip` resumes with `false`, and everything after it runs: the second `flip` resumes `false` (water), returns, and resumes `true` (espresso). That whole subtree finishes, `resume false` returns in the first arm, and `resume true` runs it all again with `wants_tea = true` — twice, once per answer to the second flip, and both times the drink is oolong.
+Read the output against the arm. `"I'm thirsty"` prints once — it happens before any `flip`, so it's not part of any continuation. Then the first `flip` resumes with `false`, and everything after it runs: the second `flip` resumes `false` (water), returns, and resumes `true` (espresso). That whole subtree finishes, `resume(false)` returns in the first arm, and `resume(true)` runs it all again with `wants_tea = true` — twice, once per answer to the second flip, and both times the drink is oolong.
 
 Four leaves, four drinks, from a block written as if `flip()` returned a single boolean. The program is a straight line; the *handler* is what makes it a search.
 
@@ -51,32 +51,32 @@ Four leaves, four drinks, from a block written as if `flip()` returned a single 
 Printing from inside a branching computation is hard to read. The usual move is to have the block record its answer and let an outer variable accumulate:
 
 ```cronyx
-effect logic {
-    ctl choose(options: Array<int>): int;
-    ctl guard(cond: bool): unit;
+trait Logic {
+    @ctl fn choose(options: Array<Int>): Int;
+    @ctl fn guard(cond: Bool): Unit;
 }
 
-handler logic_handler : logic {
-    ctl choose(options) {
+type Search impl EffectHandler<Logic, Unit> {
+    fn choose(options: Array<Int>, resume: (Int) -> Unit) {
         for (x in options) {
-            resume x;
+            resume(x);
         }
     }
 
-    ctl guard(cond) {
+    fn guard(cond: Bool, resume: (Unit) -> Unit) {
         if (cond) {
-            resume;
+            resume(());
         }
     }
 }
 
-var results: List<int> = [];
-run {
+var results: List<Int> = [];
+run<Unit> {
     var num1 = choose([1, 2, 3, 4, 5]);
     var num2 = choose([3, 5, 7]);
     guard(num1 == num2);
     results.push(num1);
-} with logic_handler;
+} with Search;
 
 for (x in results) {
     print(x);
@@ -88,9 +88,11 @@ for (x in results) {
 5
 ```
 
-Two operations, eight lines of handler, and the block reads like the problem statement: pick a number from here, pick one from there, keep the pairs that match.
+Two operations, a few lines of handler, and the block reads like the problem statement: pick a number from here, pick one from there, keep the pairs that match.
 
 `choose` resumes once per option — a `for` loop over the continuation. `guard` is the one that makes this a *search* rather than an enumeration: it resumes when the condition holds and simply doesn't when it fails, pruning that branch. Nothing else in the program knows about backtracking.
+
+`Search` implements `EffectHandler<Logic, Unit>` rather than `EffectHandler<Logic, R>` for every `R`, because its arms answer with nothing: resuming once per option leaves no single result to hand back. That's the right shape for a search that records its answers as it goes.
 
 Swap the handler and the same block answers a different question: resume only the first option to get depth-first-with-no-backtracking, or stop after the first success to get "find one solution".
 
@@ -108,33 +110,33 @@ That last point is the trap worth remembering: shared mutable state does not for
 
 Backtracking search, as above. Parser combinators that try alternatives. Property-testing generators that enumerate cases. Probabilistic programming, where each `resume` carries a weight. Simulation rewinding, where you keep a continuation and re-run a step with a different input.
 
-They are all the same construction: a `ctl` arm calling `resume` more than once.
+They are all the same construction: a `@ctl` arm calling `resume` more than once.
 
 ## Try it
 
-Use a `flip` effect to enumerate the four possible two-bit numbers. Have the block build a string from two flips and push it onto a list, then print the list.
+Use a `Flip` effect to enumerate the four possible two-bit numbers. Have the block build a string from two flips and push it onto a list, then print the list.
 
 A working answer:
 
 ```cronyx
-effect flip {
-    ctl flip(): bool;
+trait Flip {
+    @ctl fn flip(): Bool;
 }
 
-fn bit(b: bool): string {
+fn bit(b: Bool): String {
     if (b) { return "1"; }
     return "0";
 }
 
-var seen: List<string> = [];
-run {
+var seen: List<String> = [];
+run<Unit> {
     var high = flip();
     var low = flip();
     seen.push(bit(high) + bit(low));
-} handle flip {
-    ctl flip() {
-        resume false;
-        resume true;
+} handle<Flip> {
+    fn flip(resume) {
+        resume(false);
+        resume(true);
     }
 }
 

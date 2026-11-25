@@ -1,4 +1,4 @@
-fn even<n: int>(): bool {
+fn even<n: Int>(): Bool {
     meta print("even<" + str(n) + ">");
     meta if (n == 0) {
         gen return true;
@@ -7,7 +7,7 @@ fn even<n: int>(): bool {
     }
 }
 
-fn odd<n: int>(): bool {
+fn odd<n: Int>(): Bool {
     meta print("odd<" + str(n) + ">");
     meta if (n == 0) {
         gen return false;

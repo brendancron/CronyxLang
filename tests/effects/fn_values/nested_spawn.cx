@@ -1,32 +1,33 @@
-effect sched {
-    ctl tick(): unit;
-    ctl spawn(t: () -> <sched, Console> unit): unit;
+trait Sched {
+    @ctl fn tick(): Unit;
 }
 
-var queue: List<() -> <Console> unit> = [];
+var queue: List<() -> <Console> Unit> = [];
 
-fn run_one(task: () -> <sched, Console> unit) {
-    run {
+fn run_one(queue: List<() -> <Console> Unit>, task: () -> <Sched, Console> Unit): Unit {
+    run<Unit> {
         task();
-    } handle sched {
-        ctl tick() { queue.push { resume; }; }
-        ctl spawn(t) { queue.push { run_one(t); }; resume; }
+    } handle<Sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
     }
 }
 
-fn child(): <sched, Console> unit { print("child a"); tick(); print("child b"); }
+fn spawn(queue: List<() -> <Console> Unit>, t: () -> <Sched, Console> Unit) { queue.push { run_one(queue, t); }; }
 
-fn parent(): <sched, Console> unit {
+fn child(): <Sched, Console> Unit { print("child a"); tick(); print("child b"); }
+
+fn parent(queue: List<() -> <Console> Unit>): <Sched, Console> Unit {
     print("parent a");
-    spawn(child);
+    spawn(queue, child);
     tick();
     print("parent b");
 }
 
-run_one(parent);
+run_one(queue, () => { parent(queue); });
 
-while (queue.len() > 0) {
-    var next = queue[0];
-    queue = queue[1:];
+var at = 0;
+while (at < queue.len()) {
+    var next = queue[at];
+    at += 1;
     next();
 }

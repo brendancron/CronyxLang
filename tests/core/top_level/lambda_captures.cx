@@ -1,0 +1,5 @@
+var count = 0;
+var bump = () => { count = count + 1; };
+bump();
+bump();
+print(count);

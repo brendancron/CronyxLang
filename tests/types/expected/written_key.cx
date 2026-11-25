@@ -1,0 +1,7 @@
+fn helper<T>(t: T): T {
+    return t;
+}
+
+var h = helper<Int>;
+print(h(5));
+print(typeof(h).name);

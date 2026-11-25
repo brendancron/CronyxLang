@@ -1,11 +1,11 @@
 // A function with no `self` is reached through the type rather than through a
 // value of it, which is what a constructor wants.
-type Counter { value: int }
+type Counter { value: Int }
 
 impl Counter {
     fn zero(): Counter { return Counter { value: 0 }; }
-    fn at(start: int): Counter { return Counter { value: start }; }
-    fn bump(self): int { self.value = self.value + 1; return self.value; }
+    fn at(start: Int): Counter { return Counter { value: start }; }
+    fn bump(self): Int { self.value = self.value + 1; return self.value; }
 }
 
 var c = Counter.zero();

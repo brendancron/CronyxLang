@@ -1,6 +1,6 @@
 import { Yield, iterator } from "std/iter/Yield";
 
-fn count(upto: int): <Yield<int>, Console> unit {
+fn count(upto: Int): <Yield<Int>, Console> Unit {
     defer print("count cleaned up");
     var i = 0;
     while (i < upto) {
@@ -19,7 +19,7 @@ for (n in iterator { count(10); }) {
     print(n);
 }
 
-fn first_over(limit: int): <Console> int {
+fn first_over(limit: Int): <Console> Int {
     for (n in iterator { count(10); }) {
         if (n > limit) { return n; }
     }
@@ -27,7 +27,7 @@ fn first_over(limit: int): <Console> int {
 }
 print(first_over(4));
 
-fn pairs(): <Yield<(string, int)>> unit {
+fn pairs(): <Yield<(String, Int)>> Unit {
     yield(("a", 1));
     yield(("b", 2));
 }

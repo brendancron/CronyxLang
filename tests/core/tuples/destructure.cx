@@ -2,7 +2,7 @@ var pair = (1, "one");
 var (n, s) = pair;
 print(str(n) + " " + s);
 
-fn swap(p: (int, string)): (string, int) {
+fn swap(p: (Int, String)): (String, Int) {
     var (a, b) = p;
     return (b, a);
 }

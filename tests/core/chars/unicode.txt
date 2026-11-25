@@ -1,10 +1,10 @@
 11
 11
 13
-é char
+é Char
 true false
 true
 ["héllo", "wörld"]
 true
 héllo
-3 Array<byte>
+3 Array<Byte>

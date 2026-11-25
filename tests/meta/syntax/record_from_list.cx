@@ -21,8 +21,8 @@ fn derive(shape: TypeShape) for Defaulted {
     }
 }
 
-type Config { name: string, host: string, path: string }
-type Pair { left: string, right: string }
+type Config { name: String, host: String, path: String }
+type Pair { left: String, right: String }
 
 derive Defaulted for Config;
 derive Defaulted for Pair;

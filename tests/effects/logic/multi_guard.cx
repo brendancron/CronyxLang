@@ -1,30 +1,31 @@
-effect logic {
-    ctl choose(options: Array<int>): int;
-    ctl guard(cond: bool): unit;
+trait Logic {
+    @ctl fn choose(options: Array<Int>): Int;
+    @ctl fn guard(cond: Bool): Unit;
 }
 
-handler logic_handler : logic {
-    ctl choose(options) {
+type LogicHandler {}
+
+impl EffectHandler<Logic, Unit> for LogicHandler {
+    fn choose(options: Array<Int>, resume: (Int) -> Unit) {
         for (x in options) {
-            resume x;
+            resume(x);
         }
     }
 
-    ctl guard(cond) {
+    fn guard(cond: Bool, resume: (Unit) -> Unit) {
         if (cond) {
-            resume;
+            resume(());
         }
     }
 }
 
-// Every value in the first list that also appears in the second.
-var results: List<int> = [];
-run {
+var results: List<Int> = [];
+run<Unit> {
     var num1 = choose([1, 2, 3, 4, 5]);
     var num2 = choose([3, 5, 7]);
     guard(num1 == num2);
     results.push(num1);
-} with logic_handler;
+} with LogicHandler;
 
 print("Collect All Results:");
 for (x in results) {

@@ -89,7 +89,7 @@ cx run missing.cx
 missing.cx: No such file or directory
 ```
 
-`cx run` takes `--locked`, `--offline` and `--frozen` (see [Lockfile flags](#lockfile-flags)) and the [dump flags](#dump-flags). Options and the file can come in any order.
+`cx run` takes `--locked`, `--offline` and `--frozen` (see [Lockfile flags](#lockfile-flags)), the [dump flags](#dump-flags), and `--time`, which prints the compile, run and total time on stderr. Options and the file can come in any order.
 
 ## cx build
 
@@ -221,7 +221,7 @@ import { step } from "hello";
 @bench(1000)
 @time("linear")
 @memory("constant")
-fn calls(n: int) {
+fn calls(n: Int) {
     for (var i = 0; i < n; i += 1) { step(); }
 }
 ```
@@ -508,8 +508,10 @@ cx build --locked
 - `--dump-source` — the source file as the compiler read it.
 - `--dump-tokens` — the tokens, one per line, with their line and column.
 - `--dump-ast` — the parsed program, as S-expressions.
-- `--dump-types` — the program after type checking, every expression annotated with its type. This includes the parts of the standard library every program loads, so it is long.
-- `--dump-code` — the program as Cronyx source, after metaprocessing. This is how to see what a `gen` or a deriver produced.
+- `--dump-types` — the program after type checking, every expression annotated with its type, as S-expressions. This includes the parts of the standard library it uses, so it is long.
+- `--dump-code` — the entry file's own code after metaprocessing, as Cronyx source: each meta block replaced by what it generated, and only what the program reaches. This is how to see what a `gen` or a deriver produced.
+- `--dump-processed` — the entry file's code once the passes after metaprocessing have lowered it, as Cronyx source, and then stop without running.
+- `--show-processed` — the same, and then run the program.
 
 For example, this program generates a statement at compile time:
 
@@ -534,6 +536,30 @@ Top
 Middle
 Bottom
 ```
+
+The meta block is gone and the statement it generated stands in its place. The later passes go further:
+
+```
+cx run gen.cx --show-processed
+```
+
+```
+-- processed --
+// and 125 types the library declares
+
+// The top level.
+fn main(): Int {
+    __write_out(("Top" + "\n"));
+    __write_out(("Middle" + "\n"));
+    __write_out(("Bottom" + "\n"));
+    return 0;
+}
+Top
+Middle
+Bottom
+```
+
+The top level is the body of [`main`](./language-basics/functions.mdx#the-top-level-is-main), and by this point `print` has been replaced by what it does.
 
 And a smaller one, parsed:
 
@@ -566,3 +592,5 @@ With no file, `cx run` prints the dumps for the package's `src/main.cx` (or `src
 | 64 | the command was used wrongly: an unknown command or option, a missing argument, a file that doesn't exist, no `cronyx.toml`, or a toolchain that isn't installed |
 | 65 | the program, or a `cronyx.toml`, didn't compile or resolve, or a package failed to publish |
 | 70 | the program failed while running |
+
+A program that runs to the end exits with what its [`main`](./language-basics/functions.mdx#the-top-level-is-main) returns: `0`, unless the top level, or a `fn main` you wrote, returns another number.

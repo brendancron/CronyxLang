@@ -17,14 +17,14 @@ var nums  = [10, 20, 30];
 var names = ["alice", "bob", "charlie"];
 ```
 
-The element type is inferred: `nums` is `Array<int>`, `names` is `Array<string>`. All elements have to be the same type — `[1, "two", 3]` is a type error.
+The element type is inferred: `nums` is `Array<Int>`, `names` is `Array<String>`. All elements have to be the same type — `[1, "two", 3]` is a type error.
 
 Annotate the variable to get a different collection from the same literal:
 
 ```cronyx
-var fixed: Array<int> = [1, 2, 3];
-var grow:  List<int>  = [1, 2, 3];
-var seen:  Set<int>   = [1, 1, 2];
+var fixed: Array<Int> = [1, 2, 3];
+var grow:  List<Int>  = [1, 2, 3];
+var seen:  Set<Int>   = [1, 1, 2];
 
 print(fixed.len());
 print(grow.len());
@@ -43,7 +43,7 @@ Collections can also nest:
 var grid = [[1, 2], [3, 4]];
 ```
 
-`grid` has type `Array<Array<int>>`.
+`grid` has type `Array<Array<Int>>`.
 
 ## Indexing
 
@@ -165,7 +165,7 @@ print(drop_last[3]);
 `push` and `pop` grow and shrink, so they belong to `List` — an `Array` has a fixed length. Annotate the literal to get one:
 
 ```cronyx
-var xs: List<int> = [1, 2, 3];
+var xs: List<Int> = [1, 2, 3];
 print(xs.len());
 
 xs.push(4);
@@ -191,7 +191,7 @@ has_2
 
 | Method            | Works on        | What it does                                    |
 | ----------------- | --------------- | ----------------------------------------------- |
-| `xs.len()`        | `Array`, `List` | Returns the number of elements as an `int`      |
+| `xs.len()`        | `Array`, `List` | Returns the number of elements as an `Int`      |
 | `xs.contains(x)`  | `Array`, `List` | Returns `true` if `x` is somewhere in it        |
 | `xs.push(x)`      | `List`          | Appends `x` to the end                          |
 | `xs.pop()`        | `List`          | Removes and returns the last element            |
@@ -200,12 +200,12 @@ has_2
 
 ## Try it
 
-Write a function `max(xs: Array<int>): int` that returns the largest element of an array. Use `for ... in` and an `if` to track the running best. Calling `max([3, 7, 2, 9, 5])` should print `9`.
+Write a function `max(xs: Array<Int>): Int` that returns the largest element of an array. Use `for ... in` and an `if` to track the running best. Calling `max([3, 7, 2, 9, 5])` should print `9`.
 
 A working answer:
 
 ```cronyx
-fn max(xs: Array<int>): int {
+fn max(xs: Array<Int>): Int {
     var best = xs[0];
     for (x in xs) {
         if (x > best) {

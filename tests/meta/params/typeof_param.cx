@@ -1,0 +1,4 @@
+fn helper<T>(t: T) { meta print(typeof(t)); return t; }
+helper(1);
+helper("one");
+helper(1);

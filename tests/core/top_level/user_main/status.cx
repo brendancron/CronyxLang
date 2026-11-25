@@ -1,0 +1,6 @@
+print("not run");
+
+fn main(): Int {
+    print("hello world!");
+    return 3;
+}

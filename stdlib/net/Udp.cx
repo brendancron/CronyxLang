@@ -17,51 +17,51 @@
  * send names where it goes, and each receive says where it came from.
  */
 
-import { async } from "../async/Task";
+import { Async } from "../async/Task";
 import { Throw, Result } from "../core/Error";
 import { Closer, IoError } from "../io/Io";
 import { Net, __thrown, __would_block, __failure, __ready, __where, __lookup_on_system } from "Net";
 
 /** One datagram, and where it came from. */
 type Datagram {
-    data: Array<byte>,
-    host: string,
-    port: int
+    data: Array<Byte>,
+    host: String,
+    port: Int
 }
 
 /** A socket datagrams are sent from and arrive at. */
 trait UdpSocket: Closer<IoError> {
     /** Sends the bytes as one datagram to the host and port. */
-    fn send_to(self, data: Array<byte>, host: string, port: int): <async, Throw<IoError>> unit;
+    fn send_to(self, data: Array<Byte>, host: String, port: Int): <Async, Throw<IoError>> Unit;
 
     /** The next datagram, once one arrives. */
-    fn receive(self): <async, Throw<IoError>> Datagram;
+    fn receive(self): <Async, Throw<IoError>> Datagram;
 
     /** The port it is bound to, which the system chose if it was asked for 0. */
-    fn local_port(self): int;
+    fn local_port(self): Int;
 }
 
 /** A socket for datagrams at the address. Port 0 lets the system choose; `local_port` says which it did. */
-fn udp_bind(host: string, port: int): <Net, Throw<IoError>> UdpSocket {
+fn udp_bind(host: String, port: Int): <Net, Throw<IoError>> UdpSocket {
     return __thrown(bind(host, port));
 }
 
 // ---- sockets the system opens, which the root hands out ----
 
 type OsUdp {
-    id: int,
-    address: string
+    id: Int,
+    address: String
 }
 
 impl Closer<IoError> for OsUdp {
-    fn close(self): <async, Throw<IoError>> unit {
+    fn close(self): <Async, Throw<IoError>> Unit {
         var (status, message) = __net_close(self.id);
         if (status != 0) { throw(__failure(status, self.address, message)); }
     }
 }
 
 impl UdpSocket for OsUdp {
-    fn send_to(self, data: Array<byte>, host: string, port: int): <async, Throw<IoError>> unit {
+    fn send_to(self, data: Array<Byte>, host: String, port: Int): <Async, Throw<IoError>> Unit {
         while (true) {
             var (status, message) = __udp_send(self.id, host, port, data);
             if (status == 0) { return; }
@@ -70,7 +70,7 @@ impl UdpSocket for OsUdp {
         }
     }
 
-    fn receive(self): <async, Throw<IoError>> Datagram {
+    fn receive(self): <Async, Throw<IoError>> Datagram {
         while (true) {
             var (status, data, host, port, message) = __udp_receive(self.id);
             if (status == 0) { return Datagram { data: data, host: host, port: port }; }
@@ -80,11 +80,11 @@ impl UdpSocket for OsUdp {
         return throw(IoError.Other("unreachable"));
     }
 
-    fn local_port(self): int { return __net_local_port(self.id); }
+    fn local_port(self): Int { return __net_local_port(self.id); }
 }
 
 /** How the root answers `bind`: at the host's first address. */
-fn __bind_on_system(host: string, port: int): Result<UdpSocket, IoError> {
+fn __bind_on_system(host: String, port: Int): Result<UdpSocket, IoError> {
     match __lookup_on_system(host) {
         Result.Err(e) => { return Result.Err(e); }
         Result.Ok(addresses) => {

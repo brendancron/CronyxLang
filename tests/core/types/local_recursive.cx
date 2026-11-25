@@ -1,14 +1,14 @@
-trait Show { fn show(self): string; }
+trait Show { fn show(self): String; }
 
-fn f(): unit {
-    type Cell { v: int, rest: Array<Cell> }
-    impl Show for Cell { fn show(self): string { return str(self.v); } }
+fn f(): Unit {
+    type Cell { v: Int, rest: Array<Cell> }
+    impl Show for Cell { fn show(self): String { return str(self.v); } }
     var c = Cell { v: 1, rest: [Cell { v: 2, rest: [] }] };
     print(c.rest[0].show());
 }
 
-fn g(): unit {
-    type Cell { name: string }
+fn g(): Unit {
+    type Cell { name: String }
     print(Cell { name: "g" }.name);
 }
 

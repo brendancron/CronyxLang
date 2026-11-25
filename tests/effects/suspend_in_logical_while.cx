@@ -1,14 +1,12 @@
-// The operand is reached once per iteration, so the branch it was split into
-// has to sit inside the loop rather than in front of it.
-effect Ask { ctl get(): bool; }
+trait Ask { @ctl fn get(): Bool; }
 
-run {
+run<Unit> {
     var i = 0;
     while (i < 3 && get()) {
         print(i);
         i = i + 1;
     }
     print("done");
-} handle Ask {
-    ctl get() { resume true; }
+} handle<Ask> {
+    fn get(resume) { resume(true); }
 }

@@ -1,6 +1,6 @@
 // One deriver, two types it was never written for: the shape names them.
-type Dog { name: string, age: int }
-type Point { x: int, y: int, z: int }
+type Dog { name: String, age: Int }
+type Point { x: Int, y: Int, z: Int }
 
 fn derive_eq(shape: TypeShape) {
     match shape {
@@ -11,7 +11,7 @@ fn derive_eq(shape: TypeShape) {
                 check = code(check && self.field == other.field);
             }
             gen impl t {
-                fn eq(self, other: t): bool { return check; }
+                fn eq(self, other: t): Bool { return check; }
             }
         }
         TypeShape.Sum(t, _, variants) => {}

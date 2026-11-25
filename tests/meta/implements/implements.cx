@@ -1,0 +1,26 @@
+type Point { x: Int }
+type Money { cents: Int }
+impl Display for Money { fn fmt(self): String { return "$" + str(self.cents); } }
+type Box<T> { held: T }
+impl Display for Box<T: Display> { fn fmt(self): String { return "box of " + str(self.held); } }
+trait Named: Display { fn name(self): String; }
+
+fn shown<T>(value: T): Bool {
+    return meta {
+        var answer = implements(T, Display);
+        gen code(answer);
+    };
+}
+
+
+print(shown(1));
+print(shown(Point { x: 1 }));
+print(shown(Money { cents: 1 }));
+print(shown(Box { held: Money { cents: 1 } }));
+print(shown(Box { held: Point { x: 1 } }));
+print(shown([Point { x: 1 }]));
+print(shown((1, 2)));
+print(shown(() => 1));
+
+print(Box { held: Money { cents: 2 } });
+print(Box { held: Point { x: 2 } });

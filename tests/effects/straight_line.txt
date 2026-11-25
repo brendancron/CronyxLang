@@ -1,0 +1,11 @@
+evaluated first
+log: picking
+log: picked 1
+evaluated left
+100/7/3
+100/8/3
+log: picked 2
+evaluated left
+100/7/3
+100/8/3
+[[111][111]][[121][121]]

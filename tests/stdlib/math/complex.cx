@@ -4,12 +4,12 @@ import { sum, pi } from "std/math/Math";
 import { fixed } from "std/text/Format";
 
 // What is left of sin(π) differs in sign between C libraries.
-fn tidy(x: float): string {
+fn tidy(x: Float): String {
     if (x < 0.000000000001 && x > -0.000000000001) { return fixed(0.0, 10); }
     return fixed(x, 10);
 }
 
-fn shown(z: Complex): string { return tidy(z.re) + " " + tidy(z.im); }
+fn shown(z: Complex): String { return tidy(z.re) + " " + tidy(z.im); }
 
 var z = Complex.of(1.0, 2.0);
 var w = Complex.of(3.0, -4.0);

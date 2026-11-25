@@ -1,0 +1,33 @@
+trait Sched {
+    @ctl fn tick(): Unit;
+    @ctl fn spawn(t: () -> <Sched, Console> Unit): Unit;
+}
+
+var queue: List<() -> <Console> Unit> = [];
+
+fn run_one(queue: List<() -> <Console> Unit>, task: () -> <Sched, Console> Unit): Unit {
+    run<Unit> {
+        task();
+    } handle<Sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
+        fn spawn(t, resume) { queue.push { run_one(queue, t); }; resume(()); }
+    }
+}
+
+fn child(): <Sched, Console> Unit { print("child a"); tick(); print("child b"); }
+
+fn parent(): <Sched, Console> Unit {
+    print("parent a");
+    spawn(child);
+    tick();
+    print("parent b");
+}
+
+run_one(queue, parent);
+
+var at = 0;
+while (at < queue.len()) {
+    var next = queue[at];
+    at += 1;
+    next();
+}

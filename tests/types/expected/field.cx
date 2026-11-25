@@ -1,0 +1,7 @@
+type Box {
+    items: Set<Int>
+}
+
+var b = Box { items: [1, 2, 2] };
+print(typeof(b.items).name);
+print(b.items.len());

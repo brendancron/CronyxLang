@@ -1,6 +1,6 @@
 import { Yield, iterator } from "std/iter/Yield";
 
-type Shelf<T> { items: List<T>, open: bool }
+type Shelf<T> { items: List<T>, open: Bool }
 
 impl Shelf<T> {
     fn close(self) { self.open = false; }

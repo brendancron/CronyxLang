@@ -1,0 +1,15 @@
+trait Wait { @ctl fn pause(): Unit; }
+
+fn p(name: String): <Wait, Console> Unit {
+    print(name + " before");
+    pause();
+    print(name + " after");
+}
+
+run<Unit> {
+    var g = () => { p("a"); p("b"); };
+    g();
+} handle<Wait> {
+    fn pause(resume) { print("paused"); resume(()); }
+}
+print("done");

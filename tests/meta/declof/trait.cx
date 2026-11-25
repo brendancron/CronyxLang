@@ -1,0 +1,16 @@
+import { DeclKind } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
+
+trait Shape {
+    fn area(self): Int;
+    fn name(self): String;
+}
+
+meta {
+    match declof(Shape).kind {
+        DeclKind.Trait(t) => {
+            for (m in t.methods) { print(str(m.name)); }
+        }
+        _ => { print("not a trait"); }
+    }
+}

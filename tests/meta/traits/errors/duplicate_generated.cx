@@ -1,0 +1,27 @@
+import { MethodSig, Param, Signature, TypeExpr, TypeKind } from "std/compiler/Ast";
+
+fn sig_named(name: String, ret: String): MethodSig {
+    return MethodSig {
+        name: name.as_name(),
+        params: [Param { name: "self".as_name(), ty: Option.None, implicit: false }],
+        signature: Signature {
+            ret: Option.Some(TypeExpr.of(TypeKind.Named(ret.as_name()))),
+            row: Option.None,
+            static_params: [], inline: false
+        },
+        attrs: []
+    };
+}
+
+trait Getter<T> {
+    fn get(self): T;
+    meta {
+        gen sig_named("get", "T");
+    }
+}
+
+type Box { value: Int }
+
+impl Getter<Int> for Box {
+    fn get(self): Int { return self.value; }
+}

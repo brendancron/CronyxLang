@@ -1,0 +1,40 @@
+trait Choose {
+    fn log(msg: String): Unit;
+    @ctl fn choose(options: Array<Int>): Int;
+}
+
+type Five impl EffectHandler<Choose, String> {
+    fn log(msg: String) { print("five: " + msg); }
+    fn choose(options: Array<Int>, resume: (Int) -> String): String {
+        var s = resume(5);
+        print(s);
+        return "some string";
+    }
+}
+
+type Picker<R> impl EffectHandler<Choose, R>, Display {
+    fn log(msg: String) { print(msg); }
+    fn choose(options: Array<Int>, k: (Int) -> R): R {
+        var last = k(options[0]);
+        var i = 1;
+        while (i < options.len()) {
+            last = k(options[i]);
+            i = i + 1;
+        }
+        return last;
+    }
+    fn fmt(self): String { return "a picker"; }
+}
+
+var a = run<String> {
+    log("asked");
+    str(choose([1, 2]))
+} with Five;
+print(a);
+
+var b = run<Int> {
+    choose([3, 4]) * 10
+} with Picker;
+print(b);
+var p: Picker<Int> = Picker {};
+print(p);

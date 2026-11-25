@@ -1,0 +1,6 @@
+import { Throw } from "std/core/Error";
+
+fn load(): <Throw<String>> Int { return throw("missing config"); }
+
+print("loading");
+return load();

@@ -1,11 +1,8 @@
-// One effect at two instantiations. The row entry carries what it was
-// instantiated at, so `Yield<int>` and `Yield<string>` are different effects
-// to handle and a program may hold both.
-effect Yield<T> {
-    ctl yield(value: T): unit;
+trait Yield<T> {
+    @ctl fn yield(value: T): Unit;
 }
 
-fn range(low: int, high: int) {
+fn range(low: Int, high: Int) {
     var i = low;
     while (i < high) {
         yield(i);
@@ -13,20 +10,20 @@ fn range(low: int, high: int) {
     }
 }
 
-fn each_word(text: string) {
+fn each_word(text: String) {
     for (word in text.split(' ')) {
         yield(word);
     }
 }
 
-run {
+run<Unit> {
     range(1, 4);
-} handle Yield {
-    ctl yield(x) { print(x); resume; }
+} handle<Yield<Int>> {
+    fn yield(x, resume) { print(x); resume(()); }
 }
 
-run {
+run<Unit> {
     each_word("hello world foo");
-} handle Yield {
-    ctl yield(w) { print(w); resume; }
+} handle<Yield<String>> {
+    fn yield(w, resume) { print(w); resume(()); }
 }

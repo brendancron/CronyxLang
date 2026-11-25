@@ -1,0 +1,10 @@
+trait Log { fn log(msg: String): Unit; }
+
+run<Unit> {
+    log("hi");
+} handle<Log> {
+    fn log(msg) {
+        var n: Int = msg;
+        print(n);
+    }
+}

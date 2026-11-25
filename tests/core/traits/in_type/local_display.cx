@@ -1,0 +1,25 @@
+fn shout<T>(x: T): String { return str(x) + "!"; }
+
+fn plain() {
+    type L impl Display { fn fmt(self): String { return "an L"; } }
+    print(L {});
+}
+
+fn captured() {
+    var greeting = "hi";
+    type L impl Display { fn fmt(self): String { return greeting; } }
+    print(L {});
+}
+
+fn wrap<T>(x: T) {
+    type Box impl Display { v: T, fn fmt(self): String { return "box of " + str(self.v); } }
+    if (true) {
+        print(Box { v: x });
+        print(shout(Box { v: x }));
+    }
+}
+
+plain();
+captured();
+wrap(1);
+wrap("s");

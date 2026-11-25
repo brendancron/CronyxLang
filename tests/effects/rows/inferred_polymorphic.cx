@@ -1,16 +1,16 @@
-effect log {
-    fn emit(msg: string): unit;
+trait Log {
+    fn emit(msg: String): Unit;
 }
 
 fn twice(f, x) {
     return [f(x), f(x)];
 }
 
-fn bump(x: int): int {
+fn bump(x: Int): Int {
     return x + 1;
 }
 
-fn shout(x: int): <log> int {
+fn shout(x: Int): <Log> Int {
     emit("saw " + str(x));
     return x * 2;
 }
@@ -18,9 +18,9 @@ fn shout(x: int): <log> int {
 var quiet = twice(bump, 3);
 print(str(quiet[0]) + " " + str(quiet[1]));
 
-run {
+run<Unit> {
     var noisy = twice(shout, 5);
     print(str(noisy[0]) + " " + str(noisy[1]));
-} handle log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }

@@ -18,9 +18,9 @@
 /** The pieces so far, and how long they come to. */
 type StringBuilder {
     /** In the order they were appended. */
-    parts: List<string>,
+    parts: List<String>,
     /** The total length, kept as the pieces arrive rather than counted. */
-    length: int,
+    length: Int,
 }
 
 /** An empty builder. */
@@ -30,25 +30,25 @@ fn new(): StringBuilder {
 
 impl StringBuilder {
     /** Adds the string to the end. */
-    fn append(self, s: string) {
+    fn append(self, s: String) {
         self.parts.push(s);
         self.length = self.length + s.len();
     }
     /** Adds the integer's written form. */
-    fn append_int(self, n: int) {
+    fn append_int(self, n: Int) {
         self.append(str(n));
     }
     /** Adds the string and a newline. */
-    fn append_line(self, s: string) {
+    fn append_line(self, s: String) {
         self.append(s);
         self.append("\n");
     }
     /** The pieces joined into one string. The builder is left as it was. */
-    fn build(self): string {
+    fn build(self): String {
         return __str_join(self.parts.items, self.parts.count);
     }
     /** How long the built string will be. */
-    fn len(self): int {
+    fn len(self): Int {
         return self.length;
     }
     /** Drops every piece, leaving an empty builder. */

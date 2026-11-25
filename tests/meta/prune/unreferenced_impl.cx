@@ -1,0 +1,31 @@
+trait Area {
+    fn area(self): Int;
+}
+
+type Square { side: Int }
+type Circle { r: Int }
+
+impl Area for Square {
+    fn area(self): Int {
+        var total = 0;
+        var i = 0;
+        while (i < self.side) { total = total + self.side; i = i + 1; }
+        return total;
+    }
+}
+
+impl Area for Circle {
+    fn area(self): Int { return 3 * self.r * self.r; }
+}
+
+impl Display for Circle {
+    fn fmt(self): String { return "circle"; }
+}
+
+impl Display for Square {
+    fn fmt(self): String { return "square " + str(self.side); }
+}
+
+var s = Square { side: 3 };
+print(s);
+print(s.area());

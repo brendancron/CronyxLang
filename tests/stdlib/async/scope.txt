@@ -1,9 +1,0 @@
-body done starting
-task 1
-task 2
-task 3
-started by task 3
-scope returned 3
-sibling cleans up
-body cleans up
-scope failed: task failed

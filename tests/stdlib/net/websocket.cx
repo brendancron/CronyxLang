@@ -1,11 +1,11 @@
-import { async, race } from "std/async/Task";
+import { Async, race } from "std/async/Task";
 import { Throw } from "std/core/Error";
 import { IoError } from "std/io/Io";
 import { tcp_listen } from "std/net/Tcp";
 import { get, Request, Response } from "std/net/Http";
 import { connect, serve, Message, WebSocket } from "std/net/WebSocket";
 
-fn session(request: Request, socket: WebSocket): <async, Throw<IoError>> unit {
+fn session(request: Request, socket: WebSocket): <Async, Throw<IoError>> Unit {
     if (request.target == "/broken") { throw(IoError.Other("the session gave up")); }
     for (message in socket.messages()) {
         match message {
@@ -21,17 +21,17 @@ fn session(request: Request, socket: WebSocket): <async, Throw<IoError>> unit {
     }
 }
 
-fn page(request: Request): <async, Throw<IoError>> Response {
+fn page(request: Request): <Async, Throw<IoError>> Response {
     if (request.target == "/broken-page") { throw(IoError.Other("the page gave up")); }
     return Response.text(200, "a page at " + request.target);
 }
 
-fn failure<E>(task: () -> <async, Throw<IoError>, E> unit): <async, E> string {
+fn failure<E>(task: () -> <Async, Throw<IoError>, E> Unit): <Async, E> String {
     var said = "no failure";
-    run {
+    run<Unit> {
         task();
-    } handle Throw {
-        final ctl throw(e) {
+    } handle<Throw<IoError>> {
+        fn throw(e) {
             match e {
                 IoError.Other(message) => { said = message; }
                 _ => { said = "another failure"; }
@@ -41,7 +41,7 @@ fn failure<E>(task: () -> <async, Throw<IoError>, E> unit): <async, E> string {
     return said;
 }
 
-fn matching(received: Option<Message>, sent: Array<byte>): string {
+fn matching(received: Option<Message>, sent: Array<Byte>): String {
     match received {
         Option.Some(message) => {
             match message {

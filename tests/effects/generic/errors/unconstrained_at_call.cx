@@ -1,0 +1,21 @@
+trait Throw<X> { @abort fn throw<T>(err: X): T; }
+type Outcome<T, X> { Value(T), Failed(X) }
+
+fn caught<X, T, E>(f: () -> <Throw<X>, E> T): <E> Outcome<T, X> {
+    var out: Option<Outcome<T, X>> = Option.None;
+    run<Unit> { out = Option.Some(Outcome.Value(f())); } handle<Throw<X>> {
+        fn throw(e) { out = Option.Some(Outcome.Failed(e)); }
+    }
+    match out {
+        Option.Some(o) => { return o; }
+        Option.None => { panic("unreachable"); }
+    }
+}
+
+fn pure(): Int { return 7; }
+
+var outcome = caught(pure);
+match outcome {
+    Outcome.Value(n) => { print("value " + str(n)); }
+    Outcome.Failed(_) => { print("failed"); }
+}

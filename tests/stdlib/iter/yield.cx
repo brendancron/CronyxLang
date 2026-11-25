@@ -1,0 +1,37 @@
+import { Yield, iterator } from "std/iter/Yield";
+import { map, take, collect } from "std/iter/Adapters";
+
+fn count(upto: Int): <Yield<Int>, Console> Unit {
+    defer print("count cleaned up");
+    var i = 0;
+    while (i < upto) {
+        print("making " + str(i));
+        yield(i);
+        i = i + 1;
+    }
+}
+
+var a = iterator { count(3); };
+print(a.next());
+print(a.next());
+a.close();
+print(a.next());
+
+for (n in iterator { count(5); }) {
+    if (n == 1) { break; }
+    print("got " + str(n));
+}
+
+fn first_over(limit: Int, items: Iter<Int, <Console>>): <Console> Option<Int> {
+    for (n in items) {
+        if (n > limit) { return Option.Some(n); }
+    }
+    return Option.None;
+}
+print(first_over(1, iterator { count(4); }));
+
+print(collect(map(take(iterator { count(10); }, 3), (n: Int) => n * 10)));
+
+run<Unit> { count(2); } handle<Yield<Int>> {
+    fn yield(v, resume) { print("handled " + str(v)); resume(()); }
+}

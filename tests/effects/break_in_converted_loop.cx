@@ -1,6 +1,6 @@
-effect Tick { ctl tick(): int; }
+trait Tick { @ctl fn tick(): Int; }
 
-fn with_defer(): <Tick, Console> unit {
+fn with_defer(): <Tick, Console> Unit {
     var i = 0;
     while (true) {
         defer print("left iteration " + str(i));
@@ -11,10 +11,10 @@ fn with_defer(): <Tick, Console> unit {
     print("after the loop");
 }
 
-fn in_match(): <Tick, Console> unit {
+fn in_match(): <Tick, Console> Unit {
     for (x in [1, 2, 3, 4]) {
         var n = tick();
-        var stop: Option<int> = Option.None;
+        var stop: Option<Int> = Option.None;
         if (x == 3) { stop = Option.Some(x); }
         match stop {
             Option.Some(_) => { break; }
@@ -24,7 +24,7 @@ fn in_match(): <Tick, Console> unit {
     print("match done");
 }
 
-fn nested(): <Tick, Console> unit {
+fn nested(): <Tick, Console> Unit {
     for (a in [1, 2]) {
         for (b in [1, 2, 3]) {
             var n = tick();
@@ -35,7 +35,7 @@ fn nested(): <Tick, Console> unit {
     }
 }
 
-fn plain_inside(): <Tick, Console> unit {
+fn plain_inside(): <Tick, Console> Unit {
     var n = tick();
     var total = 0;
     for (x in [5, 6, 7]) {
@@ -51,9 +51,9 @@ fn plain_inside(): <Tick, Console> unit {
     print("total " + str(total));
 }
 
-run {
+run<Unit> {
     with_defer();
     in_match();
     nested();
     plain_inside();
-} handle Tick { ctl tick() { resume 1; } }
+} handle<Tick> { fn tick(resume) { resume(1); } }

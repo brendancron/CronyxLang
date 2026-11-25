@@ -1,0 +1,3 @@
+fn noisy(n: Int): Int { print("arg"); return n; }
+inline fn after_effect(x: Int) { print("body first"); print(x); }
+after_effect(noisy(7));

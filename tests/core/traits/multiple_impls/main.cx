@@ -1,26 +1,26 @@
 trait Show {
-    fn show(self): string;
+    fn show(self): String;
 }
 
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 type Color {
-    r: int,
-    g: int,
-    b: int
+    r: Int,
+    g: Int,
+    b: Int
 }
 
 impl Show for Point {
-    fn show(self): string {
+    fn show(self): String {
         return "(" + str(self.x) + ", " + str(self.y) + ")";
     }
 }
 
 impl Show for Color {
-    fn show(self): string {
+    fn show(self): String {
         return "rgb(" + str(self.r) + ", " + str(self.g) + ", " + str(self.b) + ")";
     }
 }

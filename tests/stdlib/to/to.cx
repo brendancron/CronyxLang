@@ -7,10 +7,10 @@ print(true.to());
 print(false.to());
 print("hello".to());
 
-type Point { x: int, y: int }
+type Point { x: Int, y: Int }
 
-impl To<string> for Point {
-    fn to(self): string {
+impl To<String> for Point {
+    fn to(self): String {
         return "(" + self.x.to() + ", " + self.y.to() + ")";
     }
 }
@@ -18,7 +18,7 @@ impl To<string> for Point {
 var p = Point { x: 3, y: 4 };
 print(p.to());
 
-fn render<T: To<string>>(value: T): string { return value.to(); }
+fn render<T: To<String>>(value: T): String { return value.to(); }
 
 print(render(p));
 print(render(19));

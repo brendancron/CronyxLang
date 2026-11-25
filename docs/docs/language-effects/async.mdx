@@ -13,18 +13,18 @@ Nothing in the chapters so far was designed with concurrency in mind — an oper
 `resume` doesn't have to be called while the arm is running. Wrap it in a closure and the arm can put it somewhere:
 
 ```cronyx
-effect deferred {
-    ctl todo(): unit;
+trait Deferred {
+    @ctl fn todo(): Unit;
 }
 
-var pending: List<() -> unit> = [];
+var pending: List<() -> Unit> = [];
 
-run {
+run<Unit> {
     print("before");
     todo();
     print("after");
-} handle deferred {
-    ctl todo() { pending.push(() => { resume; }); }
+} handle<Deferred> {
+    fn todo(resume) { pending.push(() => { resume(()); }); }
 }
 
 print("run finished");
@@ -48,65 +48,63 @@ Once a paused computation is a value you can hold, the rest is data structures.
 Keep the parked continuations in a queue instead of a single variable, and give the block a way to say "let someone else run":
 
 ```cronyx
-effect sched {
-    ctl tick(): unit;
+trait Sched {
+    @ctl fn tick(): Unit;
 }
 
-var queue: List<() -> unit> = [];
-
-fn counter(name: string): <sched> unit {
+fn counter(name: String) {
     for (var i = 0; i < 3; i += 1) {
         print(name + ": " + str(i));
         tick();
     }
 }
 
-fn spawn(task: () -> <sched> unit) {
-    run {
+fn spawn(queue: List<() -> Unit>, task) {
+    run<Unit> {
         task();
-    } handle sched {
-        ctl tick() { queue.push { resume; }; }
+    } handle<Sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
     }
 }
 
-while (queue.len() > 0) {
-    var next = queue[0];
-    queue = queue[1:];
-    next();
+var queue: List<() -> Unit> = [];
+
+for (var i = 0; i < queue.len(); i += 1) {
+    queue[i]();
 }
 ```
+
+The queue is passed to `spawn` rather than read from the top level, because a function can't see the top level's variables. The loop at the bottom runs the queue in order, and keeps going as long as running one entry pushes more.
 
 Add two tasks before the loop:
 
 ```cronyx
-effect sched {
-    ctl tick(): unit;
+trait Sched {
+    @ctl fn tick(): Unit;
 }
 
-var queue: List<() -> unit> = [];
-
-fn counter(name: string): <sched> unit {
+fn counter(name: String) {
     for (var i = 0; i < 3; i += 1) {
         print(name + ": " + str(i));
         tick();
     }
 }
 
-fn spawn(task: () -> <sched> unit) {
-    run {
+fn spawn(queue: List<() -> Unit>, task) {
+    run<Unit> {
         task();
-    } handle sched {
-        ctl tick() { queue.push { resume; }; }
+    } handle<Sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
     }
 }
 
-spawn(() => { counter("A"); });
-spawn(() => { counter("B"); });
+var queue: List<() -> Unit> = [];
 
-while (queue.len() > 0) {
-    var next = queue[0];
-    queue = queue[1:];
-    next();
+spawn(queue, () => { counter("A"); });
+spawn(queue, () => { counter("B"); });
+
+for (var i = 0; i < queue.len(); i += 1) {
+    queue[i]();
 }
 ```
 
@@ -119,17 +117,17 @@ A: 2
 B: 2
 ```
 
-Two tasks interleaved, and there is no runtime here. `spawn` installs a handler; `tick` parks the caller by pushing its continuation; the `while` loop is the event loop, written in the same language as everything else, visible and replaceable. Change the queue to a stack and you change the scheduling policy. Add a priority field and you have priorities.
+Two tasks interleaved, and there is no runtime here. `spawn` installs a handler; `tick` parks the caller by pushing its continuation; the loop is the event loop, written in the same language as everything else, visible and replaceable. Take from the back of the queue instead of the front and you change the scheduling policy. Add a priority field and you have priorities.
 
-`counter` is worth a second look. It is a plain `for` loop. It has no `async` keyword, and calling it doesn't produce a promise — the only trace of concurrency in its signature is the `<sched>` the compiler would have inferred anyway. This is "known, not written" from [Why effects](./why-effects.mdx), delivered.
+`counter` is worth a second look. It is a plain `for` loop. It has no `async` keyword, and calling it doesn't produce a promise — the only trace of concurrency is the `Sched` in the type the compiler infers for it, `(String) -> <Sched, Console> Unit`. (`Console` is the effect `print` performs.) This is "known, not written" from [Why effects](./why-effects.mdx), delivered.
 
-## The `async` effect
+## An `Async` effect
 
 `tick` yields to the scheduler but can't wait for anything in particular. The general operation takes a *registration* function — something that will be handed a callback to invoke when the awaited thing is ready:
 
 ```cronyx
-effect async {
-    ctl suspend<T>(register: ((T) -> unit) -> unit): T;
+trait Async {
+    @ctl fn suspend<T>(register: ((T) -> Unit) -> Unit): T;
 }
 ```
 
@@ -138,24 +136,24 @@ That is the entire effect. `suspend` hands `register` a callback and parks; whoe
 Here it is driving two counters through a scheduler built the same way as the one above:
 
 ```cronyx
-effect async {
-    ctl suspend<T>(register: ((T) -> unit) -> unit): T;
+trait Async {
+    @ctl fn suspend<T>(register: ((T) -> Unit) -> Unit): T;
 }
 
 fn pause() {
     return suspend { it(()) };
 }
 
-fn interleaved(actions: List<() -> <async> unit>) {
-    var ready: List<() -> unit> = [];
+fn interleaved(actions) {
+    var ready: List<() -> <Console> Unit> = [];
 
-    fn strand(action: () -> <async> unit) {
-        run {
+    fn strand(action) {
+        run<Unit> {
             action();
-        } handle async {
-            ctl suspend(register) {
+        } handle<Async> {
+            fn suspend(register, resume) {
                 register {
-                    ready.push { resume it; };
+                    ready.push { resume(it); };
                 };
             }
         }
@@ -165,10 +163,8 @@ fn interleaved(actions: List<() -> <async> unit>) {
         ready.push { strand(action); };
     }
 
-    while (ready.len() > 0) {
-        var next = ready[0];
-        ready = ready[1:];
-        next();
+    for (var i = 0; i < ready.len(); i += 1) {
+        ready[i]();
     }
 }
 
@@ -194,13 +190,38 @@ A: 2
 B: 2
 ```
 
-`pause()` is `suspend` with a registration that fires immediately — yield to the scheduler and be rescheduled at once. A registration that instead stored the callback with a timer, a socket, or another task's completion list is what makes this a real `await`.
+`pause()` is `suspend` with a registration that fires immediately — yield to the scheduler and be rescheduled at once. A registration that instead stored the callback with a timer, a socket, or another task's completion list is what makes this a real `await`. The `<Console>` in `ready`'s type is there because the strands print, and running an entry of `ready` runs a strand.
 
 ## Why only one operation
 
 Koka's `std/async` declares four operations. Three of them exist to talk to a host event loop — register a callback with libuv, run an IO action at the outer level, cancel an outstanding request. Only `do-await` is about suspension itself.
 
-Cronyx has no event loop to bridge to, so `suspend` is `do-await` with the platform removed, and the other three have nothing to be. Everything a program needs on top of it — promises, `await`, task groups, cancellation — is ordinary code over that one operation.
+The standard library's `Async`, in `std/async/Task`, is that one operation with the platform removed. It has a single control operation, `park`, which parks the task and hands its registration the function that wakes it, beside a plain one that hands out the scheduler's timers and sockets. `suspend` is ordinary code over `park`, and so is everything a program needs on top of it — promises, `await`, channels, `sleep`, and scopes like `all` and `race` that run several tasks and wait for them:
+
+```cronyx
+import { all, pause } from "std/async/Task";
+
+fn count(name: String): Int {
+    for (var i = 0; i < 2; i += 1) {
+        print(name + " " + str(i));
+        pause();
+    }
+    return name.len();
+}
+
+var sizes = all([() => count("a"), () => count("bb")]);
+print(sizes);
+```
+
+```
+a 0
+bb 0
+a 1
+bb 1
+[1, 2]
+```
+
+There's no `run` here: the top level of a program already runs under the library's scheduler, `block_on`.
 
 ## A promise is data
 
@@ -209,7 +230,7 @@ Nothing about waiting on a value needs the handler's help once `suspend` exists.
 ```cronyx
 type PromiseState<T> {
     Resolved(T),
-    Awaiting(List<(T) -> unit>)
+    Awaiting(List<(T) -> Unit>)
 }
 ```
 
@@ -232,42 +253,40 @@ Separate mechanisms in other languages; one here, and the axis they vary along i
 
 ## Try it
 
-Extend the `sched` scheduler so a task can spawn another task while running. A working answer needs no new machinery — `spawn` is just a function, so a task may call it:
+Extend the `Sched` scheduler so a task can spawn another task while running. A working answer needs no new machinery — `spawn` is just a function, so a task may call it:
 
 ```cronyx
-effect sched {
-    ctl tick(): unit;
+trait Sched {
+    @ctl fn tick(): Unit;
 }
 
-var queue: List<() -> unit> = [];
-
-fn spawn(task: () -> <sched> unit) {
-    run {
+fn spawn(queue: List<() -> Unit>, task) {
+    run<Unit> {
         task();
-    } handle sched {
-        ctl tick() { queue.push { resume; }; }
+    } handle<Sched> {
+        fn tick(resume) { queue.push { resume(()); }; }
     }
 }
 
-fn child(): <sched> unit {
+fn child() {
     print("child start");
     tick();
     print("child end");
 }
 
-fn parent(): <sched> unit {
+fn parent(queue: List<() -> Unit>) {
     print("parent start");
-    spawn(() => { child(); });
+    spawn(queue, () => { child(); });
     tick();
     print("parent end");
 }
 
-spawn(() => { parent(); });
+var queue: List<() -> Unit> = [];
 
-while (queue.len() > 0) {
-    var next = queue[0];
-    queue = queue[1:];
-    next();
+spawn(queue, () => { parent(queue); });
+
+for (var i = 0; i < queue.len(); i += 1) {
+    queue[i]();
 }
 ```
 

@@ -1,0 +1,10 @@
+import { Decl } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
+
+type Point { x: Int, y: Int }
+type Size { w: Int }
+
+fn declared<T>(): Decl { return declof(T); }
+
+print(decl_source(declared<Point>()));
+print(decl_source(declared<Size>()));

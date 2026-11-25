@@ -17,7 +17,7 @@ Cronyx doesn't have a separate kind of function for this. (If you've seen `meta 
 A meta block is regular Cronyx, so it can call any function in the program. The call runs during compilation:
 
 ```cronyx
-fn factorial(n: int): int {
+fn factorial(n: Int): Int {
     var result = 1;
     for (var i = 1; i <= n; i++) {
         result = result * i;
@@ -48,7 +48,7 @@ Three calls to the same function, at two different times:
 - `print(factorial(6))` is ordinary runtime code.
 
 ```cronyx title="--dump-code"
-fn factorial(n: int): int {
+fn factorial(n: Int): Int {
     var result = 1;
     for (var i = 1; (i <= n); i += 1) {
         result = (result * i);
@@ -66,7 +66,7 @@ The runtime program never computes `7!` — it prints a constant. That's the pat
 Give a function a static value parameter and its `meta` blocks can branch on it. Here's `power`, which multiplies `x` by itself `n` times — decided at compile time, so each copy is a straight line of multiplications with no loop:
 
 ```cronyx
-fn power<n: int>(x: int): int {
+fn power<n: Int>(x: Int): Int {
     meta {
         print("compiling power<" + str(n) + ">");
         if (n == 0) {
@@ -92,21 +92,21 @@ compiling power<0>
 
 Two rules make this work.
 
-**Inside a function's `meta` block, a static parameter is an ordinary value.** `n` is just an `int` there — `n == 0` is a compile-time comparison, and `str(n)` builds a compile-time string.
+**Inside a function's `meta` block, a static parameter is an ordinary value.** `n` is just an `Int` there — `n == 0` is a compile-time comparison, and `str(n)` builds a compile-time string.
 
 **Inside a `gen`, meta values are written in.** In `gen return x * power<n - 1>(x);`, `x` is a runtime parameter and stays a name, while `n - 1` reads the meta value `n` and is evaluated. The copy for `n = 3` gets `return x * power<2>(x);` — and the walk, reaching that call, compiles `power<2>` next.
 
 ```cronyx title="--dump-code"
-fn power#0(x: int): int {
+fn power#0(x: Int): Int {
     return (x * power#1(x));
 }
-fn power#1(x: int): int {
+fn power#1(x: Int): Int {
     return (x * power#2(x));
 }
-fn power#2(x: int): int {
+fn power#2(x: Int): Int {
     return (x * power#3(x));
 }
-fn power#3(x: int): int {
+fn power#3(x: Int): Int {
     return 1;
 }
 print(power#0(2));
@@ -122,7 +122,7 @@ The compiler doesn't put a limit on how deep this goes. A comptime function whos
 A meta block runs while compiling, so only what's known while compiling can reach it. A static parameter can; a runtime parameter can't:
 
 ```cronyx
-fn scale(factor: int, x: int): int {
+fn scale(factor: Int, x: Int): Int {
     meta print(factor);
     return x * factor;
 }
@@ -137,7 +137,7 @@ print(scale(2, 3));
 A static value crosses one level only. A `meta` block nested inside the function's `meta` block is compiled before the outer one runs, so the value doesn't exist yet from its point of view:
 
 ```cronyx
-fn countdown<n: int>() {
+fn countdown<n: Int>() {
     meta {
         print(n);
         meta print(n);
@@ -154,7 +154,7 @@ countdown<3>();
 And a call that makes a new copy belongs in a `gen`, not directly in the meta block. Inside the meta block `n` is a value, not a static argument, so there's nothing to compile the copy from:
 
 ```cronyx
-fn power<n: int>(x: int): int {
+fn power<n: Int>(x: Int): Int {
     meta {
         var smaller = power<n - 1>(x);
     }
@@ -170,24 +170,10 @@ print(power<3>(2));
 
 ### When the body is checked
 
-The [first chapter](./metaprocessing.mdx) said the whole program is checked before the walk, reached or not. For a function like `power`, that early check sees everything *except* what its meta blocks will write — so a mistake in the parts you wrote directly is reported even if the function is never called:
+The [first chapter](./metaprocessing.mdx#unreached-code-isnt-checked) said only the code the walk reaches is checked. For a function with static parameters, what the walk reaches is a copy, so the body is checked once per copy, after the walk has made it — what its meta blocks generated included. This function is fine for even `n` and wrong for odd:
 
 ```cronyx
-fn label<n: int>(s: string): string {
-    return n + s;
-}
-
-print("label is never called");
-```
-
-```
-No operator + for int and string: int does not implement Add<string>.
-```
-
-What a meta block generates is checked per copy, once the walk has made it. This function is fine for even `n` and wrong for odd:
-
-```cronyx
-fn pick<n: int>(): int {
+fn pick<n: Int>(): Int {
     meta if (n % 2 == 0) {
         gen return 5;
     } else {
@@ -200,7 +186,7 @@ print(pick<3>());
 ```
 
 ```
-Expected int, got string.
+Expected Int, got String.
 ```
 
 Delete the `pick<3>()` call and the program compiles and prints `5`: no copy for an odd `n` was ever made, so there's no body with the mistake in it.
@@ -210,9 +196,9 @@ Delete the `pick<3>()` call and the program compiles and prints `5`: no copy for
 A `gen` doesn't have to sit directly in a meta block. A function called from one can do the generating, which is how a generator gets factored into pieces:
 
 ```cronyx
-fn make_getter(field: string, value: int) {
+fn make_getter(field: String, value: Int) {
     var fn_name = ("get_" + field).as_name();
-    gen fn fn_name(): int {
+    gen fn fn_name(): Int {
         return value;
     }
 }
@@ -230,10 +216,10 @@ print(get_width() * get_height());
 ```
 
 ```cronyx title="--dump-code"
-fn get_width(): int {
+fn get_width(): Int {
     return 4;
 }
-fn get_height(): int {
+fn get_height(): Int {
     return 3;
 }
 print((get_width() * get_height()));
@@ -255,12 +241,12 @@ make_hello();
 
 ## Try it
 
-Write `fn fib<n: int>(): int` that returns the `n`th Fibonacci number (with `fib<0>` and `fib<1>` both `1`), computing it by generating calls to smaller copies. Then print `fib<3>()` and `fib<5>()`.
+Write `fn fib<n: Int>(): Int` that returns the `n`th Fibonacci number (with `fib<0>` and `fib<1>` both `1`), computing it by generating calls to smaller copies. Then print `fib<3>()` and `fib<5>()`.
 
 A working answer:
 
 ```cronyx
-fn fib<n: int>(): int {
+fn fib<n: Int>(): Int {
     meta if (n <= 1) {
         gen return 1;
     } else {

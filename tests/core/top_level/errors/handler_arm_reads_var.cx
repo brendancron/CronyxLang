@@ -1,0 +1,9 @@
+trait Ask { fn ask(): Int; }
+
+var answer = 42;
+
+fn asked(): Int {
+    return run<Int> { return ask(); } handle<Ask> { fn ask() { return answer; } };
+}
+
+print(asked());

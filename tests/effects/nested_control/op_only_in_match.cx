@@ -1,13 +1,13 @@
-effect Ask { ctl get(): int; }
+trait Ask { @ctl fn get(): Int; }
 
 type Color { Red, Blue }
 
-fn use(c: Color): <Ask> int {
+fn use(c: Color): <Ask> Int {
     match c {
         Color.Red => { return get(); }
         Color.Blue => { return 0; }
     }
 }
 
-run { print(use(Color.Red)); }
-handle Ask { ctl get() { resume 5; print("after"); } }
+run<Unit> { print(use(Color.Red)); }
+handle<Ask> { fn get(resume) { resume(5); print("after"); } }

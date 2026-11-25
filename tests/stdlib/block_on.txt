@@ -1,0 +1,6 @@
+a 0
+a 1
+a counted 1
+bb 0
+failed: too many
+2

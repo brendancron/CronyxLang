@@ -1,6 +1,6 @@
 type Marker;
 
-fn tag(m: Marker): string {
+fn tag(m: Marker): String {
     return "tagged";
 }
 

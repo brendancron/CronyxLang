@@ -1,23 +1,20 @@
-// A `return` inside a match arm, in a function the CPS pass converts. The
-// return has to reach the function's continuation, the way it does from an
-// `if` branch.
 type Choice { Yes, No }
 
-effect Ask { ctl get(): int; }
+trait Ask { @ctl fn get(): Int; }
 
-fn pick(c: Choice): <Ask> int {
+fn pick(c: Choice): <Ask> Int {
     match c {
         Choice.Yes => { return get() + 10; }
         Choice.No => { return 0; }
     }
 }
 
-run {
+run<Unit> {
     print(pick(Choice.Yes));
     print(pick(Choice.No));
-} handle Ask {
-    ctl get() {
-        resume 5;
+} handle<Ask> {
+    fn get(resume) {
+        resume(5);
         print("after");
     }
 }

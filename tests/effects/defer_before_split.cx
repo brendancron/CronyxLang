@@ -1,0 +1,14 @@
+trait Ask {
+    @ctl fn ask(): Int;
+}
+
+fn noted(): Int {
+    defer print("left");
+    return ask();
+}
+
+run<Unit> {
+    print(noted());
+} handle<Ask> {
+    fn ask(resume) { resume(1); }
+}

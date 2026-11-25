@@ -1,18 +1,18 @@
 type Rectangle {
-    width: int,
-    height: int
+    width: Int,
+    height: Int
 }
 
 impl Rectangle {
-    fn area(self): int {
+    fn area(self): Int {
         return self.width * self.height;
     }
 
-    fn scaled(self, factor: int): Rectangle {
+    fn scaled(self, factor: Int): Rectangle {
         return Rectangle { width: self.width * factor, height: self.height * factor };
     }
 
-    fn describe(self): string {
+    fn describe(self): String {
         return str(self.width) + "x" + str(self.height) + " = " + str(self.area());
     }
 }

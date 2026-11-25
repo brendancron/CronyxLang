@@ -1,6 +1,6 @@
-type Circle { radius: int }
+type Circle { radius: Int }
 impl Circle {
-    fn area(self): int { return self.radius; }
+    fn area(self): Int { return self.radius; }
 }
 fn report(shape) {
     print(shape.perimeter());

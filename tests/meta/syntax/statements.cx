@@ -7,13 +7,13 @@ meta {
         body.push(code { print(label); }[0]);
     }
     var setup = code { var total = 10; total += 5; };
-    gen fn run_steps(): int {
+    gen fn run_steps(): Int {
         setup;
         body;
         return total;
     }
 
-    var helper: Decl = code fn twice(n: int): int { return n * 2; };
+    var helper: Decl = code fn twice(n: Int): Int { return n * 2; };
     gen helper;
 }
 

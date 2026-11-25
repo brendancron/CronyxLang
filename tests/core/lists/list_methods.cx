@@ -1,4 +1,4 @@
-var xs: List<int> = [1, 2, 3];
+var xs: List<Int> = [1, 2, 3];
 print(xs.len());
 
 xs.push(4);

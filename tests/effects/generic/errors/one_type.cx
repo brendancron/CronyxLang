@@ -1,9 +1,11 @@
-effect Store<T> {
+trait Store<T> {
     fn put(v: T);
     fn take(): T;
 }
 
-fn mixed(): string {
+fn mixed(): String {
     put(1);
     return take();
 }
+
+run<Unit> { print(mixed()); } handle<Store<Int>> { fn put(v) { } fn take() { return 0; } }

@@ -7,7 +7,7 @@
  * `std/fs/File` decodes when it is.
  */
 
-import { async } from "../async/Task";
+import { Async } from "../async/Task";
 import { Yield, iterator } from "../iter/Yield";
 import { Throw, Failure, Result, attempt } from "../core/Error";
 import { Utf8Error, decode } from "../text/Utf8";
@@ -15,29 +15,33 @@ import { Utf8Error, decode } from "../text/Utf8";
 /** Why a file or a connection could not be read, written or opened. */
 type IoError {
     /** Nothing is at this path, or no address has this name. */
-    NotFound(string),
+    NotFound(String),
 
     /** Something is there, and this program may not have it. */
-    Denied(string),
+    Denied(String),
 
     /** Nothing was listening at the address. */
-    Refused(string),
+    Refused(String),
 
     /** The peer dropped the connection. */
-    Reset(string),
+    Reset(String),
 
     /** Something else is already listening at the address. */
-    AddressInUse(string),
+    AddressInUse(String),
 
     /** The connection took too long and the system gave up on it. */
-    TimedOut(string),
+    TimedOut(String),
 
     /** Anything else, with what the system said. */
-    Other(string)
+    Other(String)
+}
+
+impl Display for IoError {
+    fn fmt(self): String { return self.message(); }
 }
 
 impl Failure for IoError {
-    fn message(self): string {
+    fn message(self): String {
         match self {
             IoError.NotFound(path) => { return "no such file: " + path; }
             IoError.Denied(path) => { return "not allowed: " + path; }
@@ -53,19 +57,19 @@ impl Failure for IoError {
 /** Something bytes can be read from. */
 trait Reader {
     /** Up to `max` bytes, or `None` once there are no more. May wait. */
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>>;
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>>;
 }
 
 /** Something bytes can be written to. */
 trait Writer {
     /** Writes all of them. May wait. */
-    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit;
+    fn write(self, data: Array<Byte>): <Async, Throw<IoError>> Unit;
 }
 
 /** Something holding a resource until it is closed, failing with an `X`. */
 trait Closer<X> {
     /** Lets go of it. Nothing may be done with it afterwards. */
-    fn close(self): <async, Throw<X>> unit;
+    fn close(self): <Async, Throw<X>> Unit;
 }
 
 /**
@@ -79,8 +83,8 @@ trait Closer<X> {
  * failed it is dropped, so the caller sees the block's failure, which is the
  * cause.
  */
-fn using<T: Closer<X>, X, R, E>(resource: T, body: (T) -> <async, Throw<X>, E> R)
-    : <async, Throw<X>, E> R {
+fn using<T: Closer<X>, X, R, E>(resource: T, body: (T) -> <Async, Throw<X>, E> R)
+    : <Async, Throw<X>, E> R {
     var finished = false;
     defer {
         if (!finished) { attempt { resource.close() }; }
@@ -104,10 +108,10 @@ fn using<T: Closer<X>, X, R, E>(resource: T, body: (T) -> <async, Throw<X>, E> R
  * A `\r` before a newline goes with it, and a last line with no newline after it
  * is still a line. Throws where a line is not UTF-8 text.
  */
-fn lines(from: Reader): Iter<string, <async, Throw<IoError>>> {
+fn lines(from: Reader): Iter<String, <Async, Throw<IoError>>> {
     return iterator {
         var newline = "\n".bytes()[0];
-        var line: List<byte> = [];
+        var line: List<Byte> = [];
         // Where the line being collected began, counted from the start of the
         // stream, so a bad byte is reported where it is rather than within its
         // line.
@@ -133,7 +137,7 @@ fn lines(from: Reader): Iter<string, <async, Throw<IoError>>> {
     };
 }
 
-fn __text_of_line(bytes: List<byte>, start: int): <Throw<IoError>> string {
+fn __text_of_line(bytes: List<Byte>, start: Int): <Throw<IoError>> String {
     var stop = bytes.len();
     if (stop > 0 && bytes[stop - 1] == "\r".bytes()[0]) { stop = stop - 1; }
     match decode(bytes.items[0:stop]) {

@@ -5,7 +5,7 @@ import { write_toml } from "std/encoding/Toml";
 
 @bench(20000)
 @time("linear")
-fn json_encode(n: int) {
+fn json_encode(n: Int) {
     var items: List<Data> = [];
     for (var i = 0; i < n; i += 1) { items.push(Data.Int(i)); }
     var fields: List<Entry> = [];
@@ -16,7 +16,7 @@ fn json_encode(n: int) {
 
 @bench(20000)
 @time("linear")
-fn toml_encode(n: int) {
+fn toml_encode(n: Int) {
     var fields: List<Entry> = [];
     for (var i = 0; i < n / 10; i += 1) {
         fields.push(Entry { key: "key" + str(i), value: Data.Int(i) });
@@ -27,8 +27,8 @@ fn toml_encode(n: int) {
 
 @bench(20000)
 @time("linear")
-fn list_display(n: int) {
-    var xs: List<int> = [];
+fn list_display(n: Int) {
+    var xs: List<Int> = [];
     for (var i = 0; i < n; i += 1) { xs.push(i); }
     var text = str(xs);
 }

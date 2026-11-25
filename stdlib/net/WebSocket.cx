@@ -26,7 +26,7 @@
  * or accepted.
  */
 
-import { async } from "../async/Task";
+import { Async } from "../async/Task";
 import { timeout } from "../async/Timer";
 import { Duration } from "../os/Time";
 import { Throw, Result } from "../core/Error";
@@ -45,8 +45,8 @@ import {
 
 /** What one end sends the other: text, or bytes. */
 type Message {
-    Text(string),
-    Binary(Array<byte>)
+    Text(String),
+    Binary(Array<Byte>)
 }
 
 /** A connection that has finished its handshake, at either end. */
@@ -54,28 +54,28 @@ type WebSocket {
     stream: TcpStream,
     incoming: __Incoming,
     /** The largest message taken, in bytes. A larger one closes the connection with 1009. */
-    max_message: int,
+    max_message: Int,
     // A client masks every frame it sends, and a server none.
-    client: bool,
+    client: Bool,
     // Drawn from `Random` once, on connecting, so that `send` is not a
     // `Random` operation at either end.
-    mask_state: int,
-    sent_close: bool,
-    received_close: bool,
-    ended: bool,
+    mask_state: Int,
+    sent_close: Bool,
+    received_close: Bool,
+    ended: Bool,
     // A server's connection is closed by `Http`, which accepted it.
-    owns_stream: bool,
-    status: Option<(int, string)>,
-    chosen: Option<string>,
+    owns_stream: Bool,
+    status: Option<(Int, String)>,
+    chosen: Option<String>,
     // One frame is written at a time: `write` waits when the socket is full,
     // and another task's frame written then would land inside this one.
-    writing: bool,
-    waiting: List<() -> unit>
+    writing: Bool,
+    waiting: List<() -> Unit>
 }
 
 impl WebSocket {
     /** Sends the message whole, as one frame. Throws once the connection is closing. */
-    fn send(self, message: Message): <async, Throw<IoError>> unit {
+    fn send(self, message: Message): <Async, Throw<IoError>> Unit {
         match message {
             Message.Text(text) => { self.__send(1, text.bytes()); }
             Message.Binary(bytes) => { self.__send(2, bytes); }
@@ -83,16 +83,16 @@ impl WebSocket {
     }
 
     /** Sends the text as one message. */
-    fn send_text(self, text: string): <async, Throw<IoError>> unit { self.__send(1, text.bytes()); }
+    fn send_text(self, text: String): <Async, Throw<IoError>> Unit { self.__send(1, text.bytes()); }
 
     /** Sends the bytes as one message. */
-    fn send_binary(self, bytes: Array<byte>): <async, Throw<IoError>> unit { self.__send(2, bytes); }
+    fn send_binary(self, bytes: Array<Byte>): <Async, Throw<IoError>> Unit { self.__send(2, bytes); }
 
     /**
      * Sends a ping, which the peer answers with a pong that `receive` reads
      * past. At most 125 bytes.
      */
-    fn ping(self, data: Array<byte>): <async, Throw<IoError>> unit {
+    fn ping(self, data: Array<Byte>): <Async, Throw<IoError>> Unit {
         if (data.len() > 125) { throw(IoError.Other("a WebSocket ping holds at most 125 bytes")); }
         self.__send(9, data);
     }
@@ -104,8 +104,8 @@ impl WebSocket {
      *
      * One task receives at a time; any number may send while it waits.
      */
-    fn receive(self): <async, Throw<IoError>> Option<Message> {
-        var parts: List<byte> = [];
+    fn receive(self): <Async, Throw<IoError>> Option<Message> {
+        var parts: List<Byte> = [];
         var opcode = 0;
         while (!self.ended) {
             match self.__frame() {
@@ -142,7 +142,7 @@ impl WebSocket {
     }
 
     /** Every message until the connection closes. */
-    fn messages(self): Iter<Message, <async, Throw<IoError>>> {
+    fn messages(self): Iter<Message, <Async, Throw<IoError>>> {
         return iterator {
             var more = true;
             while (more) {
@@ -155,7 +155,7 @@ impl WebSocket {
     }
 
     /** Closes with 1000, an ordinary close. */
-    fn close(self): <async, Throw<IoError>> unit { self.close_with(1000, ""); }
+    fn close(self): <Async, Throw<IoError>> Unit { self.close_with(1000, ""); }
 
     /**
      * Closes with the code and the reason, waiting a few seconds for the
@@ -163,22 +163,22 @@ impl WebSocket {
      * ordinary close, one of 1001–1003 or 1007–1011, or one of 3000–4999; the
      * reason is at most 123 bytes.
      */
-    fn close_with(self, number: int, reason: string): <async, Throw<IoError>> unit {
+    fn close_with(self, number: Int, reason: String): <Async, Throw<IoError>> Unit {
         if (!__on_the_wire(number)) { throw(IoError.Other("not a WebSocket close code to send: " + str(number))); }
         var said = reason.bytes();
         if (said.len() > 123) { throw(IoError.Other("a WebSocket close reason holds at most 123 bytes")); }
         if (self.ended) { return; }
         if (!self.sent_close) {
-            run {
+            run<Unit> {
                 self.__send_close(__close_payload(number, said));
-            } handle Throw {
-                final ctl throw(e) {}
+            } handle<Throw<IoError>> {
+                fn throw(e) {}
             }
         }
         // What arrives in the meantime is dropped: the close has been sent,
         // so nothing can answer it.
         timeout(Duration.seconds(5), () => {
-            run {
+            run<Unit> {
                 while (!self.received_close && !self.ended) {
                     match self.__frame() {
                         Option.None => { self.ended = true; }
@@ -190,8 +190,8 @@ impl WebSocket {
                         }
                     }
                 }
-            } handle Throw {
-                final ctl throw(e) {}
+            } handle<Throw<IoError>> {
+                fn throw(e) {}
             }
         });
         if (self.status == Option.None) { self.status = Option.Some((1006, "")); }
@@ -203,15 +203,15 @@ impl WebSocket {
      * peer sent, what this end failed it with, or 1006 if the peer went away
      * without a close.
      */
-    fn close_status(self): Option<(int, string)> { return self.status; }
+    fn close_status(self): Option<(Int, String)> { return self.status; }
 
     /** The subprotocol the handshake agreed on, if one was. */
-    fn protocol(self): Option<string> { return self.chosen; }
+    fn protocol(self): Option<String> { return self.chosen; }
 
     /** The address and port at the other end. */
-    fn peer(self): string { return self.stream.peer(); }
+    fn peer(self): String { return self.stream.peer(); }
 
-    fn __over(stream: TcpStream, incoming: __Incoming, client: bool, max_message: int, seed: int): WebSocket {
+    fn __over(stream: TcpStream, incoming: __Incoming, client: Bool, max_message: Int, seed: Int): WebSocket {
         return WebSocket {
             stream: stream, incoming: incoming, max_message: max_message, client: client, mask_state: seed,
             sent_close: false, received_close: false, ended: false, owns_stream: true, status: Option.None, chosen: Option.None,
@@ -219,20 +219,20 @@ impl WebSocket {
         };
     }
 
-    fn __send(self, opcode: int, payload: Array<byte>): <async, Throw<IoError>> unit {
+    fn __send(self, opcode: Int, payload: Array<Byte>): <Async, Throw<IoError>> Unit {
         if (self.sent_close || self.ended) { throw(IoError.Other("the WebSocket is closed")); }
         self.__write(opcode, payload);
     }
 
-    fn __send_close(self, payload: Array<byte>): <async, Throw<IoError>> unit {
+    fn __send_close(self, payload: Array<Byte>): <Async, Throw<IoError>> Unit {
         if (self.sent_close || self.ended) { return; }
         self.sent_close = true;
         self.__write(8, payload);
     }
 
-    fn __write(self, opcode: int, payload: Array<byte>): <async, Throw<IoError>> unit {
+    fn __write(self, opcode: Int, payload: Array<Byte>): <Async, Throw<IoError>> Unit {
         while (self.writing) {
-            suspend { self.waiting.push(() => { it(()); }); };
+            park((wake: () -> Unit) => { self.waiting.push(wake); });
         }
         self.writing = true;
         defer {
@@ -241,7 +241,7 @@ impl WebSocket {
             self.waiting = [];
             for (wake in waiting) { wake(); }
         }
-        var mask: Option<int> = Option.None;
+        var mask: Option<Int> = Option.None;
         if (self.client) {
             self.mask_state += 0x1E3779B97F4A7C15;
             mask = Option.Some(__mix(self.mask_state) & 4294967295);
@@ -250,7 +250,7 @@ impl WebSocket {
     }
 
     // The next frame, unmasked, or `None` if the connection ended between frames.
-    fn __frame(self): <async, Throw<IoError>> Option<__Frame> {
+    fn __frame(self): <Async, Throw<IoError>> Option<__Frame> {
         if (!__wait_for(self.incoming, 1)) { return Option.None; }
         var head = self.__take(2);
         var first = head[0].to_int();
@@ -282,7 +282,7 @@ impl WebSocket {
         if (length > self.max_message) {
             self.__fail(1009, "a frame of " + str(length) + " bytes, over the limit of " + str(self.max_message));
         }
-        var key: Array<byte> = [];
+        var key: Array<Byte> = [];
         if (masked) { key = self.__take(4); }
         var payload = self.__take(length);
         if (masked) {
@@ -293,7 +293,7 @@ impl WebSocket {
         return Option.Some(__Frame { fin: fin, opcode: opcode, payload: payload });
     }
 
-    fn __take(self, count: int): <async, Throw<IoError>> Array<byte> {
+    fn __take(self, count: Int): <Async, Throw<IoError>> Array<Byte> {
         if (!__wait_for(self.incoming, count)) {
             self.__ended_abruptly();
             throw(IoError.Reset("the WebSocket connection ended in the middle of a frame"));
@@ -303,7 +303,7 @@ impl WebSocket {
         return self.incoming.pending.items[at:(at + count)];
     }
 
-    fn __message(self, opcode: int, parts: List<byte>): <async, Throw<IoError>> Message {
+    fn __message(self, opcode: Int, parts: List<Byte>): <Async, Throw<IoError>> Message {
         var bytes = parts.items[0:parts.len()];
         if (opcode == 2) { return Message.Binary(bytes); }
         match decode(bytes) {
@@ -313,7 +313,7 @@ impl WebSocket {
         return Message.Binary(bytes);
     }
 
-    fn __answer_close(self, payload: Array<byte>): <async, Throw<IoError>> unit {
+    fn __answer_close(self, payload: Array<Byte>): <Async, Throw<IoError>> Unit {
         self.received_close = true;
         if (payload.len() == 1) { self.__fail(1002, "a close frame of one byte"); }
         if (payload.len() >= 2) {
@@ -327,23 +327,23 @@ impl WebSocket {
         self.status = __close_status(payload);
         // The code alone goes back, or nothing when none came: 1005 stands
         // for that, and is never sent.
-        var echo: Array<byte> = [];
+        var echo: Array<Byte> = [];
         if (payload.len() >= 2) { echo = payload[0:2]; }
-        run {
+        run<Unit> {
             self.__send_close(echo);
-        } handle Throw {
-            final ctl throw(e) {}
+        } handle<Throw<IoError>> {
+            fn throw(e) {}
         }
         self.__release();
     }
 
     // Sends the close that says what the peer did wrong, lets the connection
     // go, and throws.
-    fn __fail(self, number: int, why: string): <async, Throw<IoError>> unit {
-        run {
+    fn __fail(self, number: Int, why: String): <Async, Throw<IoError>> Unit {
+        run<Unit> {
             self.__send_close(__close_payload(number, []));
-        } handle Throw {
-            final ctl throw(e) {}
+        } handle<Throw<IoError>> {
+            fn throw(e) {}
         }
         if (self.status == Option.None) { self.status = Option.Some((number, why)); }
         self.__release();
@@ -359,24 +359,24 @@ impl WebSocket {
         if (self.ended) { return; }
         self.ended = true;
         if (!self.owns_stream) { return; }
-        run {
+        run<Unit> {
             self.stream.close();
-        } handle Throw {
-            final ctl throw(e) {}
+        } handle<Throw<IoError>> {
+            fn throw(e) {}
         }
     }
 }
 
 type __Frame {
-    fin: bool,
-    opcode: int,
-    payload: Array<byte>
+    fin: Bool,
+    opcode: Int,
+    payload: Array<Byte>
 }
 
 // ---- the client ----
 
 /** Opens a WebSocket to the `ws://` URL. */
-fn connect(url: string): <Net, Random, async, Throw<IoError>> WebSocket {
+fn connect(url: String): <Net, Random, Async, Throw<IoError>> WebSocket {
     return connect_with(url, Headers.new());
 }
 
@@ -385,7 +385,7 @@ fn connect(url: string): <Net, Random, async, Throw<IoError>> WebSocket {
  * handshake: `Authorization`, or the `Sec-WebSocket-Protocol` a server asks
  * for. Throws, before connecting, if a field would break the request apart.
  */
-fn connect_with(url: string, headers: Headers): <Net, Random, async, Throw<IoError>> WebSocket {
+fn connect_with(url: String, headers: Headers): <Net, Random, Async, Throw<IoError>> WebSocket {
     if (url.starts_with("wss://")) {
         throw(IoError.Other("wss needs TLS, which std/net/WebSocket does not have: " + url));
     }
@@ -410,10 +410,10 @@ fn connect_with(url: string, headers: Headers): <Net, Random, async, Throw<IoErr
     var opened = false;
     defer {
         if (!opened) {
-            run {
+            run<Unit> {
                 conn.close();
-            } handle Throw {
-                final ctl throw(e) {}
+            } handle<Throw<IoError>> {
+                fn throw(e) {}
             }
         }
     }
@@ -462,9 +462,9 @@ fn connect_with(url: string, headers: Headers): <Net, Random, async, Throw<IoErr
  */
 fn serve<E>(
     listener: TcpListener,
-    respond: (Request) -> <async, Throw<IoError>, E> Response,
-    session: (Request, WebSocket) -> <async, Throw<IoError>, E> unit
-): <async, Throw<IoError>, E> unit {
+    respond: (Request) -> <Async, Throw<IoError>, E> Response,
+    session: (Request, WebSocket) -> <Async, Throw<IoError>, E> Unit
+): <Async, Throw<IoError>, E> Unit {
     serve_with(listener, ServerLimits.default(), respond, session, (offered) => { return Option.None; });
 }
 
@@ -478,10 +478,10 @@ fn serve<E>(
 fn serve_with<E>(
     listener: TcpListener,
     limits: ServerLimits,
-    respond: (Request) -> <async, Throw<IoError>, E> Response,
-    session: (Request, WebSocket) -> <async, Throw<IoError>, E> unit,
-    choose: (List<string>) -> Option<string>
-): <async, Throw<IoError>, E> unit {
+    respond: (Request) -> <Async, Throw<IoError>, E> Response,
+    session: (Request, WebSocket) -> <Async, Throw<IoError>, E> Unit,
+    choose: (List<String>) -> Option<String>
+): <Async, Throw<IoError>, E> Unit {
     __serve(listener, limits, respond, (conn, incoming, request) => {
         return __upgraded(conn, incoming, limits, request, session, choose);
     });
@@ -492,9 +492,9 @@ fn __upgraded<E>(
     incoming: __Incoming,
     limits: ServerLimits,
     request: Request,
-    session: (Request, WebSocket) -> <async, Throw<IoError>, E> unit,
-    choose: (List<string>) -> Option<string>
-): <async, Throw<IoError>, E> __Upgrade {
+    session: (Request, WebSocket) -> <Async, Throw<IoError>, E> Unit,
+    choose: (List<String>) -> Option<String>
+): <Async, Throw<IoError>, E> __Upgrade {
     if (!__has_token(request.headers, "Upgrade", "websocket")) { return __Upgrade.Declined; }
     var accept = "";
     match __handshake(request) {
@@ -503,7 +503,7 @@ fn __upgraded<E>(
     }
     var answered = Headers.new().set("Upgrade", "websocket").set("Connection", "Upgrade").set("Sec-WebSocket-Accept", accept);
     var offered = __tokens(request.headers, "Sec-WebSocket-Protocol");
-    var chosen: Option<string> = Option.None;
+    var chosen: Option<String> = Option.None;
     if (offered.len() > 0) { chosen = choose(offered); }
     match chosen {
         Option.Some(name) => {
@@ -520,17 +520,17 @@ fn __upgraded<E>(
     socket.owns_stream = false;
     socket.chosen = chosen;
     var number = 1000;
-    run {
+    run<Unit> {
         session(request, socket);
-    } handle Throw {
-        final ctl throw(e) { number = 1011; }
+    } handle<Throw<IoError>> {
+        fn throw(e) { number = 1011; }
     }
     socket.close_with(number, "");
     return __Upgrade.Taken;
 }
 
 // The accept key the handshake answers with, or the response that refuses it.
-fn __handshake(request: Request): Result<string, Response> {
+fn __handshake(request: Request): Result<String, Response> {
     if (request.method != "GET" || !__has_token(request.headers, "Connection", "upgrade")) {
         return Result.Err(Response.text(400, "not a WebSocket handshake"));
     }
@@ -543,10 +543,10 @@ fn __handshake(request: Request): Result<string, Response> {
     match request.headers.get("Sec-WebSocket-Key") {
         Option.Some(key) => {
             var length = -1;
-            run {
+            run<Unit> {
                 length = decode_with(key, Alphabet.Standard).len();
-            } handle Throw {
-                final ctl throw(e) {}
+            } handle<Throw<IoError>> {
+                fn throw(e) {}
             }
             if (length != 16 || key.len() != 24) { return Result.Err(Response.text(400, "a Sec-WebSocket-Key that is not 16 bytes")); }
             return Result.Ok(__accept(key));
@@ -558,12 +558,12 @@ fn __handshake(request: Request): Result<string, Response> {
 
 // ---- the wire ----
 
-fn __accept(key: string): string {
+fn __accept(key: String): String {
     return encode(sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").bytes()));
 }
 
 // Whether a comma-separated field holds the token, ignoring case.
-fn __has_token(headers: Headers, name: string, token: string): bool {
+fn __has_token(headers: Headers, name: String, token: String): Bool {
     for (part in __tokens(headers, name)) {
         if (part.to_lower() == token) { return true; }
     }
@@ -571,8 +571,8 @@ fn __has_token(headers: Headers, name: string, token: string): bool {
 }
 
 // Every comma-separated item of every field with the name, in order.
-fn __tokens(headers: Headers, name: string): List<string> {
-    var found: List<string> = [];
+fn __tokens(headers: Headers, name: String): List<String> {
+    var found: List<String> = [];
     for ((n, v) in headers.fields) {
         if (n.to_lower() == name.to_lower()) {
             for (part in v.split(',')) {
@@ -586,16 +586,16 @@ fn __tokens(headers: Headers, name: string): List<string> {
 
 // A handshake's head: the start line and the fields, with no `Connection:
 // close`, since the connection is the point.
-fn __upgrade_head(start: string, headers: Headers): Array<byte> {
-    var parts: List<string> = [start, "\r\n"];
+fn __upgrade_head(start: String, headers: Headers): Array<Byte> {
+    var parts: List<String> = [start, "\r\n"];
     for ((n, v) in headers.fields) { parts.push(n + ": " + v + "\r\n"); }
     parts.push("\r\n");
     return __str_join(parts.items, parts.count).bytes();
 }
 
-fn __encoded(opcode: int, payload: Array<byte>, mask: Option<int>): Array<byte> {
+fn __encoded(opcode: Int, payload: Array<Byte>, mask: Option<Int>): Array<Byte> {
     var length = payload.len();
-    var out: List<byte> = [(128 | opcode).to_byte()];
+    var out: List<Byte> = [(128 | opcode).to_byte()];
     var masked = 0;
     if (mask != Option.None) { masked = 128; }
     if (length < 126) {
@@ -624,11 +624,11 @@ fn __encoded(opcode: int, payload: Array<byte>, mask: Option<int>): Array<byte> 
 // Reads until `count` bytes are waiting, or the connection ends first. The
 // bytes already taken are dropped before reading, once per wait, so a long
 // connection's buffer holds at most one frame and the read that ended it.
-fn __wait_for(incoming: __Incoming, count: int): <async, Throw<IoError>> bool {
+fn __wait_for(incoming: __Incoming, count: Int): <Async, Throw<IoError>> Bool {
     var compacted = false;
     while (incoming.pending.len() - incoming.at < count) {
         if (!compacted && incoming.at > 0) {
-            var kept: List<byte> = [];
+            var kept: List<Byte> = [];
             for (var i = incoming.at; i < incoming.pending.len(); i += 1) { kept.push(incoming.pending[i]); }
             incoming.pending = kept;
             incoming.at = 0;
@@ -639,20 +639,20 @@ fn __wait_for(incoming: __Incoming, count: int): <async, Throw<IoError>> bool {
     return true;
 }
 
-fn __append(parts: List<byte>, payload: Array<byte>, socket: WebSocket): <async, Throw<IoError>> unit {
+fn __append(parts: List<Byte>, payload: Array<Byte>, socket: WebSocket): <Async, Throw<IoError>> Unit {
     if (parts.len() + payload.len() > socket.max_message) {
         socket.__fail(1009, "a message over the limit of " + str(socket.max_message) + " bytes");
     }
     for (b in payload) { parts.push(b); }
 }
 
-fn __close_payload(number: int, reason: Array<byte>): Array<byte> {
-    var payload: List<byte> = [(number >> 8).to_byte(), number.to_byte()];
+fn __close_payload(number: Int, reason: Array<Byte>): Array<Byte> {
+    var payload: List<Byte> = [(number >> 8).to_byte(), number.to_byte()];
     for (b in reason) { payload.push(b); }
     return payload.items[0:payload.len()];
 }
 
-fn __close_status(payload: Array<byte>): Option<(int, string)> {
+fn __close_status(payload: Array<Byte>): Option<(Int, String)> {
     if (payload.len() < 2) { return Option.Some((1005, "")); }
     var number = (payload[0].to_int() << 8) | payload[1].to_int();
     match decode(payload[2:payload.len()]) {
@@ -664,7 +664,7 @@ fn __close_status(payload: Array<byte>): Option<(int, string)> {
 
 // The codes RFC 6455 lets an end put on the wire. 1005, 1006 and 1015 stand
 // for a close that had none, and are only ever reported.
-fn __on_the_wire(number: int): bool {
+fn __on_the_wire(number: Int): Bool {
     if (number >= 1000 && number <= 1003) { return true; }
     if (number >= 1007 && number <= 1011) { return true; }
     return number >= 3000 && number <= 4999;

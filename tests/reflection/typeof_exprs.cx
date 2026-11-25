@@ -6,5 +6,5 @@ print(typeof(1 < 2).name);
 print(typeof("a" + "b").name);
 print(typeof(typeof(f)).name);
 
-fn apply(g: (int) -> int, v: int): int { return g(v); }
+fn apply(g: (Int) -> Int, v: Int): Int { return g(v); }
 print(typeof(apply).name);

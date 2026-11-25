@@ -1,8 +1,8 @@
-type Box { v: int }
+type Box { v: Int }
 
 impl Box {
-    fn twice(self, g: () -> <Console> unit) { g(); g(); }
-    fn apply(self, g: (int) -> int): int { return g(self.v); }
+    fn twice(self, g: () -> <Console> Unit) { g(); g(); }
+    fn apply(self, g: (Int) -> Int): Int { return g(self.v); }
 }
 
 var b = Box { v: 21 };
@@ -10,6 +10,6 @@ var b = Box { v: 21 };
 b.twice { print("tick"); };
 print(b.apply { it * 2 });
 
-var queued: List<() -> <Console> unit> = [];
+var queued: List<() -> <Console> Unit> = [];
 queued.push { print("queued"); };
 queued[0]();

@@ -16,10 +16,10 @@
  * accepts too.
  */
 
-fn __is_separator(c: char): bool { return c == '/' || c == '\\'; }
+fn __is_separator(c: Char): Bool { return c == '/' || c == '\\'; }
 
 /** Whether the path starts from a root rather than the working directory: `/x`, `\x` or `C:\x`. */
-fn is_absolute(path: string): bool {
+fn is_absolute(path: String): Bool {
     var chars = path.chars();
     if (chars.len() == 0) { return false; }
     if (__is_separator(chars[0])) { return true; }
@@ -27,7 +27,7 @@ fn is_absolute(path: string): bool {
 }
 
 /** The second path, read from the first. An absolute second path is itself. */
-fn join(base: string, part: string): string {
+fn join(base: String, part: String): String {
     if (base.len() == 0 || is_absolute(part)) { return part; }
     if (part.len() == 0) { return base; }
     var chars = base.chars();
@@ -36,9 +36,9 @@ fn join(base: string, part: string): string {
 }
 
 /** The parts between the separators, without empty ones. A root is not a part. */
-fn components(path: string): Array<string> {
-    var parts: List<string> = [];
-    var current: List<string> = [];
+fn components(path: String): Array<String> {
+    var parts: List<String> = [];
+    var current: List<String> = [];
     var chars = path.chars();
     if (__root_of(path).len() == 3) { chars = chars[3:]; }
     for (c in chars) {
@@ -54,15 +54,15 @@ fn components(path: string): Array<string> {
 }
 
 /** The text before the first part: `/`, `C:/`, or nothing. */
-fn __root_of(path: string): string {
+fn __root_of(path: String): String {
     if (!is_absolute(path)) { return ""; }
     var chars = path.chars();
     if (__is_separator(chars[0])) { return "/"; }
     return str(chars[0]) + ":/";
 }
 
-fn __joined(root: string, parts: List<string>): string {
-    var out: List<string> = [root];
+fn __joined(root: String, parts: List<String>): String {
+    var out: List<String> = [root];
     var i = 0;
     while (i < parts.len()) {
         if (i > 0) { out.push("/"); }
@@ -73,17 +73,17 @@ fn __joined(root: string, parts: List<string>): string {
 }
 
 /** The last part, or `None` for a root or an empty path. */
-fn file_name(path: string): Option<string> {
+fn file_name(path: String): Option<String> {
     var parts = components(path);
     if (parts.len() == 0) { return Option.None; }
     return Option.Some(parts[parts.len() - 1]);
 }
 
 /** The path without its last part, or `None` if it has no part to drop. */
-fn parent(path: string): Option<string> {
+fn parent(path: String): Option<String> {
     var parts = components(path);
     if (parts.len() == 0) { return Option.None; }
-    var kept: List<string> = [];
+    var kept: List<String> = [];
     var i = 0;
     while (i < parts.len() - 1) {
         kept.push(parts[i]);
@@ -96,7 +96,7 @@ fn parent(path: string): Option<string> {
 
 // Where the last part's extension starts, or -1. A leading dot names a hidden
 // file rather than starting an extension.
-fn __dot(name: string): int {
+fn __dot(name: String): Int {
     var chars = name.chars();
     var i = chars.len() - 1;
     while (i > 0) {
@@ -107,7 +107,7 @@ fn __dot(name: string): int {
 }
 
 /** The last part's text after its final dot: `toml` in `app.toml`. */
-fn extension(path: string): Option<string> {
+fn extension(path: String): Option<String> {
     match file_name(path) {
         Option.Some(name) => {
             var at = __dot(name);
@@ -120,7 +120,7 @@ fn extension(path: string): Option<string> {
 }
 
 /** The last part without its extension: `app` in `app.toml`. */
-fn stem(path: string): Option<string> {
+fn stem(path: String): Option<String> {
     match file_name(path) {
         Option.Some(name) => {
             var at = __dot(name);
@@ -137,9 +137,9 @@ fn stem(path: string): Option<string> {
  * it, worked out from the text alone. A `..` with nothing before it to take is
  * kept, except at a root, where there is nowhere further up to go.
  */
-fn normalize(path: string): string {
+fn normalize(path: String): String {
     var root = __root_of(path);
-    var kept: List<string> = [];
+    var kept: List<String> = [];
     for (part in components(path)) {
         if (part == "..") {
             if (kept.len() > 0 && kept[kept.len() - 1] != "..") {

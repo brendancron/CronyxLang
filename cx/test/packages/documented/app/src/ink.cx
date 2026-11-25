@@ -5,7 +5,7 @@
 /** Anything with a written form. */
 trait Show {
     /** The written form. */
-    fn show(self): string;
+    fn show(self): String;
 }
 
 /** How dark it is. */
@@ -17,7 +17,7 @@ type Shade {
 
 impl Show for Shade {
     /** Writes the variant's own name. */
-    fn show(self): string {
+    fn show(self): String {
         match self {
             Shade.Dark => { return "dark"; }
             _ => { return "light"; }
@@ -26,12 +26,12 @@ impl Show for Shade {
 }
 
 /** Asking for a colour that was never set. */
-effect Missing {
+trait Missing {
     /** Reports the name that was asked for, and does not come back. */
-    final ctl absent(what: string);
+    @abort fn absent<T>(what: String): T;
 }
 
 /** Reports a missing colour and carries on. */
-handler quiet : Missing {
-    final ctl absent(what) { print("missing: " + what); }
+type Quiet impl EffectHandler<Missing, Unit> {
+    fn absent(what: String): Unit { print("missing: " + what); }
 }

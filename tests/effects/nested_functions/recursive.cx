@@ -1,0 +1,28 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn outer(stop: Int) {
+    fn down(n: Int): Int {
+        if (n == stop) { return throw("hit " + str(n)); }
+        if (n == 0) { return 0; }
+        return n + down(n - 1);
+    }
+    fn even(n: Int): Bool {
+        if (n == stop) { return throw("even hit " + str(n)); }
+        if (n == 0) { return true; }
+        return odd(n - 1);
+    }
+    fn odd(n: Int): Bool {
+        if (n == 0) { return false; }
+        return even(n - 1);
+    }
+    run<Unit> {
+        print(down(3));
+        print(even(4));
+        print(odd(7));
+        print(down(9));
+    } handle<Error> {
+        fn throw(m) { print(m); }
+    }
+}
+outer(-1);
+outer(2);

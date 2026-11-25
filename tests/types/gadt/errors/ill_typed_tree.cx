@@ -1,8 +1,8 @@
 // The point of the whole thing: an `Add` of a boolean is not representable.
 type Expr<T> {
-    Lit(int)                  -> Expr<int>,
-    Add(Expr<int>, Expr<int>) -> Expr<int>,
-    BoolLit(bool)             -> Expr<bool>,
+    Lit(Int)                  -> Expr<Int>,
+    Add(Expr<Int>, Expr<Int>) -> Expr<Int>,
+    BoolLit(Bool)             -> Expr<Bool>,
 }
 
 var bad = Expr.Add(Expr.Lit(1), Expr.BoolLit(true));

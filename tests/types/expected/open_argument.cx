@@ -1,0 +1,7 @@
+fn takes_any<T>(s: Set<T>) {
+    print(typeof(s).name);
+    print(s.len());
+}
+
+takes_any([1, 2, 2]);
+takes_any(["a", "a"]);

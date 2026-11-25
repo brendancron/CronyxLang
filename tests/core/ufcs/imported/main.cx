@@ -8,18 +8,18 @@ print(str(here.describe()) + " " + str(describe(here)));
 print(str(here.shifted(3).x) + " " + str(shifted(here, 3).x));
 print(str(2.doubled()) + " " + str(2.doubled().doubled()));
 
-type Marker { label: string }
+type Marker { label: String }
 
 impl Marker {
-    fn describe(self): string { return "method"; }
+    fn describe(self): String { return "method"; }
 }
 
 var m = Marker { label: "m" };
 print(m.describe());
 
 // A name bound locally resolves the way a reference to it would.
-fn shadowed(): int {
-    var doubled = (n: int) => 0 - n;
+fn shadowed(): Int {
+    var doubled = (n: Int) => 0 - n;
     return 5.doubled();
 }
 print(str(shadowed()) + " " + str(5.doubled()));

@@ -1,0 +1,11 @@
+cleaned up
+exit handled: 4
+2
+Some("set for CX_V2_PROCESS")
+3
+out
+err
+got abc
+["one", "two"]
+caught: no such file: cronyx-no-such-program
+last

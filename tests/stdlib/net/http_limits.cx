@@ -1,4 +1,4 @@
-import { async, race, both } from "std/async/Task";
+import { Async, race, both } from "std/async/Task";
 import { Throw, Result, Failure } from "std/core/Error";
 import { IoError } from "std/io/Io";
 import { tcp_listen, tcp_connect } from "std/net/Tcp";
@@ -9,7 +9,7 @@ import { repeat } from "std/text/String";
 import { Net } from "std/net/Net";
 import { Duration } from "std/os/Time";
 
-fn text(bytes: Array<byte>): string {
+fn text(bytes: Array<Byte>): String {
     match decode(bytes) {
         Result.Ok(t) => { return t; }
         Result.Err(_) => { return "not text"; }
@@ -17,9 +17,9 @@ fn text(bytes: Array<byte>): string {
     return "";
 }
 
-fn first_line(bytes: Array<byte>): string { return text(bytes).split('\r')[0]; }
+fn first_line(bytes: Array<Byte>): String { return text(bytes).split('\r')[0]; }
 
-fn raw(port: int, request: string, finished: bool): <Net, async, Throw<IoError>> string {
+fn raw(port: Int, request: String, finished: Bool): <Net, Async, Throw<IoError>> String {
     var conn = tcp_connect("127.0.0.1", port);
     conn.write(request.bytes());
     if (finished) { conn.shutdown_write(); }
@@ -28,7 +28,7 @@ fn raw(port: int, request: string, finished: bool): <Net, async, Throw<IoError>>
     return reply;
 }
 
-fn route(request: Request): <async, Throw<IoError>> Response {
+fn route(request: Request): <Async, Throw<IoError>> Response {
     if (request.target == "/empty") { return Response.text(204, "dropped"); }
     if (request.target == "/split") {
         var r = Response.text(200, "fine");
@@ -68,11 +68,11 @@ race([
         print("then: " + text(read_all(conn)).split('\n')[5]);
         conn.close();
 
-        run {
+        run<Unit> {
             send("GET", base + "/", Headers.new().set("X-Bad", "a\r\nHost: elsewhere"), []);
             print("sent a bad header");
-        } handle Throw {
-            final ctl throw(e) { print("refused to send: " + e.message()); }
+        } handle<Throw<IoError>> {
+            fn throw(e) { print("refused to send: " + e.message()); }
         }
     }
 ]);

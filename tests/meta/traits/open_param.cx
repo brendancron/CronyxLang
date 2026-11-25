@@ -1,0 +1,57 @@
+import { MethodSig, Param, Signature, TypeExpr, TypeKind } from "std/compiler/Ast";
+
+fn sig_named(name: String, ret: String): MethodSig {
+    return MethodSig {
+        name: name.as_name(),
+        params: [Param { name: "self".as_name(), ty: Option.None, implicit: false }],
+        signature: Signature {
+            ret: Option.Some(TypeExpr.of(TypeKind.Named(ret.as_name()))),
+            row: Option.None,
+            static_params: [], inline: false
+        },
+        attrs: []
+    };
+}
+
+trait Getter<T> {
+    meta {
+        gen sig_named("get", "T");
+    }
+}
+
+type Picker<R> { value: R }
+
+impl Getter<R> for Picker<R> {
+    fn get(self): R { return self.value; }
+}
+
+type Holder<Q> { held: Q }
+
+impl Getter<Q> for Holder<Q> {
+    fn get(self): Q { return self.held; }
+}
+
+fn sig_taking(name: String, arg: String, ret: String): MethodSig {
+    var s = sig_named(name, ret);
+    s.params.push(Param {
+        name: "x".as_name(),
+        ty: Option.Some(TypeExpr.of(TypeKind.Named(arg.as_name()))),
+        implicit: false
+    });
+    return s;
+}
+
+trait Convert<From, To> {
+    meta {
+        gen sig_taking("convert", "From", "To");
+    }
+}
+
+impl Convert<Int, R> for Picker<R> {
+    fn convert(self, x: Int): R { return self.value; }
+}
+
+print(Picker { value: 3 }.get() + 1);
+print(Picker { value: "x" }.get() + "y");
+print(Holder { held: true }.get());
+print(Picker { value: "kept" }.convert(5));

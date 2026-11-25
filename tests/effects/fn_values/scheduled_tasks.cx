@@ -1,0 +1,36 @@
+trait Sched { @ctl fn yield_now(): Unit; }
+
+fn worker(name: String, steps: Int): <Sched, Console> Int {
+    for (var i = 0; i < steps; i += 1) {
+        print(name + " step " + str(i));
+        yield_now();
+    }
+    return steps;
+}
+
+fn all(tasks: List<() -> <Sched, Console> Int>): List<Int> {
+    var results: List<Int> = [];
+    var ready: List<() -> <Console> Unit> = [];
+    for (task in tasks) {
+        run<Unit> {
+            var r = task();
+            results.push(r);
+        } handle<Sched> {
+            fn yield_now(resume) { ready.push { resume(()); }; }
+        }
+    }
+    while (ready.len() > 0) {
+        var next = ready[0];
+        ready = ready[1:];
+        next();
+    }
+    return results;
+}
+
+var tasks: List<() -> <Sched, Console> Int> = [];
+tasks.push(() => { return worker("a", 2); });
+tasks.push(() => { return worker("b", 3); });
+tasks.push(() => { return 7; });
+
+var done = all(tasks);
+for (r in done) { print("result " + str(r)); }

@@ -1,0 +1,22 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn outer(name: String) {
+    var count = 0;
+    fn middle(n: Int): Int {
+        var scale = 10;
+        fn inner(m: Int): Int {
+            count = count + 1;
+            if (m > 2) { return throw(name + " refused " + str(m)); }
+            return m * scale;
+        }
+        return inner(n) + inner(n + 1);
+    }
+    run<Unit> {
+        print(middle(1));
+        print(middle(2));
+    } handle<Error> {
+        fn throw(m) { print(m); }
+    }
+    print(count);
+}
+outer("deep");

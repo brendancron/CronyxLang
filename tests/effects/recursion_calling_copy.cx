@@ -1,0 +1,4 @@
+trait Ask { @ctl fn ask(): Int; }
+fn inner(n: Int) { print("inner " + str(n)); print(ask()); }
+fn outer(n: Int): Unit { if (n < 2) { inner(n); outer(n + 1); } }
+run<Unit> { outer(0); } handle<Ask> { fn ask(resume) { resume(1); } }

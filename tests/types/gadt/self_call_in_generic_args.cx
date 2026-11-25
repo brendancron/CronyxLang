@@ -1,10 +1,10 @@
 type Expr<T> {
-    Lit(int)                            -> Expr<int>,
-    BoolLit(bool)                       -> Expr<bool>,
-    If<A>(Expr<bool>, Expr<A>, Expr<A>) -> Expr<A>,
+    Lit(Int)                            -> Expr<Int>,
+    BoolLit(Bool)                       -> Expr<Bool>,
+    If<A>(Expr<Bool>, Expr<A>, Expr<A>) -> Expr<A>,
 }
 
-fn choose<A>(c: bool, a: A, b: A): A {
+fn choose<A>(c: Bool, a: A, b: A): A {
     if (c) { return a; }
     return b;
 }

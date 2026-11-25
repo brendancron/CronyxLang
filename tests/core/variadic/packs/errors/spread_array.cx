@@ -1,4 +1,4 @@
-fn show(a: int, b: int) {
+fn show(a: Int, b: Int) {
     print(a + b);
 }
 

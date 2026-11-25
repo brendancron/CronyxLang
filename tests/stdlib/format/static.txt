@@ -1,0 +1,12 @@
+21C
+[Celsius(1), Celsius(2)]
+Some(Celsius(3))
+box of 1
+box of two
+Reading { at: 9, temp: Celsius(4) }
+Level.High(Celsius(5))
+(1, "a", 'c', Celsius(6))
+{ level: Level.Low, name: "x" }
+unit
+int: 7
+tuple: (true, 2.5)

@@ -1,5 +1,5 @@
 1 2
-9 { x: int, y: int }
+9 { x: Int, y: Int }
 Alice
 Bob
 77

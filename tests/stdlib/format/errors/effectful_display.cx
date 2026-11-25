@@ -1,6 +1,6 @@
-type Loud { n: int }
+type Loud { n: Int }
 impl Display for Loud {
-    fn fmt(self): string {
+    fn fmt(self): String {
         print("formatting");
         return "loud";
     }

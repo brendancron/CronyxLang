@@ -1,1 +1,1 @@
-[9:1] 'Speaker' for 'Cat' declares 'speak' as (self): string but defines (self): <Ask> string.
+[15:18] Cat cannot become a 'Speaker': its 'speak' performs 'Ask', which Speaker.speak does not allow.

@@ -1,9 +1,9 @@
 import { iterator, Yield } from "std/iter/Yield";
-import { async, pause } from "std/async/Task";
+import { Async, pause } from "std/async/Task";
 
-var log: List<string> = [];
+var log: List<String> = [];
 
-fn produce(): Iter<int, <async>> {
+fn produce(): Iter<Int, <Async>> {
     return iterator {
         yield(1);
         pause();
@@ -11,10 +11,10 @@ fn produce(): Iter<int, <async>> {
     };
 }
 
-fn consume() {
+fn consume(log: List<String>) {
     for (n in produce()) { log.push(str(n)); }
     log.push("after loop");
 }
 
-consume();
+consume(log);
 for (l in log) { print(l); }

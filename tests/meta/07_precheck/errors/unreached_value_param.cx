@@ -1,5 +1,0 @@
-fn label<a: int>(b: string): string {
-    return a + b;
-}
-
-print("never called");

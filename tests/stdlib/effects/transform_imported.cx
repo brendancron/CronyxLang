@@ -1,0 +1,3 @@
+import { effect_transform } from "std/core/Transform";
+
+print("checked");

@@ -1,0 +1,14 @@
+fn id(x: Int): Int {
+    return x;
+}
+
+fn first(x: String) {
+    return x;
+}
+
+fn times(x: Int): Int {
+    var n: Int = 3;
+    return (x * n);
+}
+
+1

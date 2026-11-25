@@ -1,0 +1,6 @@
+fn main(): Unit {
+    var nothing = Option.None;
+    print("ran");
+}
+
+main();

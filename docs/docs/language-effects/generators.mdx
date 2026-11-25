@@ -11,22 +11,22 @@ In Cronyx it's an effect whose arm resumes once per value.
 ## Yield as an operation
 
 ```cronyx
-effect stream {
-    ctl yield(value: int): unit;
+trait Stream {
+    @ctl fn yield(value: Int): Unit;
 }
 
-fn range(low: int, high: int, step: int) {
+fn range(low: Int, high: Int, step: Int) {
     for (var i = low; i < high; i += step) {
         yield(i);
     }
 }
 
-run {
+run<Unit> {
     range(5, 15, 2);
-} handle stream {
-    ctl yield(value) {
+} handle<Stream> {
+    fn yield(value, resume) {
         print(value);
-        resume;
+        resume(());
     }
 }
 ```
@@ -41,18 +41,18 @@ run {
 
 `range` is an ordinary loop. It doesn't return a list, doesn't build one, and doesn't know that anything is consuming it — it performs `yield` and continues. The arm gets each value, does something with it, and calls `resume` to let the loop take its next step.
 
-`resume` with no argument is the right form here because `yield` produces `unit`: there's nothing to hand back to the call site, we just want the producer to keep going.
+`resume(())` hands back `()`, the one value of type `Unit`, because that's what `yield` produces: there's nothing to give the call site, we just want the producer to keep going.
 
 ## The producer stays readable
 
 The reason to care is what happens to a producer with real control flow in it. A hand-written iterator has to encode its loop state in a struct; here the state is just local variables, because the function really is paused mid-loop:
 
 ```cronyx
-effect stream {
-    ctl yield(value: int): unit;
+trait Stream {
+    @ctl fn yield(value: Int): Unit;
 }
 
-fn fibonacci(n: int) {
+fn fibonacci(n: Int) {
     var a = 0;
     var b = 1;
     for (var count = 0; count < n; count++) {
@@ -63,12 +63,12 @@ fn fibonacci(n: int) {
     }
 }
 
-run {
+run<Unit> {
     fibonacci(10);
-} handle stream {
-    ctl yield(value) {
+} handle<Stream> {
+    fn yield(value, resume) {
         print(value);
-        resume;
+        resume(());
     }
 }
 ```
@@ -93,34 +93,34 @@ run {
 Printing is the least interesting thing an arm can do. Since the arm is ordinary code closing over its surroundings, a consumer that collects, filters or counts is a change to the handler alone:
 
 ```cronyx
-effect stream {
-    ctl yield(value: int): unit;
+trait Stream {
+    @ctl fn yield(value: Int): Unit;
 }
 
-fn range(low: int, high: int, step: int) {
+fn range(low: Int, high: Int, step: Int) {
     for (var i = low; i < high; i += step) {
         yield(i);
     }
 }
 
-var evens: List<int> = [];
-run {
+var evens: List<Int> = [];
+run<Unit> {
     range(0, 10, 1);
-} handle stream {
-    ctl yield(value) {
+} handle<Stream> {
+    fn yield(value, resume) {
         if (value % 2 == 0) { evens.push(value); }
-        resume;
+        resume(());
     }
 }
 for (x in evens) { print(x); }
 
 var total = 0;
-run {
+run<Unit> {
     range(0, 10, 1);
-} handle stream {
-    ctl yield(value) {
+} handle<Stream> {
+    fn yield(value, resume) {
         total += value;
-        resume;
+        resume(());
     }
 }
 print(total);
@@ -142,19 +142,22 @@ One producer, three consumers so far, and no `Iterator` trait between them.
 A consumer that has seen enough simply doesn't resume:
 
 ```cronyx
-effect stream {
-    ctl yield(value: int): unit;
+trait Stream {
+    @ctl fn yield(value: Int): Unit;
 }
 
-fn range(low: int, high: int, step: int) {
+fn range(low: Int, high: Int, step: Int) {
     for (var i = low; i < high; i += step) {
         yield(i);
     }
 }
 
-var first = run { range(100, 200, 1) } handle stream {
-    ctl yield(value) { return value; }
-} return (nothing) { -1 };
+var first = run<Int> {
+    range(100, 200, 1);
+    -1
+} handle<Stream> {
+    fn yield(value, resume) { return value; }
+};
 
 print(first);
 ```
@@ -163,18 +166,52 @@ print(first);
 100
 ```
 
-The arm answers for the whole block with `return`, so `range` is abandoned mid-loop after one value. `break` in the consumer, expressed as the absence of `resume` in the producer's handler. The `return (nothing) { -1 }` clause is the value the block takes when the producer finishes on its own — an empty range would give `-1`.
+The arm answers for the whole block with `return`, so `range` is abandoned mid-loop after one value. `break` in the consumer, expressed as the absence of `resume` in the producer's handler. The `-1` at the end of the block is the value it takes when the producer finishes on its own — an empty range would give `-1`.
+
+Abandoned is the right word: the paused `range` is simply dropped, so nothing after its `yield` ever runs, its `defer`s included. When the producer has cleanup to do — a file to close, a count to report — the arm should `discontinue` the continuation rather than drop it. `discontinue(resume)` unwinds the paused code from the `yield`, running its `defer`s on the way, and then comes back to the arm:
+
+```cronyx
+trait Stream {
+    @ctl fn yield(value: Int): Unit;
+}
+
+fn range(low: Int, high: Int, step: Int) {
+    defer { print("range closed"); }
+    for (var i = low; i < high; i += step) {
+        yield(i);
+    }
+}
+
+var first = run<Int> {
+    range(100, 200, 1);
+    -1
+} handle<Stream> {
+    fn yield(value, resume) {
+        discontinue(resume);
+        return value;
+    }
+};
+
+print(first);
+```
+
+```
+range closed
+100
+```
+
+Leave out the `discontinue` and the same program prints only `100`.
 
 ## One effect, many element types
 
-An effect can take type parameters, so a single `Yield` serves every element type. Each instantiation is a distinct effect to handle:
+An effect can take type parameters, as any trait can, so a single `Yield` serves every element type. Each instantiation is a distinct effect to handle, and a handler names the one it handles:
 
 ```cronyx
-effect Yield<T> {
-    ctl yield(value: T): unit;
+trait Yield<T> {
+    @ctl fn yield(value: T): Unit;
 }
 
-fn range(low: int, high: int) {
+fn range(low: Int, high: Int) {
     var i = low;
     while (i < high) {
         yield(i);
@@ -182,22 +219,22 @@ fn range(low: int, high: int) {
     }
 }
 
-fn each_word(text: string) {
+fn each_word(text: String) {
     for (word in text.split(' ')) {
         yield(word);
     }
 }
 
-run {
+run<Unit> {
     range(1, 4);
-} handle Yield {
-    ctl yield(x) { print(x); resume; }
+} handle<Yield<Int>> {
+    fn yield(x, resume) { print(x); resume(()); }
 }
 
-run {
+run<Unit> {
     each_word("hello world foo");
-} handle Yield {
-    ctl yield(w) { print(w); resume; }
+} handle<Yield<String>> {
+    fn yield(w, resume) { print(w); resume(()); }
 }
 ```
 
@@ -210,7 +247,7 @@ world
 foo
 ```
 
-This is `Yield<T>` from `stdlib/iter/Yield.cx`, and it's all the standard library needs to declare — the handler at each use site is what makes it a printer, a collector, or a limit.
+This is `Yield<T>` from `std/iter/Yield`, and it's all the standard library needs to declare — the handler at each use site is what makes it a printer, a collector, or a limit.
 
 ## Push, and how to get pull
 
@@ -219,18 +256,18 @@ One honest difference from Python's generators: what you've written here is *pus
 Pull is the same machinery with the continuation kept rather than called immediately. An arm can store `resume` somewhere and return, leaving the producer parked until someone asks for more:
 
 ```cronyx
-effect deferred {
-    ctl todo(): unit;
+trait Deferred {
+    @ctl fn todo(): Unit;
 }
 
-var pending: List<() -> unit> = [];
+var pending: List<() -> Unit> = [];
 
-run {
+run<Unit> {
     print("before");
     todo();
     print("after");
-} handle deferred {
-    ctl todo() { pending.push(() => { resume; }); }
+} handle<Deferred> {
+    fn todo(resume) { pending.push(() => { resume(()); }); }
 }
 
 print("run finished");
@@ -249,16 +286,16 @@ The `run` block finished while the code inside it was still suspended, and calli
 
 ## Try it
 
-Write a producer `countdown(from: int)` that yields `from`, `from - 1`, … down to 1, then handle it twice: once printing each value, once collecting them into a list and printing the list.
+Write a producer `countdown(from: Int)` that yields `from`, `from - 1`, … down to 1, then handle it twice: once printing each value, once collecting them into a list and printing the list.
 
 A working answer:
 
 ```cronyx
-effect stream {
-    ctl yield(value: int): unit;
+trait Stream {
+    @ctl fn yield(value: Int): Unit;
 }
 
-fn countdown(from: int) {
+fn countdown(from: Int) {
     var i = from;
     while (i > 0) {
         yield(i);
@@ -266,17 +303,17 @@ fn countdown(from: int) {
     }
 }
 
-run {
+run<Unit> {
     countdown(3);
-} handle stream {
-    ctl yield(value) { print(value); resume; }
+} handle<Stream> {
+    fn yield(value, resume) { print(value); resume(()); }
 }
 
-var collected: List<int> = [];
-run {
+var collected: List<Int> = [];
+run<Unit> {
     countdown(3);
-} handle stream {
-    ctl yield(value) { collected.push(value); resume; }
+} handle<Stream> {
+    fn yield(value, resume) { collected.push(value); resume(()); }
 }
 print(collected.len());
 ```

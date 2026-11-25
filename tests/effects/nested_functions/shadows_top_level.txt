@@ -1,0 +1,4 @@
+10
+101
+top-level helper 2
+local helper 2

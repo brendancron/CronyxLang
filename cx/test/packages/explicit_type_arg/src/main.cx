@@ -1,4 +1,4 @@
-type A { x: int }
+type A { x: Int }
 
 var xs = Array<A>(1, A { x: 1 });
 print(xs.len());

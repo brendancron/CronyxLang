@@ -10,26 +10,26 @@
  * print(BigInt.parse("-12345678901234567890") / 7);  // -1763668414462081127
  * ```
  *
- * Every operator an `int` has, but the bitwise ones, takes a `BigInt` or an
- * `int` on its right. Division truncates toward zero and a remainder takes the
- * sign of the dividend, as on an `int`, so the two agree wherever an `int`
- * does not overflow. Dividing by zero panics, as it does on an `int`.
+ * Every operator an `Int` has, but the bitwise ones, takes a `BigInt` or an
+ * `Int` on its right. Division truncates toward zero and a remainder takes the
+ * sign of the dividend, as on an `Int`, so the two agree wherever an `Int`
+ * does not overflow. Dividing by zero panics, as it does on an `Int`.
  */
 
 import { join } from "../collections/List";
 
 /** An integer with as many digits as it needs. */
 type BigInt {
-    negative: bool,
+    negative: Bool,
     // Base `__base` digits, least significant first, with no zero at the top:
     // zero is no digits at all, and never negative.
-    digits: List<int>
+    digits: List<Int>
 }
 
 impl BigInt {
     /** The integer `n`. */
-    fn of(n: int): BigInt {
-        var digits: List<int> = [];
+    fn of(n: Int): BigInt {
+        var digits: List<Int> = [];
         var rest = n;
         // Divided while still negative: the most negative int has no positive twin.
         while (rest != 0) {
@@ -42,7 +42,7 @@ impl BigInt {
     }
 
     /** The integer the decimal text spells, with an optional `-` or `+`, or `None`. */
-    fn parse(text: string): Option<BigInt> {
+    fn parse(text: String): Option<BigInt> {
         var body = text;
         var negative = false;
         if (body.starts_with("-")) {
@@ -55,7 +55,7 @@ impl BigInt {
         for (c in body.chars()) {
             if (c < '0' || c > '9') { return Option.None; }
         }
-        var digits: List<int> = [];
+        var digits: List<Int> = [];
         var end = body.len();
         while (end > 0) {
             var start = end - 7;
@@ -69,8 +69,8 @@ impl BigInt {
         return Option.Some(__made(negative, digits));
     }
 
-    /** The value as an `int`, or `None` if it does not fit in one. */
-    fn to_int(self): Option<int> {
+    /** The value as an `Int`, or `None` if it does not fit in one. */
+    fn to_int(self): Option<Int> {
         if (__compare_magnitude(self.digits, __largest().digits) > 0 && !(self.negative && __equal(self, __smallest()))) {
             return Option.None;
         }
@@ -86,10 +86,10 @@ impl BigInt {
     }
 
     /** Whether it is zero. */
-    fn is_zero(self): bool { return self.digits.len() == 0; }
+    fn is_zero(self): Bool { return self.digits.len() == 0; }
 
-    /** The value as a `float`: exact up to 2^53, rounded beyond, and infinite past the largest. */
-    fn to_float(self): float {
+    /** The value as a `Float`: exact up to 2^53, rounded beyond, and infinite past the largest. */
+    fn to_float(self): Float {
         var total = 0.0;
         var i = self.digits.len() - 1;
         while (i >= 0) {
@@ -106,9 +106,9 @@ impl Add<BigInt> for BigInt {
     fn add(self, rhs: BigInt): BigInt { return __add(self, rhs); }
 }
 
-impl Add<int> for BigInt {
+impl Add<Int> for BigInt {
     type Output = BigInt;
-    fn add(self, rhs: int): BigInt { return __add(self, BigInt.of(rhs)); }
+    fn add(self, rhs: Int): BigInt { return __add(self, BigInt.of(rhs)); }
 }
 
 impl Sub<BigInt> for BigInt {
@@ -116,9 +116,9 @@ impl Sub<BigInt> for BigInt {
     fn sub(self, rhs: BigInt): BigInt { return __add(self, __negated(rhs)); }
 }
 
-impl Sub<int> for BigInt {
+impl Sub<Int> for BigInt {
     type Output = BigInt;
-    fn sub(self, rhs: int): BigInt { return __add(self, __negated(BigInt.of(rhs))); }
+    fn sub(self, rhs: Int): BigInt { return __add(self, __negated(BigInt.of(rhs))); }
 }
 
 impl Mul<BigInt> for BigInt {
@@ -126,9 +126,9 @@ impl Mul<BigInt> for BigInt {
     fn mul(self, rhs: BigInt): BigInt { return __multiply(self, rhs); }
 }
 
-impl Mul<int> for BigInt {
+impl Mul<Int> for BigInt {
     type Output = BigInt;
-    fn mul(self, rhs: int): BigInt { return __multiply(self, BigInt.of(rhs)); }
+    fn mul(self, rhs: Int): BigInt { return __multiply(self, BigInt.of(rhs)); }
 }
 
 impl Div<BigInt> for BigInt {
@@ -136,9 +136,9 @@ impl Div<BigInt> for BigInt {
     fn div(self, rhs: BigInt): BigInt { return __divide(self, rhs).0; }
 }
 
-impl Div<int> for BigInt {
+impl Div<Int> for BigInt {
     type Output = BigInt;
-    fn div(self, rhs: int): BigInt { return __divide(self, BigInt.of(rhs)).0; }
+    fn div(self, rhs: Int): BigInt { return __divide(self, BigInt.of(rhs)).0; }
 }
 
 impl Rem<BigInt> for BigInt {
@@ -146,9 +146,9 @@ impl Rem<BigInt> for BigInt {
     fn rem(self, rhs: BigInt): BigInt { return __divide(self, rhs).1; }
 }
 
-impl Rem<int> for BigInt {
+impl Rem<Int> for BigInt {
     type Output = BigInt;
-    fn rem(self, rhs: int): BigInt { return __divide(self, BigInt.of(rhs)).1; }
+    fn rem(self, rhs: Int): BigInt { return __divide(self, BigInt.of(rhs)).1; }
 }
 
 impl Neg for BigInt {
@@ -157,7 +157,7 @@ impl Neg for BigInt {
 }
 
 impl Eq for BigInt {
-    fn eq(self, rhs: BigInt): bool { return __equal(self, rhs); }
+    fn eq(self, rhs: BigInt): Bool { return __equal(self, rhs); }
 }
 
 impl PartialOrd for BigInt {
@@ -170,9 +170,9 @@ impl PartialOrd for BigInt {
 }
 
 impl Display for BigInt {
-    fn fmt(self): string {
+    fn fmt(self): String {
         if (self.is_zero()) { return "0"; }
-        var parts: List<string> = [];
+        var parts: List<String> = [];
         var i = self.digits.len() - 1;
         parts.push(str(self.digits[i]));
         i -= 1;
@@ -189,30 +189,30 @@ impl Display for BigInt {
 }
 
 impl Debug for BigInt {
-    fn debug(self): string { return self.fmt(); }
+    fn debug(self): String { return self.fmt(); }
 }
 
-fn __base(): int { return 10000000; }
+fn __base(): Int { return 10000000; }
 
 fn __largest(): BigInt { return BigInt.of(4611686018427387903); }
 fn __smallest(): BigInt { return BigInt.of(-4611686018427387903 - 1); }
 
 // The value with the zeros at the top dropped, and no sign on zero.
-fn __made(negative: bool, digits: List<int>): BigInt {
+fn __made(negative: Bool, digits: List<Int>): BigInt {
     var top = digits.len();
     while (top > 0 && digits[top - 1] == 0) { top -= 1; }
-    var kept: List<int> = [];
+    var kept: List<Int> = [];
     for (var i = 0; i < top; i += 1) { kept.push(digits[i]); }
     return BigInt { negative: negative && top > 0, digits: kept };
 }
 
 fn __negated(n: BigInt): BigInt { return __made(!n.negative, n.digits); }
 
-fn __equal(a: BigInt, b: BigInt): bool {
+fn __equal(a: BigInt, b: BigInt): Bool {
     return a.negative == b.negative && __compare_magnitude(a.digits, b.digits) == 0;
 }
 
-fn __compare(a: BigInt, b: BigInt): int {
+fn __compare(a: BigInt, b: BigInt): Int {
     if (a.negative != b.negative) {
         if (a.negative) { return -1; }
         return 1;
@@ -222,7 +222,7 @@ fn __compare(a: BigInt, b: BigInt): int {
     return c;
 }
 
-fn __compare_magnitude(a: List<int>, b: List<int>): int {
+fn __compare_magnitude(a: List<Int>, b: List<Int>): Int {
     if (a.len() != b.len()) {
         if (a.len() < b.len()) { return -1; }
         return 1;
@@ -247,8 +247,8 @@ fn __add(a: BigInt, b: BigInt): BigInt {
     return __made(b.negative, __sub_magnitude(b.digits, a.digits));
 }
 
-fn __add_magnitude(a: List<int>, b: List<int>): List<int> {
-    var out: List<int> = [];
+fn __add_magnitude(a: List<Int>, b: List<Int>): List<Int> {
+    var out: List<Int> = [];
     var carry = 0;
     var i = 0;
     while (i < a.len() || i < b.len() || carry > 0) {
@@ -263,8 +263,8 @@ fn __add_magnitude(a: List<int>, b: List<int>): List<int> {
 }
 
 // `a` is at least `b`.
-fn __sub_magnitude(a: List<int>, b: List<int>): List<int> {
-    var out: List<int> = [];
+fn __sub_magnitude(a: List<Int>, b: List<Int>): List<Int> {
+    var out: List<Int> = [];
     var borrow = 0;
     for (var i = 0; i < a.len(); i += 1) {
         var d = a[i] - borrow;
@@ -296,13 +296,13 @@ fn __multiply(a: BigInt, b: BigInt): BigInt {
             j += 1;
         }
     }
-    var digits: List<int> = [];
+    var digits: List<Int> = [];
     for (d in out) { digits.push(d); }
     return __made(a.negative != b.negative, digits);
 }
 
-fn __times_small(digits: List<int>, factor: int): List<int> {
-    var out: List<int> = [];
+fn __times_small(digits: List<Int>, factor: Int): List<Int> {
+    var out: List<Int> = [];
     var carry = 0;
     for (d in digits) {
         var product = d * factor + carry;
@@ -323,11 +323,11 @@ fn __divide(a: BigInt, b: BigInt): (BigInt, BigInt) {
     if (b.is_zero()) { panic("Division by zero."); }
     if (__compare_magnitude(a.digits, b.digits) < 0) { return (BigInt.of(0), a); }
     var quotient = Array(a.digits.len(), 0);
-    var remainder: List<int> = [];
+    var remainder: List<Int> = [];
     var i = a.digits.len() - 1;
     while (i >= 0) {
         // remainder = remainder * base + a.digits[i]
-        var shifted: List<int> = [a.digits[i]];
+        var shifted: List<Int> = [a.digits[i]];
         for (d in remainder) { shifted.push(d); }
         remainder = __made(false, shifted).digits;
         var low = 0;
@@ -340,7 +340,7 @@ fn __divide(a: BigInt, b: BigInt): (BigInt, BigInt) {
         if (low > 0) { remainder = __made(false, __sub_magnitude(remainder, __times_small(b.digits, low))).digits; }
         i -= 1;
     }
-    var q: List<int> = [];
+    var q: List<Int> = [];
     for (d in quotient) { q.push(d); }
     return (__made(a.negative != b.negative, q), __made(a.negative, remainder));
 }

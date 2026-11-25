@@ -1,0 +1,19 @@
+import { Throw } from "std/core/Error";
+trait Log { fn log(s: String): Unit; }
+
+fn work(n: Int): <Log, Throw<String>> Int {
+    log("work " + str(n));
+    if (n > 2) { throw("big"); }
+    return n;
+}
+
+var lines: List<String> = [];
+run<Unit> {
+    print(work(1));
+    print(work(5));
+} handle<Log> {
+    fn log(s) { lines.push(s); }
+} handle<Throw<String>> {
+    @abort fn throw(e) { print("failed: " + e); }
+}
+for (l in lines) { print(l); }

@@ -1,12 +1,12 @@
-effect log {
-    fn emit(msg: string): unit;
+trait Log {
+    fn emit(msg: String): Unit;
 }
 
-effect Pick {
-    ctl pick(): int;
+trait Pick {
+    @ctl fn pick(): Int;
 }
 
-fn counted<E>(f: () -> <E> int): () -> <E> int {
+fn counted<E>(f: () -> <E> Int): () -> <E> Int {
     var calls = 0;
     return () => {
         calls = calls + 1;
@@ -19,9 +19,9 @@ print(plain());
 print(plain());
 
 var logged = counted(() => { emit("inner"); return 2; });
-run {
+run<Unit> {
     print(logged());
-} handle log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }
 
@@ -29,8 +29,8 @@ var printed = counted(() => { print("printing"); return 3; });
 print(printed());
 
 var picked = counted(() => { return pick(); });
-run {
+run<Unit> {
     print(picked());
-} handle Pick {
-    ctl pick() { resume 4; resume 5; }
+} handle<Pick> {
+    fn pick(resume) { resume(4); resume(5); }
 }

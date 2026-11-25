@@ -14,7 +14,7 @@ Use the `trait` keyword followed by a name and a block of method signatures:
 
 ```cronyx
 trait Describe {
-    fn describe(self): string;
+    fn describe(self): String;
 }
 ```
 
@@ -33,26 +33,26 @@ Use `impl <Trait> for <Type>` to provide the methods for a specific type:
 
 ```cronyx
 trait Describe {
-    fn describe(self): string;
+    fn describe(self): String;
 }
 
 type Circle {
-    radius: int
+    radius: Int
 }
 
 type Rectangle {
-    width: int,
-    height: int
+    width: Int,
+    height: Int
 }
 
 impl Describe for Circle {
-    fn describe(self): string {
+    fn describe(self): String {
         return "circle with radius " + str(self.radius);
     }
 }
 
 impl Describe for Rectangle {
-    fn describe(self): string {
+    fn describe(self): String {
         return "rectangle " + str(self.width) + "x" + str(self.height);
     }
 }
@@ -84,7 +84,7 @@ A trait's methods are reachable through a dot only in a file that can see the tr
 ```cronyx
 import { square } from "shapes";
 
-print(square(3).area());   // error: 'area' on 'Square' comes from the trait 'Area', which is not in scope here
+print(square(3).area());   // error: 'area' on 'Square' comes from the trait 'Area', which is not in scope here. Import it to call the method.
 ```
 
 ```cronyx
@@ -101,28 +101,28 @@ A trait pays off when you have *several* types that share an interface. Here's t
 
 ```cronyx
 trait Show {
-    fn show(self): string;
+    fn show(self): String;
 }
 
 type Point {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 type Color {
-    r: int,
-    g: int,
-    b: int
+    r: Int,
+    g: Int,
+    b: Int
 }
 
 impl Show for Point {
-    fn show(self): string {
+    fn show(self): String {
         return "(" + str(self.x) + ", " + str(self.y) + ")";
     }
 }
 
 impl Show for Color {
-    fn show(self): string {
+    fn show(self): String {
         return "rgb(" + str(self.r) + ", " + str(self.g) + ", " + str(self.b) + ")";
     }
 }
@@ -147,27 +147,27 @@ The real power shows up when you write code that works for *any* type implementi
 
 ```cronyx
 trait Summary {
-    fn summarize(self): string;
+    fn summarize(self): String;
 }
 
 type Article {
-    title: string,
-    author: string
+    title: String,
+    author: String
 }
 
 type Tweet {
-    username: string,
-    content: string
+    username: String,
+    content: String
 }
 
 impl Summary for Article {
-    fn summarize(self): string {
+    fn summarize(self): String {
         return self.title + " by " + self.author;
     }
 }
 
 impl Summary for Tweet {
-    fn summarize(self): string {
+    fn summarize(self): String {
         return self.username + ": " + self.content;
     }
 }
@@ -200,20 +200,20 @@ When you need that, write the trait *as a type*:
 
 ```cronyx
 trait Speaker {
-    fn speak(self): string;
+    fn speak(self): String;
 }
 
 type Cat;
 type Dog;
 
 impl Speaker for Cat {
-    fn speak(self): string {
+    fn speak(self): String {
         return "meow";
     }
 }
 
 impl Speaker for Dog {
-    fn speak(self): string {
+    fn speak(self): String {
         return "woof";
     }
 }
@@ -257,17 +257,20 @@ pen.occupant = Dog;                      // an assignment into a field
 They read similarly and do different work:
 
 ```cronyx
-fn viaBound<S: Speaker>(s: S) { print(s.speak()); }   // one copy per type, direct call
-fn viaObject(s: Speaker)      { print(s.speak()); }   // one function, call through the pair
+fn via_bound<S: Speaker>(s: S) { print(s.speak()); }   // one copy per type, direct call
+fn via_object(s: Speaker)      { print(s.speak()); }   // one function, call through the pair
 ```
 
-Because a bound needs the real type, an object can't be passed to one:
+An object still meets a bound on its own trait: `via_bound(sp)`, with `sp` a `Speaker` object, makes one copy of `via_bound` at the object type, and the call inside it goes through the pair. What an object can't meet is a bound on any other trait. Say `Cat` also implements a `Walker` trait — the object holds `Cat`'s `Speaker` methods and nothing else, so `Walker`'s are out of reach:
 
 ```cronyx
+fn stroll<W: Walker>(w: W) { print(w.walk()); }
+
 var sp: Speaker = Cat;
-viaBound(sp);
-// 'sp' is a 'Speaker' object; '<S: Speaker>' needs the type behind it,
-// which an object does not carry.
+via_bound(sp);   // meow
+stroll(sp);
+// 'sp' is a 'Speaker' object, which meets that trait and its supertraits;
+// '<W: Walker>' needs the type behind it, which an object does not carry.
 ```
 
 Reach for the bound by default. Reach for the object when a single value, field or collection genuinely has to hold more than one type.
@@ -289,16 +292,16 @@ print(a == c);   // false
 If a trait's method performs an effect, the trait says so and every impl says the same thing:
 
 ```cronyx
-effect Ask { ctl get(): int; }
+trait Ask { @ctl fn get(): Int; }
 
 trait Speaker {
-    fn speak(self): <Ask> string;
+    fn speak(self): <Ask> String;
 }
 
 impl Speaker for Cat {
-    fn speak(self): string { return "meow"; }
-    // 'Speaker' for 'Cat' declares 'speak' as (self): <Ask> string
-    // but defines (self): string.
+    fn speak(self): String { return "meow"; }
+    // 'Speaker' for 'Cat' declares 'speak' as (self): <Ask> String
+    // but defines (self): String.
 }
 ```
 
@@ -310,8 +313,8 @@ A trait object finds its methods through the value, so a method that doesn't tak
 
 ```cronyx
 trait Maker {
-    fn make(): int;          // no self
-    fn show(self): string;
+    fn make(): Int;          // no self
+    fn show(self): String;
 }
 ```
 
@@ -325,32 +328,32 @@ Writing `Maker` as a type — `var maker: Maker = ...` — is rejected where you
 
 ## Try it
 
-Define a trait `Area` with one method, `area(self): int`. Implement it for `Circle { radius: int }` and `Rectangle { width: int, height: int }`. Then write a generic function `print_area<T: Area>(shape: T)` that prints the area of any shape, and call it with one of each.
+Define a trait `Area` with one method, `area(self): Int`. Implement it for `Circle { radius: Int }` and `Rectangle { width: Int, height: Int }`. Then write a generic function `print_area<T: Area>(shape: T)` that prints the area of any shape, and call it with one of each.
 
 A working answer:
 
 ```cronyx
 trait Area {
-    fn area(self): int;
+    fn area(self): Int;
 }
 
 type Circle {
-    radius: int
+    radius: Int
 }
 
 type Rectangle {
-    width: int,
-    height: int
+    width: Int,
+    height: Int
 }
 
 impl Area for Circle {
-    fn area(self): int {
+    fn area(self): Int {
         return self.radius * self.radius * 3;
     }
 }
 
 impl Area for Rectangle {
-    fn area(self): int {
+    fn area(self): Int {
         return self.width * self.height;
     }
 }
@@ -371,7 +374,7 @@ print_area(r);
 24
 ```
 
-Try adding a `Triangle { base: int, height: int }` with its own `Area` impl. The `print_area` function picks it up without any change — that's the trait bound earning its keep.
+Try adding a `Triangle { base: Int, height: Int }` with its own `Area` impl. The `print_area` function picks it up without any change — that's the trait bound earning its keep.
 
 ## What's next
 

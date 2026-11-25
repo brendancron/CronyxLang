@@ -1,5 +1,5 @@
 // Only what reflection describes gets a shape of its own; the rest says so.
-fn kind(shape: TypeShape): string {
+fn kind(shape: TypeShape): String {
     match shape {
         TypeShape.Scalar => { return "scalar"; }
         TypeShape.Product(name, _, fields) => { return "product"; }

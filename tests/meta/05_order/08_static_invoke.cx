@@ -1,5 +1,5 @@
 trait Speaker {
-    fn speak(self): string;
+    fn speak(self): String;
 }
 
 type Cat;
@@ -7,21 +7,21 @@ type Dog;
 type Cow;
 
 impl Speaker for Cat {
-    fn speak(self): string {
+    fn speak(self): String {
         meta print("Cat.speak");
         return "Meow";
     }
 }
 
 impl Speaker for Dog {
-    fn speak(self): string {
+    fn speak(self): String {
         meta print("Dog.speak");
         return "Woof";
     }
 }
 
 impl Speaker for Cow {
-    fn speak(self): string {
+    fn speak(self): String {
         meta print("Cow.speak");
         return "Moo";
     }

@@ -1,6 +1,6 @@
 type Color { Red, Blue }
 
-fn main(): unit {
+fn main(): Unit {
     var c = Color.Red;
     match c {
         Color.Red => {

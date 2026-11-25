@@ -1,0 +1,61 @@
+trait Log {
+    fn log(msg: String): Unit;
+}
+
+trait Ask {
+    fn ask(): Int;
+}
+
+fn countdown(n: Int): Unit {
+    if (n == 0) { return; }
+    log("at " + str(n));
+    countdown(n - 1);
+}
+
+fn total(): Int {
+    return ask() + ask();
+}
+
+fn nested(prefix: String): Int {
+    var seen = 0;
+    var r = run<Int> {
+        log("inner start");
+        total()
+    } handle<Ask> {
+        fn ask() {
+            seen = seen + 1;
+            log(prefix + " asked " + str(seen));
+            return 10 * seen;
+        }
+    };
+    return r;
+}
+
+var lines: List<String> = [];
+run<Unit> {
+    countdown(2);
+    print(nested("p"));
+} handle<Log> {
+    fn log(msg) { lines.push(msg); }
+}
+for (l in lines) { print(l); }
+
+var v = run<Int> {
+    ask() * 2
+} handle<Ask> {
+    fn ask() { return 21; }
+};
+print(v);
+
+type Outer {}
+impl Log for Outer {
+    fn log(msg: String): Unit { print("outer: " + msg); }
+}
+
+run<Unit> {
+    run<Unit> {
+        log("hi");
+    } handle<Log> {
+        fn log(msg) { log("relayed " + msg); }
+    }
+} with Outer;

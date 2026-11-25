@@ -32,7 +32,7 @@ print((-4.5).abs());
 print(sum([1, 2, 3, 4]));
 print(sum([0.5, 0.25]));
 print(sum([BigInt.of(1), BigInt.of(10).pow(20), BigInt.of(10).pow(20)]));
-var none: List<int> = [];
+var none: List<Int> = [];
 print(sum(none));
 print(product([1, 2, 3, 4]));
 print(product(none));
@@ -54,11 +54,11 @@ print(3.cmp(5));
 print("b".cmp("a"));
 print('x'.cmp('x'));
 print(BigInt.of(10).cmp(BigInt.of(-10)));
-print(int.zero());
-print(float.one());
+print(Int.zero());
+print(Float.one());
 print(BigInt.zero());
 
-var floats: List<float> = [2.0, nan(), -0.0, -infinity(), 0.0, 1.0, neg_infinity()];
+var floats: List<Float> = [2.0, nan(), -0.0, -infinity(), 0.0, 1.0, neg_infinity()];
 sort_by(floats, total_cmp);
 print(floats);
 

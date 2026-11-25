@@ -20,27 +20,26 @@
  * sleep takes.
  */
 
-import { async, __once } from "Task";
+import { Async, after, race } from "Task";
 import { Throw } from "../core/Error";
 import { Duration } from "../os/Time";
-import { Promise, promise, resolve, await } from "Promise";
 
 /** Waits until `delay` has passed, while other tasks run. */
-fn sleep(delay: Duration) {
-    // `suspend`'s callback cannot set a timer itself, so the timer is set first
+fn sleep(delay: Duration): <Async> Unit {
+    // `park`'s callback cannot set a timer itself, so the timer is set first
     // and handed the wake-up once there is one. It cannot fire before then: the
     // scheduler runs timers only once this task has parked.
-    var wake: Option<(unit) -> unit> = Option.None;
+    var wake: Option<() -> Unit> = Option.None;
     var cancel = after(delay, () => {
         match wake {
-            Option.Some(it) => { it(()); }
+            Option.Some(it) => { it(); }
             Option.None => {}
         }
     });
     // A task abandoned while asleep would otherwise leave the scheduler waiting
     // for a timer nothing is listening to.
     defer { cancel(); }
-    suspend { wake = Option.Some(it); };
+    park((it: () -> Unit) => { wake = Option.Some(it); });
 }
 
 /**
@@ -50,69 +49,12 @@ fn sleep(delay: Duration) {
  * `defer`s run before this returns. One that never waits cannot be stopped,
  * and finishes however long it takes.
  */
-fn timeout<T, X, E>(limit: Duration, task: () -> <async, Throw<X>, E> T): <async, Throw<X>, E> Option<T> {
-    var result: Option<T> = Option.None;
-    var failure: Option<X> = Option.None;
-    var over = false;
-    var stop: Option<() -> unit> = Option.None;
-    var stopped: Promise<unit> = promise();
-
-    var cancel_timer = after(limit, () => {
-        match stop {
-            Option.Some(unwind) => { unwind(); }
-            Option.None => {}
+fn timeout<T, X, E>(limit: Duration, task: () -> <Async, Throw<X>, E> T): <Async, Throw<X>, E> Option<T> {
+    return race([
+        () => { return Option.Some(task()); },
+        () => {
+            sleep(limit);
+            return Option.None;
         }
-    });
-
-    run {
-        defer {
-            over = true;
-            resolve(stopped, ());
-        }
-        run {
-            result = Option.Some(task());
-        } handle Throw {
-            final ctl throw(e) { failure = Option.Some(e); }
-        }
-    } handle async {
-        ctl suspend(register) {
-            // Per wait, as in `all`: an unwound task may still wait in a `defer`.
-            var live = true;
-            stop = Option.Some(() => {
-                live = false;
-                stop = Option.None;
-                discontinue;
-            });
-            var wake = waker();
-            register(__once(wake, (value) => {
-                if (live) {
-                    stop = Option.None;
-                    resume value;
-                }
-            }));
-        }
-        fn waker() { return waker(); }
-        fn after(delay, wake) { return after(delay, wake); }
-        fn when_ready(socket, writing, wake) { return when_ready(socket, writing, wake); }
-    }
-
-    // As a scope does, when this is cancelled while its task waits.
-    var waited = false;
-    defer {
-        cancel_timer();
-        if (!waited) {
-            match stop {
-                Option.Some(unwind) => { unwind(); }
-                Option.None => {}
-            }
-            if (!over) { await(stopped); }
-        }
-    }
-    if (!over) { await(stopped); }
-    waited = true;
-    match failure {
-        Option.Some(e) => { throw(e); }
-        Option.None => {}
-    }
-    return result;
+    ]);
 }

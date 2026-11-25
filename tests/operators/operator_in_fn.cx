@@ -1,6 +1,6 @@
 type Vec2 {
-    x: int,
-    y: int
+    x: Int,
+    y: Int
 }
 
 impl Add<Vec2> for Vec2 {
@@ -11,7 +11,7 @@ impl Add<Vec2> for Vec2 {
     }
 }
 
-fn translate(v: Vec2, dx: int, dy: int): Vec2 {
+fn translate(v: Vec2, dx: Int, dy: Int): Vec2 {
     var offset = Vec2 { x: dx, y: dy };
     return v + offset;
 }

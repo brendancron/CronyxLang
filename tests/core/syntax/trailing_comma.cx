@@ -1,23 +1,23 @@
 type Pair<A, B,> {
-    xs: List<int,>,
+    xs: List<Int,>,
     a: A,
     b: B,
 }
 
 type Shape {
-    Circle(int, int,),
-    Square { w: int, },
+    Circle(Int, Int,),
+    Square { w: Int, },
 }
 
-fn add(a: int, b: int,): int {
+fn add(a: Int, b: Int,): Int {
     return a + b;
 }
 
-fn pair(): (int, int,) {
+fn pair(): (Int, Int,) {
     return (1, 2,);
 }
 
-var p = Pair<int, string,> { xs: [1, 2,], a: 3, b: "s", };
+var p = Pair<Int, String,> { xs: [1, 2,], a: 3, b: "s", };
 var (left, right,) = pair();
 
 print(add(left, right,));

@@ -1,8 +1,8 @@
 trait Describe {
-    fn describe(self, prefix: string): string;
+    fn describe(self, prefix: String): String;
 }
-type Circle { radius: int }
+type Circle { radius: Int }
 impl Describe for Circle {
-    fn describe(self): string { return "circle"; }
+    fn describe(self): String { return "circle"; }
 }
-print(Circle { radius: 1 });
+print(Circle { radius: 1 }.radius);

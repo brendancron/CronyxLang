@@ -1,0 +1,29 @@
+trait Ask { @ctl fn ask(): Int; }
+
+trait Source {
+    fn next(self): <Ask> Int;
+}
+
+type Doubler {}
+type Counter { start: Int }
+
+impl Source for Doubler {
+    fn next(self): <Ask> Int { return ask() * 2; }
+}
+
+impl Source for Counter {
+    fn next(self): <Ask> Int { return self.start + ask(); }
+}
+
+var sources: List<Source> = [Doubler {}, Counter { start: 100 }];
+
+for (n in [1, 5]) {
+    var sum = run<Int> {
+        var total = 0;
+        for (s in sources) { total = total + s.next(); }
+        total
+    } handle<Ask> {
+        fn ask(resume) { return resume(n); }
+    };
+    print(sum);
+}

@@ -1,4 +1,4 @@
 type Person {
     @max(size)
-    age: int,
+    age: Int,
 }

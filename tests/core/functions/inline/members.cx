@@ -1,0 +1,50 @@
+import { decl_source } from "std/compiler/Printer";
+
+trait Log { fn log(line: String): Unit; }
+
+type Counter {
+    count: Int
+
+    inline fn next(self): Int {
+        self.count = self.count + 1;
+        return self.count;
+    }
+}
+
+type Box { held: Int }
+
+impl Box {
+    inline fn doubled(self): Int { return self.held * 2; }
+}
+
+inline fn sign(n: Int): Int {
+    if (n < 0) { return -1; }
+    if (n == 0) { return 0; }
+    return 1;
+}
+
+var c = Counter { count: 0 };
+print(c.next() + c.next());
+print(Box { held: 21 }.doubled());
+print(sign(-5) + sign(0) + sign(9));
+
+var lines: List<String> = [];
+run<Unit> {
+    log("one");
+    log("two");
+} handle<Log> {
+    inline fn log(line) { lines.push(line); }
+}
+print(lines);
+
+meta {
+    print(decl_source(code fn twice(n: Int): Int {
+        return run<Int> { log("twice"); n * 2 } handle<Log> {
+            inline fn log(line) { print(line); }
+        };
+    }));
+    print(decl_source(code impl Box {
+        inline fn tripled(self): Int { return self.held * 3; }
+    }));
+    print(decl_source(code inline fn halved(n: Int): Int { return n / 2; }));
+}

@@ -1,7 +1,7 @@
-import { async, block_on, all } from "std/async/Task";
+import { Async, block_on, all } from "std/async/Task";
 import { Throw } from "std/core/Error";
 
-type LoadError { Missing(string) }
+type LoadError { Missing(String) }
 
 block_on {
     all([ () => { throw(LoadError.Missing("config.toml")); } ]);

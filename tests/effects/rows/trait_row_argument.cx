@@ -1,15 +1,15 @@
-effect log {
-    fn emit(msg: string): unit;
+trait Log {
+    fn emit(msg: String): Unit;
 }
 
 trait Source<T, E> {
     fn pull(self): <E> Option<T>;
 }
 
-type Counter { n: List<int> }
+type Counter { n: List<Int> }
 
-impl Source<int, <log>> for Counter {
-    fn pull(self): <log> Option<int> {
+impl Source<Int, <Log>> for Counter {
+    fn pull(self): <Log> Option<Int> {
         emit("counter pulled");
         if (self.n[0] >= 2) { return Option.None; }
         self.n[0] = self.n[0] + 1;
@@ -25,7 +25,7 @@ impl Source<T, E> for Wrapped<T, E> {
     }
 }
 
-fn drain<S: Source<int, E>, E>(s: S): <E> int {
+fn drain<S: Source<Int, E>, E>(s: S): <E> Int {
     var total = 0;
     var more = true;
     while (more) {
@@ -37,13 +37,13 @@ fn drain<S: Source<int, E>, E>(s: S): <E> int {
     return total;
 }
 
-run {
+run<Unit> {
     print(drain(Counter { n: [0] }));
-    var s: Source<int, <log>> = Counter { n: [1] };
+    var s: Source<Int, <Log>> = Counter { n: [1] };
     print(s.pull());
     var w = Wrapped { inner: () => { emit("wrapped pulled"); return Option.Some("x"); } };
     print(w.pull());
-} handle log {
+} handle<Log> {
     fn emit(msg) { print(msg); }
 }
 

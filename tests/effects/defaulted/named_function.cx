@@ -1,0 +1,13 @@
+import { Throw } from "std/core/Error";
+
+fn caught<X, T, E>(f: () -> <Throw<X>, E> T): <E> Option<T> {
+    var out: Option<T> = Option.None;
+    run<Unit> { out = Option.Some(f()); } handle<Throw<X>> { fn throw(e) { } }
+    return out;
+}
+
+fn pure(): Int { return 7; }
+fn failing(): Int { return throw("no"); }
+
+print(caught(pure));
+print(caught(failing));

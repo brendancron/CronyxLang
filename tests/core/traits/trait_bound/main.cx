@@ -1,25 +1,25 @@
 trait Summary {
-    fn summarize(self): string;
+    fn summarize(self): String;
 }
 
 type Article {
-    title: string,
-    author: string
+    title: String,
+    author: String
 }
 
 type Tweet {
-    username: string,
-    content: string
+    username: String,
+    content: String
 }
 
 impl Summary for Article {
-    fn summarize(self): string {
+    fn summarize(self): String {
         return self.title + " by " + self.author;
     }
 }
 
 impl Summary for Tweet {
-    fn summarize(self): string {
+    fn summarize(self): String {
         return self.username + ": " + self.content;
     }
 }

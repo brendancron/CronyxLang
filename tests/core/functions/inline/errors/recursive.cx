@@ -1,0 +1,6 @@
+inline fn countdown(n: Int): Int {
+    if (n == 0) { return 0; }
+    return countdown(n - 1);
+}
+
+print(countdown(3));

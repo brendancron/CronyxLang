@@ -1,0 +1,29 @@
+import { Async, block_on } from "Task";
+import { Throw, attempt, Result } from "Error";
+
+fn count(name: String, upto: Int): <Async, Console> Int {
+    for (var i = 0; i < upto; i += 1) {
+        print(name + " " + str(i));
+        pause();
+    }
+    return name.len();
+}
+
+block_on {
+    var n = count("a", 2);
+    print("a counted " + str(n));
+};
+
+var total = 0;
+block_on {
+    total = count("bb", 1);
+    var checked = attempt(() => {
+        if (total > 1) { throw("too many"); }
+        return total;
+    });
+    match checked {
+        Result.Ok(v) => { print("kept " + str(v)); }
+        Result.Err(e) => { print("failed: " + e); }
+    }
+};
+print(total);

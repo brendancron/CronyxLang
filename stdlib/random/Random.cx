@@ -5,7 +5,7 @@
  * import { random_int, random_float, shuffle, seeded } from "std/random/Random";
  *
  * print(random_int(1, 7));       // a die roll
- * var deck: List<int> = [1, 2, 3, 4];
+ * var deck: List<Int> = [1, 2, 3, 4];
  * shuffle(deck);
  *
  * seeded(42) {
@@ -19,13 +19,13 @@
  */
 
 /** A source of random bits. */
-effect Random {
-    /** A number whose 62 bits are each random: from 0 to the largest `int`. */
-    fn random_bits(): int;
+trait Random {
+    /** A number whose 62 bits are each random: from 0 to the largest `Int`. */
+    fn random_bits(): Int;
 }
 
 /** A number from `low` up to but not including `high`, each as likely as any other. */
-fn random_int(low: int, high: int): <Random> int {
+fn random_int(low: Int, high: Int): <Random> Int {
     if (high <= low) { panic("random_int: " + str(low) + " is not below " + str(high)); }
     var span = high - low;
     // The bits run to a power of two; the remainder past the last whole
@@ -38,12 +38,12 @@ fn random_int(low: int, high: int): <Random> int {
 }
 
 /** A number from 0 up to but not including 1. */
-fn random_float(): <Random> float {
+fn random_float(): <Random> Float {
     return (random_bits() >> 9).to_float() / 9007199254740992.0;
 }
 
 /** True or false, as a fair coin. */
-fn random_bool(): <Random> bool {
+fn random_bool(): <Random> Bool {
     return (random_bits() & 1) == 1;
 }
 
@@ -54,7 +54,7 @@ fn choose<T>(items: Array<T>): <Random> Option<T> {
 }
 
 /** Puts the list in a random order, every order as likely as any other. */
-fn shuffle<T>(items: List<T>): <Random> unit {
+fn shuffle<T>(items: List<T>): <Random> Unit {
     var i = items.len() - 1;
     while (i > 0) {
         var j = random_int(0, i + 1);
@@ -66,12 +66,12 @@ fn shuffle<T>(items: List<T>): <Random> unit {
 }
 
 /** Runs the body with `Random` answered by a generator the seed fixes. */
-fn seeded<T, E>(seed: int, body: () -> <Random, E> T): <E> T {
+fn seeded<T, E>(seed: Int, body: () -> <Random, E> T): <E> T {
     var state = seed;
     var out: Option<T> = Option.None;
-    run {
+    run<Unit> {
         out = Option.Some(body());
-    } handle Random {
+    } handle<Random> {
         fn random_bits() {
             state = state + 0x1E3779B97F4A7C15;
             return __mix(state) & 0x3FFFFFFFFFFFFFFF;
@@ -83,15 +83,15 @@ fn seeded<T, E>(seed: int, body: () -> <Random, E> T): <E> T {
     }
 }
 
-// SplitMix64's finalizer, at the 63 bits an `int` has. `>>` keeps the sign, so
+// SplitMix64's finalizer, at the 63 bits an `Int` has. `>>` keeps the sign, so
 // each shift is masked to bring zeros in from the top.
-fn __mix(x: int): int {
+fn __mix(x: Int): Int {
     var z = x;
     z = (z ^ __shift(z, 30)) * 0x3F58476D1CE4E5B9;
     z = (z ^ __shift(z, 27)) * 0x14D049BB133111EB;
     return z ^ __shift(z, 31);
 }
 
-fn __shift(x: int, by: int): int {
+fn __shift(x: Int, by: Int): Int {
     return (x >> by) & ((1 << (63 - by)) - 1);
 }

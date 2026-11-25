@@ -1,10 +1,10 @@
 trait Named {
-    fn name(self): string;
+    fn name(self): String;
 }
 trait Greeted: Named {
-    fn greeting(self): string;
+    fn greeting(self): String;
 }
-type Robot { serial: int }
+type Robot { serial: Int }
 impl Greeted for Robot {
-    fn greeting(self): string { return "hello"; }
+    fn greeting(self): String { return "hello"; }
 }

@@ -1,0 +1,6 @@
+fn helper<T>(t: T): T {
+    return t;
+}
+
+var f = helper;
+print(f(1));

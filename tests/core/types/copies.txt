@@ -1,0 +1,10 @@
+Box(1)
+Box(two)
+Box(Box(3.5))
+2
+3.5
+Box<Box<Float>>
+6
+x
+ran
+4

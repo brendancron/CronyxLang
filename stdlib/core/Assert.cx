@@ -15,17 +15,17 @@
 /**
  * Performed by an assertion that did not hold.
  *
- * A failure leaves the test it is in and nothing else, which is what `final
- * ctl` says: the handler cannot resume, so no value is owed and the call is
- * usable wherever it stands.
+ * A failure leaves the test it is in and nothing else. The operation takes
+ * control and its result is its own parameter, so the handler is never given
+ * a value to resume with, and the call is usable wherever it stands.
  */
-effect Assertion {
+trait Assertion {
     /** Reports the message and abandons the test. */
-    final ctl failed(msg: string);
+    @abort fn failed<T>(msg: String): T;
 }
 
 /** Performs `Assertion.failed` with the message unless the condition holds. */
-fn assert(cond: bool, msg: string) {
+fn assert(cond: Bool, msg: String) {
     if (!cond) {
         failed(msg);
     }

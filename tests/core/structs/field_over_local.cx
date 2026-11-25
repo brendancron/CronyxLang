@@ -1,4 +1,4 @@
-type Door { open: () -> string }
+type Door { open: () -> String }
 
 var open = () => { return "the local"; };
 var d = Door { open: () => { return "the field"; } };

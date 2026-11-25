@@ -1,2 +1,2 @@
-type Point { x: int }
+type Point { x: Int }
 derive Eq, for Point;

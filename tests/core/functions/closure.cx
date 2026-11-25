@@ -1,6 +1,6 @@
 var x = 5;
 
-fn foo() {
+fn foo(x: Int) {
     var y = 8;
     fn bar() {
         print(x);
@@ -8,4 +8,4 @@ fn foo() {
     }
     bar();
 }
-foo();
+foo(x);

@@ -1,0 +1,4 @@
+var x = meta {
+    var n = 1;
+};
+print(x);

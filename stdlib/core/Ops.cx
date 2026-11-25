@@ -7,7 +7,7 @@
  * then works on it.
  *
  * ```
- * type Money { pence: int }
+ * type Money { pence: Int }
  *
  * impl Add<Money> for Money {
  *     type Output = Money;
@@ -89,7 +89,7 @@ trait BitXor<Rhs> {
 }
 
 /**
- * `self << rhs`. On an `int`, the bits shifted out of the top are lost, and a
+ * `self << rhs`. On an `Int`, the bits shifted out of the top are lost, and a
  * shift by more than its width is 0; a negative amount stops the program.
  */
 trait Shl<Rhs> {
@@ -100,8 +100,8 @@ trait Shl<Rhs> {
 }
 
 /**
- * `self >> rhs`. On an `int` the sign is copied into the top, so `-8 >> 1` is
- * `-4`; on a `byte` the top fills with zeros.
+ * `self >> rhs`. On an `Int` the sign is copied into the top, so `-8 >> 1` is
+ * `-4`; on a `Byte` the top fills with zeros.
  */
 trait Shr<Rhs> {
     /** What the operator answers with, which need not be either operand. */
@@ -121,7 +121,7 @@ trait Shr<Rhs> {
  */
 trait Eq {
     /** Whether the two are equal. */
-    fn eq(self, rhs: Self): bool;
+    fn eq(self, rhs: Self): Bool;
 }
 
 /** How two values compare. */
@@ -142,57 +142,57 @@ trait PartialOrd {
 
 // `Resolve` lowers `a < b` to `__is_less(partial_cmp(a, b))`. A match is a
 // statement, so the Ordering cannot become a bool where the operator stood.
-fn __is_less(o: Option<Ordering>): bool {
+fn __is_less(o: Option<Ordering>): Bool {
     match o {
         Option.Some(c) => { match c { Ordering.Less => { return true; } _ => { return false; } } }
         Option.None => { return false; }
     }
 }
 
-fn __is_less_equal(o: Option<Ordering>): bool {
+fn __is_less_equal(o: Option<Ordering>): Bool {
     match o {
         Option.Some(c) => { match c { Ordering.Greater => { return false; } _ => { return true; } } }
         Option.None => { return false; }
     }
 }
 
-fn __is_greater(o: Option<Ordering>): bool {
+fn __is_greater(o: Option<Ordering>): Bool {
     match o {
         Option.Some(c) => { match c { Ordering.Greater => { return true; } _ => { return false; } } }
         Option.None => { return false; }
     }
 }
 
-fn __is_greater_equal(o: Option<Ordering>): bool {
+fn __is_greater_equal(o: Option<Ordering>): Bool {
     match o {
         Option.Some(c) => { match c { Ordering.Less => { return false; } _ => { return true; } } }
         Option.None => { return false; }
     }
 }
 
-impl PartialOrd for int {
-    fn partial_cmp(self, rhs: int): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+impl PartialOrd for Int {
+    fn partial_cmp(self, rhs: Int): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
 }
 
-impl PartialOrd for string {
-    fn partial_cmp(self, rhs: string): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+impl PartialOrd for String {
+    fn partial_cmp(self, rhs: String): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
 }
 
-impl PartialOrd for char {
-    fn partial_cmp(self, rhs: char): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+impl PartialOrd for Char {
+    fn partial_cmp(self, rhs: Char): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
 }
 
-impl PartialOrd for byte {
-    fn partial_cmp(self, rhs: byte): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+impl PartialOrd for Byte {
+    fn partial_cmp(self, rhs: Byte): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
 }
 
-impl PartialOrd for float {
+impl PartialOrd for Float {
     /** `None` when either is NaN, which compares to nothing. */
-    fn partial_cmp(self, rhs: float): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
+    fn partial_cmp(self, rhs: Float): Option<Ordering> { return __ordering_of(__order(self, rhs)); }
 }
 
 // Not `<` and `>`: on a primitive with an impl, they would reach this impl.
-fn __ordering_of(order: int): Option<Ordering> {
+fn __ordering_of(order: Int): Option<Ordering> {
     if (order < 0) { return Option.Some(Ordering.Less); }
     if (order == 0) { return Option.Some(Ordering.Equal); }
     if (order == 1) { return Option.Some(Ordering.Greater); }
@@ -219,7 +219,7 @@ trait BitNot {
  * `self[at]`.
  *
  * The index is a parameter, so one type may be indexed in more than one way:
- * a list is `Index<int>` for an element and `Index<Range>` for a slice.
+ * a list is `Index<Int>` for an element and `Index<Range>` for a slice.
  */
 trait Index<Idx> {
     /** What is found at an index, which a range and an integer need not share. */
@@ -234,13 +234,13 @@ trait IndexSet<Idx>: Index<Idx> {
     fn set(self, at: Idx, v: Output): Output;
 }
 
-// What `var xs: List<int> = [1, 2, 3]` reaches. A literal is an array, and the
+// What `var xs: List<Int> = [1, 2, 3]` reaches. A literal is an array, and the
 // type it was annotated with says what to build from it.
 /**
  * What a collection literal reaches.
  *
  * A literal is an array, and the type it was annotated with says what to build
- * from it -- so `var xs: Set<int> = {1, 2}` and `var xs: List<int> = [1, 2]`
+ * from it -- so `var xs: Set<Int> = {1, 2}` and `var xs: List<Int> = [1, 2]`
  * are the same syntax answered by two impls.
  */
 trait FromArray<T> {

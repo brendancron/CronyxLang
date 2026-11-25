@@ -7,20 +7,20 @@ fn parse_int(s) {
     return raise("not a number: " + s);
 }
 
-run {
+run<Unit> {
     var n = parse_int("42");
     print(n);
-} handle Fallible {
+} handle<Fallible<Int>> {
     fn raise(msg) {
         print("fallible: " + msg);
         return -1;
     }
 }
 
-run {
+run<Unit> {
     var n = parse_int("abc");
     print(n);
-} handle Fallible {
+} handle<Fallible<Int>> {
     fn raise(msg) {
         print("fallible: " + msg);
         return -1;

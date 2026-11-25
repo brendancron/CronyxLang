@@ -30,14 +30,14 @@ Hello John
 
 A function is a name, a parameter list in parentheses, and a body in braces. Calling it is just `name();` — the parentheses on the call site are required even when there are no arguments.
 
-A function with no `return` and no return-type annotation implicitly returns `unit`.
+A function with no `return` and no return-type annotation implicitly returns `Unit`.
 
 ## Parameters and return values
 
 Parameters work like the `var` annotations from the last chapter — name, colon, type. The return type goes after the parameter list with the same `: type` syntax:
 
 ```cronyx
-fn add(a: int, b: int): int {
+fn add(a: Int, b: Int): Int {
     return a + b;
 }
 
@@ -49,7 +49,7 @@ print(result);
 42
 ```
 
-`return` evaluates an expression and exits the function with that value. The expression's type has to match the declared return type — `add` returns `int`, so `return a + b` works because `a + b` is also `int`.
+`return` evaluates an expression and exits the function with that value. The expression's type has to match the declared return type — `add` returns `Int`, so `return a + b` works because `a + b` is also `Int`.
 
 ## Returning early
 
@@ -103,18 +103,17 @@ print(fib(5));
 
 A few things to call out:
 
-- We left the parameter type off — `fn fib(n)` instead of `fn fib(n: int): int`. Cronyx infers it from the body. As discussed last chapter, you'll usually want to annotate function signatures anyway, but it's not required.
+- We left the parameter type off — `fn fib(n)` instead of `fn fib(n: Int): Int`. Cronyx infers it from the body. As discussed last chapter, you'll usually want to annotate function signatures anyway, but it's not required.
 - `if`/`else if`/`else` work the way you'd expect. We'll cover them properly in the next chapter — for now, just read them as conditional branches.
 - The two base cases come first, then the recursive case falls through.
 
 ## Closures
 
-Functions in Cronyx can be defined inside other functions, and an inner function can see variables from the surrounding scope:
+Functions in Cronyx can be defined inside other functions, and an inner function can see the variables of the function around it:
 
 ```cronyx
-var x = 5;
-
 fn foo() {
+    var x = 5;
     var y = 8;
     fn bar() {
         print(x);
@@ -130,31 +129,50 @@ foo();
 8
 ```
 
-`bar` reaches out and reads both `x` (declared at the top level) and `y` (declared in `foo`). This "reaching out" is what makes a function a *closure* — it carries its surrounding environment with it. We'll lean on this more once we're passing functions around as values, which is next.
+`bar` reaches out and reads both `x` and `y`, which are declared in `foo`. This "reaching out" is what makes a function a *closure* — it carries its surrounding environment with it. It can write to that environment too:
+
+```cronyx
+fn counter() {
+    var n = 0;
+    fn bump() {
+        n = n + 1;
+    }
+    bump();
+    bump();
+    print(n);
+}
+counter();
+```
+
+```
+2
+```
+
+We'll lean on this more once we're passing functions around as values, which is next. A function declared at the top level of a file has no function around it, though — what that means for the variables beside it is the subject of [the last section](#the-top-level-is-main).
 
 ## Functions as values
 
-Functions are values. You can store one in a variable, pass one as an argument, and return one from another function. The type of a function is written `(<param-types>) -> <return-type>` — so `(int) -> int` is the type of a function from `int` to `int`.
+Functions are values. You can store one in a variable, pass one as an argument, and return one from another function. The type of a function is written `(<param-types>) -> <return-type>` — so `(Int) -> Int` is the type of a function from `Int` to `Int`.
 
 Imagine a checkout function that needs to apply a discount, but the *kind* of discount depends on the customer — a percentage off, a flat amount off, a loyalty bonus, and so on. Instead of stuffing every option inside `checkout` with a pile of `if`s, we can let the caller pass in a discount *function*:
 
 ```cronyx
-fn checkout(price: int, discount: (int) -> int): int {
+fn checkout(price: Int, discount: (Int) -> Int): Int {
     return discount(price);
 }
 ```
 
-`checkout` takes a `price` and a function `discount` that maps an `int` price to an `int` final price, and returns whatever the discount function returns.
+`checkout` takes a `price` and a function `discount` that maps an `Int` price to an `Int` final price, and returns whatever the discount function returns.
 
 Now we need to actually pass it a discount. One way is to construct one with a lambda expression and bind it to a variable:
 
 ```cronyx
-fn checkout(price: int, discount: (int) -> int): int {
+fn checkout(price: Int, discount: (Int) -> Int): Int {
     return discount(price);
 }
 
-var ten_percent_off = (price: int) => { return price - (price / 10); };
-var flat_five_off   = (price: int) => { return price - 5; };
+var ten_percent_off = (price: Int) => { return price - (price / 10); };
+var flat_five_off   = (price: Int) => { return price - 5; };
 
 print(checkout(100, ten_percent_off));
 print(checkout(100, flat_five_off));
@@ -167,7 +185,7 @@ print(checkout(100, flat_five_off));
 
 Same `checkout`, same starting price, different result — because we passed in a different function.
 
-Look closely at `(price: int) => { return price - (price / 10); }`. It has the same shape as a regular function declaration — parameters and body — but no name and no `fn`, and the whole thing ends with a semicolon because it's an expression being assigned to a variable. We bind it to `ten_percent_off`, then pass `ten_percent_off` to `checkout` like we'd pass any other value.
+Look closely at `(price: Int) => { return price - (price / 10); }`. It has the same shape as a regular function declaration — parameters and body — but no name and no `fn`, and the whole thing ends with a semicolon because it's an expression being assigned to a variable. We bind it to `ten_percent_off`, then pass `ten_percent_off` to `checkout` like we'd pass any other value.
 
 Writing `(...) => { ... }` every time is verbose, though, so Cronyx gives you a shorter form for the common case.
 
@@ -176,7 +194,7 @@ Writing `(...) => { ... }` every time is verbose, though, so Cronyx gives you a 
 When a function's last parameter is a function, you can pass that function in a pair of braces *after* the call. This is a **trailing lambda**:
 
 ```cronyx
-fn apply(f: (int) -> int): int {
+fn apply(f: (Int) -> Int): Int {
     return f(10);
 }
 print(apply() { it * 2 });
@@ -193,11 +211,11 @@ When the lambda is the only argument, the parentheses can go too: `apply { it * 
 `it` is the implicit name when the lambda takes one argument. To name the parameters, or take more than one, list them before `->`: `combine(3, 4) { x, y -> x + y }`. The same call can also be written with the lambda as an ordinary argument:
 
 ```cronyx
-fn combine(a: int, b: int, f: (int, int) -> int): int {
+fn combine(a: Int, b: Int, f: (Int, Int) -> Int): Int {
     return f(a, b);
 }
-print(combine(3, 4, (x: int, y: int) => { return x + y; }));
-print(combine(10, 3, (x: int, y: int) => { return x - y; }));
+print(combine(3, 4, (x: Int, y: Int) => { return x + y; }));
+print(combine(10, 3, (x: Int, y: Int) => { return x - y; }));
 ```
 
 ```
@@ -209,14 +227,94 @@ With a trailing lambda, `combine` takes its non-function arguments in the parens
 
 This is one of the syntactic features that gives Cronyx its flavor. You'll see it everywhere once we start working with collections.
 
+## The top level is `main`
+
+The statements at the top level of the file you run are the body of an implicit `fn main(): Int`, the program's entry point. Running the program calls `main`, and the program exits with what it returns: `0`, unless a top-level `return` says otherwise:
+
+```cronyx
+print("leaving with 3");
+return 3;
+```
+
+```
+leaving with 3
+```
+
+This program prints its line and exits with status `3`.
+
+Because the top level is the body of `main`, a top-level `var` is a local variable of `main`. A `fn` declared at the top level is not inside `main` — it's a declaration of the program, beside `main` — so it can't read that variable:
+
+```cronyx
+var count = 0;
+
+fn bump() {
+    count = count + 1;
+}
+
+bump();
+print(count);
+```
+
+```
+× Type error: 'count' is a variable of the top level, local to it, so a function cannot read it; pass it in as an argument.
+```
+
+There are two ways to write this. Pass the value in, and hand the new one back:
+
+```cronyx
+fn bump(count: Int): Int {
+    return count + 1;
+}
+
+var count = 0;
+count = bump(count);
+count = bump(count);
+print(count);
+```
+
+```
+2
+```
+
+Or write a lambda at the top level instead. A lambda is an expression, so one written at the top level is inside `main`, and it captures `main`'s variables the way `bar` captured `foo`'s:
+
+```cronyx
+var count = 0;
+var bump = () => { count = count + 1; };
+
+bump();
+bump();
+print(count);
+```
+
+```
+2
+```
+
+You can also write `main` yourself. When the file you run declares a `fn main`, that function is the entry point, and the file's top-level statements don't run — the same as for a file you import, which you'll meet in [Modules](./modules.mdx):
+
+```cronyx
+print("not printed");
+
+fn main() {
+    print("hello from main");
+}
+```
+
+```
+hello from main
+```
+
+A `main` you write returns `Int`, the exit code, or nothing, which exits with `0`. Any other return type is an error.
+
 ## Try it
 
-Write a function `twice` that takes a function `f: (int) -> int` and an `int`, and returns `f(f(x))` — `f` applied to `x`, then applied again to the result. Call it with a trailing lambda that adds 1, starting from 0. The output should be `2`.
+Write a function `twice` that takes a function `f: (Int) -> Int` and an `Int`, and returns `f(f(x))` — `f` applied to `x`, then applied again to the result. Call it with a trailing lambda that adds 1, starting from 0. The output should be `2`.
 
 A working answer is below — try it on your own first.
 
 ```cronyx
-fn twice(x: int, f: (int) -> int): int {
+fn twice(x: Int, f: (Int) -> Int): Int {
     return f(f(x));
 }
 print(twice(0) { it + 1 });
@@ -224,4 +322,4 @@ print(twice(0) { it + 1 });
 
 ## What's next
 
-You can now declare functions, return values from them, recurse, capture outer state, and pass functions around. Next up: **control flow** — `if`/`else`, `while`, and `for` — using the functions you've just written as building blocks.
+You can now declare functions, return values from them, recurse, capture outer state, pass functions around, and say where a program starts. Next up: **control flow** — `if`/`else`, `while`, and `for` — using the functions you've just written as building blocks.

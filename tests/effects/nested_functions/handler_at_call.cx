@@ -1,0 +1,16 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn outer() {
+    fn fail(n: Int): Int { return throw("failed at " + str(n)); }
+    run<Unit> {
+        run<Unit> {
+            print(fail(1));
+        } handle<Error> {
+            fn throw(m) { print("inner: " + m); }
+        }
+        print(fail(2));
+    } handle<Error> {
+        fn throw(m) { print("outer: " + m); }
+    }
+}
+outer();

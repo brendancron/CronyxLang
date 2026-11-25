@@ -26,6 +26,10 @@ let expect span what expected actual =
         expected'
     else fail span "%s should be %s but is annotated %s." what expected' actual')
 
+(* Set for the program the walk finished, whose types name copies; a meta
+   block's is checked as the walk left it. *)
+let copies = ref false
+
 let listed names =
   match names with
   | [] -> "nothing"
@@ -37,14 +41,48 @@ let element span (t : Types.ty) =
   | other -> fail span "An array is annotated %s." (Types.string_of_ty other)
 
 let fields_of (t : Types.ty) =
+  let named t = if !copies then Types.copied t else t in
   match t with
   | Types.Record fields -> Some fields
-  | Types.Named (name, args) -> Some (Cps.fields_of name args)
+  | Types.Named (name, args) -> Some (List.map (fun (l, t) -> l, named t) (Types.named_fields name args))
   | _ -> None
 
-let rec expr (e : Ast.cps_expr) : unit =
+(* Processed code is monomorphic, but for what the walk keeps generic on
+   purpose: a parametric instance's own parameters, what nothing reads, and
+   anything inside an effect's arguments. *)
+let monomorphic span (t : Types.ty) =
+  let allowed id =
+    Hashtbl.mem Types.declared_params id
+    || Hashtbl.mem Typecheck.unobservable id
+  in
+  let rec ty (t : Types.ty) =
+    match t with
+    | Types.Generic id when not (allowed id) ->
+      fail span "This is annotated %s, which is still generic." (Types.string_of_ty t)
+    | (Types.Named (n, _ :: _) | Types.Sum (n, _ :: _))
+      when !copies && Hashtbl.mem Types.generic_types n && Types.closed t ->
+      fail span "This is annotated %s, which names the generic type rather than its copy." (Types.string_of_ty t)
+    | Types.Tuple ts | Types.Pack ts | Types.Named (_, ts) | Types.Sum (_, ts) -> List.iter ty ts
+    | Types.Spread t -> ty t
+    | Types.Record fields -> List.iter (fun (_, t) -> ty t) fields
+    | Types.Fn (ps, r, _) ->
+      List.iter ty ps;
+      ty r
+    | _ -> ()
+  in
+  ty t
+
+(* A function performing an effect takes its evidence last, which no type
+   writes. *)
+let evidence (t : Types.ty) =
+  match t with
+  | Types.Fn (_, _, { Types.labels = _ :: _; _ }) -> 1
+  | _ -> 0
+
+let rec expr (e : Ast.resolved_expr) : unit =
   let span = e.Ast.span
   and ann = e.Ast.ann in
+  monomorphic span ann;
   match e.Ast.it with
   | `Unit -> expect span "A unit literal" Types.Unit ann
   | `Int _ -> expect span "An int literal" Types.Int ann
@@ -89,12 +127,12 @@ let rec expr (e : Ast.cps_expr) : unit =
     expect
       span
       "A tuple"
-      (Types.Tuple (List.map (fun (i : Ast.cps_expr) -> i.Ast.ann) items))
+      (Types.Tuple (List.map (fun (i : Ast.resolved_expr) -> i.Ast.ann) items))
       ann
   | `Record_lit fields ->
     List.iter (fun (_, v) -> expr v) fields;
     let actual =
-      List.sort compare (List.map (fun (l, (v : Ast.cps_expr)) -> l, v.Ast.ann) fields)
+      List.sort compare (List.map (fun (l, (v : Ast.resolved_expr)) -> l, v.Ast.ann) fields)
     in
     (match fields_of ann with
      | Some declared ->
@@ -140,7 +178,7 @@ let rec expr (e : Ast.cps_expr) : unit =
     List.iter expr items;
     let elem = element span ann in
     List.iter
-      (fun (i : Ast.cps_expr) -> expect i.Ast.span "An array element" elem i.Ast.ann)
+      (fun (i : Ast.resolved_expr) -> expect i.Ast.span "An array element" elem i.Ast.ann)
       items
   | `Array_new (length, fill) ->
     expr length;
@@ -179,9 +217,15 @@ let rec expr (e : Ast.cps_expr) : unit =
     (match ann with
      | Types.Sum _ -> ()
      | other -> fail span "A variant is annotated %s." (Types.string_of_ty other))
-    | `Lambda (params, _, body) ->
+    | `Lambda (params, sg, body) ->
+    let control =
+      if Typecheck.is_handed sg
+      then List.length (Typecheck.controlling_ty ann) + Typecheck.handed_count Core.handed
+      else 0
+    in
+    let taken = control + if Typecheck.is_plain sg then 0 else evidence ann in
     (match ann with
-     | Types.Fn (declared, _, _) when List.length declared = List.length params ->
+     | Types.Fn (declared, _, _) when List.length declared + taken = List.length params ->
        List.iter stmt body
      | Types.Fn _ ->
        fail span "A lambda of %d parameter(s) is annotated %s." (List.length params)
@@ -193,7 +237,7 @@ let rec expr (e : Ast.cps_expr) : unit =
   | `Object (data, id, vtable) ->
     expr data;
     Option.iter
-      (fun (equal : Ast.cps_expr) ->
+      (fun (equal : Ast.resolved_expr) ->
         expr equal;
         match equal.Ast.ann with
         | Types.Fn ([ left; right ], Types.Bool, _) ->
@@ -203,8 +247,8 @@ let rec expr (e : Ast.cps_expr) : unit =
           fail equal.Ast.span "An object's equality is annotated %s." (Types.string_of_ty other))
       id.Ast.equal;
     (match ann with
-     | Types.Named (trait, _) when Resolve.is_trait trait ->
-       let owed = List.sort_uniq String.compare (Resolve.methods_of trait) in
+     | Types.Named (trait, _) when Typecheck.is_trait trait ->
+       let owed = List.sort_uniq String.compare (Typecheck.methods_of trait) in
        let held = List.sort_uniq String.compare (List.map fst vtable) in
        if owed <> held
        then
@@ -216,7 +260,7 @@ let rec expr (e : Ast.cps_expr) : unit =
            (listed owed)
      | other -> fail span "An object is annotated %s." (Types.string_of_ty other));
     List.iter
-      (fun (name, (slot : Ast.cps_expr)) ->
+      (fun (name, (slot : Ast.resolved_expr)) ->
         expr slot;
         match slot.Ast.ann with
         | Types.Fn (receiver :: _, _, _) ->
@@ -229,8 +273,8 @@ let rec expr (e : Ast.cps_expr) : unit =
     expr receiver;
     List.iter expr args;
     (match receiver.Ast.ann with
-     | Types.Named (trait, _) when Resolve.is_trait trait ->
-       if not (List.mem name (Resolve.methods_of trait))
+     | Types.Named (trait, _) when Typecheck.is_trait trait ->
+       if not (List.mem name (Typecheck.methods_of trait))
        then fail span "'%s' declares no '%s' to dispatch on." trait name
      | other ->
        fail
@@ -243,35 +287,35 @@ let rec expr (e : Ast.cps_expr) : unit =
     List.iter expr args;
     (match callee.Ast.ann with
      | Types.Fn (params, ret, _) ->
-       if List.length params <> List.length args
+       let direct = List.length params + evidence callee.Ast.ann in
+       let controlled =
+         match Typecheck.controlling_ty callee.Ast.ann with
+         | [] -> direct
+         | taken -> direct + List.length taken + Typecheck.handed_count Core.handed
+       in
+       if direct <> List.length args && controlled <> List.length args
        then
          fail
            span
            "A call passes %d argument(s) to a function of %d."
            (List.length args)
            (List.length params);
-       List.iter2
-         (fun param (a : Ast.cps_expr) ->
-           expect a.Ast.span "An argument" param a.Ast.ann)
-         params
-         args;
-       expect span "A call" ret ann
+       List.iteri
+         (fun i param -> let a : Ast.resolved_expr = List.nth args i in expect a.Ast.span "An argument" param a.Ast.ann)
+         params;
+       if List.length args = direct then expect span "A call" ret ann
      | other ->
        fail
          callee.Ast.span
          "A callee is annotated %s, which is not a function."
          (Types.string_of_ty other))
 
-and stmt (s : Ast.cps_stmt) : unit =
+and stmt (s : Ast.resolved_stmt) : unit =
   match s.Ast.it with
   | `Expr e -> expr e
   | `Var_tuple (_, init) -> expr init
-  | `Scope (_, body, _) -> List.iter stmt body
   | `Defer s -> stmt s
-  | `Abort _ -> ()
-  | `On_unwind (body, cleanup) ->
-    List.iter stmt body;
-    List.iter stmt cleanup
+  | `Type_decl _ -> ()
   | `Var_decl (_, _, init) -> Option.iter expr init
   | `Block body -> List.iter stmt body
   | `If (cond, then_branch, else_branch) ->
@@ -284,14 +328,15 @@ and stmt (s : Ast.cps_stmt) : unit =
     expect cond.Ast.span "A condition" Types.Bool cond.Ast.ann;
     stmt body
   | `Fn (_, _, _, body) -> List.iter stmt body
-  | `Cont (_, _, body) | `Frame (_, _, body) -> List.iter stmt body
   | `Return e -> Option.iter expr e
   | `Break | `Continue -> ()
   | `Match (scrutinee, cases) ->
     expr scrutinee;
     List.iter (fun (_, body) -> List.iter stmt body) cases
 
-let program (p : Ast.cps_stmt list) : (unit, error) result =
+let program ?(monomorphized = false) (p : Ast.resolved_stmt list) : (unit, error) result =
+  copies := monomorphized;
+  Fun.protect ~finally:(fun () -> copies := false) @@ fun () ->
   try
     List.iter stmt p;
     Ok ()

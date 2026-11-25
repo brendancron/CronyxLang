@@ -1,0 +1,13 @@
+import { Throw, attempt } from "std/core/Error";
+
+fn outer(limit: Int) {
+    fn checked(n: Int): <Throw<String>> Int {
+        if (n > limit) { throw("over " + str(limit)); }
+        return n;
+    }
+    var ok = attempt(() => { return checked(1) + checked(2); });
+    print(ok);
+    var bad = attempt(() => { return checked(1) + checked(9); });
+    print(bad);
+}
+outer(5);

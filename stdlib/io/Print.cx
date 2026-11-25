@@ -13,7 +13,7 @@
 import { Console, Stream } from "Console";
 
 /** Writes a value and a newline to standard output. */
-fn print<T>(value: T) {
+inline fn print<T>(value: T) {
     write(Stream.Out, str(value) + "\n");
 }
 

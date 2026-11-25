@@ -81,6 +81,10 @@ module Span = struct
 
   let nowhere = Nowhere
 
+  let offsets = function
+    | Nowhere -> -1, -1
+    | Range { lo; hi; _ } -> lo, hi
+
   let of_range file ~lo ~hi =
     let limit = String.length (File.text file) in
     let lo = max 0 (min lo limit) in

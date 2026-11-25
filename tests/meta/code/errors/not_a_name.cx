@@ -1,4 +1,4 @@
 meta {
     var n = "9bad".as_name();
-    gen fn n(): int { return 1; }
+    gen fn n(): Int { return 1; }
 }

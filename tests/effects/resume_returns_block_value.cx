@@ -1,0 +1,17 @@
+trait Choose {
+    @ctl fn choose(): Bool;
+}
+
+var both = run<String> {
+    var picked = choose();
+    print("picked " + str(picked));
+    str(picked)
+} handle<Choose> {
+    fn choose(resume) {
+        var first = resume(true);
+        var second = resume(false);
+        return first + " then " + second;
+    }
+};
+
+print(both);

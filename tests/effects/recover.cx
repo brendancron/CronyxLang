@@ -1,0 +1,21 @@
+trait ParseError {
+    @ctl fn invalid(input: String): Int;
+}
+
+fn parse_int(str: String): Int {
+    if (str == "10") {
+        return 10;
+    }
+    return invalid(str);
+}
+
+run<Unit> {
+    print(parse_int("10"));
+    print(parse_int("apple"));
+    print("recovered");
+} handle<ParseError> {
+    fn invalid(input, resume) {
+        print("Parse error, invalid string: " + input);
+        resume(-1);
+    }
+}

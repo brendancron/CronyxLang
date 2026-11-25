@@ -5,7 +5,7 @@
  * import { Encode, Decode } from "std/encoding/Codec";
  * import { to_json, from_json } from "std/encoding/Json";
  *
- * type Point { x: int, y: int }
+ * type Point { x: Int, y: Int }
  * derive Encode, Decode for Point;
  *
  * print(to_json(Point { x: 1, y: 2 }));     // {"x":1,"y":2}
@@ -23,34 +23,34 @@ import { Data, Entry, Encode, Decode, DecodeError, Format, Decoder } from "Codec
 
 /** JSON as a `Format`: written on one line, or indented when `pretty`. */
 type Json {
-    pretty: bool
+    pretty: Bool
 }
 
 impl Format for Json {
-    fn write(self, data: Data): string {
+    fn write(self, data: Data): String {
         if (self.pretty) { return __pretty(data, 0); }
         return __compact(data);
     }
 
-    fn read(self, text: string): <Throw<DecodeError>> Data { return parse_json(text); }
+    fn read(self, text: String): <Throw<DecodeError>> Data { return parse_json(text); }
 }
 
 /** The value as JSON on one line. */
-fn to_json<T: Encode>(value: T): string { return __compact(value.encode()); }
+fn to_json<T: Encode>(value: T): String { return __compact(value.encode()); }
 
 /** The value as JSON, indented two spaces a level. */
-fn to_json_pretty<T: Encode>(value: T): string { return __pretty(value.encode(), 0); }
+fn to_json_pretty<T: Encode>(value: T): String { return __pretty(value.encode(), 0); }
 
 /** A value read from JSON. */
-fn from_json<T: Decode>(text: string): <Throw<DecodeError>> T {
+fn from_json<T: Decode>(text: String): <Throw<DecodeError>> T {
     return T.decode(Decoder.of(parse_json(text)));
 }
 
 /** The data as JSON on one line. */
-fn write_json(data: Data): string { return __compact(data); }
+fn write_json(data: Data): String { return __compact(data); }
 
 /** The data JSON text holds. Throws where the text is not JSON. */
-fn parse_json(text: string): <Throw<DecodeError>> Data {
+fn parse_json(text: String): <Throw<DecodeError>> Data {
     var reader = __Reader { chars: text.chars(), at: 0 };
     reader.space();
     var value = reader.value();
@@ -59,15 +59,15 @@ fn parse_json(text: string): <Throw<DecodeError>> Data {
     return value;
 }
 
-fn __compact(data: Data): string {
+fn __compact(data: Data): String {
     match data {
         Data.Seq(items) => {
-            var parts: List<string> = [];
+            var parts: List<String> = [];
             for (item in items) { parts.push(__compact(item)); }
             return "[" + join(parts, ",") + "]";
         }
         Data.Map(entries) => {
-            var parts: List<string> = [];
+            var parts: List<String> = [];
             for (e in entries) { parts.push(__quoted(e.key) + ":" + __compact(e.value)); }
             return "{" + join(parts, ",") + "}";
         }
@@ -76,19 +76,19 @@ fn __compact(data: Data): string {
     return "";
 }
 
-fn __pretty(data: Data, depth: int): string {
+fn __pretty(data: Data, depth: Int): String {
     var inner = repeat("  ", depth + 1);
     var outer = repeat("  ", depth);
     match data {
         Data.Seq(items) => {
             if (items.len() == 0) { return "[]"; }
-            var parts: List<string> = [];
+            var parts: List<String> = [];
             for (item in items) { parts.push(inner + __pretty(item, depth + 1)); }
             return "[\n" + join(parts, ",\n") + "\n" + outer + "]";
         }
         Data.Map(entries) => {
             if (entries.len() == 0) { return "{}"; }
-            var parts: List<string> = [];
+            var parts: List<String> = [];
             for (e in entries) { parts.push(inner + __quoted(e.key) + ": " + __pretty(e.value, depth + 1)); }
             return "{\n" + join(parts, ",\n") + "\n" + outer + "}";
         }
@@ -97,7 +97,7 @@ fn __pretty(data: Data, depth: int): string {
     return "";
 }
 
-fn __scalar(data: Data): string {
+fn __scalar(data: Data): String {
     match data {
         Data.Null => { return "null"; }
         Data.Bool(b) => { return str(b); }
@@ -112,8 +112,8 @@ fn __scalar(data: Data): string {
     return "";
 }
 
-fn __quoted(text: string): string {
-    var parts: List<string> = ["\""];
+fn __quoted(text: String): String {
+    var parts: List<String> = ["\""];
     for (c in text.chars()) {
         var point = ord(c);
         if (c == '"') { parts.push("\\\""); }
@@ -128,7 +128,7 @@ fn __quoted(text: string): string {
     return __str_join(parts.items, parts.count);
 }
 
-fn __hex4(point: int): string {
+fn __hex4(point: Int): String {
     var digits = "0123456789abcdef";
     var out = "";
     var rest = point;
@@ -140,8 +140,8 @@ fn __hex4(point: int): string {
 }
 
 type __Reader {
-    chars: Array<char>,
-    at: int
+    chars: Array<Char>,
+    at: Int
 }
 
 impl __Reader {
@@ -157,17 +157,17 @@ impl __Reader {
         return DecodeError.Unexpected(self.at, self.chars[self.at]);
     }
 
-    fn peek(self): <Throw<DecodeError>> char {
+    fn peek(self): <Throw<DecodeError>> Char {
         if (self.at >= self.chars.len()) { return throw(self.unexpected()); }
         return self.chars[self.at];
     }
 
-    fn expect(self, c: char): <Throw<DecodeError>> unit {
+    fn expect(self, c: Char): <Throw<DecodeError>> Unit {
         if (self.peek() != c) { throw(self.unexpected()); }
         self.at += 1;
     }
 
-    fn word(self, w: string, value: Data): <Throw<DecodeError>> Data {
+    fn word(self, w: String, value: Data): <Throw<DecodeError>> Data {
         for (c in w.chars()) { self.expect(c); }
         return value;
     }
@@ -228,9 +228,9 @@ impl __Reader {
         return Data.Seq(items);
     }
 
-    fn string(self): <Throw<DecodeError>> string {
+    fn string(self): <Throw<DecodeError>> String {
         self.expect('"');
-        var parts: List<string> = [];
+        var parts: List<String> = [];
         while (true) {
             var c = self.peek();
             self.at += 1;
@@ -268,7 +268,7 @@ impl __Reader {
         return __str_join(parts.items, parts.count);
     }
 
-    fn hex4(self): <Throw<DecodeError>> int {
+    fn hex4(self): <Throw<DecodeError>> Int {
         var point = 0;
         for (var i = 0; i < 4; i += 1) {
             var c = self.peek();
@@ -283,8 +283,8 @@ impl __Reader {
         return point;
     }
 
-    fn digits(self): string {
-        var parts: List<string> = [];
+    fn digits(self): String {
+        var parts: List<String> = [];
         while (self.at < self.chars.len() && self.chars[self.at] >= '0' && self.chars[self.at] <= '9') {
             parts.push(str(self.chars[self.at]));
             self.at += 1;

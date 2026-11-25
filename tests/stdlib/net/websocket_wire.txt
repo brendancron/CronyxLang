@@ -44,6 +44,6 @@ the server chose the subprotocol chat.v9, which was not offered
 -- a server that masks, and one that goes away
 WebSocket: a masked frame from the server
 Some((1002, "a masked frame from the server"))
-Some(Text("last words"))
+Some(Message.Text("last words"))
 None
 Some((1006, ""))

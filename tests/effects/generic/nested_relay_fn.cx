@@ -1,0 +1,17 @@
+trait Yield<T> { @ctl fn yield(v: T): Unit; }
+
+fn produce(): <Yield<Int>> Unit {
+    yield(1);
+    yield(2);
+}
+
+run<Unit> {
+    run<Unit> {
+        produce();
+    } handle<Yield<Int>> {
+        fn yield(x, resume) { yield("got " + str(x)); resume(()); }
+    }
+    yield("done");
+} handle<Yield<String>> {
+    fn yield(s, resume) { print("outer " + s); resume(()); }
+}

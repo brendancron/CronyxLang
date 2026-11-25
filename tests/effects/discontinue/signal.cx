@@ -1,0 +1,21 @@
+trait Ask { @ctl fn ask(): Int; }
+
+var cleaned = false;
+
+var asked = () => {
+    defer { cleaned = true; }
+    return "resumed with " + str(ask());
+};
+
+print(run<String> { asked() } handle<Ask> { fn ask(resume) { return resume(3); } });
+print(cleaned);
+
+cleaned = false;
+print(run<String> { asked() } handle<Ask> {
+    fn ask(resume) {
+        print(cleaned);
+        discontinue(resume);
+        print(cleaned);
+        return "none";
+    }
+});

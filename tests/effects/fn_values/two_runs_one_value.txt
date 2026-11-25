@@ -1,0 +1,6 @@
+note: got 1
+10
+note: got 2
+20
+picked both
+pick's run is done

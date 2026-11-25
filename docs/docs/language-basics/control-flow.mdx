@@ -22,7 +22,7 @@ if success
 
 The condition goes in parens, which are required. The body is usually a braced block, though a single statement is allowed: `if (done) print("ok");`.
 
-The condition has to be a `bool`. Cronyx doesn't have "truthy" values — `if (1)` won't compile, and neither will `if ("hello")`. If you want to test a number, say what you mean: `if (n > 0)`.
+The condition has to be a `Bool`. Cronyx doesn't have "truthy" values — `if (1)` won't compile, and neither will `if ("hello")`. If you want to test a number, say what you mean: `if (n > 0)`.
 
 Add `else` to handle the false case:
 
@@ -172,12 +172,12 @@ In a counting `for`, the step (`i += 1` here) still runs before the next pass, s
 
 ## Try it
 
-Write a function `factorial(n: int): int` that returns `n!` — the product `1 * 2 * ... * n`. Use a `for` loop. Calling `factorial(5)` should print `120`, and `factorial(0)` should print `1`.
+Write a function `factorial(n: Int): Int` that returns `n!` — the product `1 * 2 * ... * n`. Use a `for` loop. Calling `factorial(5)` should print `120`, and `factorial(0)` should print `1`.
 
 A working answer:
 
 ```cronyx
-fn factorial(n: int): int {
+fn factorial(n: Int): Int {
     var result = 1;
     for (var i = 1; i <= n; i++) {
         result = result * i;

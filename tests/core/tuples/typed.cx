@@ -1,7 +1,7 @@
-var t: (int, string) = (1, "a");
+var t: (Int, String) = (1, "a");
 print(str(t.0) + " " + str(t.1));
 
-fn swap(p: (int, string)): (string, int) { return (p.1, p.0); }
+fn swap(p: (Int, String)): (String, Int) { return (p.1, p.0); }
 var s = swap(t);
 print(str(s.0) + " " + str(s.1));
 print(typeof(swap).name);

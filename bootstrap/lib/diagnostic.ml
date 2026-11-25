@@ -7,12 +7,7 @@ type stage =
   | Parse
   | Load
   | Meta
-  | Desugar
   | Type
-  | Type_mono
-  | Resolve
-  | Reflect
-  | Cps
   | Verify
   | Runtime
 
@@ -20,6 +15,7 @@ type error =
   { stage : stage
   ; span : Ast.span
   ; message : string
+  ; note : string option
   }
 
 let stage_name = function
@@ -28,21 +24,15 @@ let stage_name = function
   | Parse -> "Parse"
   | Load -> "Load"
   | Meta -> "Meta"
-  | Desugar -> "Desugar"
   | Type -> "Type"
-  | Type_mono -> "Type monomorphize"
-  | Resolve -> "Resolve"
-  | Reflect -> "Reflect"
-  | Cps -> "CPS"
   | Verify -> "Verify"
   | Runtime -> "Runtime"
 
 (* A program the compiler rejected is the user's fault; one that got past the
    checker and then broke is the compiler's. *)
 let exit_code = function
-  | Manifest | Scan | Parse | Load | Meta | Desugar | Type | Type_mono | Resolve
-  | Reflect -> 65
-  | Cps | Verify | Runtime -> 70
+  | Manifest | Scan | Parse | Load | Meta | Type -> 65
+  | Verify | Runtime -> 70
 
 (* A name holding `#` was made by the compiler -- a module or package prefix,
    the function a local type belongs to, an instance -- and the scanner
@@ -83,5 +73,5 @@ let as_written message =
   go 0;
   Buffer.contents out
 
-let at stage span message = { stage; span; message = as_written message }
+let at ?note stage span message = { stage; span; message = as_written message; note }
 let one stage span message = Error [ at stage span message ]

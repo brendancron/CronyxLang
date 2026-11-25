@@ -1,0 +1,28 @@
+trait Choose {
+    @ctl fn choose(options: Array<Int>): Int;
+    fn note(msg: String): Unit;
+}
+
+trait Log { @ctl fn log(msg: String): Unit; }
+
+type Each<R> impl EffectHandler<Choose, R> {
+    fn note(msg: String): Unit { print("note " + msg); }
+    fn choose(options: Array<Int>, k: (Int) -> R): R {
+        var last = k(options[0]);
+        for (var i = 1; i < options.len(); i += 1) {
+            last = k(options[i]);
+        }
+        return last;
+    }
+}
+
+run<Unit> {
+    run<Unit> {
+        var n = choose([1, 2]);
+        note(str(n));
+        log("got " + str(n));
+    } with Each;
+    print("done");
+} handle<Log> {
+    fn log(msg, resume) { print(msg); resume(()); }
+}

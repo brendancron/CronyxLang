@@ -23,8 +23,8 @@ let write ~root file = Test.harness ~dir:"benches" ~target:"bench" ~source ~root
 (* The far side. The heap is compacted first so that what the run adds is
    measured from what the program itself needed to be loaded. *)
 let run_one path index name size =
-  let converted : Ast.cps_stmt list =
-    In_channel.with_open_bin path (fun inp -> (Marshal.from_channel inp : Ast.cps_stmt list))
+  let converted : Ast.resolved_stmt list =
+    In_channel.with_open_bin path (fun inp -> (Marshal.from_channel inp : Ast.resolved_stmt list))
   in
   set_binary_mode_out stdout true;
   let out = print_string in

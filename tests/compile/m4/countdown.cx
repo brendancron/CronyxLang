@@ -1,4 +1,4 @@
-fn count_down(n: int) {
+fn count_down(n: Int) {
     var i = n;
     while (i > 0) {
         print(to_string(i));

@@ -1,16 +1,16 @@
 trait Maker {
-    fn make(): int;
-    fn show(self): string;
+    fn make(): Int;
+    fn show(self): String;
 }
 
 type Cat;
 
 impl Maker for Cat {
-    fn make(): int {
+    fn make(): Int {
         return 1;
     }
 
-    fn show(self): string {
+    fn show(self): String {
         return "cat";
     }
 }

@@ -1,6 +1,6 @@
 import "std/collections/HashMap";
 
-var m = HashMap.new();
+var m: HashMap.HashMap<String, Int> = HashMap.new();
 
 m.set("foo", 1);
 m.set("bar", 2);
@@ -33,7 +33,7 @@ print(m.get_or("foo", 0));
 print(m.get_or("zzz", 42));
 
 // int keys
-var n = HashMap.new();
+var n: HashMap.HashMap<Int, String> = HashMap.new();
 n.set(1, "one");
 n.set(2, "two");
 n.set(1, "ONE");

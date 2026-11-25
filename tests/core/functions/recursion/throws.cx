@@ -1,0 +1,10 @@
+import { Throw, attempt } from "std/core/Error";
+
+fn sum_to(n: Int) {
+    if (n < 0) { return throw("negative"); }
+    if (n == 0) { return 0; }
+    return n + sum_to(n - 1);
+}
+
+print(attempt(() => sum_to(4)));
+print(attempt(() => sum_to(-1)));

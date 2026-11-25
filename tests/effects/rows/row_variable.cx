@@ -1,24 +1,24 @@
-effect log {
-    fn emit(msg: string): unit;
+trait Log {
+    fn emit(msg: String): Unit;
 }
 
 fn apply_twice<T, E>(f: (T) -> <E> T, x: T): <E> T {
     return f(f(x));
 }
 
-fn bump(x: int): int {
+fn bump(x: Int): Int {
     return x + 1;
 }
 
-fn shout(x: int): <log> int {
+fn shout(x: Int): <Log> Int {
     emit("saw " + str(x));
     return x + 1;
 }
 
 print(str(apply_twice(bump, 0)));
 
-run {
+run<Unit> {
     print(str(apply_twice(shout, 0)));
-} handle log {
+} handle<Log> {
     fn emit(msg) { print("log: " + msg); }
 }

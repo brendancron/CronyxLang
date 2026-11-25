@@ -1,0 +1,7 @@
+fn main(): Unit {
+    if (true) {
+        print("returned early");
+        return;
+    }
+    print("never");
+}

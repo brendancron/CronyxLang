@@ -1,6 +1,6 @@
 import "std/collections/HashSet";
 
-var s = HashSet.new();
+var s: HashSet.HashSet<String> = HashSet.new();
 
 s.add("foo");
 s.add("bar");

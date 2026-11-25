@@ -1,0 +1,4 @@
+String
+Bool
+Product(Pair, [], [{ name: first, ty: Named(Int, []), doc: "", attrs: [] }, { name: second, ty: Named(String, []), doc: "", attrs: [] }])
+1

@@ -1,0 +1,7 @@
+a before
+paused
+a after
+b before
+paused
+b after
+done

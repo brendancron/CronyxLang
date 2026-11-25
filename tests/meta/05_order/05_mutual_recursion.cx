@@ -1,11 +1,11 @@
-fn ping(n: int) {
+fn ping(n: Int): Unit {
     meta print("ping");
     if (n == 0) return;
     print("ping " + str(n));
     pong(n - 1);
 }
 
-fn pong(n: int) {
+fn pong(n: Int): Unit {
     meta print("pong");
     if (n == 0) return;
     print("pong " + str(n));

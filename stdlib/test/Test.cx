@@ -63,21 +63,21 @@ fn collect(m: Module) {
         }
         var label = str(d.name);
         names.push(code(label));
-        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span };
-        var call = Expr { kind: ExprKind.Call(callee, []), span: d.span };
+        var callee = Expr { kind: ExprKind.Var(d.name), span: d.span, ty: Option.None };
+        var call = Expr { kind: ExprKind.Call(callee, []), span: d.span, ty: Option.None };
         var index = i;
         for (s in code { if (selected == index) { call; } }) { chain.push(s); }
     }
     var all = Expr.of(ExprKind.Collection(names));
-    gen fn __test_names(): List<string> { return all; }
-    gen fn __test_run(selected: int) { chain; }
+    gen fn __test_names(): List<String> { return all; }
+    gen fn __test_run(selected: Int) { chain; }
 }
 
 /**
  * Runs the test `cx test` chose for this process, reporting how it went, or
  * lists every test's name when none was chosen.
  */
-fn run_tests<E>(names: List<string>, body: (int) -> <Assertion, E> unit): <E> unit {
+fn run_tests<E>(names: List<String>, body: (Int) -> <Assertion, E> Unit): <Console, E> Unit {
     var mark = str(chr(30));
     var selected = __test_selected();
     if (selected < 0) {
@@ -87,11 +87,11 @@ fn run_tests<E>(names: List<string>, body: (int) -> <Assertion, E> unit): <E> un
     if (selected >= names.len()) { return; }
     var name = names[selected];
     print(mark + ">" + name);
-    run {
+    run<Unit> {
         body(selected);
         print(mark + "+" + name);
-    } handle Assertion {
-        final ctl failed(msg) {
+    } handle<Assertion> {
+        fn failed(msg) {
             print(mark + "-" + name);
             print(mark + "!" + msg);
         }

@@ -15,7 +15,7 @@ for (var j = 0; j < 5; j += 1) {
     }
     if (j == 1) { break; }
 }
-fn first_even(xs: List<int>): int {
+fn first_even(xs: List<Int>): Int {
     var found = -1;
     for (x in xs) {
         defer print("checked " + str(x));

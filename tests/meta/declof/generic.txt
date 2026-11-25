@@ -1,0 +1,9 @@
+type Point {
+    x: Int,
+    y: Int
+}
+
+type Size {
+    w: Int
+}
+

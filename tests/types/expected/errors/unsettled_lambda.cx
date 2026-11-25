@@ -1,0 +1,6 @@
+fn main(): Unit {
+    var ignore = (x) => 1;
+    print("ran");
+}
+
+main();

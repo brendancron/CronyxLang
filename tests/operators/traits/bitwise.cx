@@ -1,4 +1,4 @@
-type Flags { bits: int }
+type Flags { bits: Int }
 impl BitOr<Flags> for Flags {
     type Output = Flags;
     fn bit_or(self, rhs: Flags): Flags { return Flags { bits: self.bits | rhs.bits }; }
@@ -11,9 +11,9 @@ impl BitNot for Flags {
     type Output = Flags;
     fn bit_not(self): Flags { return Flags { bits: ~self.bits & 7 }; }
 }
-impl Shl<int> for Flags {
+impl Shl<Int> for Flags {
     type Output = Flags;
-    fn shl(self, n: int): Flags { return Flags { bits: self.bits << n }; }
+    fn shl(self, n: Int): Flags { return Flags { bits: self.bits << n }; }
 }
 var read = Flags { bits: 1 };
 var writes = Flags { bits: 2 };

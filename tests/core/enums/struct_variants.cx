@@ -1,7 +1,7 @@
 type CardEffect {
-    Damage { amount: int },
-    Heal   { amount: int },
-    Draw   { count: int },
+    Damage { amount: Int },
+    Heal   { amount: Int },
+    Draw   { count: Int },
     None,
 }
 

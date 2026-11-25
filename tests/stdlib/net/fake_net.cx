@@ -1,4 +1,4 @@
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 import { Throw, Result, Failure } from "std/core/Error";
 import { Reader, Writer, Closer, IoError } from "std/io/Io";
 import { Net, lookup_host } from "std/net/Net";
@@ -8,13 +8,13 @@ import { read_all } from "std/fs/File";
 import { decode } from "std/text/Utf8";
 
 type Canned {
-    reply: string,
-    heard: List<byte>,
-    answered: bool
+    reply: String,
+    heard: List<Byte>,
+    answered: Bool
 }
 
 impl Reader for Canned {
-    fn read(self, max: int): <async, Throw<IoError>> Option<Array<byte>> {
+    fn read(self, max: Int): <Async, Throw<IoError>> Option<Array<Byte>> {
         if (self.answered) { return Option.None; }
         self.answered = true;
         return Option.Some(self.reply.bytes());
@@ -22,21 +22,22 @@ impl Reader for Canned {
 }
 
 impl Writer for Canned {
-    fn write(self, data: Array<byte>): <async, Throw<IoError>> unit {
+    fn write(self, data: Array<Byte>): <Async, Throw<IoError>> Unit {
         for (b in data) { self.heard.push(b); }
     }
 }
 
 impl Closer<IoError> for Canned {
-    fn close(self): <async, Throw<IoError>> unit {}
+    fn close(self): <Async, Throw<IoError>> Unit {}
 }
 
 impl TcpStream for Canned {
-    fn peer(self): string { return "canned"; }
-    fn shutdown_write(self): <async, Throw<IoError>> unit {}
+    fn peer(self): String { return "canned"; }
+    fn shutdown_write(self): <Async, Throw<IoError>> Unit {}
+    fn established(self): <Async, Throw<IoError>> Unit {}
 }
 
-fn fetch(host: string): <Net, async, Throw<IoError>> string {
+fn fetch(host: String): <Net, Async, Throw<IoError>> String {
     var conn = tcp_connect(host, 80);
     conn.write(("GET " + host).bytes());
     conn.shutdown_write();
@@ -49,35 +50,36 @@ fn fetch(host: string): <Net, async, Throw<IoError>> string {
     return "";
 }
 
-run {
+run<Unit> {
     print(fetch("example.test"));
     print(lookup_host("example.test"));
-    run {
+    run<Unit> {
         udp_bind("example.test", 53);
-    } handle Throw {
-        final ctl throw(e) { print("failed: " + e.message()); }
+    } handle<Throw<IoError>> {
+        fn throw(e) { print("failed: " + e.message()); }
     }
     tcp_listen("example.test", 80);
-} handle Net {
-    ctl connect(host, port) {
+} handle<Net> {
+    fn connect(host, port) {
         var conn: TcpStream = Canned { reply: "hello from " + host + ":" + str(port), heard: [], answered: false };
-        resume Result.Ok(conn);
+        return Result.Ok(conn);
     }
-    ctl listen(host, port) { resume Result.Err(IoError.Denied(host)); }
-    ctl bind(host, port) { resume Result.Err(IoError.AddressInUse(host + ":" + str(port))); }
-    ctl lookup(host) { resume Result.Ok(["192.0.2.1"]); }
-} handle Throw {
-    final ctl throw(e) { print("failed: " + e.message()); }
+    fn listen(host, port) { return Result.Err(IoError.Denied(host)); }
+    fn bind(host, port) { return Result.Err(IoError.AddressInUse(host + ":" + str(port))); }
+    fn lookup(host) { return Result.Ok(["192.0.2.1"]); }
+} handle<Throw<IoError>> {
+    fn throw(e) { print("failed: " + e.message()); }
 }
 
 var closed = tcp_listen("127.0.0.1", 0);
 var port = closed.local_port();
 closed.close();
-run {
-    tcp_connect("127.0.0.1", port);
+run<Unit> {
+    var conn = tcp_connect("127.0.0.1", port);
     print("connected");
-} handle Throw {
-    final ctl throw(e) {
+    conn.write("hi".bytes());
+} handle<Throw<IoError>> {
+    fn throw(e) {
         match e {
             IoError.Refused(_) => { print("refused"); }
             _ => { print("failed: " + e.message()); }

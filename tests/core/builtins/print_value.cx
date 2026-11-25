@@ -1,13 +1,13 @@
 // `print` is an ordinary function of one argument, so it is a value like any
 // other and a declaration may shadow it.
-var send = print;
+var send: (String) -> <Console> Unit = print;
 send("passed as a value");
 
-fn twice(f: (string) -> <Console> unit, msg: string) { f(msg); f(msg); }
+fn twice(f: (String) -> <Console> Unit, msg: String) { f(msg); f(msg); }
 twice(print, "twice");
 
-fn shadowed(): int {
-    fn print(msg: string): int { return msg.len(); }
+fn shadowed(): Int {
+    fn print(msg: String): Int { return msg.len(); }
     return print("abcd");
 }
 print(shadowed());

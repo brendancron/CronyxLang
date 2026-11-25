@@ -1,0 +1,46 @@
+trait Ask { @ctl fn ask(): Int; }
+
+trait Log { @ctl fn log(msg: String): Unit; }
+
+fn find(): <Log, Console> Int {
+    run<Unit> {
+        var n = ask();
+        log("got " + str(n));
+        if (n > 1) { return n * 10; }
+        print("not reached");
+    } handle<Ask> {
+        fn ask(resume) { resume(5); }
+    }
+    return 0;
+}
+
+fn early(): <Log, Console> Int {
+    run<Unit> {
+        log("early");
+        return 7;
+    } handle<Ask> {
+        fn ask(resume) { resume(1); }
+    }
+    return 0;
+}
+
+fn twice(): <Log, Console> Int {
+    run<Unit> {
+        var a = ask();
+        var b = ask();
+        log("sum " + str(a + b));
+        if (a + b > 3) { return a + b; }
+    } handle<Ask> {
+        fn ask(resume) { resume(2); print("arm after"); }
+    }
+    return 0;
+}
+
+run<Unit> {
+    print(find());
+    print(early());
+    print(twice());
+    print("after");
+} handle<Log> {
+    fn log(msg, resume) { print(msg); resume(()); }
+}

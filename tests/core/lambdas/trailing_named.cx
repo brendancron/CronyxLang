@@ -1,8 +1,8 @@
-fn apply(f: (int) -> int): int {
+fn apply(f: (Int) -> Int): Int {
     return f(10);
 }
 
-fn combine(a: int, b: int, f: (int, int) -> int): int {
+fn combine(a: Int, b: Int, f: (Int, Int) -> Int): Int {
     return f(a, b);
 }
 

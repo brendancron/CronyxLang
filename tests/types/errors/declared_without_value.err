@@ -1,1 +1,1 @@
-[1:1] 'x' is declared as int but has no value; write 'var x: int = …;'.
+[1:1] 'x' is declared as Int but has no value; write 'var x: Int = …;'.

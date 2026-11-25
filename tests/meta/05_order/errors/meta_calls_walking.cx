@@ -1,0 +1,7 @@
+fn f(): Int {
+    meta {
+        print(f());
+    }
+    return 1;
+}
+print(f());

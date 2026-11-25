@@ -14,20 +14,20 @@
  */
 
 /** `count` names, each the prefix and its index: for binding a variant's payload. */
-fn numbered(prefix: string, count: int): List<Name> {
+fn numbered(prefix: String, count: Int): List<Name> {
     var names: List<Name> = [];
     for (var i = 0; i < count; i += 1) { names.push((prefix + str(i)).as_name()); }
     return names;
 }
 
 /** The text with each `_` a `-`, and each capital after a lower-case letter lowered behind a `-`. */
-fn kebab_case(text: string): string { return __cased(text, "-"); }
+fn kebab_case(text: String): String { return __cased(text, "-"); }
 
 /** The text with each `-` a `_`, and each capital after a lower-case letter lowered behind a `_`. */
-fn snake_case(text: string): string { return __cased(text, "_"); }
+fn snake_case(text: String): String { return __cased(text, "_"); }
 
-fn __cased(text: string, separator: string): string {
-    var parts: List<string> = [];
+fn __cased(text: String, separator: String): String {
+    var parts: List<String> = [];
     var previous_lower = false;
     for (c in text.chars()) {
         if (c == '_' || c == '-') {

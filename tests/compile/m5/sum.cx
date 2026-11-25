@@ -1,4 +1,4 @@
-fn sum(xs: [int]): int {
+fn sum(xs: [Int]): Int {
     var total = 0;
     for (x in xs) {
         total = total + x;

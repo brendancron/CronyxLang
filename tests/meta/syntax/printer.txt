@@ -13,13 +13,13 @@ return total;
 
 type Shape {
     /** A round one. */
-    Circle(int),
-    @wide Rect { w: int, h: int },
+    Circle(Int),
+    @wide Rect { w: Int, h: Int },
     Dot
 }
 
 impl Show for Shape {
-    fn show(self): string {
+    fn show(self): String {
         match self {
             Shape.Circle(r) => {
                 return "circle";
@@ -31,8 +31,8 @@ impl Show for Shape {
     }
 }
 
-effect Log {
-    fn log(s: string): unit;
-    ctl ask<T>(): T;
+trait Log {
+    fn log(s: String): Unit;
+    @ctl fn ask<T>(): T;
 }
 

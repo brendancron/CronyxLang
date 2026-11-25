@@ -1,4 +1,3 @@
-effect logger { fn log(msg: string): unit; }
+trait Logger { fn log(msg: String): Unit; }
 
-// Nothing encloses the top level, so this effect is never discharged.
 log("boom");

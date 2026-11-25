@@ -1,0 +1,1 @@
+[13:5] A handler's 'log' performs 'Stop', which takes control; 'log' is a plain operation, so its handler must return. Mark it `@ctl` if it should take control.

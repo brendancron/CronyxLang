@@ -1,0 +1,60 @@
+import { Command, Stdio, Child, Process, Exit, output, spawn } from "std/os/Process";
+import { Args } from "std/os/Args";
+import { Env } from "std/os/Env";
+import { IoError } from "std/io/Io";
+import { Throw, Result, attempt } from "std/core/Error";
+import { Async, all } from "std/async/Task";
+
+fn programs(): <Process, Async, Throw<IoError>, Console> Unit {
+    var ran = output(Command.new("sh").arg("-c").arg("echo out; echo err >&2; exit 3"));
+    print(ran.exit_code);
+    print(ran.stdout_text().trim());
+    print(ran.stderr_text().trim());
+    var child = spawn(Command.new("sh").args(["-c", "read x; echo got $x"]).stdin(Stdio.Piped).stdout(Stdio.Piped));
+    match child.stdin() {
+        Option.Some(input) => { input.write("abc\n".bytes()); }
+        Option.None => {}
+    }
+    print(child.wait_with_output().stdout_text().trim());
+    var both = all([
+        () => output(Command.new("sh").args(["-c", "echo one"])).stdout_text().trim(),
+        () => output(Command.new("sh").args(["-c", "echo two"])).stdout_text().trim()
+    ]);
+    print(both);
+}
+
+fn finish(status: Int): <Exit, Console> Unit {
+    defer { print("cleaned up"); }
+    exit(status);
+    print("never");
+}
+
+var ended = run<Int> {
+    finish(4);
+    0
+} handle<Exit> {
+    fn exit(status) { return status; }
+};
+print("exit handled: " + str(ended));
+
+run<Unit> {
+    print(args().len());
+    print(env_var("CX_V2_PROCESS"));
+} handle<Args> {
+    fn args() { return ["a", "b"]; }
+} handle<Env> {
+    fn env_var(name) { return Option.Some("set for " + name); }
+    fn set_env_var(name, value) {}
+    fn remove_env_var(name) {}
+    fn env_vars() { return []; }
+}
+
+var failed = attempt(() => {
+    programs();
+    output(Command.new("cronyx-no-such-program"));
+});
+match failed {
+    Result.Ok(_) => { print("unexpected"); }
+    Result.Err(e) => { print("caught: " + str(e)); }
+}
+print("last");

@@ -1,0 +1,7 @@
+type Plain { n: Int }
+
+fn show<T>(x: T): Bool { return implements(T, Display); }
+
+print(show(1));
+print(show("text"));
+print(show(Plain { n: 1 }));

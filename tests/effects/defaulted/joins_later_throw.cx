@@ -1,0 +1,27 @@
+import { Throw, Result, attempt } from "std/core/Error";
+
+type IoError { NotFound(String) }
+
+fn guarded<X, T>(f: () -> <Throw<X>> T): <Throw<X>> T {
+    return f();
+}
+
+fn load(path: String) {
+    var n = guarded(() => 1);
+    if (path == "missing") { throw(IoError.NotFound(path)); }
+    return n + guarded(() => 2);
+}
+
+fn report(path: String) {
+    match attempt(() => load(path)) {
+        Result.Ok(n) => { print(n); }
+        Result.Err(e) => {
+            match e {
+                IoError.NotFound(p) => { print("not found: " + p); }
+            }
+        }
+    }
+}
+
+report("here");
+report("missing");

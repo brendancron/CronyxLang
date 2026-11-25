@@ -1,2 +1,2 @@
-fn bad(first: ...int, last: int): int { return last; }
+fn bad(first: ...Int, last: Int): Int { return last; }
 print(bad(1, 2));

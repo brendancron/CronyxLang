@@ -1,0 +1,13 @@
+fn empty<T>(): List<T> {
+    print("made");
+    return [];
+}
+
+fn sizes(): Int {
+    empty();
+    var xs: List<Int> = empty();
+    return xs.len();
+}
+
+empty();
+print(sizes());

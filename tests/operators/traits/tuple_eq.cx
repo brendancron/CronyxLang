@@ -1,4 +1,4 @@
-fn is_same<T: Eq>(got: (T, T), want: (T, T)): bool {
+fn is_same<T: Eq>(got: (T, T), want: (T, T)): Bool {
     return got == want;
 }
 

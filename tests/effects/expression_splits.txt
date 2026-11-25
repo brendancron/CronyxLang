@@ -1,0 +1,10 @@
+total 3
+heads 2
+evaluated left
+1,2
+evaluated first
+evaluated third
+2
+both
+either
+3

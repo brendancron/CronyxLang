@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # Reflection
 
-**Reflection** is a program's ability to inspect its own values, types, and structure. A serializer needs to know the fields of a struct. A validator needs to know whether a value is an `int` or a `string`. A logger needs to know the names of an enum's variants. All three are asking the same question: *"What is this thing?"*
+**Reflection** is a program's ability to inspect its own values, types, and structure. A serializer needs to know the fields of a struct. A validator needs to know whether a value is an `Int` or a `String`. A logger needs to know the names of an enum's variants. All three are asking the same question: *"What is this thing?"*
 
 Most languages answer that question at runtime. Cronyx answers it at compile time. This chapter explains how — and, more importantly, *why*.
 
@@ -38,9 +38,9 @@ print(typeof(s).name);
 ```
 
 ```
-int
-bool
-string
+Int
+Bool
+String
 ```
 
 `typeof(value).name` returns a string describing the value's type. The compiler answers it while compiling: the type of `x` is known before the program runs, so the answer is a string constant by the time it does. That happens after metaprocessing, so `--dump-code` still shows `typeof(x).name`.
@@ -56,20 +56,18 @@ var nums   = [1, 2, 3];
 var pair   = (1, "hello");
 var nested = ((1, 2), "abc");
 var point  = { x: 1, y: 2 };
-```
 
-```cronyx
-print(typeof(nums).name);    // Array<int>
-print(typeof(pair).name);    // (int, string)
-print(typeof(nested).name);  // ((int, int), string)
-print(typeof(point).name);   // { x: int, y: int }
+print(typeof(nums).name);    // Array<Int>
+print(typeof(pair).name);    // (Int, String)
+print(typeof(nested).name);  // ((Int, Int), String)
+print(typeof(point).name);   // { x: Int, y: Int }
 ```
 
 Enums report their declared name:
 
 ```cronyx
 type Color { Red, Green, Blue }
-type Shape { Circle(int), Rectangle(int, int) }
+type Shape { Circle(Int), Rectangle(Int, Int) }
 
 var c = Color.Red;
 var s = Shape.Circle(5);
@@ -83,11 +81,11 @@ print(typeof(s).name);  // Shape
 Functions report their signature:
 
 ```cronyx
-fn double(n) { return n * 2; }
-fn greet(name) { return "hello " + name; }
+fn double(n: Int): Int { return n * 2; }
+fn greet(name: String): String { return "hello " + name; }
 
-print(typeof(double).name);  // (int) -> int
-print(typeof(greet).name);   // (string) -> string
+print(typeof(double).name);  // (Int) -> Int
+print(typeof(greet).name);   // (String) -> String
 ```
 
 The rendering is the same arrow form you would write in an annotation.
@@ -125,12 +123,12 @@ print(typeof(record).name);
 Expected output:
 
 ```
-int
-string
-bool
-(int, int, int)
-Array<int>
-{ x: int, y: int }
+Int
+String
+Bool
+(Int, Int, Int)
+Array<Int>
+{ x: Int, y: Int }
 ```
 
 Every one of those answers was settled during compilation; the runtime program just prints strings.

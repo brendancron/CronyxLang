@@ -1,4 +1,4 @@
-type P { x: int }
+type P { x: Int }
 meta {
     var p = P { x: 3 };
     gen var pp = p;

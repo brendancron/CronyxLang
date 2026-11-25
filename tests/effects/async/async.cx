@@ -1,21 +1,21 @@
-effect async {
-    ctl suspend<T>(register: ((T) -> unit) -> unit): T;
+trait Async {
+    @ctl fn suspend<T>(register: ((T) -> Unit) -> Unit): T;
 }
 
 fn pause() {
     return suspend { it(()) };
 }
 
-fn interleaved(actions: List<() -> <async, Console> unit>) {
-    var ready: List<() -> <Console> unit> = [];
+fn interleaved(actions: List<() -> <Async, Console> Unit>) {
+    var ready: List<() -> <Console> Unit> = [];
 
-    fn strand(action: () -> <async, Console> unit) {
-        run {
+    fn strand(action: () -> <Async, Console> Unit) {
+        run<Unit> {
             action();
-        } handle async {
-            ctl suspend(register) {
+        } handle<Async> {
+            fn suspend(register, resume) {
                 register {
-                    ready.push { resume it; };
+                    ready.push { resume(it); };
                 };
             }
         }

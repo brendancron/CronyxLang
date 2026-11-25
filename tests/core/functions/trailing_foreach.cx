@@ -1,4 +1,4 @@
-fn foreach(xs: Array<int>, f: (int) -> <Console> unit) {
+fn foreach(xs: Array<Int>, f: (Int) -> <Console> Unit) {
     for (x in xs) { f(x); }
 }
 foreach([1, 2, 3]) { print(it); };

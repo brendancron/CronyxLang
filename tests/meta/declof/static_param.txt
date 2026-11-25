@@ -1,0 +1,2 @@
+a type named Dog
+a trait named Barks

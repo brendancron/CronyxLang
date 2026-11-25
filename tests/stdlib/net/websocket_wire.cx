@@ -1,4 +1,4 @@
-import { async, race, both } from "std/async/Task";
+import { Async, race, both } from "std/async/Task";
 import { Throw, Result } from "std/core/Error";
 import { IoError } from "std/io/Io";
 import { Net } from "std/net/Net";
@@ -10,14 +10,14 @@ import { decode } from "std/text/Utf8";
 import { sha1 } from "std/crypto/Sha1";
 import { encode } from "std/encoding/Base64";
 
-fn bytes_of(numbers: List<int>): Array<byte> {
+fn bytes_of(numbers: List<Int>): Array<Byte> {
     var out = Array(numbers.len(), (0).to_byte());
     for (var i = 0; i < numbers.len(); i += 1) { out[i] = numbers[i].to_byte(); }
     return out;
 }
 
-fn frame(first: int, payload: Array<byte>, masked: bool): Array<byte> {
-    var out: List<byte> = [first.to_byte()];
+fn frame(first: Int, payload: Array<Byte>, masked: Bool): Array<Byte> {
+    var out: List<Byte> = [first.to_byte()];
     var key = [1, 2, 3, 4];
     if (masked) { out.push((128 | payload.len()).to_byte()); } else { out.push(payload.len().to_byte()); }
     if (masked) { for (k in key) { out.push(k.to_byte()); } }
@@ -27,7 +27,7 @@ fn frame(first: int, payload: Array<byte>, masked: bool): Array<byte> {
     return out.items[0:out.len()];
 }
 
-fn text(bytes: Array<byte>): string {
+fn text(bytes: Array<Byte>): String {
     match decode(bytes) {
         Result.Ok(t) => { return t; }
         Result.Err(_) => { return "not text"; }
@@ -36,8 +36,8 @@ fn text(bytes: Array<byte>): string {
 }
 
 // The frames a server sent, one line each, after the head of its response.
-fn frames(bytes: Array<byte>): List<string> {
-    var lines: List<string> = [];
+fn frames(bytes: Array<Byte>): List<String> {
+    var lines: List<String> = [];
     var at = 0;
     while (at + 2 <= bytes.len()) {
         var first = bytes[at].to_int();
@@ -58,7 +58,7 @@ fn frames(bytes: Array<byte>): List<string> {
     return lines;
 }
 
-fn handshake(port: int, key: string, version: string): TcpStream {
+fn handshake(port: Int, key: String, version: String): TcpStream {
     var conn = tcp_connect("127.0.0.1", port);
     conn.write(("GET /wire HTTP/1.1\r\nHost: here\r\nUpgrade: websocket\r\nConnection: keep-alive, Upgrade\r\n"
         + "Sec-WebSocket-Key: " + key + "\r\nSec-WebSocket-Version: " + version + "\r\n\r\n").bytes());
@@ -82,16 +82,16 @@ fn exchange(conn: TcpStream) {
     }
 }
 
-fn page(request: Request): <async, Throw<IoError>> Response {
+fn page(request: Request): <Async, Throw<IoError>> Response {
     return Response.text(404, "nothing here");
 }
 
-fn prefer_v2(offered: List<string>): Option<string> {
+fn prefer_v2(offered: List<String>): Option<String> {
     if (offered.contains("chat.v2")) { return Option.Some("chat.v2"); }
     return Option.None;
 }
 
-fn echo(request: Request, socket: WebSocket): <async, Throw<IoError>> unit {
+fn echo(request: Request, socket: WebSocket): <Async, Throw<IoError>> Unit {
     for (message in socket.messages()) { socket.send(message); }
 }
 
@@ -161,12 +161,12 @@ race([
 ]);
 listener.close();
 
-fn failure<E>(task: () -> <async, Throw<IoError>, E> unit): <async, E> string {
+fn failure<E>(task: () -> <Async, Throw<IoError>, E> Unit): <Async, E> String {
     var said = "no failure";
-    run {
+    run<Unit> {
         task();
-    } handle Throw {
-        final ctl throw(e) {
+    } handle<Throw<IoError>> {
+        fn throw(e) {
             match e {
                 IoError.Other(message) => { said = message; }
                 IoError.Reset(message) => { said = "reset: " + message; }
@@ -177,7 +177,7 @@ fn failure<E>(task: () -> <async, Throw<IoError>, E> unit): <async, E> string {
     return said;
 }
 
-fn head_of(conn: TcpStream): string {
+fn head_of(conn: TcpStream): String {
     var asked = "";
     while (!asked.contains("\r\n\r\n")) {
         match conn.read(4096) {
@@ -190,8 +190,8 @@ fn head_of(conn: TcpStream): string {
 
 // A server written by hand, answering each connection with what `reply`
 // writes once the handshake has arrived.
-fn against<E>(reply: (TcpStream, string) -> <async, Throw<IoError>, E> unit, client: (string) -> <async, Throw<IoError>, E> unit)
-    : <Net, async, Throw<IoError>, E> unit {
+fn against<E>(reply: (TcpStream, String) -> <Async, Throw<IoError>, E> Unit, client: (String) -> <Async, Throw<IoError>, E> Unit)
+    : <Net, Async, Throw<IoError>, E> Unit {
     var raw = tcp_listen("127.0.0.1", 0);
     var url = "ws://127.0.0.1:" + str(raw.local_port()) + "/";
     both(
@@ -210,11 +210,11 @@ fn against<E>(reply: (TcpStream, string) -> <async, Throw<IoError>, E> unit, cli
     raw.close();
 }
 
-fn accept_for(key: string): string {
+fn accept_for(key: String): String {
     return encode(sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").bytes()));
 }
 
-fn accepted(conn: TcpStream, extra: string): <async, Throw<IoError>> unit {
+fn accepted(conn: TcpStream, extra: String): <Async, Throw<IoError>> Unit {
     conn.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" + extra + "\r\n").bytes());
 }
 

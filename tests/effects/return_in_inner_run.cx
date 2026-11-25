@@ -1,22 +1,19 @@
-// A `run` whose handler needs no continuation still has a body that might: the
-// `return` here leaves `f`, which by then is a converted function, so it has to
-// reach that function's continuation rather than the block's.
-effect E { ctl ask(): int; }
-effect Log { fn note(): unit; }
+trait E { @ctl fn ask(): Int; }
+trait Log { fn note(): Unit; }
 
-fn f(): <E, Console> int {
-    run {
+fn f(): <E, Console> Int {
+    run<Unit> {
         note();
         return 1;
-    } handle Log { fn note() { print("noted"); } }
+    } handle<Log> { fn note() { print("noted"); } }
     return ask();
 }
 
-run {
+run<Unit> {
     print(f());
-} handle E {
-    ctl ask() {
-        resume 7;
+} handle<E> {
+    fn ask(resume) {
+        resume(7);
         print("after");
     }
 }

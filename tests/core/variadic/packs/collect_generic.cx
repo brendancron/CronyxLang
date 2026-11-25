@@ -1,8 +1,8 @@
-fn hold<...Args>(f: (...Args) -> <Console> unit, args: ...Args): (...Args) {
+fn hold<...Args>(f: (...Args) -> <Console> Unit, args: ...Args): (...Args) {
     return args;
 }
 
-fn pair(a: int, b: string) {
+fn pair(a: Int, b: String) {
     print(str(a) + b);
 }
 

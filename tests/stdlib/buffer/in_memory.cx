@@ -1,10 +1,10 @@
 import { Reader, Writer, IoError, lines } from "std/io/Io";
 import { Buffer, ByteOrder, buffer, buffer_of } from "std/io/Buffer";
 import { Throw } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
 // A parser that reads from any Reader: the sum of one number a line.
-fn total(from: Reader): <async, Throw<IoError>> int {
+fn total(from: Reader): <Async, Throw<IoError>> Int {
     var sum = 0;
     for (line in lines(from)) {
         match line.to_int() {
@@ -16,7 +16,7 @@ fn total(from: Reader): <async, Throw<IoError>> int {
 }
 
 // A report that writes to any Writer.
-fn report(to: Writer, name: string, value: int): <async, Throw<IoError>> unit {
+fn report(to: Writer, name: String, value: Int): <Async, Throw<IoError>> Unit {
     to.write((name + " = " + str(value) + "\n").bytes());
 }
 

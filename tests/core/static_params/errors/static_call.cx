@@ -1,7 +1,7 @@
-fn size<n: int>() {
+fn size<n: Int>() {
     print(n);
 }
-fn read(): int {
+fn read(): Int {
     return 1;
 }
 size<read()>();

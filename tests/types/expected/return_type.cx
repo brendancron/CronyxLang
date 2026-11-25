@@ -1,0 +1,7 @@
+fn make(): Set<Int> {
+    return [1, 2, 2];
+}
+
+var xs = make();
+print(typeof(xs).name);
+print(xs.len());

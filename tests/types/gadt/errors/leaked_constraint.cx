@@ -1,12 +1,6 @@
-// Refining an arm is done by substituting and then taking the substitution
-// back, so a constraint the arm placed on a variable from *outside* it is taken
-// back too. Here `p` is an int in the arm and a string after it, and both
-// stick: the program is accepted and fails while running.
-//
-// A local equation, rather than a retracted substitution, is what fixes this.
-type Q<T> { Num -> Q<int>, Text -> Q<string> }
+type Q<T> { Num -> Q<Int>, Text -> Q<String> }
 
-fn f<T, U>(q: Q<T>, p: U): int {
+fn f<T, U>(q: Q<T>, p: U): Int {
     match q {
         Q.Num  => { print(p + 1); }
         Q.Text => { }

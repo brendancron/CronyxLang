@@ -1,62 +1,62 @@
 import { Closer, IoError, using } from "std/io/Io";
 import { Throw, Result, attempt } from "std/core/Error";
-import { async } from "std/async/Task";
+import { Async } from "std/async/Task";
 
-type Tap { name: string, fails: bool, log: List<string> }
+type Tap { name: String, fails: Bool, log: List<String> }
 
 impl Closer<IoError> for Tap {
-    fn close(self): <async, Throw<IoError>> unit {
+    fn close(self): <Async, Throw<IoError>> Unit {
         self.log.push("closing " + self.name);
         if (self.fails) { throw(IoError.Other(self.name + " would not close")); }
     }
 }
 
-var log: List<string> = [];
-fn tap(name: string, fails: bool): Tap { return Tap { name: name, fails: fails, log: log }; }
-var shown: List<int> = [0];
-fn flush() {
+var log: List<String> = [];
+fn tap(log: List<String>, name: String, fails: Bool): Tap { return Tap { name: name, fails: fails, log: log }; }
+var shown: List<Int> = [0];
+fn flush(log: List<String>, shown: List<Int>) {
     while (shown[0] < log.len()) { print(log[shown[0]]); shown[0] = shown[0] + 1; }
 }
 
-var value = using(tap("a", false)) { t -> t.name + " used" };
-flush();
+var value = using(tap(log, "a", false)) { t -> t.name + " used" };
+flush(log, shown);
 print(value);
 
 var body_failed = attempt {
-    using(tap("b", false)) { t -> throw(IoError.Other("body failed")); }
+    using(tap(log, "b", false)) { t -> throw(IoError.Other("body failed")); }
 };
-flush();
+flush(log, shown);
 print(body_failed);
 
 var close_failed = attempt {
-    using(tap("c", true)) { t -> print("in c"); }
+    using(tap(log, "c", true)) { t -> print("in c"); }
 };
-flush();
+flush(log, shown);
 print(close_failed);
 
 var both_failed = attempt {
-    using(tap("d", true)) { t -> throw(IoError.Other("body failed first")); }
+    using(tap(log, "d", true)) { t -> throw(IoError.Other("body failed first")); }
 };
-flush();
+flush(log, shown);
 print(both_failed);
 
-fn first_of(names: Array<string>): <async, Throw<IoError>, Console> string {
+fn first_of(log: List<String>, names: Array<String>): <Async, Throw<IoError>, Console> String {
     for (n in names) {
-        using(tap(n, false)) { t -> print("visiting " + t.name); };
+        using(tap(log, n, false)) { t -> print("visiting " + t.name); };
         return n;
     }
     return "none";
 }
-var first = first_of(["e", "f"]);
-flush();
+var first = first_of(log, ["e", "f"]);
+flush(log, shown);
 print(first);
 
-type LockError { Stuck(string) }
+type LockError { Stuck(String) }
 
-type Lock { name: string }
+type Lock { name: String }
 
 impl Closer<LockError> for Lock {
-    fn close(self): <async, Throw<LockError>> unit {
+    fn close(self): <Async, Throw<LockError>> Unit {
         throw(LockError.Stuck(self.name));
     }
 }

@@ -2,19 +2,19 @@ trait To<T> {
     fn to(self): T;
 }
 
-type Flag { raw: int }
+type Flag { raw: Int }
 
-impl To<string> for Flag {
-    fn to(self): string { return "flag " + str(self.raw); }
+impl To<String> for Flag {
+    fn to(self): String { return "flag " + str(self.raw); }
 }
 
-impl To<bool> for Flag {
-    fn to(self): bool { return self.raw != 0; }
+impl To<Bool> for Flag {
+    fn to(self): Bool { return self.raw != 0; }
 }
 
-fn shown(value: To<string>): string { return value.to(); }
+fn shown(value: To<String>): String { return value.to(); }
 
-fn truthy(value: To<bool>): bool { return value.to(); }
+fn truthy(value: To<Bool>): Bool { return value.to(); }
 
 print(shown(Flag { raw: 1 }));
 print(str(truthy(Flag { raw: 0 })));

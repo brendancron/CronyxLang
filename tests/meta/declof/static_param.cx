@@ -1,0 +1,19 @@
+import { DeclKind } from "std/compiler/Ast";
+import { decl_source } from "std/compiler/Printer";
+
+type Dog { name: String }
+
+trait Barks { fn bark(self): String; }
+
+fn describe<T>() {
+    meta {
+        match declof(T).kind {
+            DeclKind.Type(t) => { print("a type named " + str(t.name)); }
+            DeclKind.Trait(t) => { print("a trait named " + str(t.name)); }
+            _ => { print("something else"); }
+        }
+    }
+}
+
+describe<Dog>();
+describe<Barks>();

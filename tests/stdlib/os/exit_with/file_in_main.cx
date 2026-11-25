@@ -1,0 +1,11 @@
+import { Exit } from "std/os/Process";
+import { write_text, read_text, remove_path } from "std/fs/File";
+
+fn main() {
+    defer { print("cleaned up"); }
+    write_text("exit_with_file_in_main.txt", "written");
+    print(read_text("exit_with_file_in_main.txt"));
+    remove_path("exit_with_file_in_main.txt");
+    exit(6);
+    print("never");
+}

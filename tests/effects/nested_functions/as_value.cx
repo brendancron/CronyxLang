@@ -1,0 +1,19 @@
+trait Error { @abort fn throw<T>(msg: String): T; }
+
+fn apply(f: (Int) -> <Error> Int, n: Int): <Error> Int { return f(n); }
+
+fn outer(limit: Int) {
+    fn bounded(n: Int): <Error> Int {
+        if (n > limit) { return throw(str(n) + " is over " + str(limit)); }
+        return n;
+    }
+    run<Unit> {
+        print(apply(bounded, 2));
+        var g = bounded;
+        print(g(3));
+        print(apply(bounded, 9));
+    } handle<Error> {
+        fn throw(m) { print(m); }
+    }
+}
+outer(5);

@@ -1,10 +1,13 @@
-effect Log { ctl note(msg: string): unit; }
+trait Log {
+    @ctl fn note(msg: String): Unit;
+}
 
-var count = run {
+var count = run<Int> {
     note("first");
     note("second");
-} handle Log {
-    ctl note(msg) { print(msg); resume; }
-} return (nothing) { 7 };
+    7
+} handle<Log> {
+    fn note(msg, resume) { print(msg); return resume(()); }
+};
 
 print(count);

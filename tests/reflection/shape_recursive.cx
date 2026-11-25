@@ -1,6 +1,6 @@
-type Node { v: int, next: Array<Node> }
+type Node { v: Int, next: Array<Node> }
 
-fn describe(shape: TypeShape): string {
+fn describe(shape: TypeShape): String {
     match shape {
         TypeShape.Product(name, _, fields) => {
             var out = "product:";

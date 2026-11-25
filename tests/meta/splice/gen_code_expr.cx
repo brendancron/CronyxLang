@@ -1,0 +1,4 @@
+meta {
+    var n = 2;
+    gen code(print(n + 1));
+}

@@ -1,4 +1,4 @@
-fn map_val(x: int, f: (int) -> int): int {
+fn map_val(x: Int, f: (Int) -> Int): Int {
     return f(x);
 }
 print(map_val(3) { it * it });

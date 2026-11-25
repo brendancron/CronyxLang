@@ -46,9 +46,6 @@ let binop_names : (Ast.binop * string) list =
 
 let binop op = variant "BinOp" (List.assoc op binop_names) []
 
-let op_kind (k : Ast.op_kind) =
-  variant "OpKind" (match k with Ast.Op_fn -> "Fn" | Ast.Op_ctl -> "Ctl" | Ast.Op_final -> "Final") []
-
 let attr_arg (a : Ast.attr_arg) =
   let label, v =
     match a with
@@ -105,6 +102,7 @@ let signature (sg : Ast.signature) =
     [ "ret", option type_expr sg.Ast.ret
     ; "row", option (list (fun a -> applied a type_expr)) sg.Ast.row
     ; "static_params", list static_param sg.Ast.static_params
+    ; "inline", bool sg.Ast.inline
     ]
 
 let pattern (p : Ast.pattern) =
@@ -130,7 +128,86 @@ let import (i : Ast.import) =
   | Ast.Selective (names, path) -> variant "Import" "Selective" [ list name names; str path ]
   | Ast.Wildcard path -> variant "Import" "Wildcard" [ str path ]
 
+(* The type each expression was checked at, which only code [processed]
+   hands back carries. *)
+let typer : (Ast.expr -> Ast.type_expr option) ref = ref (fun _ -> None)
+
+(* What processed code shows in a run's place: the run it was lowered to. *)
+let expansion : (Ast.expr -> Ast.expr option) ref = ref (fun _ -> None)
+
+(* While processed code is shown: the code a pass-through was checked from,
+   shown in its place; what a meta block generated, shown in the block's place;
+   and the pass-through a statement was checked to, if it can be one. *)
+let viewed : (int -> [ `Expr of Ast.expr | `Stmt of Ast.stmt | `Stmts of Ast.stmt list ] option) ref =
+  ref (fun _ -> None)
+let generated : (Ast.stmt -> Ast.stmt list option) ref = ref (fun _ -> None)
+let kept : (Ast.stmt -> int option) ref = ref (fun _ -> None)
+
+(* Each node processed code handed out that the checker can pass through, by
+   the node's identity, with its kind as handed out: one handed back as it was
+   given is passed through rather than read. Only the node's own kind is
+   compared, which holds because a transform builds what it changes rather than
+   assigning into a node it was handed. *)
+module Handed = Hashtbl.Make (struct
+    type t = Value.value
+
+    let equal = ( == )
+
+    let hash (v : Value.value) =
+      match v with
+      | Value.Record (_, fields) ->
+        (match List.assoc_opt "span" fields with
+         | Some { contents = Value.Span s } -> Hashtbl.hash (Source_map.Span.offsets s)
+         | _ -> 0)
+      | _ -> 0
+  end)
+
+let handed : (Value.value * int) Handed.t = Handed.create 64
+
+let hand_out (v : Value.value) n =
+  match v with
+  | Value.Record (_, fields) ->
+    (match List.assoc_opt "kind" fields with
+     | Some kind -> Handed.replace handed v (!kind, n)
+     | None -> ())
+  | _ -> ()
+
+let handed_back (v : Value.value) =
+  match Handed.find_opt handed v, v with
+  | Some (kind, n), Value.Record (_, fields) ->
+    (match List.assoc_opt "kind" fields with
+     | Some current when !current == kind -> Some n
+     | _ -> None)
+  | _ -> None
+
+let rec shown_stmts (body : Ast.stmt list) =
+  List.concat_map
+    (fun (s : Ast.stmt) ->
+      match s.Ast.it, !generated s with
+      | `Pre_checked n, _ ->
+        (match !viewed n with
+         | Some (`Stmts body) -> shown_stmts body
+         | _ -> [ s ])
+      | _, Some made -> shown_stmts made
+      | _, None -> [ s ])
+    body
+
 let rec expr (e : Ast.expr) : Value.value =
+  match e.Ast.it, !expansion e with
+  | `Pre_checked n, _ ->
+    (match !viewed n with
+     | Some (`Expr v) ->
+       let shown = expr v in
+       hand_out shown n;
+       shown
+     | _ ->
+       record
+         "Expr"
+         [ "kind", variant "ExprKind" "Processed" [ int n ]; "span", span e.Ast.span; "ty", option type_expr None ])
+  | _, Some lowered -> expr lowered
+  | _, None -> written_expr e
+
+and written_expr (e : Ast.expr) : Value.value =
   let k label values = variant "ExprKind" label values in
   let field_inits fields = list field_init fields in
   let kind =
@@ -154,6 +231,7 @@ let rec expr (e : Ast.expr) : Value.value =
     | `Method_call (receiver, n, _, args, _) -> k "MethodCall" [ expr receiver; name n; list expr args ]
     | `Static_call (f, static_args, args) ->
       k "StaticCall" [ expr f; list static_arg static_args; list expr args ]
+    | `Static_ref (f, static_args) -> k "StaticRef" [ expr f; list static_arg static_args ]
     | `Compound (op, n, v) -> k "Compound" [ binop op; name n; expr v ]
     | `Compound_index (op, a, i, v) -> k "CompoundIndex" [ binop op; expr a; expr i; expr v ]
     | `Compound_field (op, r, f, v) -> k "CompoundField" [ binop op; expr r; name f; expr v ]
@@ -171,9 +249,9 @@ let rec expr (e : Ast.expr) : Value.value =
       k "NewGeneric" [ name t; list static_arg static_args; field_inits fields ]
     | `New_variant (t, v, payload) -> k "NewVariant" [ name t; name v; args payload ]
     | `Collection_lit items -> k "Collection" [ list expr items ]
-    | `Lambda (params, sg, body) -> k "Lambda" [ list param params; signature sg; list stmt body ]
-    | `Run_expr (body, clauses, ret) ->
-      k "Run" [ valued_block body; list handler_clause clauses; option return_clause ret ]
+    | `Lambda (params, sg, body) -> k "Lambda" [ list param params; signature sg; stmts body ]
+    | `Run_expr (ty, body, clauses) ->
+      k "Run" [ option type_expr ty; valued_block body; list handler_clause clauses ]
     | `Match_expr (scrutinee, arms) ->
       k
         "Match"
@@ -183,11 +261,14 @@ let rec expr (e : Ast.expr) : Value.value =
             arms
         ]
     | `Typeof inner -> k "Typeof" [ expr inner ]
+    | `Declof (inner, static_args) -> k "Declof" [ expr inner; option (list static_arg) static_args ]
+    | `Meta_expr body -> k "Meta" [ list stmt body ]
     | `Code inner -> k "QuoteExpr" [ expr inner ]
     | `Code_stmts body -> k "QuoteStmts" [ list stmt body ]
     | `Code_decl d -> k "QuoteDecl" [ decl d ]
+    | `Pre_checked n -> k "Processed" [ int n ]
   in
-  node "Expr" kind e.Ast.span
+  record "Expr" [ "kind", kind; "span", span e.Ast.span; "ty", option type_expr (!typer e) ]
 
 and field_init (n, v) = record "FieldInit" [ "name", name n; "value", expr v ]
 
@@ -203,40 +284,42 @@ and static_arg (a : Ast.expr Ast.static_arg) =
   | Ast.St_value v -> variant "StaticArg" "Value" [ expr v ]
 
 and valued_block (b : (Ast.expr, Ast.stmt) Ast.valued_block) =
-  record "ValuedBlock" [ "stmts", list stmt b.Ast.vb_stmts; "value", option expr b.Ast.vb_value ]
-
-and return_clause (c : (Ast.expr, Ast.stmt) Ast.ret_clause) =
-  record "ReturnClause" [ "param", name c.Ast.rc_param; "body", valued_block c.Ast.rc_body ]
-
-and handler (h : Ast.stmt Ast.handler) =
-  record "Handler" [ "handles", name h.Ast.handled; "arms", list arm h.Ast.arms ]
-
-and arm (a : Ast.stmt Ast.arm) =
-  record
-    "Arm"
-    [ "name", name a.Ast.arm_name
-    ; "kind", op_kind a.Ast.arm_kind
-    ; "params", list name a.Ast.arm_params
-    ; "body", list stmt a.Ast.arm_body
-    ]
+  record "ValuedBlock" [ "stmts", stmts b.Ast.vb_stmts; "value", option expr b.Ast.vb_value ]
 
 and handler_clause (c : Ast.stmt Ast.handler_clause) =
   match c with
-  | Ast.Inline h -> variant "HandlerClause" "Inline" [ handler h ]
   | Ast.Named n -> variant "HandlerClause" "Named" [ name n ]
+  | Ast.Handle (t, defs) -> variant "HandlerClause" "Handle" [ type_expr t; list method_def defs ]
+  | Ast.Bound (label, handler, value) -> variant "HandlerClause" "Bound" [ name label; name handler; option stmt value ]
+
+and stmts (body : Ast.stmt list) = list stmt (shown_stmts body)
 
 and stmt (s : Ast.stmt) : Value.value =
+  match s.Ast.it, !generated s with
+  | `Pre_checked n, _ ->
+    (match !viewed n with
+     | Some (`Stmt v) ->
+       let shown = stmt v in
+       hand_out shown n;
+       shown
+     | Some (`Stmts body) -> node "Stmt" (variant "StmtKind" "Block" [ stmts body ]) s.Ast.span
+     | _ -> node "Stmt" (variant "StmtKind" "Processed" [ int n ]) s.Ast.span)
+  | _, Some made -> node "Stmt" (variant "StmtKind" "Block" [ stmts made ]) s.Ast.span
+  | _, None ->
+    let shown = written_stmt s in
+    Option.iter (hand_out shown) (!kept s);
+    shown
+
+and written_stmt (s : Ast.stmt) : Value.value =
   let k label values = variant "StmtKind" label values in
   let kind =
     match s.Ast.it with
     | `Expr e -> k "Expression" [ expr e ]
     | `Var_decl (n, t, init) -> k "Let" [ name n; option type_expr t; option expr init ]
     | `Var_tuple (names, init) -> k "LetTuple" [ list name names; expr init ]
-    | `Block body -> k "Block" [ list stmt body ]
+    | `Block body -> k "Block" [ stmts body ]
     | `If (c, t, e) -> k "If" [ expr c; stmt t; option stmt e ]
     | `While (c, body) -> k "While" [ expr c; stmt body ]
-    | `For (init, c, step, body) ->
-      k "For" [ option stmt init; option expr c; option expr step; stmt body ]
     | `For_in (names, over, body) -> k "ForIn" [ list name names; expr over; stmt body ]
     | `Return e -> k "Return" [ option expr e ]
     | `Break -> k "Break" []
@@ -246,11 +329,8 @@ and stmt (s : Ast.stmt) : Value.value =
       k
         "Match"
         [ expr scrutinee
-        ; list (fun (p, body) -> record "MatchArm" [ "pattern", pattern p; "body", list stmt body ]) arms
+        ; list (fun (p, body) -> record "MatchArm" [ "pattern", pattern p; "body", stmts body ]) arms
         ]
-    | `Run (body, clauses) -> k "Run" [ list stmt body; list handler_clause clauses ]
-    | `Resume e -> k "Resume" [ option expr e ]
-    | `Discontinue -> k "Discontinue" []
     | `Meta body -> k "Meta" [ list stmt body ]
     | `Gen inner -> k "Gen" [ stmt inner ]
     | `Derive (traits, target) -> k "Derive" [ list name traits; name target ]
@@ -272,27 +352,14 @@ and decl (s : Ast.stmt) : Value.value =
         "Fn"
         [ record
             "FnDecl"
-            [ "name", name n; "params", list param params; "signature", signature sg; "body", list stmt body ]
+            [ "name", name n; "params", list param params; "signature", signature sg; "body", stmts body ]
         ]
     | `Type_decl (n, params, body) -> k "Type" [ type_decl n params body ]
     | `Type_members ({ Ast.it = `Type_decl (n, params, body); _ }, members) ->
       k "TypeWithMembers" [ type_decl n params body; list stmt members ]
-    | `Trait_decl (n, params, body) ->
-      k
-        "Trait"
-        [ record
-            "TraitDecl"
-            [ "name", name n
-            ; "params", list name params
-            ; "supers", list (fun a -> applied a type_expr) body.Ast.tb_super
-            ; ( "assoc"
-              , list
-                  (fun (a : Ast.assoc_decl) ->
-                    record "AssocDecl" [ "name", name a.Ast.ad_name; "attrs", list attribute a.Ast.ad_attrs ])
-                  body.Ast.tb_assoc )
-            ; "methods", list method_sig body.Ast.tb_methods
-            ]
-        ]
+    | `Trait_decl (n, params, body) -> k "Trait" [ trait_decl n params body ]
+    | `Trait_members ({ Ast.it = `Trait_decl (n, params, body); _ }, metas) ->
+      k "TraitWithMembers" [ trait_decl n params body; list stmt metas ]
     | `Impl_decl (trait, target, params, body) ->
       k
         "Impl"
@@ -314,11 +381,6 @@ and decl (s : Ast.stmt) : Value.value =
             ; "methods", list method_def body.Ast.ib_methods
             ]
         ]
-    | `Effect_decl (n, params, ops) ->
-      k
-        "Effect"
-        [ record "EffectDecl" [ "name", name n; "params", list name params; "ops", list op_decl ops ] ]
-    | `Handler_decl (n, h) -> k "Handler" [ name n; handler h ]
     | `Import i -> k "Import" [ import i ]
     | `Global_import i -> k "GlobalImport" [ import i ]
     | _ -> malformed "This statement is not a declaration."
@@ -364,6 +426,20 @@ and type_decl n params (body : Ast.type_body) =
   in
   record "TypeDecl" [ "name", name n; "params", list type_param params; "body", body ]
 
+and trait_decl n params (body : Ast.trait_body) =
+  record
+    "TraitDecl"
+    [ "name", name n
+    ; "params", list name params
+    ; "supers", list (fun a -> applied a type_expr) body.Ast.tb_super
+    ; ( "assoc"
+      , list
+          (fun (a : Ast.assoc_decl) ->
+            record "AssocDecl" [ "name", name a.Ast.ad_name; "attrs", list attribute a.Ast.ad_attrs ])
+          body.Ast.tb_assoc )
+    ; "methods", list method_sig body.Ast.tb_methods
+    ]
+
 and method_sig (m : Ast.method_sig) =
   record
     "MethodSig"
@@ -381,17 +457,6 @@ and method_def (m : (Ast.stmt, unit) Ast.method_def) =
     ; "signature", signature m.Ast.md_signature
     ; "body", list stmt m.Ast.md_body
     ; "attrs", list attribute m.Ast.md_attrs
-    ]
-
-and op_decl (o : Ast.op_decl) =
-  record
-    "OpDecl"
-    [ "name", name o.Ast.op_name
-    ; "kind", op_kind o.Ast.op_kind
-    ; "type_params", list name o.Ast.op_tparams
-    ; "params", list param o.Ast.op_params
-    ; "ret", option type_expr o.Ast.op_ret
-    ; "attrs", list attribute o.Ast.op_attrs
     ]
 
 (* ---- reading values back ---- *)
@@ -469,13 +534,6 @@ let read_binop v : Ast.binop =
   | Some (op, _) -> op
   | None -> malformed "'%s' is not a binary operator." l
 
-let read_op_kind v : Ast.op_kind =
-  match case v with
-  | "Fn", _ -> Ast.Op_fn
-  | "Ctl", _ -> Ast.Op_ctl
-  | "Final", _ -> Ast.Op_final
-  | l, _ -> malformed "'%s' is not an operation kind." l
-
 let read_attr_arg v : Ast.attr_arg =
   match case v with
   | "Str", [ s ] -> Ast.A_str (read_str s)
@@ -536,6 +594,7 @@ let read_signature r v : Ast.signature =
   { Ast.ret = read_option (read_type r) (field "ret" v)
   ; row = read_option (read_list (read_applied (read_type r))) (field "row" v)
   ; static_params = read_list (read_static_param r) (field "static_params" v)
+  ; inline = read_bool (field "inline" v)
   }
 
 let read_pattern v : Ast.pattern =
@@ -563,6 +622,11 @@ let read_import v : Ast.import =
   | l, _ -> malformed "'%s' is not an import." l
 
 let rec read_expr r v : Ast.expr =
+  match handed_back v with
+  | Some n -> { Ast.it = `Pre_checked n; span = read_span r (field "span" v); ann = () }
+  | None -> read_written_expr r v
+
+and read_written_expr r v : Ast.expr =
   let sp = read_span r (field "span" v) in
   let e = read_expr r in
   let es = read_list e in
@@ -594,6 +658,7 @@ let rec read_expr r v : Ast.expr =
       let n = read_name n in
       `Method_call (e recv, n, n, es a, None)
     | "StaticCall", [ f; sa; a ] -> `Static_call (e f, read_list (read_static_arg r) sa, es a)
+    | "StaticRef", [ f; sa ] -> `Static_ref (e f, read_list (read_static_arg r) sa)
     | "Compound", [ op; n; x ] -> `Compound (read_binop op, read_name n, e x)
     | "CompoundIndex", [ op; a; i; x ] -> `Compound_index (read_binop op, e a, e i, e x)
     | "CompoundField", [ op; rc; f; x ] -> `Compound_field (read_binop op, e rc, read_name f, e x)
@@ -621,14 +686,8 @@ let rec read_expr r v : Ast.expr =
     | "Collection", [ a ] -> `Collection_lit (es a)
     | "Lambda", [ p; sg; body ] ->
       `Lambda (read_list (read_param r) p, read_signature r sg, read_list s body)
-    | "Run", [ body; clauses; ret ] ->
-      `Run_expr
-        ( read_valued r body
-        , read_list (read_clause r) clauses
-        , read_option
-            (fun c ->
-              { Ast.rc_param = read_name (field "param" c); rc_body = read_valued r (field "body" c) })
-            ret )
+    | "Run", [ ty; body; clauses ] ->
+      `Run_expr (read_option (read_type r) ty, read_valued r body, read_list (read_clause r) clauses)
     | "Match", [ x; arms ] ->
       `Match_expr
         ( e x
@@ -636,9 +695,12 @@ let rec read_expr r v : Ast.expr =
             (fun a -> read_pattern (field "pattern" a), read_valued r (field "body" a))
             arms )
     | "Typeof", [ x ] -> `Typeof (e x)
+    | "Declof", [ x; sa ] -> `Declof (e x, read_option (read_list (read_static_arg r)) sa)
+    | "Meta", [ body ] -> `Meta_expr (read_list s body)
     | "QuoteExpr", [ x ] -> `Code (e x)
     | "QuoteStmts", [ body ] -> `Code_stmts (read_list s body)
     | "QuoteDecl", [ d ] -> `Code_decl (read_decl r d)
+    | "Processed", [ n ] -> `Pre_checked (read_int n)
     | l, _ -> malformed "'%s' is not an expression." l
   in
   { Ast.it; span = sp; ann = () }
@@ -656,26 +718,20 @@ and read_valued r v : (Ast.expr, Ast.stmt) Ast.valued_block =
   ; vb_value = read_option (read_expr r) (field "value" v)
   }
 
-and read_handler r v : Ast.stmt Ast.handler =
-  { Ast.handled = read_name (field "handles" v)
-  ; arms =
-      read_list
-        (fun a ->
-          { Ast.arm_name = read_name (field "name" a)
-          ; arm_kind = read_op_kind (field "kind" a)
-          ; arm_params = read_list read_name (field "params" a)
-          ; arm_body = read_list (read_stmt r) (field "body" a)
-          })
-        (field "arms" v)
-  }
-
 and read_clause r v : Ast.stmt Ast.handler_clause =
   match case v with
-  | "Inline", [ h ] -> Ast.Inline (read_handler r h)
   | "Named", [ n ] -> Ast.Named (read_name n)
+  | "Handle", [ t; defs ] -> Ast.Handle (read_type r t, read_list (read_method_def r) defs)
+  | "Bound", [ label; handler; value ] ->
+    Ast.Bound (read_name label, read_name handler, read_option (read_stmt r) value)
   | l, _ -> malformed "'%s' is not a handler." l
 
 and read_stmt r v : Ast.stmt =
+  match handed_back v with
+  | Some n -> { Ast.it = `Pre_checked n; span = read_span r (field "span" v); ann = () }
+  | None -> read_written_stmt r v
+
+and read_written_stmt r v : Ast.stmt =
   let sp = read_span r (field "span" v) in
   let e = read_expr r in
   let s = read_stmt r in
@@ -692,7 +748,7 @@ and read_stmt r v : Ast.stmt =
       | "Block", [ body ] -> `Block (ss body)
       | "If", [ c; t; f ] -> `If (e c, s t, opt s f)
       | "While", [ c; body ] -> `While (e c, s body)
-      | "For", [ init; c; step; body ] -> `For (opt s init, opt e c, opt e step, s body)
+      | "For", [ init; c; step; body ] -> (Lower.c_for sp (opt s init) (opt e c) (opt e step) (s body)).Ast.it
       | "ForIn", [ ns; over; body ] -> `For_in (read_list read_name ns, e over, s body)
       | "Return", [ x ] -> `Return (opt e x)
       | "Break", [] -> `Break
@@ -701,12 +757,10 @@ and read_stmt r v : Ast.stmt =
       | "Match", [ x; arms ] ->
         `Match
           (e x, read_list (fun a -> read_pattern (field "pattern" a), ss (field "body" a)) arms)
-      | "Run", [ body; clauses ] -> `Run (ss body, read_list (read_clause r) clauses)
-      | "Resume", [ x ] -> `Resume (opt e x)
-      | "Discontinue", [] -> `Discontinue
       | "Meta", [ body ] -> `Meta (ss body)
       | "Gen", [ inner ] -> `Gen (s inner)
       | "Derive", [ traits; target ] -> `Derive (read_list read_name traits, read_name target)
+      | "Processed", [ n ] -> `Pre_checked (read_int n)
       | l, _ -> malformed "'%s' is not a statement." l
     in
     { Ast.it; span = sp; ann = () }
@@ -727,28 +781,9 @@ and read_decl r v : Ast.stmt =
     | "Type", [ t ] -> read_type_decl r t
     | "TypeWithMembers", [ t; members ] ->
       `Type_members ({ Ast.it = read_type_decl r t; span = sp; ann = () }, ss members)
-    | "Trait", [ t ] ->
-      `Trait_decl
-        ( read_name (field "name" t)
-        , read_list read_name (field "params" t)
-        , { Ast.tb_super = read_list (read_applied ty) (field "supers" t)
-          ; tb_assoc =
-              read_list
-                (fun a ->
-                  { Ast.ad_name = read_name (field "name" a)
-                  ; ad_attrs = read_list (read_attribute r) (field "attrs" a)
-                  })
-                (field "assoc" t)
-          ; tb_methods =
-              read_list
-                (fun m ->
-                  { Ast.ms_name = read_name (field "name" m)
-                  ; ms_params = read_list (read_param r) (field "params" m)
-                  ; ms_signature = read_signature r (field "signature" m)
-                  ; ms_attrs = read_list (read_attribute r) (field "attrs" m)
-                  })
-                (field "methods" t)
-          } )
+    | "Trait", [ t ] -> read_trait_decl r t
+    | "TraitWithMembers", [ t; metas ] ->
+      `Trait_members ({ Ast.it = read_trait_decl r t; span = sp; ann = () }, ss metas)
     | "Impl", [ i ] ->
       `Impl_decl
         ( read_option (read_applied ty) (field "implements" i)
@@ -762,33 +797,8 @@ and read_decl r v : Ast.stmt =
                   ; as_attrs = read_list (read_attribute r) (field "attrs" a)
                   })
                 (field "assoc" i)
-          ; ib_methods =
-              read_list
-                (fun m ->
-                  { Ast.md_name = read_name (field "name" m)
-                  ; md_params = read_list (read_param r) (field "params" m)
-                  ; md_signature = read_signature r (field "signature" m)
-                  ; md_body = ss (field "body" m)
-                  ; md_ann = ()
-                  ; md_attrs = read_list (read_attribute r) (field "attrs" m)
-                  })
-                (field "methods" i)
+          ; ib_methods = read_list (read_method_def r) (field "methods" i)
           } )
-    | "Effect", [ ef ] ->
-      `Effect_decl
-        ( read_name (field "name" ef)
-        , read_list read_name (field "params" ef)
-        , read_list
-            (fun o ->
-              { Ast.op_name = read_name (field "name" o)
-              ; op_kind = read_op_kind (field "kind" o)
-              ; op_tparams = read_list read_name (field "type_params" o)
-              ; op_params = read_list (read_param r) (field "params" o)
-              ; op_ret = read_option ty (field "ret" o)
-              ; op_attrs = read_list (read_attribute r) (field "attrs" o)
-              })
-            (field "ops" ef) )
-    | "Handler", [ n; h ] -> `Handler_decl (read_name n, read_handler r h)
     | "Import", [ i ] -> `Import (read_import i)
     | "GlobalImport", [ i ] -> `Global_import (read_import i)
     | l, _ -> malformed "'%s' is not a declaration." l
@@ -797,6 +807,37 @@ and read_decl r v : Ast.stmt =
   match attrs with
   | [] -> inner
   | attrs -> { Ast.it = `Attributed (attrs, inner); span = sp; ann = () }
+
+and read_trait_decl r t : Ast.stmt_kind =
+  `Trait_decl
+    ( read_name (field "name" t)
+    , read_list read_name (field "params" t)
+    , { Ast.tb_super = read_list (read_applied (read_type r)) (field "supers" t)
+      ; tb_assoc =
+          read_list
+            (fun a ->
+              { Ast.ad_name = read_name (field "name" a)
+              ; ad_attrs = read_list (read_attribute r) (field "attrs" a)
+              })
+            (field "assoc" t)
+      ; tb_methods = read_list (read_method_sig r) (field "methods" t)
+      } )
+
+and read_method_sig r m : Ast.method_sig =
+  { Ast.ms_name = read_name (field "name" m)
+  ; ms_params = read_list (read_param r) (field "params" m)
+  ; ms_signature = read_signature r (field "signature" m)
+  ; ms_attrs = read_list (read_attribute r) (field "attrs" m)
+  }
+
+and read_method_def r m : (Ast.stmt, unit) Ast.method_def =
+  { Ast.md_name = read_name (field "name" m)
+  ; md_params = read_list (read_param r) (field "params" m)
+  ; md_signature = read_signature r (field "signature" m)
+  ; md_body = read_list (read_stmt r) (field "body" m)
+  ; md_ann = ()
+  ; md_attrs = read_list (read_attribute r) (field "attrs" m)
+  }
 
 and read_type_decl r t : Ast.stmt_kind =
   let ty = read_type r in
@@ -841,6 +882,7 @@ type kind =
   | Stmt_node
   | Decl_node
   | Type_node
+  | Sig_node
   | Stmts
 
 let kind_of (v : Value.value) =
@@ -850,6 +892,7 @@ let kind_of (v : Value.value) =
   | Value.Record (Some t, _) when is "Stmt" t -> Some Stmt_node
   | Value.Record (Some t, _) when is "Decl" t -> Some Decl_node
   | Value.Record (Some t, _) when is "TypeExpr" t -> Some Type_node
+  | Value.Record (Some t, _) when is "MethodSig" t -> Some Sig_node
   | Value.Record (Some t, fields) when String.equal t Core.list ->
     (match List.assoc_opt "items" fields, List.assoc_opt "count" fields with
      | Some items, Some { contents = Value.Int count } when count > 0 ->
@@ -867,6 +910,7 @@ let describe = function
   | Stmt_node -> "a statement"
   | Decl_node -> "a declaration"
   | Type_node -> "a type"
+  | Sig_node -> "a method signature"
   | Stmts -> "a list of statements"
 
 let reader fallback = { fallback }
@@ -874,4 +918,6 @@ let to_expr ~fallback v = read_expr (reader fallback) v
 let to_stmt ~fallback v = read_stmt (reader fallback) v
 let to_decl ~fallback v = read_decl (reader fallback) v
 let to_type ~fallback v = read_type (reader fallback) v
+let to_method_sig ~fallback v = read_method_sig (reader fallback) v
+
 let to_stmts ~fallback v = read_list (read_stmt (reader fallback)) v

@@ -1,10 +1,10 @@
-fn f(): unit {
-    type Temp { a: int }
+fn f(): Unit {
+    type Temp { a: Int }
     print(Temp { a: 1 }.a);
 }
 
-fn g(): unit {
-    type Temp { b: int }
+fn g(): Unit {
+    type Temp { b: Int }
     print(Temp { b: 2 }.b);
 }
 

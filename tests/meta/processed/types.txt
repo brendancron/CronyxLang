@@ -1,0 +1,16 @@
+"n" : String
+print((label + str(number((y > 1))))) : Unit
+print : (String) -> <Console> Unit
+(label + str(number((y > 1)))) : String
+label : String
+str(number((y > 1))) : String
+str : (Int) -> String
+number((y > 1)) : Int
+number : (Bool) -> <Fail> Int
+(y > 1) : Bool
+y : Int
+1 : Int
+(y * 2) : Int
+y : Int
+2 : Int
+y : ?

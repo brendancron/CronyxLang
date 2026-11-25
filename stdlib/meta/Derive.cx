@@ -29,7 +29,7 @@
 import { Decl, DeclKind, TypeExpr, TypeKind, TypeParam } from "../compiler/Ast";
 
 /** The attribute with this name, if the member carries one. */
-fn attr(attrs: Array<Attr>, name: string): Option<Attr> {
+fn attr(attrs: Array<Attr>, name: String): Option<Attr> {
     for (a in attrs) {
         if (str(a.name) == name) { return Option.Some(a); }
     }
@@ -37,7 +37,7 @@ fn attr(attrs: Array<Attr>, name: string): Option<Attr> {
 }
 
 /** Whether the member carries an attribute with this name. */
-fn has_attr(attrs: Array<Attr>, name: string): bool {
+fn has_attr(attrs: Array<Attr>, name: String): Bool {
     match attr(attrs, name) {
         Option.Some(_) => { return true; }
         Option.None => {}
@@ -46,7 +46,7 @@ fn has_attr(attrs: Array<Attr>, name: string): bool {
 }
 
 /** The string an attribute with this name was given, as `@rename("full_name")` is. */
-fn attr_string(attrs: Array<Attr>, name: string): Option<string> {
+fn attr_string(attrs: Array<Attr>, name: String): Option<String> {
     match attr(attrs, name) {
         Option.Some(a) => {
             if (a.args.len() == 1) {
@@ -62,7 +62,7 @@ fn attr_string(attrs: Array<Attr>, name: string): Option<string> {
 }
 
 /** The key a member is written under: its `@rename`, or its own name. */
-fn key_of(name: Name, attrs: Array<Attr>): string {
+fn key_of(name: Name, attrs: Array<Attr>): String {
     match attr_string(attrs, "rename") {
         Option.Some(renamed) => { return renamed; }
         Option.None => {}
@@ -71,14 +71,14 @@ fn key_of(name: Name, attrs: Array<Attr>): string {
 }
 
 /** Whether a deriver leaves the member out, as `@skip` asks. */
-fn skipped(attrs: Array<Attr>): bool { return has_attr(attrs, "skip"); }
+fn skipped(attrs: Array<Attr>): Bool { return has_attr(attrs, "skip"); }
 
 /**
  * The impl with the type's parameters on it, each bounded by the impl's own
  * trait when `bounded` -- `T: Encode` for an `Encode` impl, which is what a
  * field of type `T` needs. A type with no parameters leaves it as it was.
  */
-fn with_params(decl: Decl, params: Array<Name>, bounded: bool): Decl {
+fn with_params(decl: Decl, params: Array<Name>, bounded: Bool): Decl {
     match decl.kind {
         DeclKind.Impl(i) => {
             var list: List<TypeParam> = [];

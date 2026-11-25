@@ -1,7 +1,7 @@
-type Point { x: int, y: int }
+type Point { x: Int, y: Int }
 
-fn describe(p: Point): string { return "function"; }
-fn shifted(p: Point, by: int): Point {
+fn describe(p: Point): String { return "function"; }
+fn shifted(p: Point, by: Int): Point {
     return Point { x: p.x + by, y: p.y + by };
 }
-fn doubled(n: int): int { return n * 2; }
+fn doubled(n: Int): Int { return n * 2; }

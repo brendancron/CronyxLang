@@ -1,11 +1,11 @@
 import { Throw, Result, attempt } from "std/core/Error";
 
-fn close(ok: bool): <Throw<string>, Console> unit {
+fn close(ok: Bool): <Throw<String>, Console> Unit {
     if (!ok) { throw("close failed"); }
     print("closed");
 }
 
-fn work(ok: bool): <Throw<string>, Console> int {
+fn work(ok: Bool): <Throw<String>, Console> Int {
     defer {
         var closing = attempt { close(ok) };
         match closing {

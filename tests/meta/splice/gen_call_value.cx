@@ -1,0 +1,24 @@
+import { Expr, Stmt } from "std/compiler/Ast";
+
+fn two(): Expr { return code(2); }
+
+fn literal<n: Int>(): Expr { return code(n); }
+
+fn greetings(name: String): List<Stmt> {
+    return code {
+        print("hello " + name);
+        print("bye " + name);
+    };
+}
+
+var x = meta { gen two(); };
+print(x);
+print(meta { gen literal<7>(); });
+print(meta {
+    fn three(): Expr { return code(3); }
+    gen three();
+});
+meta {
+    gen print(1);
+    gen greetings("ana");
+}

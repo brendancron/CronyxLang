@@ -31,8 +31,8 @@ let carrier converted =
 (* The far side. Nothing else may print on this process's stdout: it is the
    stream the runner parses. *)
 let run_one path index name =
-  let converted : Ast.cps_stmt list =
-    In_channel.with_open_bin path (fun inp -> (Marshal.from_channel inp : Ast.cps_stmt list))
+  let converted : Ast.resolved_stmt list =
+    In_channel.with_open_bin path (fun inp -> (Marshal.from_channel inp : Ast.resolved_stmt list))
   in
   (* Windows opens stdout in text mode, which would turn every newline the
      runner parses on into a carriage return and a newline. *)

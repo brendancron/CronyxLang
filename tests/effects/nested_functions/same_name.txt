@@ -1,0 +1,6 @@
+1
+first rejects 2
+6
+second rejects 6
+then 1
+else 2

@@ -1,15 +1,15 @@
 /** Anything with a size. */
 trait Sized {
-    fn size(self): int;
+    fn size(self): Int;
 }
 
-type Box { width: int }
+type Box { width: Int }
 
 impl Sized for Box {
-    fn size(self): int { return self.width; }
+    fn size(self): Int { return self.width; }
 }
 
-fn bigger<T: Sized>(a: T, b: T): int {
+fn bigger<T: Sized>(a: T, b: T): Int {
     if (a.size() > b.size()) { return a.size(); }
     return b.size();
 }

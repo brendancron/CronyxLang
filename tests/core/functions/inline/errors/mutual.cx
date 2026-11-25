@@ -1,0 +1,11 @@
+inline fn even(n: Int): Bool {
+    if (n == 0) { return true; }
+    return odd(n - 1);
+}
+
+inline fn odd(n: Int): Bool {
+    if (n == 0) { return false; }
+    return even(n - 1);
+}
+
+print(even(4));

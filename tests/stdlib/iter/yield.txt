@@ -1,0 +1,25 @@
+making 0
+Some(0)
+making 1
+Some(1)
+count cleaned up
+None
+making 0
+got 0
+making 1
+count cleaned up
+making 0
+making 1
+making 2
+count cleaned up
+Some(2)
+making 0
+making 1
+making 2
+count cleaned up
+[0, 10, 20]
+making 0
+handled 0
+making 1
+handled 1
+count cleaned up

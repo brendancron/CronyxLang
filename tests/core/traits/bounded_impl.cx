@@ -1,10 +1,10 @@
-trait Describe { fn describe(self): string; }
+trait Describe { fn describe(self): String; }
 
-impl Describe for int { fn describe(self): string { return "#" + str(self); } }
-impl Describe for string { fn describe(self): string { return "'" + self + "'"; } }
+impl Describe for Int { fn describe(self): String { return "#" + str(self); } }
+impl Describe for String { fn describe(self): String { return "'" + self + "'"; } }
 
 impl Describe for List<T: Describe> {
-    fn describe(self): string {
+    fn describe(self): String {
         var out = "[";
         for (x in self) { out = out + x.describe() + " "; }
         return out + "]";
@@ -14,12 +14,12 @@ impl Describe for List<T: Describe> {
 type Pair<A, B> { left: A, right: B }
 
 impl Describe for Pair<A: Describe, B: Describe> {
-    fn describe(self): string { return self.left.describe() + " & " + self.right.describe(); }
+    fn describe(self): String { return self.left.describe() + " & " + self.right.describe(); }
 }
 
 print([1, 2].describe());
 print(["a"].describe());
-var nested: List<List<int>> = [[3], [4, 5]];
+var nested: List<List<Int>> = [[3], [4, 5]];
 print(nested.describe());
-var named: List<string> = ["b"];
+var named: List<String> = ["b"];
 print(Pair { left: 1, right: named }.describe());

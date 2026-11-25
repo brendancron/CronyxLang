@@ -1,25 +1,25 @@
-effect Log { fn log(s: string): unit; }
-effect Stop { final ctl stop(): unit; }
-effect Ask { ctl ask(): int; }
+trait Log { fn log(s: String): Unit; }
+trait Stop { @abort fn stop<T>(): T; }
+trait Ask { @ctl fn ask(): Int; }
 
-run {
+run<Unit> {
     defer { print("finished: cleanup"); }
     log("finished");
-} handle Log { fn log(s) { print(s); } }
+} handle<Log> { fn log(s) { print(s); } }
 
-run {
+run<Unit> {
     defer { print("stopped: cleanup"); }
     stop();
     print("never");
-} handle Stop { final ctl stop() { print("stopped"); } }
+} handle<Stop> { fn stop() { print("stopped"); } }
 
-run {
+run<Unit> {
     defer { print("discontinued: cleanup"); }
     var n = ask();
     print("never " + str(n));
-} handle Ask { ctl ask() { discontinue; print("discontinued"); } }
+} handle<Ask> { fn ask(resume) { discontinue(resume); print("discontinued"); } }
 
-run {
+run<Unit> {
     defer { print("outer: cleanup"); }
     if (true) {
         defer { print("nested: cleanup"); }
@@ -27,18 +27,18 @@ run {
         print("never " + str(n));
     }
     print("never either");
-} handle Ask { ctl ask() { discontinue; print("nested: discontinued"); } }
+} handle<Ask> { fn ask(resume) { discontinue(resume); print("nested: discontinued"); } }
 
-run {
+run<Unit> {
     defer { print("resumed: cleanup"); }
     print("resumed with " + str(ask()));
-} handle Ask { ctl ask() { resume 5; print("resumed: arm's rest"); } }
+} handle<Ask> { fn ask(resume) { resume(5); print("resumed: arm's rest"); } }
 
-fn inside(): int {
-    run {
+fn inside(): Int {
+    run<Unit> {
         defer { print("in a function: cleanup"); }
         log("in a function");
-    } handle Log { fn log(s) { print(s); } }
+    } handle<Log> { fn log(s) { print(s); } }
     return 1;
 }
 print(inside());

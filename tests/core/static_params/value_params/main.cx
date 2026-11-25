@@ -1,9 +1,9 @@
-fn labelled<label: string>(x: int): int {
+fn labelled<label: String>(x: Int): Int {
     print(label + ": " + str(x));
     return x;
 }
 
-fn size<n: int>() {
+fn size<n: Int>() {
     print(n);
 }
 
@@ -14,11 +14,11 @@ size<4>();
 print(labelled<"count">(3));
 print(labelled<"total">(7));
 
-fn prefixed<prefix: string>(x: int): string {
+fn prefixed<prefix: String>(x: Int): String {
     return prefix + str(x);
 }
 
-fn outer<tag: string>(x: int): string {
+fn outer<tag: String>(x: Int): String {
     return prefixed<tag>(x);
 }
 

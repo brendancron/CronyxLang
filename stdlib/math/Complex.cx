@@ -1,5 +1,5 @@
 /**
- * Complex numbers over `float`.
+ * Complex numbers over `Float`.
  *
  * ```
  * import { Complex } from "std/math/Complex";
@@ -11,25 +11,25 @@
  *
  * `exp`, `ln`, `sqrt` and `pow` take the principal branch. A `Complex` has no
  * order: none agrees with its arithmetic, so it is not `PartialOrd`, and
- * `abs` is the magnitude as a `float` rather than `Signed`'s.
+ * `abs` is the magnitude as a `Float` rather than `Signed`'s.
  */
 
 import { Zero, One, Num, Pow } from "Num";
 
 /** `re + im·i`. */
 type Complex {
-    re: float,
-    im: float
+    re: Float,
+    im: Float
 }
 
 derive Eq for Complex;
 
 impl Complex {
     /** `re + im·i`. */
-    fn of(re: float, im: float): Complex { return Complex { re: re, im: im }; }
+    fn of(re: Float, im: Float): Complex { return Complex { re: re, im: im }; }
 
     /** The number at distance `r` from zero and angle `theta` in radians. */
-    fn from_polar(r: float, theta: float): Complex {
+    fn from_polar(r: Float, theta: Float): Complex {
         return Complex { re: r * __float_cos(theta), im: r * __float_sin(theta) };
     }
 
@@ -37,10 +37,10 @@ impl Complex {
     fn conj(self): Complex { return Complex { re: self.re, im: -self.im }; }
 
     /** The distance from zero. */
-    fn abs(self): float { return __float_hypot(self.re, self.im); }
+    fn abs(self): Float { return __float_hypot(self.re, self.im); }
 
     /** The angle from the positive real axis, from -π to π. */
-    fn arg(self): float { return __float_atan2(self.im, self.re); }
+    fn arg(self): Float { return __float_atan2(self.im, self.re); }
 
     /** e to the power of the number. */
     fn exp(self): Complex { return Complex.from_polar(__float_exp(self.re), self.im); }
@@ -107,7 +107,7 @@ impl Pow<Complex> for Complex {
 
 impl Display for Complex {
     /** `1.0+2.0i`, `1.0-2.0i`. */
-    fn fmt(self): string {
+    fn fmt(self): String {
         var sign = "+";
         if (__float_is_sign_negative(self.im) && !__float_is_nan(self.im)) { sign = "-"; }
         return str(self.re) + sign + str(__float_copysign(self.im, 1.0)) + "i";
@@ -115,5 +115,5 @@ impl Display for Complex {
 }
 
 impl Debug for Complex {
-    fn debug(self): string { return self.fmt(); }
+    fn debug(self): String { return self.fmt(); }
 }
